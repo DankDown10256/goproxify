@@ -1,0 +1,42 @@
+{
+  "app": {
+    "environment": "production",
+    "log_level": "info"
+  },
+  "server": {
+    "listen_addr": "0.0.0.0",
+    "api_port": 9443,
+    "tls_enabled": false
+  },
+  "storage": {
+    "base_path": "/etc/goproxify",
+    "sqlite_dsn": "/etc/goproxify/database/goproxify.db"
+  },
+  "core_defaults": {
+    "log_level": "info",
+    "log_format": "json",
+    "access_log_path": ""
+  },
+  "ha": {
+    "enabled": false,
+    "node_id": "",
+    "raft_port": 9444,
+    "peers": {}
+  },
+  "security": {
+    "jwt_secret": "",
+    "first_boot": {
+      "default_admin_email": "",
+      "default_admin_password": ""
+    }
+  },
+  "acme": {
+    "enabled": false,
+    "email": "",
+    "directory_url": "",
+    "dns": {
+      "type": "",
+      "params": {}
+    }
+  }
+}

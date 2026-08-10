@@ -1,0 +1,121 @@
+# Valeurs par défaut du chart Helm Goproxify.
+
+global:
+  image:
+    registry: ghcr.io/vincamok/goproxify
+    pullPolicy: IfNotPresent
+  # Secret partagé entre Admin, Core et Agent pour l'appairage
+  authToken: ""  # À remplacer par un token sécurisé
+  # Fuseau horaire des pods (crons, logs locaux, horloge admin)
+  timezone: "Europe/Paris"
+
+# ── Administration ────────────────────────────────────────────────────────────
+admin:
+  enabled: true
+  replicaCount: 1
+  image:
+    tag: "preview"
+  service:
+    type: ClusterIP
+    apiPort: 8080
+  resources:
+    requests: { cpu: "100m", memory: "128Mi" }
+    limits:   { cpu: "500m", memory: "512Mi" }
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 2Gi
+  config:
+    listenAddr: "0.0.0.0"
+    apiPort: 8080
+    setupMode: false
+    jwtSecret: ""  # Généré automatiquement si vide
+    # Scanner CVE : autoriser backends privés (Docker/LAN). Défaut false (anti-SSRF).
+    vulnscanAllowPrivate: false
+    # Optionnel — chiffrement snapshots / tokens nœuds (sinon JWT pour tokens).
+    backupKey: ""
+    nodeTokenKey: ""
+  ingress:
+    enabled: false
+    className: ""
+    host: admin.example.com
+    tls: []
+
+# ── Core (reverse proxy) ──────────────────────────────────────────────────────
+core:
+  enabled: true
+  # DaemonSet pour exposer les ports 80/443 sur chaque nœud
+  kind: DaemonSet
+  # hostNetwork requis pour binder 80/443 sur l'hôte ; désactiver seulement avec
+  # un Service NodePort/LoadBalancer dédié (voir security.coreHostNetwork).
+  image:
+    tag: "preview"
+  service:
+    type: NodePort
+    httpPort: 80
+    httpsPort: 443
+    nodePortHTTP: 30080
+    nodePortHTTPS: 30443
+  resources:
+    requests: { cpu: "200m", memory: "128Mi" }
+    limits:   { cpu: "1000m", memory: "512Mi" }
+  config:
+    adminEndpoint: ""  # URL de l'Administration (auto-détectée si vide)
+    httpPort: 80
+    httpsPort: 443
+    internalAPIPort: 8000
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+agent:
+  enabled: true
+  # DaemonSet : un Agent par nœud K8s
+  image:
+    tag: "preview"
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits:   { cpu: "200m", memory: "256Mi" }
+  config:
+    runtime: "auto"           # auto | docker | podman
+    labelPrefix: "goproxify."
+    kubernetes:
+      enabled: true           # Activer la découverte K8s in-cluster
+      namespace: ""           # "" = tous les namespaces
+    telemetry:
+      enabled: true
+      metricsPort: 9191
+    logForwarding:
+      enabled: true
+      bufferLines: 500
+    autoScale:
+      enabled: false
+    healthEscalation:
+      enabled: true
+      restartMaxRetries: 3
+      recreateTimeoutS: 60
+      checkIntervalS: 30
+  # RBAC pour la découverte K8s
+  rbac:
+    create: true
+
+# ── Durcissement sécurité (H9) ────────────────────────────────────────────────
+# Trade-offs documentés : Core a souvent besoin de hostNetwork ; Agent a besoin
+# du socket runtime (RO) pour la découverte. hostPID Agent désactivé par défaut.
+security:
+  coreHostNetwork: true
+  agentHostPID: false
+  agentDockerSockReadOnly: true
+  allowPrivilegeEscalation: false
+  dropAllCapabilities: true
+
+# ── Paramètres globaux K8s ────────────────────────────────────────────────────
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

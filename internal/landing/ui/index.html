@@ -1,0 +1,2791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoProxify — The reverse proxy that guides every visitor to the right app</title>
+  <meta name="description" content="GoProxify is an open-source reverse proxy to publish several websites behind internet addresses (https://…). One Admin to manage everything, gateways that route visitors, and an Agent linked to Portainer for your container fleet." />
+  <script src="config.js"></script>
+  <style>
+    /* Flat design — aligned with admin skin themes/flat.css */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #f8f9fa;
+      --bg-surface: #f1f3f5;
+      --bg-card:    #ffffff;
+      --border:     rgba(0,0,0,0.10);
+      --text:       #212529;
+      --text-muted: rgba(33,37,41,0.65);
+      --text-faint: rgba(33,37,41,0.40);
+      --accent:     #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-2:   #06b6d4;
+      --accent-soft: rgba(79,70,229,0.08);
+      --green:      #10b981;
+      --red:        #ef4444;
+      --yellow:     #f59e0b;
+      --blue:       #3b82f6;
+      --code-bg:    #111318;
+      --code-surface: #1a1d24;
+      --code-border: rgba(255,255,255,0.08);
+      --code-text:  #f0f2f8;
+      --code-muted: #9aa0b4;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      --radius: 8px;
+      --radius-lg: 12px;
+      --shadow: 0 1px 4px rgba(0,0,0,.08);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,.12);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; color: var(--accent-hover); }
+
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .section { padding: 80px 0; }
+    .section-alt { background: var(--bg-surface); }
+
+    .section-title {
+      font-size: clamp(1.5rem, 3vw, 2rem);
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .section-sub {
+      text-align: center;
+      color: var(--text-muted);
+      max-width: 560px;
+      margin: 0 auto 48px;
+      font-size: 1.05rem;
+    }
+
+    .explain-steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .explain-step {
+      text-align: left;
+      padding: 8px 4px;
+    }
+
+    .explain-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 0.95rem;
+      margin-bottom: 14px;
+    }
+
+    .explain-step h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .explain-step p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.55;
+    }
+
+    .fade-in {
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    /* Nav */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(248,249,250,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .nav-logo {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.5px;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #fff !important;
+      padding: 6px 16px;
+      border-radius: var(--radius);
+      transition: background 0.15s !important;
+      text-decoration: none !important;
+    }
+
+    .nav-cta:hover { background: var(--accent-hover) !important; }
+
+    /* Hero */
+    #hero {
+      padding: 96px 0 88px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, #ffffff 0%, var(--bg) 100%);
+    }
+
+    #hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(79,70,229,0.10), transparent 55%),
+        radial-gradient(ellipse 40% 30% at 85% 60%, rgba(6,182,212,0.06), transparent 50%);
+      pointer-events: none;
+    }
+
+    #hero .container { position: relative; }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .hero-version {
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .preview-banner {
+      background: rgba(245, 158, 11, 0.10);
+      border-bottom: 1px solid rgba(245, 158, 11, 0.28);
+      color: #b45309;
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 10px 16px;
+      line-height: 1.45;
+    }
+
+    .preview-banner a {
+      color: #b45309;
+      text-decoration: underline;
+      font-weight: 600;
+    }
+
+    .hero-title {
+      font-size: clamp(2.8rem, 6vw, 4.5rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+      color: var(--text);
+    }
+
+    .hero-title::after {
+      content: '';
+      display: block;
+      width: 48px;
+      height: 4px;
+      margin: 20px auto 0;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    .hero-tagline {
+      font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+      color: var(--text-muted);
+      max-width: 640px;
+      margin: 0 auto 36px;
+      font-weight: 400;
+    }
+
+    .hero-tagline strong { color: var(--text); font-weight: 600; }
+
+    .hero-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      transition: background 0.15s, box-shadow 0.15s;
+      box-shadow: var(--shadow);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      text-decoration: none;
+      color: #fff;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-card);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.95rem;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      transition: border-color 0.15s, background 0.15s;
+      box-shadow: var(--shadow);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .hero-tech-badges {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .tech-badge {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 12px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      letter-spacing: 0.2px;
+    }
+
+    /* Features */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      box-shadow: var(--shadow);
+    }
+
+    .feature-card:hover {
+      border-color: rgba(79,70,229,0.35);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .feature-icon {
+      width: 44px; height: 44px;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .icon-purple { background: rgba(79,70,229,0.10); }
+    .icon-cyan   { background: rgba(6,182,212,0.12); }
+    .icon-green  { background: rgba(16,185,129,0.12); }
+    .icon-orange { background: rgba(245,158,11,0.12); }
+    .icon-red    { background: rgba(239,68,68,0.10); }
+    .icon-blue   { background: rgba(59,130,246,0.12); }
+    .icon-indigo { background: rgba(99,102,241,0.12); }
+
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+
+    .feature-card .feature-subtitle {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 10px;
+    }
+
+    .feature-card p {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .feature-points {
+      list-style: none;
+      margin-top: 14px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .feature-points li {
+      position: relative;
+      padding-left: 14px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .feature-points li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.7;
+    }
+
+    .arch-note {
+      max-width: 720px;
+      margin: 28px auto 0;
+      text-align: center;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .arch-note strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* Architecture */
+    .arch-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .arch-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .arch-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+
+    .arch-body {
+      padding: 32px;
+      overflow-x: auto;
+      background: #fff;
+    }
+
+    .arch-svg {
+      display: block;
+      max-width: 100%;
+      margin: 0 auto;
+    }
+
+    /* Install */
+    .tabs-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+      background: var(--bg-surface);
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-family: var(--font);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 12px 20px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      margin-bottom: -1px;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .sub-tabs-nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 24px 12px;
+    }
+    .sub-tab-btn {
+      font-family: var(--font);
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .sub-tab-btn:hover { color: var(--text); border-color: rgba(0,0,0,0.18); }
+    .sub-tab-btn.active {
+      color: var(--accent);
+      border-color: rgba(79,70,229,0.35);
+      background: var(--accent-soft);
+    }
+    .sub-tab-panel { display: none; }
+    .sub-tab-panel.active { display: block; }
+
+    .install-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .code-block {
+      background: var(--code-bg);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 16px;
+      border: 1px solid var(--code-border);
+    }
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--code-surface);
+      border-bottom: 1px solid var(--code-border);
+    }
+    .code-block-name {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--code-muted);
+      letter-spacing: .04em;
+    }
+    .code-block-body {
+      padding: 18px 20px;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.8;
+      overflow-x: auto;
+    }
+
+    .code-block .prompt { color: var(--code-muted); user-select: none; }
+    .code-block .cmd    { color: var(--code-text); }
+    .code-block .comment { color: #5c6478; }
+    .code-block .kw     { color: #22d3ee; }
+    .code-block .str    { color: #a5b4fc; }
+
+    .file-block {
+      background: var(--code-bg);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 14px;
+      border: 1px solid var(--code-border);
+    }
+    .file-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--code-surface);
+      border-bottom: 1px solid var(--code-border);
+    }
+    .file-block-name {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--code-muted);
+      letter-spacing: .04em;
+    }
+    .file-block-copy {
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      background: #22262f;
+      border: 1px solid var(--code-border);
+      border-radius: 6px;
+      color: var(--code-muted);
+      cursor: pointer;
+      font-family: var(--font);
+      transition: color .15s, border-color .15s, background .15s;
+    }
+    .file-block-copy:hover { color: var(--code-text); border-color: #5c6478; }
+    .file-block-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .file-block-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      background: #22262f;
+      border: 1px solid var(--code-border);
+      border-radius: 6px;
+      color: var(--code-muted);
+      cursor: pointer;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+    .file-block-icon:hover {
+      color: #22d3ee;
+      border-color: rgba(34,211,238,0.35);
+    }
+    .file-block-icon.is-done {
+      color: #10b981;
+      border-color: rgba(16,185,129,0.35);
+    }
+    .file-block-icon svg { display: block; }
+    .file-block pre {
+      margin: 0;
+      padding: 18px 20px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--code-text);
+      max-height: 340px;
+      overflow-y: auto;
+    }
+    .file-block pre .c  { color: #5c6478; }
+    .file-block pre .k  { color: #60a5fa; }
+    .file-block pre .s  { color: #a5b4fc; }
+    .file-block pre .v  { color: #fbbf24; }
+    .file-block pre .h  { color: #818cf8; }
+
+    /* Alert channels */
+    .channels-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+
+    .channel-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 16px;
+      text-align: center;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      box-shadow: var(--shadow);
+    }
+
+    .channel-card:hover {
+      border-color: rgba(79,70,229,0.35);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .channel-icon {
+      width: 40px; height: 40px;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 10px;
+      font-size: 1.1rem;
+    }
+
+    .channel-card h4 {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .channel-card p {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+
+    /* Stack */
+    .stack-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .stack-table th {
+      text-align: left;
+      padding: 12px 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+
+    .stack-table td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    .stack-table tr:last-child td { border-bottom: none; }
+
+    .stack-table tr:hover td { background: var(--accent-soft); }
+
+    .stack-table .tech-name {
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .stack-table .tech-desc { color: var(--text-muted); }
+
+    .stack-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .stack-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    /* Docs / misc light surfaces */
+    code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 0;
+      background: var(--bg-card);
+    }
+
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-left .footer-logo {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .footer-left .footer-logo span { color: var(--accent); }
+
+    .footer-left p {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover { color: var(--text); text-decoration: none; }
+
+    .footer-right {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    @media (max-width: 900px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .channels-grid { grid-template-columns: repeat(3, 1fr); }
+      .explain-steps { grid-template-columns: 1fr; gap: 20px; max-width: 480px; }
+    }
+
+    @media (max-width: 600px) {
+      .nav-links { display: none; }
+      .features-grid { grid-template-columns: 1fr; }
+      .channels-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+      .hero-title { letter-spacing: -0.03em; }
+      .arch-body { padding: 16px; }
+      .container, .nav-inner { padding-left: 16px; padding-right: 16px; }
+      .section { padding: 56px 0; }
+      #hero { padding: 72px 0 64px; }
+      .feature-card, .channel-card { min-width: 0; }
+    }
+
+    @media (max-width: 400px) {
+      .channels-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ============================================================
+     NAVIGATION
+============================================================ -->
+<nav>
+  <div class="nav-inner">
+    <a href="#hero" class="nav-logo">Go<span>Proxify</span></a>
+    <ul class="nav-links">
+      <li><a href="#explain" data-i18n="nav.features">How it works</a></li>
+      <li><a href="#architecture" data-i18n="nav.architecture">Setup</a></li>
+      <li><a href="#install" data-i18n="nav.install">Install</a></li>
+      <li><a href="#alerting" data-i18n="nav.alerting">Alerting</a></li>
+      <li><a href="#docs" data-i18n="nav.docs">Docs</a></li>
+      <li><button type="button" id="lang-switch" class="nav-cta" style="border:none;cursor:pointer;font:inherit;" onclick="landingToggleLang()">EN</button></li>
+      <li><a href="#" id="nav-github" class="nav-cta">GitHub →</a></li>
+    </ul>
+  </div>
+</nav>
+
+<div class="preview-banner">
+  <span data-i18n="preview.banner">Preview (0.x) — not production-ready. Use at your own risk.</span>
+  <a href="#" id="banner-disclaimer" data-i18n="preview.disclaimer">Disclaimer</a>
+</div>
+
+<!-- ============================================================
+     HERO
+============================================================ -->
+<section id="hero">
+  <div class="container">
+    <div class="hero-badge fade-in">
+      <span class="dot"></span>
+      <span data-i18n="hero.badge">Open Source · Preview</span>
+      · <span id="hero-go-version">Go 1.25</span>
+      <span class="hero-version" id="hero-version">v0.2.36</span>
+    </div>
+
+    <h1 class="hero-title fade-in">GoProxify</h1>
+
+    <p class="hero-tagline fade-in">
+      <strong id="hero-tagline" data-i18n="hero.strong">The reverse proxy that guides every visitor to the right app.</strong><br>
+      <span data-i18n="hero.sub">Publish your services. GoProxify makes them reachable, protected, and easy to manage — without the jargon.</span>
+    </p>
+
+    <div class="hero-buttons fade-in">
+      <a href="#install" class="btn-primary" data-i18n="hero.cta">
+        Get started in 5 minutes →
+      </a>
+      <a href="#architecture" class="btn-secondary" data-i18n="hero.cta2">
+        See how it works
+      </a>
+    </div>
+
+    <div class="hero-tech-badges fade-in">
+      <span class="tech-badge">Open Source</span>
+      <span class="tech-badge">Docker</span>
+      <span class="tech-badge">Portainer</span>
+      <span class="tech-badge">Admin UI</span>
+      <span class="tech-badge">EN · FR · ES · DE</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     WHAT IS A REVERSE PROXY
+============================================================ -->
+<section id="explain" class="section">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.explain">What is a reverse proxy for?</h2>
+    <p class="section-sub fade-in" data-i18n="sec.explain.sub" style="max-width:680px">A reverse proxy lets you publish several websites on the internet — each with its own address (https://blog…, https://shop…, https://app…) — while the applications themselves stay behind, out of direct reach.</p>
+
+    <div class="explain-steps fade-in">
+      <div class="explain-step">
+        <div class="explain-num">1</div>
+        <h3 data-i18n="ex1.title">Several sites, several addresses</h3>
+        <p data-i18n="ex1.body">You run multiple apps or containers. Visitors open a normal web address for each site. They never talk to the containers directly.</p>
+      </div>
+      <div class="explain-step">
+        <div class="explain-num">2</div>
+        <h3 data-i18n="ex2.title">One front door for all of them</h3>
+        <p data-i18n="ex2.body">GoProxify receives every visit and opens the right door: blog traffic goes to the blog, shop traffic to the shop — according to the rules you set.</p>
+      </div>
+      <div class="explain-step">
+        <div class="explain-num">3</div>
+        <h3 data-i18n="ex3.title">You stay in control</h3>
+        <p data-i18n="ex3.body">From one place you decide which sites are public, which need a login, and how to keep them available if a machine fails.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     FEATURES
+============================================================ -->
+<section id="features" class="section section-alt">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.features">How GoProxify works</h2>
+    <p class="section-sub fade-in" data-i18n="sec.features.sub">From the control panel to the architecture assistant — here is what each piece does for you day to day.</p>
+
+    <div class="features-grid">
+
+      <!-- Admin -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-cyan">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f2.sub">Admin</div>
+        <h3 data-i18n="f2.title">Your control panel</h3>
+        <p data-i18n="f2.body">A clear web interface to run the whole setup: publish sites, attach domain names, invite teammates, schedule backups, and follow alerts — in your language (EN, FR, ES, DE).</p>
+        <ul class="feature-points">
+          <li data-i18n="f2.p1">Create and edit which address opens which site</li>
+          <li data-i18n="f2.p2">Manage domains and certificates from one place</li>
+          <li data-i18n="f2.p3">Design your layout with the architecture assistant</li>
+        </ul>
+      </div>
+
+      <!-- Architecture assistant -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-indigo">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9" rx="1"/>
+            <rect x="14" y="3" width="7" height="5" rx="1"/>
+            <rect x="14" y="12" width="7" height="9" rx="1"/>
+            <rect x="3" y="16" width="7" height="5" rx="1"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f8.sub">Architecture assistant</div>
+        <h3 data-i18n="f8.title">Draw your setup, then install it</h3>
+        <p data-i18n="f8.body">Inside the Admin, place your machines on a canvas and drop what each one needs — control panel, gateways, Agent, Portainer. GoProxify turns that picture into ready-to-run install steps, with a QR code or link to finish pairing on each host.</p>
+        <ul class="feature-points">
+          <li data-i18n="f8.p1">Drag hosts and services onto a visual board — no blank config to invent</li>
+          <li data-i18n="f8.p2">Get install commands per machine, already wired together</li>
+          <li data-i18n="f8.p3">Share a QR or link so a colleague can join a remote server in one scan</li>
+        </ul>
+      </div>
+
+      <!-- Gateway -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-purple">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f1.sub">Gateway</div>
+        <h3 data-i18n="f1.title">The traffic gateways</h3>
+        <p data-i18n="f1.body">Gateways are the public front door. They welcome visitors on your https://… addresses and send each one to the right site in your fleet — quietly, and at scale.</p>
+        <ul class="feature-points">
+          <li data-i18n="f1.p1">Expose several websites behind their own internet addresses</li>
+          <li data-i18n="f1.p2">Share load when several copies of an app are running</li>
+          <li data-i18n="f1.p3">Keep traffic flowing if you run more than one gateway</li>
+        </ul>
+      </div>
+
+      <!-- Agent -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f3.sub">Agent + Portainer</div>
+        <h3 data-i18n="f3.title">Your container fleet, connected</h3>
+        <p data-i18n="f3.body">The Agent watches your containers (via Portainer or Docker) and tells the gateways what is running. When you start, stop or move an app, public routes stay in sync.</p>
+        <ul class="feature-points">
+          <li data-i18n="f3.p1">Discover new containers as they appear</li>
+          <li data-i18n="f3.p2">Stay linked to Portainer to manage the whole fleet</li>
+          <li data-i18n="f3.p3">Update routes automatically when apps change</li>
+        </ul>
+      </div>
+
+      <!-- HA -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-orange">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f4.sub">Reliability</div>
+        <h3 data-i18n="f4.title">Keeps working when things break</h3>
+        <p data-i18n="f4.body">Your sites should not go dark because one machine hiccups. Gateways remember their settings, a spare gateway can take over, and unhealthy apps are skipped.</p>
+        <ul class="feature-points">
+          <li data-i18n="f4.p1">Sites keep answering even if the Admin is briefly offline</li>
+          <li data-i18n="f4.p2">A second gateway covers for the first</li>
+          <li data-i18n="f4.p3">Failing apps are bypassed so visitors still reach a healthy copy</li>
+        </ul>
+      </div>
+
+      <!-- Security -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-red">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f5.sub">Security</div>
+        <h3 data-i18n="f5.title">Protect what you publish</h3>
+        <p data-i18n="f5.body">Putting sites on the internet invites bots and abuse. GoProxify helps you slow attacks, block threats, and ask for a login when a site should stay private.</p>
+        <ul class="feature-points">
+          <li data-i18n="f5.p1">Limit abusive traffic and suspicious visitors</li>
+          <li data-i18n="f5.p2">Block known threats before they reach your apps</li>
+          <li data-i18n="f5.p3">Require a login for sensitive tools and internal apps</li>
+        </ul>
+      </div>
+
+      <!-- Observability -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-blue">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6"  y1="20" x2="6"  y2="14"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f6.sub">Visibility</div>
+        <h3 data-i18n="f6.title">See what happens</h3>
+        <p data-i18n="f6.body">Know who visits which site, spot errors quickly, and get notified where your team already works — without digging through server files.</p>
+        <ul class="feature-points">
+          <li data-i18n="f6.p1">Live views of traffic across your published sites</li>
+          <li data-i18n="f6.p2">Clear access logs you can actually read</li>
+          <li data-i18n="f6.p3">Alerts on several channels when something goes wrong</li>
+        </ul>
+      </div>
+
+      <!-- Access -->
+      <div class="feature-card fade-in">
+        <div class="feature-icon icon-green">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"/>
+            <path d="M6 8h.01M10 8h8M6 12h.01M10 12h8M6 16h.01M10 16h5"/>
+          </svg>
+        </div>
+        <div class="feature-subtitle" data-i18n="f7.sub">Access</div>
+        <h3 data-i18n="f7.title">Reach servers from the browser</h3>
+        <p data-i18n="f7.body">When an operator needs a shell on a VM or container, they open a secure terminal in the browser. You invite people, set limits, and avoid sharing passwords in chat.</p>
+        <ul class="feature-points">
+          <li data-i18n="f7.p1">Secure web terminal to VMs and containers</li>
+          <li data-i18n="f7.p2">Invite operators with the access they need — no more</li>
+          <li data-i18n="f7.p3">Optional second factor instead of shared passwords</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     ARCHITECTURE
+============================================================ -->
+<section id="architecture" class="section">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.architecture">A typical setup</h2>
+    <p class="section-sub fade-in" data-i18n="sec.architecture.sub" style="max-width:680px">One Admin to steer everything, two gateways to welcome visitors, and one Agent linked to Portainer to follow your container fleet. Visitors reach those sites through normal internet addresses (https://…).</p>
+
+    <div class="arch-wrapper fade-in">
+      <div class="arch-header">
+        <div class="arch-dot" style="background:#ff5f56"></div>
+        <div class="arch-dot" style="background:#ffbd2e"></div>
+        <div class="arch-dot" style="background:#27c93f"></div>
+        <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption">goproxify — example layout</span>
+      </div>
+      <div class="arch-body">
+        <svg class="arch-svg" viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-title arch-desc">
+          <title id="arch-title">GoProxify reverse proxy layout</title>
+          <desc id="arch-desc">Visitors open https addresses, reach two gateways, and land on sites in the container fleet. One Admin configures both gateways. One Agent connects to Portainer.</desc>
+          <defs>
+            <marker id="arr"   markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#94a3b8"/></marker>
+            <marker id="arr-p" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#4f46e5"/></marker>
+            <marker id="arr-c" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#06b6d4"/></marker>
+            <marker id="arr-g" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#10b981"/></marker>
+            <filter id="soft" x="-4%" y="-4%" width="108%" height="108%">
+              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.06"/>
+            </filter>
+          </defs>
+
+          <!-- Visiteurs -->
+          <rect x="28" y="20" width="200" height="96" rx="14" fill="#f8fafc" stroke="rgba(15,23,42,0.12)" stroke-width="1.5" filter="url(#soft)"/>
+          <text x="128" y="46" text-anchor="middle" fill="#64748b" font-size="11" font-weight="700" letter-spacing="0.6" data-i18n="arch.visitors.label">VISITORS</text>
+          <text x="128" y="68" text-anchor="middle" fill="#334155" font-size="10" font-weight="600" data-i18n="arch.visitors">Open your sites online</text>
+          <text x="128" y="88" text-anchor="middle" fill="#94a3b8" font-size="9.5" font-family="ui-monospace,monospace" data-i18n="arch.visitors.urls">https://blog… · https://shop…</text>
+
+          <!-- Flèches visiteurs → passerelles -->
+          <path d="M228,54 C250,54 260,118 278,138" stroke="#94a3b8" stroke-width="1.75" fill="none" marker-end="url(#arr)"/>
+          <path d="M228,80 C255,90 270,200 278,218" stroke="#94a3b8" stroke-width="1.75" fill="none" marker-end="url(#arr)"/>
+          <text x="248" y="128" fill="#94a3b8" font-size="8.5" data-i18n="arch.visitors.via">via internet addresses</text>
+
+          <!-- Passerelle 1 -->
+          <rect x="280" y="108" width="200" height="88" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2" filter="url(#soft)"/>
+          <rect x="280" y="108" width="8" height="88" rx="4" fill="#4f46e5"/>
+          <text x="318" y="140" fill="#4f46e5" font-size="12" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw1.name">GATEWAY 1</text>
+          <text x="318" y="160" fill="#334155" font-size="11" font-weight="600" data-i18n="arch.core1.title">Routes each site</text>
+          <text x="318" y="178" fill="#94a3b8" font-size="10" data-i18n="arch.core1.sub">Primary public entry</text>
+
+          <!-- Passerelle 2 -->
+          <rect x="280" y="220" width="200" height="88" rx="14" fill="#ffffff" stroke="#6366f1" stroke-width="2" filter="url(#soft)"/>
+          <rect x="280" y="220" width="8" height="88" rx="4" fill="#6366f1"/>
+          <text x="318" y="252" fill="#6366f1" font-size="12" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw2.name">GATEWAY 2</text>
+          <text x="318" y="272" fill="#334155" font-size="11" font-weight="600" data-i18n="arch.core2.title">Same role, spare</text>
+          <text x="318" y="290" fill="#94a3b8" font-size="10" data-i18n="arch.core2.sub">Takes over if gateway 1 fails</text>
+
+          <!-- Lien entre passerelles -->
+          <line x1="380" y1="196" x2="380" y2="220" stroke="#c7d2fe" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="392" y="214" fill="#818cf8" font-size="9" data-i18n="arch.cores.link">share the load</text>
+
+          <!-- Admin -->
+          <rect x="560" y="148" width="210" height="120" rx="14" fill="#ffffff" stroke="#06b6d4" stroke-width="2" filter="url(#soft)"/>
+          <rect x="560" y="148" width="210" height="36" rx="14" fill="#06b6d4" opacity="0.14"/>
+          <rect x="560" y="172" width="210" height="12" fill="#06b6d4" opacity="0.14"/>
+          <text x="665" y="172" text-anchor="middle" fill="#0891b2" font-size="12" font-weight="800" letter-spacing="0.5">ADMIN</text>
+          <text x="665" y="204" text-anchor="middle" fill="#334155" font-size="11" font-weight="600" data-i18n="arch.admin.title">One control panel</text>
+          <text x="665" y="224" text-anchor="middle" fill="#94a3b8" font-size="10" data-i18n="arch.admin.l1">Configure both gateways</text>
+          <text x="665" y="242" text-anchor="middle" fill="#94a3b8" font-size="10" data-i18n="arch.admin.l2">Architecture assistant · alerts</text>
+
+          <!-- Admin → passerelles -->
+          <path d="M560,188 C520,188 500,152 480,152" stroke="#06b6d4" stroke-width="1.75" fill="none" marker-end="url(#arr-c)"/>
+          <path d="M560,228 C520,228 500,264 480,264" stroke="#06b6d4" stroke-width="1.75" fill="none" marker-end="url(#arr-c)"/>
+          <text x="520" y="140" text-anchor="middle" fill="#06b6d4" font-size="9" data-i18n="arch.admin.push">pushes settings</text>
+
+          <!-- Agent -->
+          <rect x="280" y="360" width="200" height="100" rx="14" fill="#ffffff" stroke="#10b981" stroke-width="2" filter="url(#soft)"/>
+          <rect x="280" y="360" width="8" height="100" rx="4" fill="#10b981"/>
+          <text x="318" y="392" fill="#059669" font-size="12" font-weight="800" letter-spacing="0.5">AGENT</text>
+          <text x="318" y="414" fill="#334155" font-size="11" font-weight="600" data-i18n="arch.agent.title">Watches the fleet</text>
+          <text x="318" y="434" fill="#94a3b8" font-size="10" data-i18n="arch.agent.sub">Reports new containers</text>
+
+          <!-- Agent → passerelles -->
+          <path d="M340,360 C340,330 340,320 340,308" stroke="#10b981" stroke-width="1.75" fill="none" marker-end="url(#arr-g)"/>
+          <text x="352" y="330" fill="#10b981" font-size="9" data-i18n="arch.agent.up">updates routes</text>
+
+          <!-- Portainer -->
+          <rect x="560" y="360" width="210" height="100" rx="14" fill="#ffffff" stroke="#0ea5e9" stroke-width="2" filter="url(#soft)"/>
+          <rect x="560" y="360" width="210" height="36" rx="14" fill="#0ea5e9" opacity="0.12"/>
+          <rect x="560" y="384" width="210" height="12" fill="#0ea5e9" opacity="0.12"/>
+          <text x="665" y="384" text-anchor="middle" fill="#0284c7" font-size="12" font-weight="800" letter-spacing="0.5">PORTAINER</text>
+          <text x="665" y="416" text-anchor="middle" fill="#334155" font-size="11" font-weight="600" data-i18n="arch.portainer.title">Manages containers</text>
+          <text x="665" y="436" text-anchor="middle" fill="#94a3b8" font-size="10" data-i18n="arch.portainer.sub">Start · stop · deploy</text>
+
+          <!-- Agent ↔ Portainer -->
+          <path d="M480,410 C520,410 540,410 560,410" stroke="#10b981" stroke-width="1.75" fill="none" marker-end="url(#arr-g)"/>
+          <text x="520" y="400" text-anchor="middle" fill="#10b981" font-size="9" data-i18n="arch.link">connected</text>
+
+          <!-- Flotte de conteneurs -->
+          <rect x="28" y="360" width="200" height="120" rx="14" fill="#f0fdf4" stroke="#10b981" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <text x="128" y="386" text-anchor="middle" fill="#059669" font-size="11" font-weight="700" data-i18n="arch.fleet">Your published sites</text>
+
+          <!-- Mini cards conteneurs -->
+          <rect x="44" y="400" width="52" height="32" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/>
+          <text x="70" y="420" text-anchor="middle" fill="#166534" font-size="9">blog</text>
+          <rect x="102" y="400" width="52" height="32" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/>
+          <text x="128" y="420" text-anchor="middle" fill="#166534" font-size="9">shop</text>
+          <rect x="160" y="400" width="52" height="32" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/>
+          <text x="186" y="420" text-anchor="middle" fill="#166534" font-size="9">app</text>
+          <rect x="44" y="440" width="168" height="24" rx="6" fill="#ffffff" stroke="#bbf7d0" stroke-width="1.25"/>
+          <text x="128" y="456" text-anchor="middle" fill="#059669" font-size="8" data-i18n="arch.fleet.hint">reached via https://…</text>
+
+          <!-- Portainer → flotte -->
+          <path d="M560,430 C480,460 300,460 228,430" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+          <text x="380" y="468" text-anchor="middle" fill="#0ea5e9" font-size="9" data-i18n="arch.manage">manages the fleet</text>
+
+          <!-- Légende bas -->
+          <text x="480" y="508" text-anchor="middle" fill="#94a3b8" font-size="10" data-i18n="arch.legend">1 Admin · 2 gateways · 1 Agent + Portainer · N sites</text>
+        </svg>
+      </div>
+    </div>
+    <p class="arch-note fade-in" data-i18n="arch.wizard.note">You can build a layout like this in the Admin with the architecture assistant: place hosts on a board, then get install steps and a QR code per machine.</p>
+  </div>
+</section>
+
+<!-- ============================================================
+     INSTALLATION
+============================================================ -->
+<section id="install" class="section section-alt">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.install">Get started in 5 minutes</h2>
+    <p class="section-sub fade-in" data-i18n="sec.install.sub">A ready-to-run Admin + Core + Agent stack. Pick your method.</p>
+
+    <div class="install-wrapper fade-in">
+      <div class="tabs-nav">
+        <button class="tab-btn active" data-tab="script" data-i18n="install.tab.script">Script</button>
+        <button class="tab-btn" data-tab="docker" data-i18n="install.tab.docker">Docker Compose</button>
+        <button class="tab-btn" data-tab="portainer" data-i18n="install.tab.portainer">Portainer</button>
+        <button class="tab-btn" data-tab="helm" data-i18n="install.tab.helm">Helm Kubernetes</button>
+        <button class="tab-btn" data-tab="binary" data-i18n="install.tab.binary">Binary</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-script">
+        <div style="padding:20px 24px 8px">
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.script.note">
+            Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Core + Agent.
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-script')">Copy</button>
+            </div>
+            <div class="code-block-body" id="cb-script">
+              <div><span class="comment"># Download then run (inspect before execute)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">curl -fsSL https://github.com/Vincamok/goproxify/raw/public/main/scripts/quickstart.sh -o quickstart.sh</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">bash quickstart.sh</span></div>
+            </div>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:12px 0 0;line-height:1.6" data-i18n="install.script.options">
+            Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only
+          </p>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-docker">
+        <div style="padding:20px 24px 8px">
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.docker.note">
+            Official GHCR images with floating :preview tag (0.x). Optional SemVer pin via versions.json.
+          </p>
+          <div class="code-block">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-docker')">Copy</button>
+            </div>
+            <div class="code-block-body" id="cb-docker">
+              <div><span class="comment"># 1. Fetch quickstart + env template</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">curl -LO https://github.com/Vincamok/goproxify/raw/public/main/docker-compose.quickstart.yml</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">curl -LO https://github.com/Vincamok/goproxify/raw/public/main/.env.example</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">cp .env.example .env</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># 2. Fill secrets — or: bash quickstart.sh --env-only</span></div>
+              <div><span class="prompt">$ </span><span class="cmd"># GPX_JWT_SECRET=$(openssl rand -hex 32)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd"># GPX_PAIRING_SECRET=$(openssl rand -hex 32)</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># 3. Start Admin + Core + Agent</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">docker compose -f docker-compose.quickstart.yml up -d</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># Admin UI → http://localhost:9443</span></div>
+            </div>
+          </div>
+          <div class="file-block">
+            <div class="file-block-header">
+              <span class="file-block-name">.env (excerpt)</span>
+              <div class="file-block-actions">
+                <button type="button" class="file-block-icon" data-i18n-title="install.portainer.gen" title="Generate secrets in browser" aria-label="Generate secrets in browser" onclick="generateInstallSecrets('env')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                  </svg>
+                </button>
+                <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-env')">Copy</button>
+              </div>
+            </div>
+            <pre id="fb-env"><span class="c"># Click the key icon to generate secrets in your browser</span>
+<span class="c"># Images (defaults = GHCR :preview)</span>
+<span class="c"># GOPROXIFY_ADMIN_TAG=preview</span>
+<span class="c"># GOPROXIFY_CORE_TAG=preview</span>
+<span class="c"># GOPROXIFY_AGENT_TAG=preview</span>
+<span class="c"># Required</span>
+GPX_JWT_SECRET=
+GPX_PAIRING_SECRET=
+GPX_FIRST_ADMIN_EMAIL=admin@example.com
+GPX_FIRST_ADMIN_PASSWORD=
+
+ADMIN_PORT=9443</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-portainer">
+        <div style="padding:20px 24px 0;font-size:0.9rem;color:var(--text-muted);line-height:1.7" data-i18n="install.portainer.intro">
+          Stacks → Add stack → Web editor. Pick a model, paste the compose, deploy. Admin on port 9443.
+        </div>
+        <div class="sub-tabs-nav" style="padding-top:14px">
+          <button type="button" class="sub-tab-btn active" data-subtab="with-env" data-i18n="install.portainer.with_env">With stack.env</button>
+          <button type="button" class="sub-tab-btn" data-subtab="inline" data-i18n="install.portainer.without_env">Without stack.env</button>
+        </div>
+
+        <div class="sub-tab-panel active" id="portainer-with-env">
+          <p style="padding:0 24px 12px;font-size:0.85rem;color:var(--text-muted);line-height:1.6" data-i18n="install.portainer.with_env.hint">
+            Paste the compose, then load stack.env (Advanced → Load variables from .env file) or set the same keys in Environment variables.
+          </p>
+          <div style="padding:0 24px">
+            <div class="file-block">
+              <div class="file-block-header">
+                <span class="file-block-name">docker-compose.yml</span>
+                <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-pt-compose-env')">Copy</button>
+              </div>
+              <pre id="fb-pt-compose-env"><span class="c"># Portainer — model A: secrets via stack.env</span>
+networks:
+  goproxify_net:
+    name: goproxify_net
+
+volumes:
+  goproxify_admin_data:
+  goproxify_core_data:
+  goproxify_agent_data:
+
+services:
+  goproxify-admin:
+    image: ghcr.io/vincamok/goproxify/admin:preview
+    container_name: goproxify-admin
+    restart: unless-stopped
+    command: ["admin"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+      - GPX_SECURITY_JWT_SECRET=${GPX_JWT_SECRET}
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+      - GPX_FIRST_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL}
+      - GPX_FIRST_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD}
+      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      - GPX_SERVER_API_PORT=9443
+    ports:
+      - "${ADMIN_PORT:-9443}:9443"
+    volumes:
+      - goproxify_admin_data:/etc/goproxify
+    networks: [goproxify_net]
+
+  goproxify-core:
+    image: ghcr.io/vincamok/goproxify/core:preview
+    container_name: goproxify-core
+    restart: unless-stopped
+    command: ["core"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+    ports:
+      - "${CORE_HTTP_PORT:-80}:80"
+      - "${CORE_HTTPS_PORT:-443}:443"
+      - "${CORE_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - goproxify_core_data:/etc/goproxify
+    networks: [goproxify_net]
+    depends_on: [goproxify-admin]
+
+  goproxify-agent:
+    image: ghcr.io/vincamok/goproxify/agent:preview
+    container_name: goproxify-agent
+    restart: unless-stopped
+    command: ["agent"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - goproxify_agent_data:/etc/goproxify
+    networks: [goproxify_net]
+    depends_on: [goproxify-core]</pre>
+            </div>
+            <div class="file-block">
+              <div class="file-block-header">
+                <span class="file-block-name">stack.env</span>
+                <div class="file-block-actions">
+                  <button type="button" class="file-block-icon" data-i18n-title="install.portainer.gen" title="Generate secrets in browser" aria-label="Generate secrets in browser" onclick="generateInstallSecrets('stack-env')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-pt-stack-env')">Copy</button>
+                </div>
+              </div>
+              <pre id="fb-pt-stack-env"><span class="c"># Click the key icon to generate secrets in your browser</span>
+<span class="c"># Nothing is sent to any server</span>
+GPX_JWT_SECRET=
+GPX_PAIRING_SECRET=
+GPX_FIRST_ADMIN_EMAIL=admin@example.com
+GPX_FIRST_ADMIN_PASSWORD=
+ADMIN_PORT=9443
+TZ=Europe/Paris
+CORE_NODE_NAME=goproxify-core</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="sub-tab-panel" id="portainer-inline">
+          <p style="padding:0 24px 12px;font-size:0.85rem;color:var(--text-muted);line-height:1.6" data-i18n="install.portainer.without_env.hint">
+            Single paste: replace CHANGE_ME_* before Deploy. No stack.env / env file needed.
+          </p>
+          <div style="padding:0 24px">
+            <div class="file-block">
+              <div class="file-block-header">
+                <span class="file-block-name">docker-compose.yml</span>
+                <div class="file-block-actions">
+                  <button type="button" class="file-block-icon" data-i18n-title="install.portainer.gen" title="Generate secrets in browser" aria-label="Generate secrets in browser" onclick="generateInstallSecrets('inline')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-pt-compose-inline')">Copy</button>
+                </div>
+              </div>
+              <pre id="fb-pt-compose-inline"><span class="c"># Portainer — model B: inline secrets (no stack.env)</span>
+<span class="c"># Click the key icon to fill CHANGE_ME_* in your browser</span>
+networks:
+  goproxify_net:
+    name: goproxify_net
+
+volumes:
+  goproxify_admin_data:
+  goproxify_core_data:
+  goproxify_agent_data:
+
+services:
+  goproxify-admin:
+    image: ghcr.io/vincamok/goproxify/admin:preview
+    container_name: goproxify-admin
+    restart: unless-stopped
+    command: ["admin"]
+    environment:
+      - TZ=Europe/Paris
+      - GPX_SECURITY_JWT_SECRET=<span class="v" data-pt-secret="jwt">CHANGE_ME_JWT_HEX32</span>
+      - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
+      - GPX_FIRST_ADMIN_EMAIL=admin@example.com
+      - GPX_FIRST_ADMIN_PASSWORD=<span class="v" data-pt-secret="password">CHANGE_ME_PASSWORD_MIN12</span>
+      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+      - GPX_SERVER_API_PORT=9443
+    ports:
+      - "9443:9443"
+    volumes:
+      - goproxify_admin_data:/etc/goproxify
+    networks: [goproxify_net]
+
+  goproxify-core:
+    image: ghcr.io/vincamok/goproxify/core:preview
+    container_name: goproxify-core
+    restart: unless-stopped
+    command: ["core"]
+    environment:
+      - TZ=Europe/Paris
+      - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
+      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - goproxify_core_data:/etc/goproxify
+    networks: [goproxify_net]
+    depends_on: [goproxify-admin]
+
+  goproxify-agent:
+    image: ghcr.io/vincamok/goproxify/agent:preview
+    container_name: goproxify-agent
+    restart: unless-stopped
+    command: ["agent"]
+    environment:
+      - TZ=Europe/Paris
+      - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
+      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - goproxify_agent_data:/etc/goproxify
+    networks: [goproxify_net]
+    depends_on: [goproxify-core]</pre>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin:0 24px 20px;padding:12px 16px;background:rgba(79,70,229,0.06);border:1px solid rgba(79,70,229,0.20);border-radius:8px;font-size:0.82rem;color:var(--text-muted)" data-i18n="install.portainer.note">
+          Core and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-helm">
+        <div style="padding:20px 24px 8px">
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.helm.note">
+            Chart in the repo (helm/goproxify). Requires global.authToken. Generate secrets in your browser, then helm install.
+          </p>
+          <div class="file-block">
+            <div class="file-block-header">
+              <span class="file-block-name">values-secrets.yaml</span>
+              <div class="file-block-actions">
+                <button type="button" class="file-block-icon" data-i18n-title="install.portainer.gen" title="Generate secrets in browser" aria-label="Generate secrets in browser" onclick="generateInstallSecrets('helm')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                  </svg>
+                </button>
+                <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-helm-values')">Copy</button>
+              </div>
+            </div>
+            <pre id="fb-helm-values"><span class="c"># Click the key icon — secrets stay in your browser</span>
+fullnameOverride: goproxify
+
+global:
+  authToken: <span class="v" data-helm-secret="auth">""</span>
+  timezone: Europe/Paris
+
+admin:
+  image:
+    tag: "preview"
+  config:
+    jwtSecret: <span class="v" data-helm-secret="jwt">""</span>
+  ingress:
+    enabled: true
+    host: admin.example.com
+
+core:
+  image:
+    tag: "preview"
+
+agent:
+  image:
+    tag: "preview"</pre>
+          </div>
+          <div class="code-block" style="margin-bottom:0">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-helm')">Copy</button>
+            </div>
+            <div class="code-block-body" id="cb-helm">
+              <div><span class="comment"># 1. Clone chart (public/main)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">git clone -b public/main https://github.com/Vincamok/goproxify.git &amp;&amp; cd goproxify</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># 2. Save values-secrets.yaml (from the block above), then install</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">helm upgrade --install goproxify ./helm/goproxify \</span></div>
+              <div><span class="cmd">  -n goproxify --create-namespace \</span></div>
+              <div><span class="cmd">  -f values-secrets.yaml</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># Admin Service → port-forward or Ingress host</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">kubectl -n goproxify port-forward svc/goproxify-admin 8080:8080</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="tab-binary">
+        <div style="padding:20px 24px">
+          <div class="code-block" style="margin-bottom:0">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <div class="file-block-actions">
+                <button type="button" class="file-block-icon" data-i18n-title="install.portainer.gen" title="Generate secrets in browser" aria-label="Generate secrets in browser" onclick="generateInstallSecrets('binary')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                  </svg>
+                </button>
+                <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-binary')">Copy</button>
+              </div>
+            </div>
+            <div class="code-block-body" id="cb-binary">
+              <div><span class="comment"># Build from source (Go 1.25+)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">git clone -b public/main https://github.com/Vincamok/goproxify.git &amp;&amp; cd goproxify</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">go build -o goproxify ./cmd/goproxify</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># Click the key icon to fill secrets (browser-only)</span></div>
+              <div><span class="comment"># Admin (control plane)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">GPX_SECURITY_JWT_SECRET=<span class="v" data-bin-secret="jwt">CHANGE_ME_JWT_HEX32</span> \</span></div>
+              <div><span class="cmd">  GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
+              <div><span class="cmd">  ./goproxify admin</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># Core (data plane) — same pairing secret</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
+              <div><span class="cmd">  GPX_IDENTITY_CORE_NODE_NAME=goproxify-core \</span></div>
+              <div><span class="cmd">  ./goproxify core</span></div>
+              <div>&nbsp;</div>
+              <div><span class="comment"># Agent (optional)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
+              <div><span class="cmd">  GPX_CONTROL_PLANE_CORE_ENDPOINT=http://localhost:8000 \</span></div>
+              <div><span class="cmd">  ./goproxify agent</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     ALERTING CHANNELS
+============================================================ -->
+<section id="alerting" class="section">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.alerting">10 alert channels</h2>
+    <p class="section-sub fade-in" data-i18n="sec.alerting.sub">Each alert rule can notify multiple teams on multiple channels at once. Alertmanager-inspired model.</p>
+
+    <div class="channels-grid">
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(245,158,11,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <h4>Email</h4>
+        <p>SMTP configurable</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(79,70,229,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 7h3a5 5 0 0 1 5 5 5 5 0 0 1-5 5h-3m-6 0H6a5 5 0 0 1-5-5 5 5 0 0 1 5-5h3"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+        </div>
+        <h4>Webhook</h4>
+        <p>Slack, Discord, Teams…</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(6,182,212,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+        </div>
+        <h4>ntfy.sh</h4>
+        <p>Push mobile, self-hosted</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(16,185,129,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 5 5l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 20 16z"/>
+          </svg>
+        </div>
+        <h4>Gotify</h4>
+        <p>Push mobile, self-hosted</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(59,130,246,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <h4>Jira</h4>
+        <p>Création d'issue auto</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(168,85,247,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </div>
+        <h4>Linear</h4>
+        <p>Issue tracking moderne</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(239,68,68,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+          </svg>
+        </div>
+        <h4>GitHub Issues</h4>
+        <p>Ouverture d'issue</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(251,191,36,0.10)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z"/>
+          </svg>
+        </div>
+        <h4>GitLab Issues</h4>
+        <p>Ouverture d'issue</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(16,185,129,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/>
+            <path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+            <path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/>
+            <path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/>
+            <path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/>
+            <path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/>
+            <path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/>
+            <path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/>
+          </svg>
+        </div>
+        <h4>Zammad</h4>
+        <p>Ticketing open-source</p>
+      </div>
+
+      <div class="channel-card fade-in">
+        <div class="channel-icon" style="background:rgba(99,102,241,0.12)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+            <line x1="12" y1="12" x2="12" y2="16"/>
+            <line x1="10" y1="14" x2="14" y2="14"/>
+          </svg>
+        </div>
+        <h4>GLPI</h4>
+        <p>ITSM, API REST</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     STACK TECHNIQUE
+============================================================ -->
+<section id="stack" class="section section-alt">
+  <div class="container">
+    <h2 class="section-title fade-in" data-i18n="sec.stack">Tech stack</h2>
+    <p class="section-sub fade-in" data-i18n="sec.stack.sub">Deliberate choices. No heavy framework, no hidden runtime — just Go and proven libraries.</p>
+
+    <div class="stack-wrapper fade-in">
+      <table class="stack-table">
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Role</th>
+            <th style="color:var(--text-muted);font-size:0.7rem">Used in</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#06b6d4"></span>
+                Go 1.25
+              </div>
+            </td>
+            <td class="tech-desc">Single static binary, zero runtime to install, native cross-compilation</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#4f46e5"></span>
+                HTTP/3 QUIC
+              </div>
+            </td>
+            <td class="tech-desc">UDP transport via <code style="font-size:0.8em">quic-go</code>. Automatic Alt-Svc, 0-RTT, lower latency on degraded networks</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#10b981"></span>
+                SQLite (CGO-free)
+              </div>
+            </td>
+            <td class="tech-desc">Persistance without C deps. Cross-platform binary. Optional Raft cluster (3 nodes) for Admin HA</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#14b8a6"></span>
+                WebSocket control plane
+              </div>
+            </td>
+            <td class="tech-desc">Persistent Admin↔Core and Agent↔Core tunnels. <code style="font-size:0.8em">full_sync</code>, live metrics for adaptive LB, inter-Core gateway</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#818cf8"></span>
+                Cache AES-256-GCM
+              </div>
+            </td>
+            <td class="tech-desc">Encrypted routes &amp; certs on disk. Core starts autonomously even if Admin is unreachable</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#f59e0b"></span>
+                Prometheus
+              </div>
+            </td>
+            <td class="tech-desc"><code style="font-size:0.8em">/metrics</code> endpoint on every component — drop-in Grafana integration</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#3b82f6"></span>
+                OpenTelemetry
+              </div>
+            </td>
+            <td class="tech-desc">Distributed request tracing. Configurable OTLP exporters (Jaeger, Tempo…)</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Core · Admin</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#0ea5e9"></span>
+                Docker Engine API
+              </div>
+            </td>
+            <td class="tech-desc">Read-only via <code style="font-size:0.8em">docker.sock</code>. Real-time container events (start/stop/update)</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Agent</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#ef4444"></span>
+                JWT + PAT
+              </div>
+            </td>
+            <td class="tech-desc">UI session (JWT). User API tokens <code style="font-size:0.8em">gpx_pat_*</code> with scopes for REST &amp; MCP. Separate Core/Agent pairing tokens</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#d946ef"></span>
+                MCP
+              </div>
+            </td>
+            <td class="tech-desc">Model Context Protocol (JSON-RPC + SSE). Proxies, nodes, logs, audit tools… PAT required — Claude Desktop / Cursor ready</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
+                <span class="stack-dot" style="background:#f59e0b"></span>
+                ACME DNS-01
+              </div>
+            </td>
+            <td class="tech-desc">Automatic wildcard certs via OVH, Cloudflare, Gandi, Route53, Hetzner</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin → Core</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     DOCS PLACEHOLDER
+============================================================ -->
+<section id="docs" class="section">
+  <div class="container" style="text-align:center">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:var(--radius-lg);background:rgba(79,70,229,0.10);border:1px solid rgba(79,70,229,0.22);margin-bottom:24px;box-shadow:var(--shadow);" class="fade-in">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+    </div>
+    <h2 class="section-title fade-in" data-i18n="sec.docs">Documentation</h2>
+    <p class="section-sub fade-in" style="max-width:520px" data-i18n="sec.docs.sub">
+      Guides, API contract, MCP server and version tracking — all in the repo.
+    </p>
+    <div class="features-grid fade-in" style="text-align:left;max-width:900px;margin:0 auto 28px">
+      <a href="#" id="docs-api" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">REST</div>
+        <h3 data-i18n="doc.api.title">API specifications</h3>
+        <p data-i18n="doc.api.body">Endpoints, JWT / PAT auth, pairing tokens.</p>
+      </a>
+      <a href="#" id="docs-mcp" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">MCP</div>
+        <h3 data-i18n="doc.mcp.title">Tools &amp; AI clients</h3>
+        <p data-i18n="doc.mcp.body">Claude Desktop, Cursor — plug in a <code style="font-size:.8em;background:var(--bg-surface);border:1px solid var(--border);padding:1px 5px;border-radius:3px">gpx_pat_*</code>.</p>
+      </a>
+      <a href="#" id="docs-arch" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Design</div>
+        <h3 data-i18n="doc.arch.title">Architecture</h3>
+        <p data-i18n="doc.arch.body">Admin ↔ Core ↔ Agent flows, WS control plane, adaptive LB &amp; gateway.</p>
+      </a>
+      <a href="#" id="docs-delegation" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Routing</div>
+        <h3 data-i18n="doc.deleg.title">Domain delegation</h3>
+        <p data-i18n="doc.deleg.body">Passthrough vs Terminate between entry Core and target Core.</p>
+      </a>
+    </div>
+    <div class="hero-buttons fade-in" style="justify-content:center;margin-top:0">
+      <a href="#" id="docs-github-btn" class="btn-primary" data-i18n="doc.github">View on GitHub →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     FOOTER
+============================================================ -->
+<footer>
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <div class="footer-logo">Go<span>Proxify</span></div>
+        <p>Copyright &copy; 2026 GoProxify &mdash; Apache-2.0 &mdash; Go <span id="footer-go-version">1.25</span></p>
+        <p style="margin-top:6px;font-size:0.8rem;color:var(--text-muted)">
+          <span data-i18n="footer.preview">Preview software — use at your own risk.</span>
+          <a href="#" id="footer-disclaimer" data-i18n="preview.disclaimer">Disclaimer</a>
+        </p>
+      </div>
+
+      <ul class="footer-links">
+        <li><a href="#" id="footer-github">GitHub</a></li>
+        <li><a href="#docs" data-i18n="nav.docs">Documentation</a></li>
+        <li><a href="#" id="footer-roadmap">Roadmap</a></li>
+        <li><a href="https://goproxify.dev" id="footer-site">goproxify.dev</a></li>
+      </ul>
+
+      <div class="footer-right">
+        <span class="tech-badge">Preview · 0.x</span>
+        <span class="tech-badge">Apache-2.0</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ============================================================
+     SCRIPTS
+============================================================ -->
+<script>
+(function() {
+  var LANDING_I18N = {
+    en: {
+      'nav.features': 'How it works', 'nav.architecture': 'Setup', 'nav.install': 'Install',
+      'nav.alerting': 'Alerting', 'nav.docs': 'Docs',
+      'hero.strong': 'The reverse proxy that guides every visitor to the right app.',
+      'hero.sub': 'Publish your services. GoProxify makes them reachable, protected, and easy to manage — without the jargon.',
+      'hero.cta': 'Get started in 5 minutes →',
+      'preview.banner': 'Preview (0.x) — not production-ready. Use at your own risk.',
+      'preview.disclaimer': 'Disclaimer',
+      'hero.badge': 'Open Source · Preview',
+      'install.tab.script': 'Script',
+      'install.tab.docker': 'Docker Compose',
+      'install.tab.portainer': 'Portainer',
+      'install.tab.helm': 'Helm Kubernetes',
+      'install.tab.binary': 'Binary',
+      'install.script.note': 'Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Core + Agent.',
+      'install.script.options': 'Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.docker.note': 'Official GHCR images with floating :preview tag (0.x). Optional SemVer pin via versions.json.',
+      'install.helm.note': 'Chart in the repo (helm/goproxify). Requires global.authToken. Generate secrets in your browser, then helm install.',
+      'install.portainer.intro': 'Stacks → Add stack → Web editor. Pick a model, paste the compose, deploy. Admin on port 9443.',
+      'install.portainer.with_env': 'With stack.env',
+      'install.portainer.without_env': 'Without stack.env',
+      'install.portainer.with_env.hint': 'Paste the compose, then click the key icon on stack.env to fill secrets in your browser (or load the same keys under Environment variables).',
+      'install.portainer.without_env.hint': 'Click the key icon to fill secrets in your browser, then Copy and Deploy. No stack.env needed.',
+      'install.portainer.note': 'Core and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.',
+      'install.portainer.gen': 'Generate secrets in browser',
+      'install.portainer.gen_done': 'Generated!',
+      'footer.preview': 'Preview software — use at your own risk.',
+      'sec.features': 'How GoProxify works',
+      'sec.features.sub': 'From the control panel to the architecture assistant — here is what each piece does for you day to day.',
+      'sec.architecture': 'A typical setup',
+      'sec.architecture.sub': 'One Admin to steer everything, two gateways to welcome visitors, and one Agent linked to Portainer to follow your container fleet. Visitors reach those sites through normal internet addresses (https://…).',
+      'sec.install': 'Get started in 5 minutes',
+      'sec.install.sub': 'A ready-to-run Admin + Core + Agent stack. Pick your method.',
+      'sec.alerting': '10 alert channels',
+      'sec.alerting.sub': 'Each alert rule can notify multiple teams on multiple channels at once. Alertmanager-inspired model.',
+      'sec.stack': 'Tech stack',
+      'sec.stack.sub': 'Deliberate choices. No heavy framework, no hidden runtime — just Go and proven libraries.',
+      'sec.docs': 'Documentation',
+      'sec.docs.sub': 'Guides, API contract, MCP server and version tracking — all in the repo.',
+      'doc.title': 'GoProxify — The reverse proxy that guides every visitor to the right app',
+      'doc.api.title': 'API specifications', 'doc.api.body': 'Endpoints, JWT / PAT auth, pairing tokens.',
+      'doc.mcp.title': 'Tools & AI clients', 'doc.mcp.body': 'Claude Desktop, Cursor — plug in a gpx_pat_*.',
+      'doc.arch.title': 'How it works', 'doc.arch.body': 'Admin, gateways, Agent and Portainer — a clear picture of the layout.',
+      'doc.deleg.title': 'Sharing traffic between gateways', 'doc.deleg.body': 'How several gateways work together to keep your sites available.',
+      'doc.github': 'View on GitHub →',
+      'f1.sub': 'Gateway', 'f1.title': 'The traffic gateways',
+      'f1.body': 'Gateways are the public front door. They welcome visitors on your https://… addresses and send each one to the right site in your fleet — quietly, and at scale.',
+      'f2.sub': 'Admin', 'f2.title': 'Your control panel',
+      'f2.body': 'A clear web interface to run the whole setup: publish sites, attach domain names, invite teammates, schedule backups, and follow alerts — in your language (EN, FR, ES, DE).',
+      'f3.sub': 'Agent + Portainer', 'f3.title': 'Your container fleet, connected',
+      'f3.body': 'The Agent watches your containers (via Portainer or Docker) and tells the gateways what is running. When you start, stop or move an app, public routes stay in sync.',
+      'f4.sub': 'Reliability', 'f4.title': 'Keeps working when things break',
+      'f4.body': 'Your sites should not go dark because one machine hiccups. Gateways remember their settings, a spare gateway can take over, and unhealthy apps are skipped.',
+      'f5.sub': 'Security', 'f5.title': 'Protect what you publish',
+      'f5.body': 'Putting sites on the internet invites bots and abuse. GoProxify helps you slow attacks, block threats, and ask for a login when a site should stay private.',
+      'f6.sub': 'Visibility', 'f6.title': 'See what happens',
+      'f6.body': 'Know who visits which site, spot errors quickly, and get notified where your team already works — without digging through server files.',
+      'f7.sub': 'Access', 'f7.title': 'Reach servers from the browser',
+      'f7.body': 'When an operator needs a shell on a VM or container, they open a secure terminal in the browser. You invite people, set limits, and avoid sharing passwords in chat.',
+      'hero.cta2': 'See how it works',
+      'sec.explain': 'What is a reverse proxy for?',
+      'sec.explain.sub': 'A reverse proxy lets you publish several websites on the internet — each with its own address (https://blog…, https://shop…, https://app…) — while the applications themselves stay behind, out of direct reach.',
+      'ex1.title': 'Several sites, several addresses',
+      'ex1.body': 'You run multiple apps or containers. Visitors open a normal web address for each site. They never talk to the containers directly.',
+      'ex2.title': 'One front door for all of them',
+      'ex2.body': 'GoProxify receives every visit and opens the right door: blog traffic goes to the blog, shop traffic to the shop — according to the rules you set.',
+      'ex3.title': 'You stay in control',
+      'ex3.body': 'From one place you decide which sites are public, which need a login, and how to keep them available if a machine fails.',
+      'arch.caption': 'goproxify — example layout',
+      'arch.visitors': 'Open your sites online',
+      'arch.core1.title': 'Routes each site',
+      'arch.core1.sub': 'Primary public entry',
+      'arch.core2.title': 'Same role, spare',
+      'arch.core2.sub': 'Takes over if gateway 1 fails',
+      'arch.cores.link': 'share the load',
+      'arch.admin.title': 'One control panel',
+      'arch.admin.l1': 'Configure both gateways',
+      'arch.admin.l2': 'Architecture assistant · alerts',
+      'arch.admin.push': 'pushes settings',
+      'arch.agent.title': 'Watches the fleet',
+      'arch.agent.sub': 'Reports new containers',
+      'arch.agent.up': 'updates routes',
+      'arch.portainer.title': 'Manages containers',
+      'arch.portainer.sub': 'Start · stop · deploy',
+      'arch.link': 'connected',
+      'arch.fleet': 'Your published sites',
+      'arch.manage': 'manages the fleet',
+      'arch.legend': '1 Admin · 2 gateways · 1 Agent + Portainer · N sites',
+      'arch.visitors.label': 'VISITORS',
+      'arch.visitors.urls': 'https://blog… · https://shop…',
+      'arch.visitors.via': 'via internet addresses',
+      'arch.gw1.name': 'GATEWAY 1',
+      'arch.gw2.name': 'GATEWAY 2',
+      'arch.fleet.hint': 'reached via https://…',
+      'f1.p1': 'Expose several websites behind their own internet addresses',
+      'f1.p2': 'Share load when several copies of an app are running',
+      'f1.p3': 'Keep traffic flowing if you run more than one gateway',
+      'f2.p1': 'Create and edit which address opens which site',
+      'f2.p2': 'Manage domains and certificates from one place',
+      'f2.p3': 'Design your layout with the architecture assistant',
+      'f3.p1': 'Discover new containers as they appear',
+      'f3.p2': 'Stay linked to Portainer to manage the whole fleet',
+      'f3.p3': 'Update routes automatically when apps change',
+      'f4.p1': 'Sites keep answering even if the Admin is briefly offline',
+      'f4.p2': 'A second gateway covers for the first',
+      'f4.p3': 'Failing apps are bypassed so visitors still reach a healthy copy',
+      'f5.p1': 'Limit abusive traffic and suspicious visitors',
+      'f5.p2': 'Block known threats before they reach your apps',
+      'f5.p3': 'Require a login for sensitive tools and internal apps',
+      'f6.p1': 'Live views of traffic across your published sites',
+      'f6.p2': 'Clear access logs you can actually read',
+      'f6.p3': 'Alerts on several channels when something goes wrong',
+      'f7.p1': 'Secure web terminal to VMs and containers',
+      'f7.p2': 'Invite operators with the access they need — no more',
+      'f7.p3': 'Optional second factor instead of shared passwords',
+      'f8.sub': 'Architecture assistant',
+      'f8.title': 'Draw your setup, then install it',
+      'f8.body': 'Inside the Admin, place your machines on a canvas and drop what each one needs — control panel, gateways, Agent, Portainer. GoProxify turns that picture into ready-to-run install steps, with a QR code or link to finish pairing on each host.',
+      'f8.p1': 'Drag hosts and services onto a visual board — no blank config to invent',
+      'f8.p2': 'Get install commands per machine, already wired together',
+      'f8.p3': 'Share a QR or link so a colleague can join a remote server in one scan',
+      'arch.wizard.note': 'You can build a layout like this in the Admin with the architecture assistant: place hosts on a board, then get install steps and a QR code per machine.',
+      'copy': 'Copy',
+      'copied': 'Copied!'
+    },
+    fr: {
+      'nav.features': 'Comment ça marche', 'nav.architecture': 'Configuration', 'nav.install': 'Installation',
+      'nav.alerting': 'Alerting', 'nav.docs': 'Documentation',
+      'hero.strong': 'Le reverse proxy qui guide chaque visiteur vers la bonne application.',
+      'hero.sub': 'Vous publiez vos services. GoProxify les rend accessibles, protégés et simples à piloter — sans jargon.',
+      'hero.cta': 'Démarrer en 5 minutes →',
+      'preview.banner': 'Préversion (0.x) — non production. Usage à vos risques.',
+      'preview.disclaimer': 'Avertissement',
+      'hero.badge': 'Open Source · Préversion',
+      'install.tab.script': 'Script',
+      'install.tab.docker': 'Docker Compose',
+      'install.tab.portainer': 'Portainer',
+      'install.tab.helm': 'Helm Kubernetes',
+      'install.tab.binary': 'Binaire',
+      'install.script.note': 'Génère les secrets hex-32, écrit le .env (chmod 600), vérifie Docker / ports, puis démarre Admin + Core + Agent.',
+      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (à lancer seules, jamais collées avec le bloc ci-dessus) : bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.docker.note': 'Images GHCR officielles en tag flottant :preview (0.x). Pin SemVer optionnel via versions.json.',
+      'install.helm.note': 'Chart dans le dépôt (helm/goproxify). global.authToken requis. Générez les secrets dans le navigateur, puis helm install.',
+      'install.portainer.intro': 'Stacks → Add stack → Web editor. Choisissez un modèle, collez le compose, déployez. Admin sur le port 9443.',
+      'install.portainer.with_env': 'Avec stack.env',
+      'install.portainer.without_env': 'Sans stack.env',
+      'install.portainer.with_env.hint': 'Collez le compose, puis chargez stack.env (Advanced → Load variables from .env file) ou saisissez les mêmes clés dans Environment variables. Icône clé = génération locale.',
+      'install.portainer.without_env.hint': 'Cliquez l’icône clé pour remplir les secrets dans le navigateur, puis Copier et Deploy. Pas de stack.env.',
+      'install.portainer.note': 'Le Core et l’Agent s’apairent via le même GPX_PAIRING_SECRET. Les secrets sont générés uniquement dans votre navigateur — rien n’est envoyé à un serveur.',
+      'install.portainer.gen': 'Générer les secrets dans le navigateur',
+      'install.portainer.gen_done': 'Généré !',
+      'footer.preview': 'Logiciel en préversion — usage à vos risques.',
+      'sec.features': 'Comment fonctionne GoProxify',
+      'sec.features.sub': 'Du tableau de bord à l’assistant d’architecture — voici ce que chaque pièce fait pour vous au quotidien.',
+      'sec.architecture': 'Une configuration typique',
+      'sec.architecture.sub': 'Un Admin pour tout piloter, deux passerelles pour accueillir les visiteurs, et un Agent branché sur Portainer pour suivre votre flotte. Les visiteurs atteignent ces sites via des adresses Internet normales (https://…).',
+      'sec.install': 'Démarrer en 5 minutes',
+      'sec.install.sub': 'Une stack Admin + Core + Agent prête à l’emploi. Choisissez votre méthode.',
+      'sec.alerting': "10 canaux d'alerte",
+      'sec.alerting.sub': 'Chaque règle d’alerte peut notifier plusieurs équipes sur plusieurs canaux à la fois. Modèle inspiré d’Alertmanager.',
+      'sec.stack': 'Stack technique',
+      'sec.stack.sub': 'Des choix délibérés. Pas de framework lourd, pas de runtime caché — juste Go et des bibliothèques éprouvées.',
+      'sec.docs': 'Documentation',
+      'sec.docs.sub': 'Guides, contrat API, serveur MCP et suivi des versions — le tout dans le dépôt.',
+      'doc.title': 'GoProxify — Le reverse proxy qui guide chaque visiteur vers la bonne application',
+      'doc.api.title': 'Spécifications API', 'doc.api.body': 'Endpoints, auth JWT / PAT, tokens d’appairage.',
+      'doc.mcp.title': 'Outils & clients IA', 'doc.mcp.body': 'Claude Desktop, Cursor — branchez un gpx_pat_*.',
+      'doc.arch.title': 'Comment ça marche', 'doc.arch.body': 'Admin, passerelles, Agent et Portainer — une vue claire de la configuration.',
+      'doc.deleg.title': 'Partager le trafic entre passerelles', 'doc.deleg.body': 'Comment plusieurs passerelles travaillent ensemble pour garder vos sites disponibles.',
+      'doc.github': 'Voir sur GitHub →',
+      'f1.sub': 'Passerelle', 'f1.title': 'Les passerelles de trafic',
+      'f1.body': 'Les passerelles sont la porte d’entrée publique. Elles accueillent les visiteurs sur vos adresses https://… et envoient chacun vers le bon site de la flotte — discrètement, et à grande échelle.',
+      'f2.sub': 'Admin', 'f2.title': 'Votre tableau de bord',
+      'f2.body': 'Une interface web claire pour piloter toute la config : publier des sites, rattacher des noms de domaine, inviter l’équipe, planifier des sauvegardes et suivre les alertes — dans votre langue (EN, FR, ES, DE).',
+      'f3.sub': 'Agent + Portainer', 'f3.title': 'Votre flotte de conteneurs, connectée',
+      'f3.body': 'L’Agent surveille vos conteneurs (via Portainer ou Docker) et indique aux passerelles ce qui tourne. Quand vous démarrez, arrêtez ou déplacez une app, les routes publiques restent à jour.',
+      'f4.sub': 'Fiabilité', 'f4.title': 'Continue de tourner quand ça casse',
+      'f4.body': 'Vos sites ne doivent pas s’éteindre pour un hic sur une machine. Les passerelles retiennent leurs réglages, une passerelle de secours peut prendre le relais, et les apps en panne sont contournées.',
+      'f5.sub': 'Sécurité', 'f5.title': 'Protégez ce que vous publiez',
+      'f5.body': 'Mettre des sites sur Internet attire bots et abus. GoProxify aide à ralentir les attaques, bloquer les menaces, et demander une connexion quand un site doit rester privé.',
+      'f6.sub': 'Visibilité', 'f6.title': 'Voyez ce qui se passe',
+      'f6.body': 'Savoir qui visite quel site, repérer les erreurs vite, et être notifié là où votre équipe travaille déjà — sans fouiller les fichiers serveur.',
+      'f7.sub': 'Access', 'f7.title': 'Atteindre les serveurs depuis le navigateur',
+      'f7.body': 'Quand un opérateur a besoin d’un terminal sur une VM ou un conteneur, il l’ouvre en sécurisé dans le navigateur. Vous invitez les personnes, limitez l’accès, et évitez de partager les mots de passe dans le chat.',
+      'hero.cta2': 'Voir comment ça marche',
+      'sec.explain': 'À quoi sert un reverse proxy ?',
+      'sec.explain.sub': 'Un reverse proxy sert à exposer plusieurs sites internet — chacun avec sa propre adresse (https://blog…, https://boutique…, https://app…) — pendant que les applications restent à l’abri, sans être joignables directement.',
+      'ex1.title': 'Plusieurs sites, plusieurs adresses',
+      'ex1.body': 'Vous faites tourner plusieurs applications ou conteneurs. Les visiteurs ouvrent une adresse web normale pour chaque site. Ils ne parlent jamais aux conteneurs directement.',
+      'ex2.title': 'Une seule porte d’entrée pour tous',
+      'ex2.body': 'GoProxify reçoit chaque visite et ouvre la bonne porte : le blog vers le blog, la boutique vers la boutique — selon les règles que vous définissez.',
+      'ex3.title': 'Vous gardez le contrôle',
+      'ex3.body': 'Depuis un seul endroit, vous décidez quels sites sont publics, lesquels demandent une connexion, et comment rester disponible si une machine tombe.',
+      'arch.caption': 'goproxify — exemple de configuration',
+      'arch.visitors': 'Ouvrent vos sites en ligne',
+      'arch.core1.title': 'Achemine chaque site',
+      'arch.core1.sub': 'Entrée publique principale',
+      'arch.core2.title': 'Même rôle, secours',
+      'arch.core2.sub': 'Prend le relais si la 1 tombe',
+      'arch.cores.link': 'partagent la charge',
+      'arch.admin.title': 'Un seul tableau de bord',
+      'arch.admin.l1': 'Configure les deux passerelles',
+      'arch.admin.l2': 'Assistant d’architecture · alertes',
+      'arch.admin.push': 'envoie les réglages',
+      'arch.agent.title': 'Surveille la flotte',
+      'arch.agent.sub': 'Signale les nouveaux conteneurs',
+      'arch.agent.up': 'met à jour les routes',
+      'arch.portainer.title': 'Gère les conteneurs',
+      'arch.portainer.sub': 'Démarrer · arrêter · déployer',
+      'arch.link': 'connecté',
+      'arch.fleet': 'Vos sites publiés',
+      'arch.manage': 'pilote la flotte',
+      'arch.legend': '1 Admin · 2 passerelles · 1 Agent + Portainer · N sites',
+      'arch.visitors.label': 'VISITEURS',
+      'arch.visitors.urls': 'https://blog… · https://boutique…',
+      'arch.visitors.via': 'via des adresses Internet',
+      'arch.gw1.name': 'PASSERELLE 1',
+      'arch.gw2.name': 'PASSERELLE 2',
+      'arch.fleet.hint': 'accessibles via https://…',
+      'f1.p1': 'Exposer plusieurs sites derrière leurs propres adresses Internet',
+      'f1.p2': 'Répartir la charge quand plusieurs copies d’une app tournent',
+      'f1.p3': 'Garder le trafic fluide si vous lancez plusieurs passerelles',
+      'f2.p1': 'Créer et modifier quelle adresse ouvre quel site',
+      'f2.p2': 'Gérer domaines et certificats depuis un seul endroit',
+      'f2.p3': 'Concevoir votre layout avec l’assistant d’architecture',
+      'f3.p1': 'Découvrir les nouveaux conteneurs dès qu’ils apparaissent',
+      'f3.p2': 'Rester branché sur Portainer pour piloter toute la flotte',
+      'f3.p3': 'Mettre à jour les routes automatiquement quand les apps changent',
+      'f4.p1': 'Les sites répondent même si l’Admin est brièvement hors ligne',
+      'f4.p2': 'Une seconde passerelle couvre la première',
+      'f4.p3': 'Les apps en panne sont contournées pour joindre une copie saine',
+      'f5.p1': 'Limiter le trafic abusif et les visiteurs suspects',
+      'f5.p2': 'Bloquer les menaces connues avant qu’elles touchent vos apps',
+      'f5.p3': 'Exiger une connexion pour les outils sensibles et apps internes',
+      'f6.p1': 'Vues en direct du trafic sur vos sites publiés',
+      'f6.p2': 'Journaux d’accès clairs et lisibles',
+      'f6.p3': 'Alertes sur plusieurs canaux quand quelque chose cloche',
+      'f7.p1': 'Terminal web sécurisé vers VMs et conteneurs',
+      'f7.p2': 'Inviter des opérateurs avec juste l’accès nécessaire',
+      'f7.p3': 'Second facteur optionnel plutôt que des mots de passe partagés',
+      'f8.sub': 'Assistant d’architecture',
+      'f8.title': 'Dessinez votre config, puis installez-la',
+      'f8.body': 'Dans l’Admin, placez vos machines sur une toile et déposez ce dont chacune a besoin — tableau de bord, passerelles, Agent, Portainer. GoProxify transforme ce dessin en étapes d’install prêtes à coller, avec un QR code ou un lien pour finaliser l’appairage sur chaque hôte.',
+      'f8.p1': 'Glisser hôtes et services sur un tableau — sans inventer une config à blanc',
+      'f8.p2': 'Recevoir les commandes d’install par machine, déjà branchées entre elles',
+      'f8.p3': 'Partager un QR ou un lien pour qu’un collègue joigne un serveur distant en un scan',
+      'arch.wizard.note': 'Vous pouvez construire une config comme celle-ci dans l’Admin avec l’assistant d’architecture : placez les hôtes sur une toile, puis obtenez les étapes d’install et un QR code par machine.',
+      'copy': 'Copier',
+      'copied': 'Copié !'
+    },
+    es: {
+      'nav.features': 'Cómo funciona', 'nav.architecture': 'Configuración', 'nav.install': 'Instalación',
+      'nav.alerting': 'Alertas', 'nav.docs': 'Documentación',
+      'hero.strong': 'El reverse proxy que guía a cada visitante hacia la aplicación correcta.',
+      'hero.sub': 'Publica tus servicios. GoProxify los hace accesibles, protegidos y fáciles de gestionar — sin jerga.',
+      'hero.cta': 'Empezar en 5 minutos →',
+      'preview.banner': 'Vista previa (0.x) — no listo para producción. Úselo bajo su propio riesgo.',
+      'preview.disclaimer': 'Aviso legal',
+      'hero.badge': 'Open Source · Vista previa',
+      'install.tab.script': 'Script',
+      'install.tab.docker': 'Docker Compose',
+      'install.tab.portainer': 'Portainer',
+      'install.tab.helm': 'Helm Kubernetes',
+      'install.tab.binary': 'Binario',
+      'install.script.note': 'Genera secretos hex-32, escribe .env (chmod 600), comprueba Docker / puertos y arranca Admin + Core + Agent.',
+      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (ejecutar solas, no pegar con el bloque de arriba): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.docker.note': 'Imágenes GHCR oficiales con etiqueta flotante :preview (0.x). Pin SemVer opcional vía versions.json.',
+      'install.helm.note': 'Chart en el repo (helm/goproxify). Requiere global.authToken. Genere secretos en el navegador y luego helm install.',
+      'install.portainer.intro': 'Stacks → Add stack → Web editor. Elija un modelo, pegue el compose y despliegue. Admin en el puerto 9443.',
+      'install.portainer.with_env': 'Con stack.env',
+      'install.portainer.without_env': 'Sin stack.env',
+      'install.portainer.with_env.hint': 'Pegue el compose y cargue stack.env (Advanced → Load variables from .env file) o defina las mismas claves en Environment variables. Icono llave = generación local.',
+      'install.portainer.without_env.hint': 'Pulse el icono de llave para rellenar secretos en el navegador, luego Copiar y Deploy. Sin stack.env.',
+      'install.portainer.note': 'Core y Agent se emparejan con el mismo GPX_PAIRING_SECRET. Los secretos se generan solo en su navegador — no se envían a ningún servidor.',
+      'install.portainer.gen': 'Generar secretos en el navegador',
+      'install.portainer.gen_done': '¡Generado!',
+      'footer.preview': 'Software en vista previa — úselo bajo su propio riesgo.',
+      'sec.features': 'Cómo funciona GoProxify',
+      'sec.features.sub': 'Del panel de control al asistente de arquitectura — esto es lo que cada pieza hace por ti a diario.',
+      'sec.architecture': 'Una configuración típica',
+      'sec.architecture.sub': 'Un Admin para dirigirlo todo, dos pasarelas para recibir visitantes, y un Agent conectado a Portainer para seguir tu flota. Los visitantes alcanzan esos sitios con direcciones de internet normales (https://…).',
+      'sec.install': 'Empezar en 5 minutos',
+      'sec.install.sub': 'Un stack Admin + Core + Agent listo para usar. Elige tu método.',
+      'sec.alerting': '10 canales de alerta',
+      'sec.alerting.sub': 'Cada regla de alerta puede notificar a varios equipos en varios canales a la vez. Modelo inspirado en Alertmanager.',
+      'sec.stack': 'Stack técnico',
+      'sec.stack.sub': 'Elecciones deliberadas. Sin framework pesado ni runtime oculto — solo Go y librerías probadas.',
+      'sec.docs': 'Documentación',
+      'sec.docs.sub': 'Guías, contrato API, servidor MCP y seguimiento de versiones — todo en el repositorio.',
+      'doc.title': 'GoProxify — El reverse proxy que guía a cada visitante hacia la aplicación correcta',
+      'doc.api.title': 'Especificaciones API', 'doc.api.body': 'Endpoints, auth JWT / PAT, tokens de emparejamiento.',
+      'doc.mcp.title': 'Herramientas y clientes IA', 'doc.mcp.body': 'Claude Desktop, Cursor — conecta un gpx_pat_*.',
+      'doc.arch.title': 'Cómo funciona', 'doc.arch.body': 'Admin, pasarelas, Agent y Portainer — una vista clara de la configuración.',
+      'doc.deleg.title': 'Compartir tráfico entre pasarelas', 'doc.deleg.body': 'Cómo varias pasarelas trabajan juntas para mantener tus sitios disponibles.',
+      'doc.github': 'Ver en GitHub →',
+      'f1.sub': 'Pasarela', 'f1.title': 'Las pasarelas de tráfico',
+      'f1.body': 'Las pasarelas son la puerta pública. Reciben a los visitantes en tus direcciones https://… y envían a cada uno al sitio correcto de la flota — en silencio y a escala.',
+      'f2.sub': 'Admin', 'f2.title': 'Tu panel de control',
+      'f2.body': 'Una interfaz web clara para dirigir todo: publicar sitios, asociar dominios, invitar al equipo, programar backups y seguir alertas — en tu idioma (EN, FR, ES, DE).',
+      'f3.sub': 'Agent + Portainer', 'f3.title': 'Tu flota de contenedores, conectada',
+      'f3.body': 'El Agent vigila tus contenedores (vía Portainer o Docker) y dice a las pasarelas qué está en marcha. Al iniciar, parar o mover una app, las rutas públicas se mantienen al día.',
+      'f4.sub': 'Fiabilidad', 'f4.title': 'Sigue funcionando cuando algo falla',
+      'f4.body': 'Tus sitios no deberían apagarse por un tropiezo de una máquina. Las pasarelas recuerdan su configuración, una de reserva puede tomar el relevo y las apps enfermas se omiten.',
+      'f5.sub': 'Seguridad', 'f5.title': 'Protege lo que publicas',
+      'f5.body': 'Publicar en internet atrae bots y abusos. GoProxify ayuda a frenar ataques, bloquear amenazas y pedir inicio de sesión cuando un sitio debe ser privado.',
+      'f6.sub': 'Visibilidad', 'f6.title': 'Ve lo que ocurre',
+      'f6.body': 'Saber quién visita qué sitio, detectar errores rápido y recibir avisos donde ya trabaja tu equipo — sin husmear archivos del servidor.',
+      'f7.sub': 'Access', 'f7.title': 'Accede a servidores desde el navegador',
+      'f7.body': 'Cuando un operador necesita un shell en una VM o contenedor, abre un terminal seguro en el navegador. Invitas personas, limitas el acceso y evitas compartir contraseñas en el chat.',
+      'hero.cta2': 'Ver cómo funciona',
+      'sec.explain': '¿Para qué sirve un reverse proxy?',
+      'sec.explain.sub': 'Un reverse proxy sirve para publicar varios sitios en internet — cada uno con su propia dirección (https://blog…, https://tienda…, https://app…) — mientras las aplicaciones permanecen detrás, sin ser alcanzables directamente.',
+      'ex1.title': 'Varios sitios, varias direcciones',
+      'ex1.body': 'Ejecutas varias apps o contenedores. Los visitantes abren una dirección web normal para cada sitio. Nunca hablan con los contenedores directamente.',
+      'ex2.title': 'Una sola puerta de entrada para todos',
+      'ex2.body': 'GoProxify recibe cada visita y abre la puerta correcta: el blog al blog, la tienda a la tienda — según las reglas que defines.',
+      'ex3.title': 'Tú mantienes el control',
+      'ex3.body': 'Desde un solo lugar decides qué sitios son públicos, cuáles requieren inicio de sesión y cómo seguir disponibles si una máquina falla.',
+      'arch.caption': 'goproxify — ejemplo de configuración',
+      'arch.visitors': 'Abren tus sitios online',
+      'arch.core1.title': 'Enruta cada sitio',
+      'arch.core1.sub': 'Entrada pública principal',
+      'arch.core2.title': 'Mismo rol, reserva',
+      'arch.core2.sub': 'Toma el relevo si falla la 1',
+      'arch.cores.link': 'reparten la carga',
+      'arch.admin.title': 'Un solo panel de control',
+      'arch.admin.l1': 'Configura ambas pasarelas',
+      'arch.admin.l2': 'Asistente de arquitectura · alertas',
+      'arch.admin.push': 'envía ajustes',
+      'arch.agent.title': 'Vigila la flota',
+      'arch.agent.sub': 'Avisa de nuevos contenedores',
+      'arch.agent.up': 'actualiza rutas',
+      'arch.portainer.title': 'Gestiona contenedores',
+      'arch.portainer.sub': 'Iniciar · parar · desplegar',
+      'arch.link': 'conectado',
+      'arch.fleet': 'Tus sitios publicados',
+      'arch.manage': 'gestiona la flota',
+      'arch.legend': '1 Admin · 2 pasarelas · 1 Agent + Portainer · N sitios',
+      'arch.visitors.label': 'VISITANTES',
+      'arch.visitors.urls': 'https://blog… · https://tienda…',
+      'arch.visitors.via': 'vía direcciones de internet',
+      'arch.gw1.name': 'PASARELA 1',
+      'arch.gw2.name': 'PASARELA 2',
+      'arch.fleet.hint': 'accesibles vía https://…',
+      'f1.p1': 'Publicar varios sitios detrás de sus propias direcciones de internet',
+      'f1.p2': 'Repartir la carga cuando hay varias copias de una app',
+      'f1.p3': 'Mantener el tráfico si ejecutas más de una pasarela',
+      'f2.p1': 'Crear y editar qué dirección abre qué sitio',
+      'f2.p2': 'Gestionar dominios y certificados en un solo lugar',
+      'f2.p3': 'Diseñar tu layout con el asistente de arquitectura',
+      'f3.p1': 'Descubrir contenedores nuevos en cuanto aparecen',
+      'f3.p2': 'Seguir conectado a Portainer para gestionar toda la flota',
+      'f3.p3': 'Actualizar rutas automáticamente cuando las apps cambian',
+      'f4.p1': 'Los sitios siguen respondiendo si el Admin está offline un momento',
+      'f4.p2': 'Una segunda pasarela cubre a la primera',
+      'f4.p3': 'Las apps fallidas se omiten para llegar a una copia sana',
+      'f5.p1': 'Limitar tráfico abusivo y visitantes sospechosos',
+      'f5.p2': 'Bloquear amenazas conocidas antes de que lleguen a tus apps',
+      'f5.p3': 'Exigir login para herramientas sensibles y apps internas',
+      'f6.p1': 'Vistas en vivo del tráfico en tus sitios publicados',
+      'f6.p2': 'Registros de acceso claros y legibles',
+      'f6.p3': 'Alertas en varios canales cuando algo va mal',
+      'f7.p1': 'Terminal web seguro hacia VMs y contenedores',
+      'f7.p2': 'Invitar operadores solo con el acceso necesario',
+      'f7.p3': 'Segundo factor opcional en lugar de contraseñas compartidas',
+      'f8.sub': 'Asistente de arquitectura',
+      'f8.title': 'Dibuja tu setup y luego instálalo',
+      'f8.body': 'En el Admin, coloca tus máquinas en un lienzo y suelta lo que cada una necesita — panel, pasarelas, Agent, Portainer. GoProxify convierte ese dibujo en pasos de instalación listos, con un QR o enlace para terminar el emparejamiento en cada host.',
+      'f8.p1': 'Arrastra hosts y servicios a un tablero — sin inventar una config en blanco',
+      'f8.p2': 'Obtén comandos de install por máquina, ya cableados entre sí',
+      'f8.p3': 'Comparte un QR o enlace para que un colega una un servidor remoto de un escaneo',
+      'arch.wizard.note': 'Puedes construir un layout como este en el Admin con el asistente de arquitectura: coloca hosts en un tablero y obtén pasos de install y un QR por máquina.',
+      'copy': 'Copiar',
+      'copied': '¡Copiado!'
+    },
+    de: {
+      'nav.features': 'So funktioniert’s', 'nav.architecture': 'Aufbau', 'nav.install': 'Installation',
+      'nav.alerting': 'Alerting', 'nav.docs': 'Dokumentation',
+      'hero.strong': 'Der Reverse-Proxy, der jeden Besucher zur richtigen App führt.',
+      'hero.sub': 'Veröffentlichen Sie Ihre Dienste. GoProxify macht sie erreichbar, geschützt und einfach zu steuern — ohne Fachchinesisch.',
+      'hero.cta': 'In 5 Minuten starten →',
+      'preview.banner': 'Vorschau (0.x) — nicht produktionsreif. Nutzung auf eigene Gefahr.',
+      'preview.disclaimer': 'Haftungsausschluss',
+      'hero.badge': 'Open Source · Vorschau',
+      'install.tab.script': 'Skript',
+      'install.tab.docker': 'Docker Compose',
+      'install.tab.portainer': 'Portainer',
+      'install.tab.helm': 'Helm Kubernetes',
+      'install.tab.binary': 'Binär',
+      'install.script.note': 'Erzeugt hex-32-Secrets, schreibt .env (chmod 600), prüft Docker / Ports und startet Admin + Core + Agent.',
+      'install.script.options': 'Admin UI → http://localhost:9443. Varianten (einzeln ausführen, nie mit dem Block oben einfügen): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.docker.note': 'Offizielle GHCR-Images mit Floating-Tag :preview (0.x). Optionales SemVer-Pin über versions.json.',
+      'install.helm.note': 'Chart im Repo (helm/goproxify). global.authToken erforderlich. Secrets im Browser erzeugen, dann helm install.',
+      'install.portainer.intro': 'Stacks → Add stack → Web editor. Modell wählen, Compose einfügen, deployen. Admin auf Port 9443.',
+      'install.portainer.with_env': 'Mit stack.env',
+      'install.portainer.without_env': 'Ohne stack.env',
+      'install.portainer.with_env.hint': 'Compose einfügen, dann stack.env laden (Advanced → Load variables from .env file) oder dieselben Keys unter Environment variables setzen. Schlüssel-Icon = lokale Generierung.',
+      'install.portainer.without_env.hint': 'Schlüssel-Icon klicken, um Secrets im Browser zu füllen, dann Kopieren und Deploy. Kein stack.env.',
+      'install.portainer.note': 'Core und Agent koppeln sich über dasselbe GPX_PAIRING_SECRET. Secrets werden nur in Ihrem Browser erzeugt — nichts wird an einen Server gesendet.',
+      'install.portainer.gen': 'Secrets im Browser erzeugen',
+      'install.portainer.gen_done': 'Erzeugt!',
+      'footer.preview': 'Vorschau-Software — Nutzung auf eigene Gefahr.',
+      'sec.features': 'So funktioniert GoProxify',
+      'sec.features.sub': 'Vom Bedienpanel bis zum Architektur-Assistenten — so hilft Ihnen jeder Baustein im Alltag.',
+      'sec.architecture': 'Ein typischer Aufbau',
+      'sec.architecture.sub': 'Ein Admin steuert alles, zwei Gateways empfangen Besucher, und ein Agent ist mit Portainer verbunden. Besucher erreichen die Sites über normale Internet-Adressen (https://…).',
+      'sec.install': 'In 5 Minuten starten',
+      'sec.install.sub': 'Ein fertiger Admin + Core + Agent-Stack. Wählen Sie Ihre Methode.',
+      'sec.alerting': '10 Alert-Kanäle',
+      'sec.alerting.sub': 'Jede Alert-Regel kann mehrere Teams auf mehreren Kanälen gleichzeitig benachrichtigen. Alertmanager-inspiriertes Modell.',
+      'sec.stack': 'Tech-Stack',
+      'sec.stack.sub': 'Bewusste Entscheidungen. Kein schweres Framework, keine versteckte Runtime — nur Go und bewährte Bibliotheken.',
+      'sec.docs': 'Dokumentation',
+      'sec.docs.sub': 'Guides, API-Vertrag, MCP-Server und Versionsverfolgung — alles im Repo.',
+      'doc.title': 'GoProxify — Der Reverse-Proxy, der jeden Besucher zur richtigen App führt',
+      'doc.api.title': 'API-Spezifikationen', 'doc.api.body': 'Endpoints, JWT-/PAT-Auth, Pairing-Tokens.',
+      'doc.mcp.title': 'Tools & KI-Clients', 'doc.mcp.body': 'Claude Desktop, Cursor — gpx_pat_* anbinden.',
+      'doc.arch.title': 'So funktioniert’s', 'doc.arch.body': 'Admin, Gateways, Agent und Portainer — ein klares Bild des Aufbaus.',
+      'doc.deleg.title': 'Traffic zwischen Gateways teilen', 'doc.deleg.body': 'Wie mehrere Gateways zusammenarbeiten, damit Ihre Sites erreichbar bleiben.',
+      'doc.github': 'Auf GitHub ansehen →',
+      'f1.sub': 'Gateway', 'f1.title': 'Die Traffic-Gateways',
+      'f1.body': 'Gateways sind die öffentliche Haustür. Sie empfangen Besucher auf Ihren https://…-Adressen und senden jeden zur richtigen Site in der Flotte — ruhig und skalierbar.',
+      'f2.sub': 'Admin', 'f2.title': 'Ihr Bedienpanel',
+      'f2.body': 'Eine klare Weboberfläche für das ganze Setup: Sites veröffentlichen, Domains zuordnen, Team einladen, Backups planen und Alerts verfolgen — in Ihrer Sprache (EN, FR, ES, DE).',
+      'f3.sub': 'Agent + Portainer', 'f3.title': 'Ihre Container-Flotte, verbunden',
+      'f3.body': 'Der Agent beobachtet Ihre Container (über Portainer oder Docker) und meldet den Gateways, was läuft. Wenn Sie eine App starten, stoppen oder verschieben, bleiben öffentliche Routen aktuell.',
+      'f4.sub': 'Zuverlässigkeit', 'f4.title': 'Läuft weiter, wenn etwas bricht',
+      'f4.body': 'Ihre Sites sollten nicht ausfallen, weil eine Maschine hakt. Gateways merken sich Einstellungen, ein Reserve-Gateway kann übernehmen, und kranke Apps werden übersprungen.',
+      'f5.sub': 'Sicherheit', 'f5.title': 'Schützen Sie, was Sie veröffentlichen',
+      'f5.body': 'Sites im Internet ziehen Bots und Missbrauch an. GoProxify hilft, Angriffe zu drosseln, Bedrohungen zu blockieren und Login zu verlangen, wenn eine Site privat bleiben soll.',
+      'f6.sub': 'Sichtbarkeit', 'f6.title': 'Sehen Sie, was passiert',
+      'f6.body': 'Wissen, wer welche Site besucht, Fehler schnell sehen und dort benachrichtigt werden, wo Ihr Team schon arbeitet — ohne Serverdateien zu wühlen.',
+      'f7.sub': 'Access', 'f7.title': 'Server im Browser erreichen',
+      'f7.body': 'Wenn ein Operator eine Shell auf einer VM oder einem Container braucht, öffnet er ein sicheres Terminal im Browser. Sie laden Personen ein, setzen Grenzen und teilen keine Passwörter im Chat.',
+      'hero.cta2': 'So funktioniert’s ansehen',
+      'sec.explain': 'Wozu dient ein Reverse-Proxy?',
+      'sec.explain.sub': 'Ein Reverse-Proxy dient dazu, mehrere Websites im Internet zu veröffentlichen — jede mit eigener Adresse (https://blog…, https://shop…, https://app…) — während die Anwendungen selbst dahinter bleiben und nicht direkt erreichbar sind.',
+      'ex1.title': 'Mehrere Sites, mehrere Adressen',
+      'ex1.body': 'Sie betreiben mehrere Apps oder Container. Besucher öffnen für jede Site eine normale Webadresse. Sie sprechen nie direkt mit den Containern.',
+      'ex2.title': 'Eine Haustür für alle',
+      'ex2.body': 'GoProxify empfängt jeden Besuch und öffnet die richtige Tür: Blog-Traffic zum Blog, Shop-Traffic zum Shop — nach Ihren Regeln.',
+      'ex3.title': 'Sie behalten die Kontrolle',
+      'ex3.body': 'An einem Ort entscheiden Sie, welche Sites öffentlich sind, welche Login brauchen und wie sie verfügbar bleiben, wenn eine Maschine ausfällt.',
+      'arch.caption': 'goproxify — Beispielaufbau',
+      'arch.visitors': 'Öffnen Ihre Sites online',
+      'arch.core1.title': 'Leitet jede Site weiter',
+      'arch.core1.sub': 'Primärer öffentlicher Einstieg',
+      'arch.core2.title': 'Gleiche Rolle, Reserve',
+      'arch.core2.sub': 'Übernimmt, wenn Gateway 1 ausfällt',
+      'arch.cores.link': 'teilen die Last',
+      'arch.admin.title': 'Ein Bedienpanel',
+      'arch.admin.l1': 'Konfiguriert beide Gateways',
+      'arch.admin.l2': 'Architektur-Assistent · Alerts',
+      'arch.admin.push': 'sendet Einstellungen',
+      'arch.agent.title': 'Beobachtet die Flotte',
+      'arch.agent.sub': 'Meldet neue Container',
+      'arch.agent.up': 'aktualisiert Routen',
+      'arch.portainer.title': 'Verwaltet Container',
+      'arch.portainer.sub': 'Start · Stop · Deploy',
+      'arch.link': 'verbunden',
+      'arch.fleet': 'Ihre veröffentlichten Sites',
+      'arch.manage': 'steuert die Flotte',
+      'arch.legend': '1 Admin · 2 Gateways · 1 Agent + Portainer · N Sites',
+      'arch.visitors.label': 'BESUCHER',
+      'arch.visitors.urls': 'https://blog… · https://shop…',
+      'arch.visitors.via': 'über Internet-Adressen',
+      'arch.gw1.name': 'GATEWAY 1',
+      'arch.gw2.name': 'GATEWAY 2',
+      'arch.fleet.hint': 'erreichbar über https://…',
+      'f1.p1': 'Mehrere Websites hinter eigenen Internet-Adressen veröffentlichen',
+      'f1.p2': 'Last verteilen, wenn mehrere App-Kopien laufen',
+      'f1.p3': 'Traffic am Laufen halten, wenn Sie mehrere Gateways betreiben',
+      'f2.p1': 'Anlegen und ändern, welche Adresse welche Site öffnet',
+      'f2.p2': 'Domains und Zertifikate an einem Ort verwalten',
+      'f2.p3': 'Ihr Layout mit dem Architektur-Assistenten entwerfen',
+      'f3.p1': 'Neue Container entdecken, sobald sie erscheinen',
+      'f3.p2': 'Mit Portainer verbunden bleiben, um die ganze Flotte zu steuern',
+      'f3.p3': 'Routen automatisch aktualisieren, wenn Apps wechseln',
+      'f4.p1': 'Sites antworten weiter, auch wenn das Admin kurz offline ist',
+      'f4.p2': 'Ein zweites Gateway deckt das erste ab',
+      'f4.p3': 'Ausfallende Apps werden umgangen, damit Besucher eine gesunde Kopie erreichen',
+      'f5.p1': 'Missbräuchlichen Traffic und verdächtige Besucher begrenzen',
+      'f5.p2': 'Bekannte Bedrohungen blockieren, bevor sie Apps erreichen',
+      'f5.p3': 'Login für sensible Tools und interne Apps verlangen',
+      'f6.p1': 'Live-Ansichten des Traffics auf Ihren veröffentlichten Sites',
+      'f6.p2': 'Klare, lesbare Access-Logs',
+      'f6.p3': 'Alerts auf mehreren Kanälen, wenn etwas schiefläuft',
+      'f7.p1': 'Sicheres Web-Terminal zu VMs und Containern',
+      'f7.p2': 'Operatoren nur mit dem nötigen Zugang einladen',
+      'f7.p3': 'Optionaler zweiter Faktor statt geteilter Passwörter',
+      'f8.sub': 'Architektur-Assistent',
+      'f8.title': 'Setup zeichnen, dann installieren',
+      'f8.body': 'Im Admin platzieren Sie Maschinen auf einer Leinwand und legen ab, was jede braucht — Bedienpanel, Gateways, Agent, Portainer. GoProxify macht daraus fertige Install-Schritte, mit QR-Code oder Link zum Pairing auf jedem Host.',
+      'f8.p1': 'Hosts und Dienste auf ein Board ziehen — ohne leere Config zu erfinden',
+      'f8.p2': 'Install-Befehle pro Maschine erhalten, bereits verdrahtet',
+      'f8.p3': 'QR oder Link teilen, damit ein Kollege einen entfernten Server per Scan anbindet',
+      'arch.wizard.note': 'Ein Layout wie dieses können Sie im Admin mit dem Architektur-Assistenten bauen: Hosts auf ein Board legen, dann Install-Schritte und einen QR-Code pro Maschine erhalten.',
+      'copy': 'Kopieren',
+      'copied': 'Kopiert!'
+    }
+  };
+
+  var LANDING_LOCALES = ['en', 'fr', 'es', 'de'];
+  function parseLoc(tag) {
+    if (!tag) return 'en';
+    var base = String(tag).toLowerCase().split(/[-_]/)[0];
+    return LANDING_LOCALES.indexOf(base) >= 0 ? base : 'en';
+  }
+  function resolveLoc() {
+    try {
+      var o = localStorage.getItem('gpx_landing_locale');
+      if (o && LANDING_LOCALES.indexOf(o) >= 0) return o;
+    } catch (e) {}
+    return parseLoc(navigator.language || 'en');
+  }
+  function applyLandingI18n(loc) {
+    loc = loc || resolveLoc();
+    var pack = LANDING_I18N[loc] || LANDING_I18N.en;
+    document.querySelectorAll('[data-i18n]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n');
+      if (k && pack[k]) el.textContent = pack[k];
+    });
+    document.querySelectorAll('[data-i18n-title]').forEach(function(el) {
+      var k = el.getAttribute('data-i18n-title');
+      if (k && pack[k]) {
+        el.title = pack[k];
+        el.setAttribute('aria-label', pack[k]);
+      }
+    });
+    if (pack['doc.title']) document.title = pack['doc.title'];
+  }
+  function setLoc(loc) {
+    loc = parseLoc(loc);
+    try { localStorage.setItem('gpx_landing_locale', loc); } catch (e) {}
+    document.documentElement.lang = loc;
+    applyLandingI18n(loc);
+    var btn = document.getElementById('lang-switch');
+    if (btn) btn.textContent = loc.toUpperCase();
+  }
+  window.landingToggleLang = function() {
+    var cur = resolveLoc();
+    var i = LANDING_LOCALES.indexOf(cur);
+    setLoc(LANDING_LOCALES[(i + 1) % LANDING_LOCALES.length]);
+  };
+
+  function applyDisplayVersion(vers) {
+    if (!vers || !vers.admin) return;
+    if (typeof SITE_CONFIG !== 'undefined') {
+      SITE_CONFIG.version = vers.admin;
+      SITE_CONFIG.versions = {
+        admin: vers.admin,
+        core: vers.core || SITE_CONFIG.versions && SITE_CONFIG.versions.core,
+        agent: vers.agent || SITE_CONFIG.versions && SITE_CONFIG.versions.agent
+      };
+    }
+    document.querySelectorAll('.hero-version').forEach(function(el) {
+      el.textContent = 'v' + vers.admin;
+    });
+    document.querySelectorAll('.go-version').forEach(function(el) {
+      el.textContent = vers.admin;
+    });
+  }
+
+  if (typeof SITE_CONFIG !== 'undefined') {
+    document.querySelectorAll('.hero-version').forEach(function(el) {
+      el.textContent = 'v' + SITE_CONFIG.version;
+    });
+    document.querySelectorAll('.go-version').forEach(function(el) {
+      el.textContent = SITE_CONFIG.version;
+    });
+    var goVer = SITE_CONFIG.goVersion || '1.25';
+    var goEl = document.getElementById('hero-go-version');
+    if (goEl) goEl.textContent = 'Go ' + goVer;
+    var footGo = document.getElementById('footer-go-version');
+    if (footGo) footGo.textContent = goVer;
+    var ghLinks = ['nav-github', 'docs-github-btn', 'footer-github'];
+    ghLinks.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.href = SITE_CONFIG.githubUrl;
+    });
+    var base = SITE_CONFIG.githubUrl + '/blob/public/main/';
+    var docMap = {
+      'docs-api': base + 'docs/api_specs.md',
+      'docs-mcp': base + 'docs/mcp.md',
+      'docs-arch': base + 'docs/architecture.md',
+      'docs-delegation': base + 'docs/delegation.md',
+    };
+    Object.keys(docMap).forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.href = docMap[id];
+    });
+    document.querySelectorAll('.install-domain').forEach(function(el) {
+      el.textContent = SITE_CONFIG.domain;
+    });
+    var roadmap = document.getElementById('footer-roadmap');
+    if (roadmap) roadmap.href = SITE_CONFIG.githubUrl + '/blob/public/main/suivi/roadmap-public.md';
+    var disc = SITE_CONFIG.disclaimerUrl || (SITE_CONFIG.githubUrl + '/blob/public/main/DISCLAIMER.md');
+    ['banner-disclaimer', 'footer-disclaimer'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.href = disc;
+    });
+    var site = document.getElementById('footer-site');
+    if (site && SITE_CONFIG.domain) site.href = 'https://' + SITE_CONFIG.domain;
+
+    // Affichage SemVer depuis versions.json ; images install restent :preview
+    if (SITE_CONFIG.versions) applyDisplayVersion(SITE_CONFIG.versions);
+    fetch('https://raw.githubusercontent.com/Vincamok/goproxify/public/main/versions.json', { cache: 'no-store' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('versions.json HTTP ' + r.status);
+        return r.json();
+      })
+      .then(applyDisplayVersion)
+      .catch(function() { /* offline / privé : garder config.js */ });
+  }
+
+  setLoc(resolveLoc());
+
+  function flashCopyBtn(btn) {
+    if (!btn) return;
+    var loc = resolveLoc();
+    var pack = LANDING_I18N[loc] || LANDING_I18N.en;
+    var copied = pack.copied || 'Copied!';
+    var label = pack.copy || 'Copy';
+    btn.textContent = copied;
+    setTimeout(function() { btn.textContent = label; }, 1500);
+  }
+
+  function writeClipboard(text, btn) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() { flashCopyBtn(btn); }).catch(function() {
+        fallbackCopy(text, btn);
+      });
+    } else {
+      fallbackCopy(text, btn);
+    }
+  }
+
+  function fallbackCopy(text, btn) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); flashCopyBtn(btn); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  window.copyFileBlock = function(id) {
+    var pre = document.getElementById(id);
+    if (!pre) return;
+    var text = pre.innerText || pre.textContent;
+    var btn = pre.closest('.file-block').querySelector('.file-block-copy');
+    writeClipboard(text, btn);
+  };
+
+  window.copyCodeBlock = function(id) {
+    var body = document.getElementById(id);
+    if (!body) return;
+    var lines = [];
+    Array.prototype.forEach.call(body.children, function(row) {
+      var cmd = row.querySelector('.cmd');
+      var comment = row.querySelector('.comment');
+      if (cmd) {
+        lines.push(cmd.textContent);
+      } else if (comment) {
+        lines.push(comment.textContent);
+      } else {
+        lines.push('');
+      }
+    });
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    var text = lines.join('\n');
+    var btn = body.closest('.code-block').querySelector('.file-block-copy');
+    writeClipboard(text, btn);
+  };
+
+  function hex32Browser() {
+    var bytes = new Uint8Array(32);
+    if (window.crypto && window.crypto.getRandomValues) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (var i = 0; i < 32; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    var out = '';
+    for (var j = 0; j < bytes.length; j++) {
+      out += (bytes[j] < 16 ? '0' : '') + bytes[j].toString(16);
+    }
+    return out;
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function flashGenBtn(btn) {
+    if (!btn) return;
+    var loc = resolveLoc();
+    var pack = LANDING_I18N[loc] || LANDING_I18N.en;
+    var done = pack['install.portainer.gen_done'] || 'Generated!';
+    var label = pack['install.portainer.gen'] || 'Generate secrets in browser';
+    btn.classList.add('is-done');
+    btn.title = done;
+    btn.setAttribute('aria-label', done);
+    setTimeout(function() {
+      btn.classList.remove('is-done');
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+    }, 1600);
+  }
+
+  window.generateInstallSecrets = function(kind) {
+    var jwt = hex32Browser();
+    var pairing = hex32Browser();
+    var password = hex32Browser().slice(0, 24);
+    var btn = null;
+
+    if (kind === 'stack-env' || kind === 'env') {
+      var preEnv = document.getElementById(kind === 'env' ? 'fb-env' : 'fb-pt-stack-env');
+      if (!preEnv) return;
+      btn = preEnv.closest('.file-block').querySelector('.file-block-icon');
+      var extra = kind === 'env'
+        ? '<span class="c"># Images (defaults = GHCR :preview)</span>\n' +
+          '<span class="c"># GOPROXIFY_ADMIN_TAG=preview</span>\n' +
+          '<span class="c"># GOPROXIFY_CORE_TAG=preview</span>\n' +
+          '<span class="c"># GOPROXIFY_AGENT_TAG=preview</span>\n'
+        : '';
+      var tail = kind === 'env'
+        ? 'ADMIN_PORT=9443'
+        : 'ADMIN_PORT=9443\nTZ=Europe/Paris\nCORE_NODE_NAME=goproxify-core';
+      preEnv.innerHTML =
+        '<span class="c"># Generated in your browser — never sent to a server</span>\n' +
+        extra +
+        'GPX_JWT_SECRET=<span class="v">' + escHtml(jwt) + '</span>\n' +
+        'GPX_PAIRING_SECRET=<span class="v">' + escHtml(pairing) + '</span>\n' +
+        'GPX_FIRST_ADMIN_EMAIL=admin@example.com\n' +
+        'GPX_FIRST_ADMIN_PASSWORD=<span class="v">' + escHtml(password) + '</span>\n' +
+        '\n' + tail;
+    } else if (kind === 'inline') {
+      var preInline = document.getElementById('fb-pt-compose-inline');
+      if (!preInline) return;
+      btn = preInline.closest('.file-block').querySelector('.file-block-icon');
+      preInline.querySelectorAll('[data-pt-secret="jwt"]').forEach(function(el) {
+        el.textContent = jwt;
+      });
+      preInline.querySelectorAll('[data-pt-secret="pairing"]').forEach(function(el) {
+        el.textContent = pairing;
+      });
+      preInline.querySelectorAll('[data-pt-secret="password"]').forEach(function(el) {
+        el.textContent = password;
+      });
+    } else if (kind === 'helm') {
+      var preHelm = document.getElementById('fb-helm-values');
+      if (!preHelm) return;
+      btn = preHelm.closest('.file-block').querySelector('.file-block-icon');
+      preHelm.querySelectorAll('[data-helm-secret="auth"]').forEach(function(el) {
+        el.textContent = '"' + pairing + '"';
+      });
+      preHelm.querySelectorAll('[data-helm-secret="jwt"]').forEach(function(el) {
+        el.textContent = '"' + jwt + '"';
+      });
+    } else if (kind === 'binary') {
+      var body = document.getElementById('cb-binary');
+      if (!body) return;
+      btn = body.closest('.code-block').querySelector('.file-block-icon');
+      body.querySelectorAll('[data-bin-secret="jwt"]').forEach(function(el) {
+        el.textContent = jwt;
+      });
+      body.querySelectorAll('[data-bin-secret="pairing"]').forEach(function(el) {
+        el.textContent = pairing;
+      });
+    } else {
+      return;
+    }
+    flashGenBtn(btn);
+  };
+  // Alias rétrocompat
+  window.generatePortainerSecrets = window.generateInstallSecrets;
+
+  var tabBtns = document.querySelectorAll('.tabs-nav > .tab-btn');
+  tabBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      tabBtns.forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      var panel = document.getElementById('tab-' + btn.dataset.tab);
+      if (panel) panel.classList.add('active');
+    });
+  });
+
+  var subTabBtns = document.querySelectorAll('.sub-tab-btn');
+  subTabBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      subTabBtns.forEach(function(b) { b.classList.remove('active'); });
+      document.querySelectorAll('.sub-tab-panel').forEach(function(p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      var id = btn.dataset.subtab === 'with-env' ? 'portainer-with-env' : 'portainer-inline';
+      var panel = document.getElementById(id);
+      if (panel) panel.classList.add('active');
+    });
+  });
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('#hero .fade-in').forEach(function(el) {
+    el.classList.add('visible');
+  });
+
+  var fadeEls = document.querySelectorAll('.fade-in:not(#hero .fade-in)');
+  fadeEls.forEach(function(el, i) {
+    el.style.transitionDelay = (i % 6 * 0.07) + 's';
+    observer.observe(el);
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,20 @@
+GoProxify
+Copyright 2024-2026 Vincamok / GoProxify contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+Status: pre-release (0.x). Provided AS IS, without warranty. See DISCLAIMER.md
+for the non-production notice and liability limitation (in addition to the
+License).
+
+This product may include third-party open source software components.
+Run `go-licenses report ./...` (or see docs/audits/publication/license-audit.md
+on the private tree) for the dependency license inventory. Any additional
+notices required by those components will be listed below as they are
+identified.
+
+Third-party notices
+-------------------
+(None identified beyond standard Go module dependencies under
+permissive licenses — Apache-2.0, MIT, BSD — as of the pre-publish audit.)

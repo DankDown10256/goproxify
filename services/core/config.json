@@ -1,0 +1,35 @@
+{
+  "identity": {
+    "node_name": "",
+    "role": "data-plane"
+  },
+  "control_plane": {
+    "admin_endpoint": "http://goproxify-admin:9443",
+    "auth_token": ""
+  },
+  "network": {
+    "http_port": 80,
+    "https_port": 443,
+    "quic_port": 443,
+    "internal_api_port": 8000,
+    "bind_address": "0.0.0.0"
+  },
+  "cluster": {
+    "enabled": false,
+    "group_name": "default",
+    "node_id": "",
+    "raft_port": 8002,
+    "peers": {}
+  },
+  "engine": {
+    "log_level": "info",
+    "log_format": "json",
+    "access_log_path": "/etc/goproxify/logs/core_access.log",
+    "system_log_path": "/etc/goproxify/logs/core_system.log"
+  },
+  "geoip": {
+    "auto_download": true,
+    "db_path": "/etc/goproxify/geoip/GeoLite2-Country.mmdb",
+    "db_url": "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb"
+  }
+}

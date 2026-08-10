@@ -1,0 +1,163 @@
+{{- if .Values.admin.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "goproxify.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "goproxify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+spec:
+  replicas: {{ .Values.admin.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "goproxify.name" . }}
+      app.kubernetes.io/component: admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "goproxify.name" . }}
+        app.kubernetes.io/component: admin
+        {{- with .Values.podAnnotations }}
+        annotations: {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "goproxify.serviceAccountName" . }}
+      containers:
+        - name: admin
+          image: "{{ .Values.global.image.registry }}/admin:{{ .Values.admin.image.tag }}"
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.admin.config.apiPort }}
+              protocol: TCP
+          env:
+            - name: TZ
+              value: {{ .Values.global.timezone | default "Europe/Paris" | quote }}
+            - name: GPX_SERVER_LISTEN_ADDR
+              value: {{ .Values.admin.config.listenAddr | quote }}
+            - name: GPX_SERVER_API_PORT
+              value: {{ .Values.admin.config.apiPort | quote }}
+            - name: GPX_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "goproxify.fullname" . }}-secret
+                  key: auth-token
+            {{- if .Values.admin.config.jwtSecret }}
+            - name: GPX_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "goproxify.fullname" . }}-secret
+                  key: jwt-secret
+            {{- end }}
+            - name: GPX_VULNSCAN_ALLOW_PRIVATE
+              value: {{ .Values.admin.config.vulnscanAllowPrivate | default false | quote }}
+            {{- if .Values.admin.config.backupKey }}
+            - name: GPX_BACKUP_KEY
+              value: {{ .Values.admin.config.backupKey | quote }}
+            {{- end }}
+            {{- if .Values.admin.config.nodeTokenKey }}
+            - name: GPX_NODE_TOKEN_KEY
+              value: {{ .Values.admin.config.nodeTokenKey | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: data
+              # Doit correspondre à storage.base_path / sqlite_dsn de services/admin/config.json
+              mountPath: /etc/goproxify
+          resources:
+            {{- toYaml .Values.admin.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          {{- if .Values.admin.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "goproxify.fullname" . }}-admin
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "goproxify.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "goproxify.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+spec:
+  type: {{ .Values.admin.service.type }}
+  ports:
+    - name: api
+      port: {{ .Values.admin.service.apiPort }}
+      targetPort: api
+  selector:
+    app.kubernetes.io/name: {{ include "goproxify.name" . }}
+    app.kubernetes.io/component: admin
+---
+{{- if .Values.admin.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "goproxify.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "goproxify.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.admin.persistence.storageClass }}
+  storageClassName: {{ .Values.admin.persistence.storageClass }}
+  {{- end }}
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.admin.persistence.size }}
+{{- end }}
+{{- if .Values.admin.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "goproxify.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "goproxify.labels" . | nindent 4 }}
+  {{- if .Values.admin.ingress.className }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.admin.ingress.className }}
+  {{- end }}
+spec:
+  rules:
+    - host: {{ .Values.admin.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "goproxify.fullname" . }}-admin
+                port:
+                  name: api
+  {{- if .Values.admin.ingress.tls }}
+  tls: {{- toYaml .Values.admin.ingress.tls | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

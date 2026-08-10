@@ -1,0 +1,14 @@
+apiVersion: v2
+name: goproxify
+description: Goproxify — reverse proxy distribué avec Administration, Core et Agent
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - proxy
+  - reverse-proxy
+  - load-balancer
+  - waf
+home: https://github.com/vincamok/goproxify
+maintainers:
+  - name: Vincamok

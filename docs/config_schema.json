@@ -1,0 +1,385 @@
+{
+  "_comment": "GOPROXIFY — SCHÉMA CANONIQUE DE CONFIGURATION GLOBAL v4.3 — 2026-07-15",
+  "_note": "Source de vérité unifiée consommée dynamiquement par les Cores Goproxify.",
+
+  "snippets": {
+
+    "ip_profiles": {
+      "cloudflare_ipv4": {
+        "name": "Cloudflare IPv4 (intégré)",
+        "builtin": true,
+        "rules": [
+          { "cidr": "173.245.48.0/20", "action": "allow" },
+          { "cidr": "103.21.244.0/22", "action": "allow" }
+        ]
+      },
+      "local_only": {
+        "name": "Réseau local uniquement (intégré)",
+        "builtin": true,
+        "rules": [
+          { "cidr": "203.0.113.10/16", "action": "allow" },
+          { "cidr": "10.0.0.0/8",     "action": "allow" },
+          { "cidr": "172.16.0.0/12",  "action": "allow" },
+          { "cidr": "127.0.0.0/8",    "action": "allow" }
+        ]
+      },
+      "bogons": {
+        "name": "Bloquer les bogons (intégré)",
+        "builtin": true,
+        "rules": [
+          { "cidr": "0.0.0.0/8",     "action": "deny" },
+          { "cidr": "100.64.0.0/10", "action": "deny" }
+        ]
+      },
+      "spamhaus_drop": {
+        "name": "Spamhaus DROP (intégré)",
+        "builtin": true,
+        "rules": [{ "cidr": "192.0.2.0/24", "action": "deny" }]
+      },
+      "data_shield_community": {
+        "name": "Data-Shield Community (IPv4) (intégré)",
+        "builtin": true,
+        "rules": [{ "cidr": "198.51.100.0/22", "action": "deny" }]
+      },
+      "tor_exit_nodes": {
+        "name": "Bloquer les nœuds Tor (exit) (intégré)",
+        "builtin": true,
+        "rules": [{ "cidr": "203.0.113.0/24", "action": "deny" }]
+      },
+      "datacenters_bots": {
+        "name": "Bloquer les datacenters (bots) (intégré)",
+        "builtin": true,
+        "rules": [{ "cidr": "198.18.0.0/15", "action": "deny" }]
+      }
+    },
+
+    "security_headers": {
+      "strict_headers": {
+        "enabled": true,
+        "hsts": true,
+        "hsts_max_age": 31536000,
+        "hsts_include_subdomains": true,
+        "hsts_preload": false,
+        "x_frame_options": "SAMEORIGIN",
+        "x_content_type_options": true,
+        "referrer_policy": "strict-origin-when-cross-origin"
+      }
+    },
+
+    "tls_profiles": {
+      "modern": {
+        "protocols": ["TLSv1.3"],
+        "ciphers": "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256",
+        "prefer_server_ciphers": false,
+        "session_tickets": false
+      },
+      "intermediate": {
+        "protocols": ["TLSv1.2", "TLSv1.3"],
+        "ciphers": "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305",
+        "prefer_server_ciphers": true,
+        "session_tickets": false
+      },
+      "legacy": {
+        "protocols": ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"],
+        "ciphers": "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:AES128-GCM-SHA256:AES256-SHA",
+        "prefer_server_ciphers": true,
+        "session_tickets": true
+      }
+    },
+
+    "rate_limit_policies": {
+      "strict_api":    { "enabled": true,  "req_s": 10,   "burst": 5,    "nodelay": false },
+      "public_site":   { "enabled": true,  "req_s": 100,  "burst": 200,  "nodelay": true  },
+      "internal":      { "enabled": true,  "req_s": 1000, "burst": 2000, "nodelay": true  },
+      "auth_endpoint": { "enabled": true,  "req_s": 2,    "burst": 3,    "nodelay": false }
+    },
+
+    "cors_policies": {
+      "public_api": {
+        "enabled": true,
+        "origines": ["*"],
+        "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type", "X-Requested-With"],
+        "allow_credentials": false,
+        "max_age": 86400
+      },
+      "same_origin": { "enabled": false },
+      "whitelist": {
+        "enabled": true,
+        "origines": ["https://app.example.com", "https://admin.example.com"],
+        "allow_methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Authorization", "Content-Type"],
+        "allow_credentials": true,
+        "max_age": 3600
+      }
+    },
+
+    "timeout_profiles": {
+      "api_fast":       { "connect": 5,  "send": 10,  "read": 30   },
+      "websocket_long": { "connect": 10, "send": 60,  "read": 3600 },
+      "large_upload":   { "connect": 10, "send": 300, "read": 300  },
+      "standard":       { "connect": 60, "send": 60,  "read": 60   }
+    },
+
+    "auth_providers": {
+      "authentik_prod": {
+        "type": "auth_request",
+        "provider": "authentik",
+        "url_auth": "http://authentik:9000/outpost.goauthentik.io/auth/nginx",
+        "url_login": "https://auth.example.com/login",
+        "headers_a_transmettre": ["X-authentik-username", "X-authentik-groups", "X-authentik-email"]
+      },
+      "authelia_local": {
+        "type": "auth_request",
+        "provider": "authelia",
+        "url_auth": "http://authelia:9091/api/verify",
+        "url_login": "https://auth.local/",
+        "headers_a_transmettre": ["Remote-User", "Remote-Groups", "Remote-Name"]
+      },
+      "basic_auth_admin": {
+        "type": "basic_auth",
+        "realm": "Administration",
+        "htpasswd": "admin:$apr1$xyz..."
+      }
+    },
+
+    "dns_providers": {
+      "ovh_prod": {
+        "provider": "ovh",
+        "endpoint": "ovh-eu",
+        "credentials_ref": "secrets.ovh_api",
+        "zones": ["example.fr", "example.fr"]
+      },
+      "cloudflare_prod": {
+        "provider": "cloudflare",
+        "credentials_ref": "secrets.cloudflare_api_token",
+        "zones": ["autre-domaine.fr"]
+      },
+      "gandi_perso": {
+        "provider": "gandi",
+        "credentials_ref": "secrets.gandi_api_key",
+        "zones": ["perso.fr"]
+      },
+      "route53_prod": {
+        "provider": "route53",
+        "credentials_ref": "secrets.aws_route53",
+        "region": "us-east-1",
+        "hosted_zone_id": "Z1234567890ABC",
+        "zones": ["app.io"]
+      },
+      "hetzner_dns": {
+        "provider": "hetzner",
+        "credentials_ref": "secrets.hetzner_dns_token",
+        "zones": ["hetzner-app.de"]
+      }
+    }
+  },
+
+  "tunnels": {
+    "wg_cluster_backend": {
+      "type": "wireguard",
+      "interface": "wg0",
+      "address": "10.100.0.1/24",
+      "listen_port": 51820,
+      "private_key_ref": "secrets.wg_privkey",
+      "peers": [
+        {
+          "name": "backend-1",
+          "public_key": "AAAA...base64...==",
+          "endpoint": "203.0.113.10:51820",
+          "allowed_ips": ["10.100.0.2/32"],
+          "persistent_keepalive": 25
+        }
+      ]
+    }
+  },
+
+  "cluster": {
+    "nodes": [
+      { "id": "core-1", "host": "203.0.113.10", "api_port": 8000, "role": "leader"   },
+      { "id": "core-2", "host": "203.0.113.10", "api_port": 8000, "role": "follower" }
+    ],
+    "config_sync": {
+      "enabled": true,
+      "strategy": "push",
+      "interval": "30s"
+    },
+    "leader_election": {
+      "enabled": true,
+      "algorithm": "bully",
+      "lease_ttl": "10s",
+      "heartbeat_interval": "3s"
+    },
+    "acme": {
+      "enabled": true,
+      "provider": "letsencrypt",
+      "contact_email": "admin@example.fr",
+      "challenge": "dns-01",
+      "dns_provider": "snippets.dns_providers.ovh_prod",
+      "dns_propagation_wait": "60s",
+      "renewal_days_before": 30,
+      "wildcard_preferred": true,
+      "cert_storage": "/etc/goproxify/certs/live"
+    },
+    "peer_health": {
+      "enabled": true,
+      "interval": "5s",
+      "timeout": "2s",
+      "unhealthy_threshold": 3
+    }
+  },
+
+  "proxies": {
+    "myapp.example.fr": {
+      "meta": {
+        "nom": "Interface myapp",
+        "description": "Portail d'accès applicatif sécurisé",
+        "owner": "owner@example.com",
+        "environment": "production",
+        "sla_target_percent": 99.9,
+        "version": "2.2.0",
+        "last_changed": "2026-07-15",
+        "labels": { "equipe": "dev-web", "projet": "myapp", "criticite": "haute" }
+      },
+
+      "core": {
+        "listen_port": 443,
+        "protocol": "https",
+        "domain": "myapp.example.fr",
+        "http_version": "1.1",
+        "server_names": ["myapp.example.fr", "www.myapp.example.fr"],
+        "websocket": true,
+        "protocol_mode": "http",
+        "backend_url": "http://203.0.113.10:8880"
+      },
+
+      "ssl_https": {
+        "enabled": true,
+        "cert_path": "/etc/goproxify/certs/live/example.fr/fullchain.pem",
+        "key_path":  "/etc/goproxify/certs/live/example.fr/privkey.pem",
+        "use_tls_profile": "snippets.tls_profiles.intermediate",
+        "alpn_protocols": ["h2", "http/1.1"],
+        "mtls_certificat_client": {
+          "enabled": false,
+          "ca_cert_path": "/etc/goproxify/certs/ca.pem",
+          "profondeur": 1
+        }
+      },
+
+      "aliases": ["www.myapp.example.fr", "site.example.com"],
+      "tags": ["production", "api"],
+
+      "locations": [
+        { "path": "/",             "type": "proxy",       "backend": "http://203.0.113.10:8880", "websocket": true },
+        { "path": "/api",          "type": "proxy",       "backend": "http://api-backend:3000",  "strip_prefix": false },
+        { "path": "/coming-soon",  "type": "page",        "page_path": "/etc/goproxify/storage/pages/coming-soon.html", "status_code": 200 },
+        { "path": "/ancien-chemin","type": "redirect",    "destination": "https://nouveau.example.com", "status_code": 301 },
+        { "path": "/admin",        "type": "maintenance", "message": "En maintenance", "status_code": 503 },
+        { "path": "/private",      "type": "deny",        "status_code": 403 },
+        { "path": "/health",       "type": "return",      "status_code": 200, "body": "OK" }
+      ],
+
+      "traffic_management": {
+        "load_balancing": {
+          "enabled": true,
+          "algorithm": "round_robin",
+          "sticky_sessions": { "enabled": false, "cookie_name": "GOPROXIFY_STICKY", "cookie_duration": "3h" },
+          "backends": [
+            { "url": "http://10.100.0.2:8080", "tunnel": "tunnels.wg_cluster_backend.peers.backend-1", "weight": 1, "max_fails": 3, "fail_timeout": 30 },
+            { "url": "http://10.100.0.3:8080", "weight": 1, "max_fails": 3, "fail_timeout": 30 }
+          ],
+          "health_check": {
+            "active": true,
+            "path": "/api/health",
+            "interval": "10s",
+            "timeout": "5s",
+            "healthy_threshold": 2,
+            "unhealthy_threshold": 3,
+            "expected_status_code": 200
+          }
+        },
+        "load_balancing_adaptatif": {
+          "enabled": true,
+          "methode": "resource_weighted",
+          "metrics_collection": { "tunnel": "tunnels.wg_cluster_backend", "agent_port": 9191, "interval": "5s", "timeout": "2s" },
+          "weights": { "cpu": 0.5, "ram": 0.3, "io": 0.2 },
+          "reequilibrage": { "seuil_min_poids": 0.1, "hysteresis": "10s" }
+        },
+        "canary":        { "enabled": false },
+        "shadow_mirror": { "enabled": false },
+        "conditional_routing": { "enabled": false }
+      },
+
+      "security": {
+        "http_headers":          { "use_snippet": "snippets.security_headers.strict_headers" },
+        "cors":                  { "use_snippet": "snippets.cors_policies.whitelist" },
+        "masquage_du_fingerprint": { "enabled": true, "server_tokens_off": true, "cacher_headers_upstream": true },
+        "access_control": {
+          "filtrage_ip_profils": { "profils_actifs": ["snippets.ip_profiles.cloudflare_ipv4", "snippets.ip_profiles.tor_exit_nodes"] },
+          "filtrage_ip_inline":  { "enabled": true, "rules": [{ "cidr": "203.0.113.10/24", "action": "allow" }, { "cidr": "203.0.113.10/32", "action": "deny" }] },
+          "filtrage_geo_ip":     { "enabled": true, "mode": "deny", "pays": ["BR", "CN", "RU"] },
+          "authentification":    { "use_snippet": "snippets.auth_providers.authentik_prod" },
+          "jwt_validation":      { "enabled": false },
+          "connection_limits":   { "enabled": false },
+          "bot_protection":      { "enabled": false }
+        },
+        "waf_and_mitigation": { "modsecurity_enabled": false, "ruleset": "OWASP-CRS-4" },
+        "rate_limiting":      { "use_snippet": "snippets.rate_limit_policies.strict_api", "enabled": true, "req_s": 10, "burst": 20, "nodelay": true }
+      },
+
+      "circuit_breaker": { "enabled": false, "threshold": 5, "open_duration": "30s", "half_open_requests": 3, "error_codes": [500, 502, 503, 504] },
+      "retry_policy":    { "enabled": false, "max_attempts": 3, "initial_delay": "100ms", "backoff_multiplier": 2.0, "max_delay": "5s" },
+
+      "headers_manipulation": {
+        "forwarded_headers": {
+          "Host":              "$host",
+          "X-Real-IP":         "$remote_addr",
+          "X-Forwarded-For":   "$proxy_add_x_forwarded_for",
+          "X-Forwarded-Proto": "$scheme"
+        },
+        "websockets": { "Upgrade": "$http_upgrade", "Connection": "upgrade" },
+        "reponse_add_header": [{ "header": "X-Served-By", "valeur": "Goproxify-Core" }]
+      },
+
+      "performance": {
+        "cache_proxy":      { "enabled": false, "repertoire": "/etc/goproxify/cache", "validite": "10m" },
+        "compression_gzip": { "enabled": false, "niveau": 6, "taille_min_bytes": 1024 },
+        "buffers":          { "client_max_body_size": "100m", "proxy_buffer_size": "4k" }
+      },
+
+      "protocols": {
+        "http3_quic": { "enabled": true },
+        "grpc":       { "enabled": false },
+        "stream":     { "enabled": false }
+      },
+
+      "timeouts_and_resilience": {
+        "use_timeout_profile": "snippets.timeout_profiles.standard",
+        "error_handling": {
+          "intercept_errors": true,
+          "custom_pages": {
+            "400": "/etc/goproxify/storage/errors/400.html",
+            "403": "/etc/goproxify/storage/errors/403.html",
+            "404": "/etc/goproxify/storage/errors/404.html",
+            "500": "/etc/goproxify/storage/errors/500.html",
+            "502": "/etc/goproxify/storage/errors/502.html"
+          }
+        }
+      },
+
+      "observability": {
+        "logging": {
+          "access_log_enabled": true,
+          "access_log_path": "/etc/goproxify/logs/core_access.log",
+          "format": "json",
+          "rotation": { "enabled": true, "max_size_megabytes": 100, "max_backups": 7, "max_age_days": 14, "compress": true }
+        },
+        "metrics": {
+          "prometheus_enabled": true,
+          "metrics_path": "/metrics",
+          "tracing": { "enabled": false, "provider": "opentelemetry", "endpoint": "localhost:4317" }
+        }
+      }
+    }
+  }
+}

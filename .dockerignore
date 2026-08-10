@@ -1,0 +1,10 @@
+.git
+.github
+.harness
+helm
+*.md
+*.out
+*.test
+.golangci.yml
+docker-compose*.yml
+Makefile

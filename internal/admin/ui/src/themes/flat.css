@@ -1,0 +1,82 @@
+/* ── Skin : Flat ─────────────────────────────────────────────────────────
+   Exemple de skin alternatif : coins arrondis, palette plus vive,
+   pas d'ombres prononcées, typographie système.
+   Skin par défaut (app.config.js → skin: 'flat').
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --bg:           #f8f9fa;
+  --bg2:          #ffffff;
+  --bg3:          #f1f3f5;
+  --border:       rgba(0,0,0,0.10);
+
+  --text:         #212529;
+  --text2:        rgba(33,37,41,0.65);
+  --text3:        rgba(33,37,41,0.40);
+
+  --accent:       #4f46e5;
+  --accent-hover: #4338ca;
+  --green:        #10b981;
+  --red:          #ef4444;
+  --yellow:       #f59e0b;
+  --blue:         #3b82f6;
+  --cyan:         #06b6d4;
+  --purple:       #8b5cf6;
+
+  --radius:       8px;
+  --radius-lg:    12px;
+
+  --shadow:       0 1px 4px rgba(0,0,0,.08);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,.12);
+
+  --sidebar-w:    240px;
+
+  --font:         system-ui, -apple-system, sans-serif;
+  --font-heading: system-ui, -apple-system, sans-serif;
+
+  --color-accent:       var(--accent);
+  --color-accent-100:   rgba(79,70,229,0.08);
+  --color-accent-200:   rgba(79,70,229,0.15);
+  --color-accent-700:   #6d60ee;
+  --color-accent-800:   #4f46e5;
+  --color-accent-900:   #3730a3;
+  --color-surface:      var(--bg2);
+  --color-surface-2:    var(--bg3);
+  --color-divider:      var(--border);
+  --color-neutral-100:  #f8f9fa;
+  --color-neutral-200:  var(--bg3);
+  --color-neutral-300:  rgba(0,0,0,0.08);
+  --color-neutral-800:  rgba(33,37,41,0.7);
+  --color-neutral-900:  var(--text);
+  --font-heading-weight: 700;
+  --radius-md:          var(--radius-lg);
+}
+
+[data-theme="dark"] {
+  --bg:           #111318;
+  --bg2:          #1a1d24;
+  --bg3:          #22262f;
+  --border:       rgba(255,255,255,0.08);
+  --text:         #f0f2f8;
+  --text2:        #9aa0b4;
+  --text3:        #5c6478;
+  --accent:       #818cf8;
+  --accent-hover: #a5b4fc;
+  --green:        #34d399;
+  --red:          #f87171;
+  --yellow:       #fbbf24;
+  --blue:         #60a5fa;
+  --cyan:         #22d3ee;
+  --shadow:       0 4px 20px rgba(0,0,0,.5);
+  --shadow-lg:    0 12px 40px rgba(0,0,0,.6);
+
+  --color-accent-100:   rgba(129,140,248,0.12);
+  --color-accent-200:   rgba(129,140,248,0.2);
+  --color-accent-700:   #a5b4fc;
+  --color-accent-800:   #c7d2fe;
+  --color-neutral-200:  var(--bg3);
+  --color-neutral-300:  rgba(255,255,255,0.06);
+}
+
+/* Pas de blueprint corners dans ce skin */
+.corner { display: none; }

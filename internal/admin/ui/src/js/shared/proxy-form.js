@@ -1,0 +1,1433 @@
+// ── Shared: formulaire / liste / streams proxy ─────────────────────────────
+// Chargé avant pages/* (trafic.js dépend de openProxyModal, etc.).
+// Extrait de pages-all.js — phase 1 du plan split pages-all.
+
+function tryJSON2(s) { if (!s || typeof s === 'object') return s||{}; try { return JSON.parse(s); } catch { return {}; } }
+
+window.globalToggleProxy = async function(id, currentlyEnabled) {
+  try {
+    await api('PATCH', `/proxies/${encodeURIComponent(id)}`, { enabled: !currentlyEnabled });
+    toast(currentlyEnabled ? 'Proxy désactivé' : 'Proxy activé', 'success');
+    await refreshProxies();
+  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
+};
+
+window.filterProxies = function() {
+  const q = (document.getElementById('proxy-search')?.value || '').toLowerCase();
+  const af = window._proxyActiveFilters || {};
+  const isTable = window._proxyViewMode === 'table';
+  function rowMatches(row) {
+    if (q && !row.dataset.proxySearch.includes(q)) return false;
+    if (af.status === 'active' && row.dataset.proxyEnabled !== 'true') return false;
+    if (af.status === 'inactive' && row.dataset.proxyEnabled !== 'false') return false;
+    if (af.type && row.dataset.proxyType !== af.type) return false;
+    if (af.source && row.dataset.proxySource !== af.source) return false;
+    return true;
+  }
+  if (isTable) {
+    document.querySelectorAll('#proxy-groups tr[data-proxy-search]').forEach(row => {
+      row.style.display = rowMatches(row) ? '' : 'none';
+    });
+  } else {
+    document.querySelectorAll('#proxy-groups [data-proxy-search]').forEach(tile => {
+      tile.style.display = rowMatches(tile) ? '' : 'none';
+    });
+    document.querySelectorAll('[data-proxy-subsection]').forEach(sub => {
+      const tiles = [...sub.querySelectorAll('[data-proxy-search]')];
+      if (tiles.length === 0) return;
+      sub.style.display = tiles.some(t => t.style.display !== 'none') ? '' : 'none';
+    });
+    document.querySelectorAll('[data-proxy-section]').forEach(section => {
+      const tiles = [...section.querySelectorAll('[data-proxy-search]')];
+      if (tiles.length === 0) return; // section vide (placeholder) : toujours visible
+      section.style.display = tiles.some(t => t.style.display !== 'none') ? '' : 'none';
+    });
+  }
+};
+
+window.deleteProxy = function(id) {
+  if (!id) { toast('ID proxy manquant', 'error'); return; }
+  confirm_(`Supprimer le proxy "${id}" ?`, async () => {
+    try {
+      await api('DELETE', `/proxies/${encodeURIComponent(id)}`);
+      toast('Proxy supprimé', 'success');
+      refreshProxies();
+    } catch(e) { toast(e.message, 'error'); }
+  });
+};
+
+window.onProxyCheckChange = function() {
+  const cbs = document.querySelectorAll('.proxy-select-cb:checked');
+  const bar = document.getElementById('proxy-batch-bar');
+  const count = document.getElementById('proxy-batch-count');
+  if (bar) bar.style.display = cbs.length ? 'flex' : 'none';
+  if (count) count.textContent = cbs.length + ' sélectionné(s)';
+};
+
+window.toggleGroupProxies = function(groupCb, groupId) {
+  document.querySelectorAll('.proxy-select-cb[data-group="'+groupId+'"]').forEach(cb => { cb.checked = groupCb.checked; });
+  window.onProxyCheckChange();
+};
+
+window.batchToggleProxies = async function(enable) {
+  const ids = [...document.querySelectorAll('.proxy-select-cb:checked')].map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  try {
+    await Promise.all(ids.map(id => api('PATCH', '/proxies/'+encodeURIComponent(id), { enabled: enable })));
+    toast(ids.length + ' proxy(s) ' + (enable ? 'activé(s)' : 'désactivé(s)'), 'success');
+    refreshProxies();
+  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
+};
+
+window.batchDeleteProxies = function() {
+  const ids = [...document.querySelectorAll('.proxy-select-cb:checked')].map(cb => cb.dataset.id);
+  if (!ids.length) return;
+  confirm_('Supprimer ' + ids.length + ' proxy(s) ?', async () => {
+    try {
+      await Promise.all(ids.map(id => api('DELETE', '/proxies/'+encodeURIComponent(id))));
+      toast(ids.length + ' proxy(s) supprimé(s)', 'success');
+      refreshProxies();
+    } catch(e) { toast(e.message, 'error'); }
+  });
+};
+
+window.clearProxySelection = function() {
+  document.querySelectorAll('.proxy-select-cb, .proxy-grp-cb').forEach(cb => cb.checked = false);
+  const bar = document.getElementById('proxy-batch-bar');
+  if (bar) bar.style.display = 'none';
+};
+
+window.setProxyView = function(mode) {
+  window._proxyViewMode = mode;
+  refreshProxies();
+};
+
+window.setProxyFilter = function(key, val) {
+  if (!window._proxyActiveFilters) window._proxyActiveFilters = { status: '', type: '', source: '' };
+  window._proxyActiveFilters[key] = val;
+  refreshProxies();
+};
+
+window.setProxyGroupBy = function(val) {
+  window._proxyGroupBy = val;
+  refreshProxies();
+};
+
+window.setProxySortBy = function(val) {
+  window._proxySortBy = val;
+  refreshProxies();
+};
+
+window.openProxyImportModal = function() {
+  const pim = { step: 1, format: null, text: '', files: [], proxies: [], result: null };
+  const close = () => { const c = document.getElementById('proxies-modal-container'); if (c) c.innerHTML = ''; };
+
+  const STEPS = ['Format', 'Configuration', 'Sélection', 'Résultat'];
+  const stepsBar = () => STEPS.map((s,i) => {
+    const n = i + 1, active = n === pim.step, done = n < pim.step;
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <span style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;
+        background:${done?'var(--green)':active?'var(--accent)':'var(--bg3)'};
+        color:${done||active?'#fff':'var(--text3)'};
+        border:1.5px solid ${done?'var(--green)':active?'var(--accent)':'var(--border)'};">${done?'✓':n}</span>
+      <span style="font-size:11px;font-weight:600;${active?'color:var(--text)':'color:var(--text3)'}">${s}</span>
+      ${i < STEPS.length-1 ? '<span style="width:18px;height:1px;background:var(--border);flex-shrink:0"></span>' : ''}
+    </div>`;
+  }).join('');
+
+  const render = () => {
+    const body = (() => {
+      // ── Step 1 : Format ────────────────────────────────────────────────────
+      if (pim.step === 1) return `
+        <p style="font-size:13px;color:var(--text2);margin:0 0 16px">Choisissez le format de votre configuration source.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(120px,100%),1fr));gap:10px;margin-bottom:8px">
+          ${configFormatPickerHtml(pim.format, id => `window._pim.format='${id}';window._pim_render()`)}
+        </div>`;
+
+      // ── Step 2 : Configuration ─────────────────────────────────────────────
+      if (pim.step === 2) {
+        const fmt = CONFIG_FORMATS.find(f => f.id === pim.format) || {};
+        const fmtSvg = configFormatMeta(pim.format, 20);
+        const fileList = pim.files || [];
+        return `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius)">
+          <div style="width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:${fmtSvg.color}18;color:${fmtSvg.color};flex-shrink:0">
+            ${fmtSvg.svg}
+          </div>
+          <div>
+            <div style="font-size:13px;font-weight:700">${esc(fmt.label||pim.format)}</div>
+            <div style="font-size:11px;color:var(--text3)">${esc(fmt.hint||'')}</div>
+          </div>
+          <button onclick="window._pim.step=1;window._pim_render()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text3);font-size:11px;padding:4px 8px;border-radius:var(--radius)">Changer →</button>
+        </div>
+        <div id="pim-dropzone" style="border:2px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;margin-bottom:12px;transition:border-color .2s"
+          onclick="document.getElementById('pim-file').click()"
+          ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+          ondragleave="this.style.borderColor='var(--border)'"
+          ondrop="event.preventDefault();this.style.borderColor='var(--border)';window._pimLoadFiles(event.dataTransfer.files)">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="opacity:.45;margin-bottom:8px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p style="font-size:12px;color:var(--text3);margin:0">Glisser-déposer un ou plusieurs fichiers ou <span style="color:var(--accent);text-decoration:underline">parcourir</span></p>
+          <input type="file" id="pim-file" style="display:none" accept=".conf,.yaml,.yml,.toml,.json,.txt,.caddyfile" multiple
+            onchange="window._pimLoadFiles(this.files)">
+        </div>
+        ${fileList.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${fileList.map((f,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+          ${esc(f.name)}
+          <button onclick="window._pimRemoveFile(${i})" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0;font-size:14px;line-height:1" title="Retirer">×</button>
+        </span>`).join('')}</div>` : ''}
+        <div class="field" style="margin-bottom:0">
+          <label class="field-label">— ou coller le contenu —</label>
+          <textarea id="pim-text" class="input" rows="${fileList.length ? 5 : 10}" placeholder="Collez ici votre configuration ${fmt.label||''}…" style="font-family:monospace;font-size:12px;resize:vertical">${esc(pim.text)}</textarea>
+        </div>`;
+      }
+
+      // ── Step 3 : Sélection ─────────────────────────────────────────────────
+      if (pim.step === 3) {
+        if (!pim.proxies.length) return `
+          <div style="text-align:center;padding:36px 0">
+            <div style="width:56px;height:56px;border-radius:14px;background:rgba(251,146,60,.1);border:1px solid rgba(251,146,60,.25);display:flex;align-items:center;justify-content:center;margin:0 auto 14px">
+              <svg width="24" height="24" fill="none" stroke="#fb923c" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:8px">Aucun proxy détecté</div>
+            <p style="color:var(--text2);font-size:13px">Vérifiez le format sélectionné et le contenu collé.</p>
+          </div>`;
+        return `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px;font-size:12px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="pim-all" checked onchange="document.querySelectorAll('.pim-cb').forEach(c=>{c.checked=this.checked;window._pim.proxies[+c.dataset.i]._sel=this.checked})">
+            <b>Tout sélectionner</b>
+          </label>
+          <span style="color:var(--text3);margin-left:auto">${pim.proxies.length} proxy${pim.proxies.length>1?'s':''} détecté${pim.proxies.length>1?'s':''}</span>
+        </div>
+        <div style="background:var(--bg3);border-radius:var(--radius);max-height:280px;overflow-y:auto;border:1px solid var(--border)">
+          ${pim.proxies.map((p,i) => `
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px">
+              <input type="checkbox" class="pim-cb" data-i="${i}" ${p._sel!==false?'checked':''} style="margin-top:2px"
+                onchange="window._pim.proxies[${i}]._sel=this.checked;document.getElementById('pim-all').indeterminate=window._pim.proxies.some(x=>!x._sel)&&window._pim.proxies.some(x=>x._sel!==false)">
+              <div style="flex:1;min-width:0">
+                <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.host||p.name||'—')}</div>
+                <div style="color:var(--text3);margin-top:2px;font-size:11px">${(p.backends||[]).map(b=>`<span class="chip" style="font-size:10px">${esc(typeof b==='string'?b:b.url||'')}</span>`).join(' ')||'—'}</div>
+              </div>
+              <div style="display:flex;gap:4px;flex-shrink:0">
+                ${p.tls?'<span class="tag tag-green" style="font-size:10px">TLS</span>':''}
+                ${p.source?`<span class="tag tag-neutral" style="font-size:10px">${esc(p.source)}</span>`:''}
+              </div>
+            </label>`).join('')}
+        </div>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:10px">
+          <span style="font-size:12px;color:var(--text2);white-space:nowrap">En cas de conflit</span>
+          <select id="pim-conflict" class="input" style="max-width:220px">
+            <option value="skip">Ignorer (conserver l'existant)</option>
+            <option value="overwrite">Écraser</option>
+          </select>
+        </div>`;
+      }
+
+      // ── Step 4 : Résultat ──────────────────────────────────────────────────
+      const r = pim.result || {};
+      const hasErrors = (r.errors||0) > 0;
+      return `
+        <div style="text-align:center;padding:32px 16px">
+          <div style="width:64px;height:64px;border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;
+            background:${hasErrors?'rgba(251,146,60,.1)':'rgba(34,197,94,.1)'};
+            border:1.5px solid ${hasErrors?'rgba(251,146,60,.3)':'rgba(34,197,94,.3)'}">
+            <svg width="28" height="28" fill="none" stroke="${hasErrors?'#fb923c':'var(--green)'}" stroke-width="2.5" viewBox="0 0 24 24">${hasErrors?'<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>':'<polyline points="20 6 9 17 4 12"/>'}</svg>
+          </div>
+          <div style="font-size:17px;font-weight:700;margin-bottom:6px">${hasErrors?'Import terminé avec erreurs':'Import réussi !'}</div>
+          <div style="display:flex;justify-content:center;gap:32px;margin:20px auto">
+            <div style="text-align:center"><div style="font-size:28px;font-weight:700;color:var(--green)">${r.imported||0}</div><div style="color:var(--text2);font-size:12px">Importés</div></div>
+            <div style="text-align:center"><div style="font-size:28px;font-weight:700;color:var(--text3)">${r.skipped||0}</div><div style="color:var(--text2);font-size:12px">Ignorés</div></div>
+            ${hasErrors?`<div style="text-align:center"><div style="font-size:28px;font-weight:700;color:var(--red)">${r.errors}</div><div style="color:var(--text2);font-size:12px">Erreurs</div></div>`:''}
+          </div>
+          <p style="color:var(--text2);font-size:13px;margin-bottom:0">Vos proxies sont disponibles dans la liste ci-dessous.</p>
+        </div>`;
+    })();
+
+    const actions = (() => {
+      if (pim.step === 1) return `
+        <button class="btn btn-secondary" onclick="window._pimClose()">Annuler</button>
+        <button class="btn btn-primary" onclick="window._pimNext()" ${pim.format?'':'disabled'}>Suivant →</button>`;
+      if (pim.step === 2) return `
+        <button class="btn btn-secondary" onclick="window._pimClose()">Annuler</button>
+        <button class="btn btn-secondary" onclick="window._pim.step=1;window._pim_render()">← Retour</button>
+        <button id="pim-btn-parse" class="btn btn-primary" onclick="window._pimParse()">Analyser →</button>`;
+      if (pim.step === 3) return `
+        <button class="btn btn-secondary" onclick="window._pimClose()">Annuler</button>
+        <button class="btn btn-secondary" onclick="window._pim.step=2;window._pim_render()">← Retour</button>
+        <button class="btn btn-primary" onclick="window._pimApply()">Importer →</button>`;
+      return `
+        <button class="btn btn-secondary" onclick="window._pim.step=1;window._pim.format=null;window._pim.text='';window._pim.files=[];window._pim.proxies=[];window._pim_render()">Nouvel import</button>
+        <button class="btn btn-primary" onclick="window._pimClose();refreshProxies()">Voir les proxies →</button>`;
+    })();
+
+    const mc = document.getElementById('proxies-modal-container');
+    if (!mc) return;
+    mc.innerHTML = `
+      <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);" onclick="if(event.target===this)window._pimClose()">
+        <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(700px,96vw);max-height:90vh;display:flex;flex-direction:column">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div class="dialog-title" style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Importer des proxies
+            <div style="display:flex;align-items:center;gap:4px;margin-left:auto">${stepsBar()}</div>
+          </div>
+          <div class="dialog-body" style="flex:1;overflow-y:auto;padding:20px 24px">${body}</div>
+          <div class="dialog-actions" style="flex-shrink:0">${actions}</div>
+        </div>
+      </div>`;
+  };
+
+  window._pim = pim;
+  window._pim_render = render;
+  window._pimClose = close;
+
+  window._pimLoadFiles = (fileList) => {
+    if (!fileList || !fileList.length) return;
+    const extMap = { yaml: 'traefik-yaml', yml: 'traefik-yaml', toml: 'traefik-toml', conf: 'nginx' };
+    if (!pim.files) pim.files = [];
+    const files = Array.from(fileList);
+    const ext = files[0].name.split('.').pop().toLowerCase();
+    if (extMap[ext] && !pim.format) pim.format = extMap[ext];
+    let pending = files.length;
+    const newContents = new Array(files.length);
+    files.forEach((file, i) => {
+      if (pim.files.some(f => f.name === file.name)) { pending--; if (!pending) render(); return; }
+      pim.files.push({ name: file.name });
+      const reader = new FileReader();
+      reader.onload = e => {
+        newContents[i] = e.target.result;
+        pending--;
+        if (!pending) { pim.text += (pim.text ? '\n\n' : '') + newContents.filter(Boolean).join('\n\n'); render(); }
+      };
+      reader.readAsText(file);
+    });
+  };
+
+  window._pimRemoveFile = (idx) => {
+    if (!pim.files) return;
+    pim.files.splice(idx, 1);
+    if (!pim.files.length) pim.text = '';
+    render();
+  };
+
+  window._pimNext = () => { pim.step = 2; render(); };
+
+  window._pimParse = async () => {
+    pim.text = document.getElementById('pim-text')?.value || '';
+    if (!pim.text.trim()) { toast('Aucune configuration saisie', 'error'); return; }
+    const btn = document.getElementById('pim-btn-parse');
+    if (btn) { btn.disabled = true; btn.textContent = 'Analyse…'; }
+    try {
+      const res = await api('POST', '/import/config/parse', { format: pim.format, content: pim.text });
+      pim.proxies = (res?.proxies || []).map(p => ({ ...p, _sel: true }));
+      pim.step = 3;
+      render();
+    } catch(e) {
+      toast('Erreur d\'analyse : ' + e.message, 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Analyser →'; }
+    }
+  };
+
+  window._pimApply = async () => {
+    const selected = pim.proxies.filter(p => p._sel !== false);
+    if (!selected.length) { toast('Aucun proxy sélectionné', 'error'); return; }
+    const onConflict = document.getElementById('pim-conflict')?.value || 'skip';
+    try {
+      const res = await api('POST', '/import/config/apply', { proxies: selected, on_conflict: onConflict });
+      pim.result = res;
+      pim.step = 4;
+      render();
+    } catch(e) { toast('Erreur import : ' + e.message, 'error'); }
+  };
+
+  render();
+};
+
+window.setProxyTileCols = function(n) {
+  const prev = window._proxyTileCols || 3;
+  window._proxyTileCols = n;
+  document.querySelectorAll('[data-cols]').forEach(btn => {
+    const active = +btn.dataset.cols === n;
+    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+    btn.style.background = active ? 'var(--accent)' : 'var(--bg)';
+  });
+  const grid = document.getElementById('proxy-groups');
+  if (grid && window._proxyViewMode !== 'table') {
+    const dx = n > prev ? -40 : 40;
+    grid.style.transition = 'none';
+    grid.style.transform = `translateX(${dx}px)`;
+    grid.style.opacity = '0';
+    document.querySelectorAll('.proxy-section-grid').forEach(g => g.style.gridTemplateColumns = `repeat(${n},1fr)`);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      grid.style.transition = 'transform .22s cubic-bezier(.4,0,.2,1), opacity .18s';
+      grid.style.transform = 'translateX(0)';
+      grid.style.opacity = '1';
+    }));
+  } else {
+    refreshProxies();
+  }
+};
+
+window.showContainerLabels = function(encoded) {
+  let data;
+  try { data = JSON.parse(atob(encoded)); } catch { return; }
+  const { host, backends, tls, source } = data;
+  const lines = [
+    'goproxify.enable: "true"',
+    `goproxify.host: "${host}"`,
+    tls ? 'goproxify.tls: "true"' : null,
+    ...(backends||[]).map(b => `goproxify.backend: "${b}"`),
+  ].filter(Boolean);
+  const yaml = 'labels:\n' + lines.map(l => '  ' + l).join('\n');
+  const bodyHtml = `
+    <p style="font-size:12px;color:var(--text2);margin:0 0 12px">Labels ${source === 'k8s' ? 'Kubernetes' : 'Docker'} correspondant à ce conteneur :</p>
+    <pre id="container-labels-pre" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-size:12px;line-height:1.6;margin:0;overflow-x:auto">${esc(yaml)}</pre>`;
+  const footerHtml = `
+    <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
+    <button class="btn btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('container-labels-pre').textContent).then(()=>toast('Copié','success'))">Copier</button>`;
+  modal(source === 'k8s' ? 'Labels Kubernetes' : 'Labels Docker', bodyHtml, footerHtml);
+};
+
+window.exportProxies = function(fmt) {
+  const allProxies = window._proxies || [];
+  const af = window._proxyActiveFilters || {};
+  const q = (document.getElementById('proxy-search')?.value || '').toLowerCase();
+
+  // Build normalized rows for export (proxies + streams)
+  const rows = [];
+  for (const p of allProxies) {
+    const cfg = tryJSON2(p.config);
+    const type = cfg?.type || p.type || 'http';
+    const isStream = type === 'tcp' || type === 'udp' || type === 'both';
+    const host = cfg?.host || p.host || p.id || '';
+    const enabled = p.enabled !== false;
+    const isDocker = (p.id||'').startsWith('docker:');
+    const isK8s = (p.id||'').startsWith('k8s:');
+    const source = isDocker ? 'docker' : isK8s ? 'k8s' : 'managed';
+    const backends = (cfg?.backends || p.backends || []).map(b => typeof b === 'string' ? b : (b.url || '')).filter(Boolean);
+    const aliases = (cfg?.aliases || []).filter(Boolean);
+    const allDomains = isStream ? [host] : [host, ...aliases];
+    const searchKey = [...allDomains, ...backends].join(' ').toLowerCase();
+
+    if (q && !searchKey.includes(q)) continue;
+    if (af.status === 'active' && !enabled) continue;
+    if (af.status === 'inactive' && enabled) continue;
+    if (af.type && type !== af.type) continue;
+    if (af.source && source !== af.source) continue;
+
+    rows.push({
+      id: p.id || '',
+      nom: host,
+      type,
+      actif: enabled,
+      domaine: isStream ? '' : host,
+      aliases: isStream ? '' : aliases.join(';'),
+      port_ecoute: isStream ? (cfg?.listen_port || p.listen_port || '') : '',
+      backends: backends.join(';'),
+      tls: !!(cfg?.tls_enabled || p.tls_enabled),
+      source,
+      created_at: p.created_at || '',
+      // raw config for JSON export
+      _cfg: cfg,
+      _raw: p,
+    });
+  }
+
+  if (fmt === 'json') {
+    const proxies = rows.filter(r => r.type !== 'tcp' && r.type !== 'udp' && r.type !== 'both')
+      .map(r => ({ ...r._cfg, id: r.id, enabled: r.actif, source: r.source, created_at: r.created_at }));
+    const streams = rows.filter(r => r.type === 'tcp' || r.type === 'udp' || r.type === 'both')
+      .map(r => ({ ...r._cfg, id: r.id, enabled: r.actif, source: r.source, created_at: r.created_at }));
+    const payload = { exported_at: new Date().toISOString(), proxies, streams };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'goproxify-export.json'; a.click();
+  } else {
+    const csvEsc = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const cols = ['id','nom','type','actif','domaine','aliases','port_ecoute','backends','tls','source','created_at'];
+    const csvRows = rows.map(r => cols.map(c => csvEsc(r[c])).join(','));
+    const blob = new Blob([[cols.join(','), ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'goproxify-export.csv'; a.click();
+  }
+};
+
+window.openProxyModal = async function(id, initialTab) {
+  let existing = null;
+  if (id) {
+    try { existing = await api('GET', `/proxies/${encodeURIComponent(id)}`); } catch {}
+  }
+  const cfg = existing ? (typeof existing.config==='string'?tryJSON(existing.config):existing.config||existing) : {};
+  window._openProxyCfg = cfg;
+  try {
+    window._errorPageTemplates = await api('GET', '/error-page-templates') || [];
+  } catch {
+    window._errorPageTemplates = [];
+  }
+  const type = cfg.type || 'http';
+  const isHTTP = type === 'http' || type === 'https';
+
+  const body = `
+    <div style="display:flex;height:520px;margin:-16px -24px;overflow:hidden;">
+
+      <!-- Sidebar navigation -->
+      <div id="proxy-tabs" style="width:142px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:8px 0;background:var(--bg);">
+        <div data-tab="general" onclick="switchProxyTab('general')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--accent);font-weight:600;background:color-mix(in srgb,var(--accent) 8%,transparent);border-left:2.5px solid var(--accent);border-right:2.5px solid transparent;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          Général
+        </div>
+        <div data-tab="entetes" onclick="switchProxyTab('entetes')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          En-têtes
+        </div>
+        <div data-tab="auth" onclick="switchProxyTab('auth')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          Auth / SSO
+        </div>
+        <div data-tab="resilience" onclick="switchProxyTab('resilience')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Résilience
+        </div>
+        <div data-tab="avance" onclick="switchProxyTab('avance')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          Avancé
+        </div>
+      </div>
+
+      <!-- Content panels -->
+      <div style="flex:1;overflow-y:auto;">
+
+        <!-- Panel Général -->
+        <div id="ptab-general" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+
+          <div class="gp-split-2" style="gap:14px;align-items:start;">
+
+            <!-- Colonne gauche : Client → Proxy -->
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">← Client → Proxy</div>
+
+              <!-- Domaines -->
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:8px;">Domaines</div>
+                <div id="p-domains-list">
+                  <div class="p-domain-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                    <input class="input p-domain-val" style="flex:1;" placeholder="app.example.fr" value="${esc(cfg.host||'')}" title="Domaine principal">
+                    <span style="font-size:11px;color:var(--text3);white-space:nowrap;padding:0 4px;min-width:52px;">principal</span>
+                  </div>
+                  ${(cfg.aliases||[]).map(a=>`
+                  <div class="p-domain-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;">
+                    <input class="input p-domain-val" style="flex:1;" placeholder="www.example.fr" value="${esc(a)}" title="Alias">
+                    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-domain-row').remove()">×</button>
+                  </div>`).join('')}
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window._addDomainRow()">+ Alias</button>
+              </div>
+
+              <!-- HTTPS + Certificat -->
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                  <label class="toggle"><input type="checkbox" id="p-https" ${(type==='https'||cfg.tls_enabled)?'checked':''} onchange="updateProxyForm()"><span class="toggle-slider"></span></label>
+                  <div><div style="font-size:13px;font-weight:500;">HTTPS entrant</div><div style="font-size:11px;color:var(--text3);">TLS sur ce domaine</div></div>
+                </label>
+                <div>
+                  <div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Certificat</div>
+                  <select id="p-cert" class="input" style="appearance:auto"><option value="">✦ Automatique / Let's Encrypt</option></select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Colonne droite : Proxy → Backend -->
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Proxy → Backend →</div>
+
+              <!-- Backends -->
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:8px;">Backends</div>
+                <div id="p-backends-list">
+                  ${((cfg.backends||[]).length ? cfg.backends : [{}]).map((b,i)=>`
+                  <div class="p-backend-row" style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+                    <input class="input p-backend-url" style="flex:1" placeholder="http://10.0.0.5:3000"
+                      value="${esc(b.url||b||'')}"
+                      oninput="this.setCustomValidity(this.value&&!/^https?:\/\/.+/.test(this.value.trim())?'URL invalide (doit commencer par http:// ou https://)':'')"
+                      title="URL du backend">
+                    <input class="input p-backend-weight" style="width:64px" type="number" min="1" max="100" placeholder="Poids" title="Poids (load balancing)" value="${b.weight||''}">
+                    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-backend-row').remove();if(!document.querySelectorAll('.p-backend-row').length)window._addBackendRow()">×</button>
+                  </div>`).join('')}
+                </div>
+                <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center;">
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="window._addBackendRow()">+ Backend</button>
+                  <select id="p-lb" class="input" style="flex:1;min-width:0">
+                    <option value="round_robin" ${(!cfg.lb||cfg.lb==='round_robin')?'selected':''}>Round Robin</option>
+                    <option value="weighted" ${cfg.lb==='weighted'?'selected':''}>Weighted</option>
+                    <option value="adaptive" ${cfg.lb==='adaptive'?'selected':''}>Adaptatif</option>
+                  </select>
+                  <select id="p-http-version" class="input" style="flex:1;min-width:0">
+                    <option value="auto" ${(cfg.http_version||'auto')==='auto'?'selected':''}>Auto</option>
+                    <option value="1.1" ${cfg.http_version==='1.1'?'selected':''}>HTTP/1.1</option>
+                    <option value="2" ${cfg.http_version==='2'?'selected':''}>HTTP/2</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Options backend HTTPS -->
+              <div style="background:var(--bg2);border:1px solid var(--border);border-left:3px solid color-mix(in srgb,var(--accent) 60%,transparent);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Vers le backend</div>
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                  <label class="toggle"><input type="checkbox" id="p-skip-verify" ${cfg.tls_skip_verify?'checked':''}><span class="toggle-slider"></span></label>
+                  <div><div style="font-size:13px;font-weight:500;">Ignorer le certificat backend</div><div style="font-size:11px;color:var(--text3);">Auto-signé, Proxmox…</div></div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                  <label class="toggle"><input type="checkbox" id="p-passthrough" ${cfg.tls_passthrough?'checked':''}><span class="toggle-slider"></span></label>
+                  <span style="font-size:13px;font-weight:500;">SSL Passthrough</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Protocoles (pleine largeur) -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Protocoles</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <label class="toggle"><input type="checkbox" id="p-ws" ${cfg.websocket?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;">WebSocket</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <label class="toggle"><input type="checkbox" id="p-http3" ${cfg.protocols?.http3_quic?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;">HTTP/3 QUIC</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <label class="toggle"><input type="checkbox" id="p-grpc" ${cfg.protocols?.grpc?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;">gRPC</span>
+              </label>
+              <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:160px;">
+                <span style="font-size:13px;white-space:nowrap;color:var(--text2);">Tags</span>
+                <input id="p-tags" class="input" style="flex:1;" placeholder="prod, frontend" value="${esc((cfg.tags||[]).join(', '))}">
+              </div>
+            </div>
+          </div>
+
+          <!-- Locations (pleine largeur) — pas de display:contents (casse closest/querySelector) -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Locations — routage par chemin</div>
+            <div style="display:grid;grid-template-columns:1.4fr 0.7fr 2.5fr 28px;gap:4px 6px;align-items:center;margin-bottom:4px;">
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);padding:0 2px;">Chemin</span>
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);padding:0 2px;">Type</span>
+              <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);padding:0 2px;">Backend</span>
+              <span></span>
+            </div>
+            <div id="p-locations-list" style="display:flex;flex-direction:column;gap:4px;">
+              ${(cfg.locations||[]).map((loc,i)=>`
+              <div id="ploc-${i}" class="p-loc-row" style="display:grid;grid-template-columns:1.4fr 0.7fr 2.5fr 28px;gap:4px 6px;align-items:center;">
+                <input id="p-loc-path-${i}" class="input p-loc-path" placeholder="/api" value="${esc(loc.path||'')}" style="margin:0;">
+                <select id="p-loc-pathtype-${i}" class="input p-loc-pathtype" style="margin:0;">${['prefix','exact','regex'].map(t=>`<option${(loc.path_type||'prefix')===t?' selected':''}>${t}</option>`).join('')}</select>
+                <input id="p-loc-dest-${i}" class="input p-loc-dest" placeholder="http://backend:8080" value="${esc((loc.backends&&loc.backends[0])?loc.backends[0].url||loc.backends[0]:'')}" style="margin:0;">
+                <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-loc-row').remove()" style="opacity:.55;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>
+              </div>`).join('')}
+            </div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="addLocationRow()">+ Location</button>
+          </div>
+
+          <!-- Routage conditionnel -->
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Routage conditionnel — par header / cookie / query</div>
+            <div id="p-conditions-list">
+              ${(cfg.conditions||[]).map((c,i)=>`
+              <div class="form-row" style="gap:6px;margin-bottom:6px" id="pcond-${i}">
+                <select id="p-cond-type-${i}" class="input" style="flex:1.2">${['header','cookie','query','method'].map(t=>`<option${c.type===t?' selected':''}>${t}</option>`).join('')}</select>
+                <input id="p-cond-name-${i}" class="input" style="flex:1" placeholder="Nom" value="${esc(c.name||'')}">
+                <input id="p-cond-val-${i}" class="input" style="flex:1.5" placeholder="Valeur" value="${esc(c.value||'')}">
+                <input id="p-cond-bk-${i}" class="input" style="flex:2" placeholder="http://backend:port" value="${esc(c.backend||'')}">
+                <button class="btn btn-secondary btn-sm" onclick="this.closest('[id^=pcond]').remove()" style="flex-shrink:0">✕</button>
+              </div>`).join('')}
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="addConditionRow()">+ Condition</button>
+          </div>
+        </div>
+
+        <!-- Panel TLS (vide, fusionné dans Général) -->
+        <div id="ptab-tls" style="display:none;"></div>
+
+        <!-- Panel En-têtes -->
+        <div id="ptab-entetes" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
+          <div style="font-size:11px;color:var(--text3);padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;">
+            Les headers natifs (HSTS, X-Frame-Options, Masquer Server) sont aussi éditables dans la modale <b>Sécurité</b> du proxy.
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">En-têtes de sécurité</div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="p-hsts" ${cfg.headers?.hsts?'checked':''} onchange="document.getElementById('p-hsts-maxage-row').style.display=this.checked?'flex':'none'">
+                <div><div style="font-size:12px;font-weight:600;">HSTS <span style="font-weight:400;color:var(--text2);font-size:11px">(Strict-Transport-Security)</span></div><div style="font-size:11px;color:var(--text3);">Force HTTPS sur les navigateurs — nécessite TLS activé</div></div>
+              </label>
+              <div id="p-hsts-maxage-row" style="display:${cfg.headers?.hsts?'flex':'none'};align-items:center;gap:8px;padding-left:28px;">
+                <label style="font-size:11px;color:var(--text2);white-space:nowrap;">max-age (secondes)</label>
+                <input id="p-hsts-maxage" type="number" class="input" style="width:120px;font-size:12px;padding:4px 8px;" value="${cfg.headers?.hsts_max_age||31536000}" min="0">
+              </div>
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+                <input type="checkbox" id="p-hide-server" ${cfg.headers?.hide_server?'checked':''}>
+                <div><div style="font-size:12px;font-weight:600;">Masquer le header Server</div><div style="font-size:11px;color:var(--text3);">Supprime la version du serveur des réponses</div></div>
+              </label>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="flex-shrink:0;width:16px;height:16px;"></div>
+                <div style="flex:1;display:flex;align-items:center;gap:8px;">
+                  <label style="font-size:12px;font-weight:600;white-space:nowrap;">X-Frame-Options</label>
+                  <select id="p-xfo" class="input" style="font-size:12px;padding:4px 8px;flex:1;max-width:160px;">
+                    <option value="" ${!cfg.headers?.x_frame_options?'selected':''}>Désactivé</option>
+                    <option value="DENY" ${cfg.headers?.x_frame_options==='DENY'?'selected':''}>DENY</option>
+                    <option value="SAMEORIGIN" ${cfg.headers?.x_frame_options==='SAMEORIGIN'?'selected':''}>SAMEORIGIN</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">En-têtes transmis au backend</div>
+            <textarea id="p-fwd-headers" class="input" rows="4" placeholder="X-Real-IP&#10;X-Forwarded-For">${esc((cfg.headers_manipulation?.forwarded_headers||[]).join('\n'))}</textarea>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">En-têtes ajoutés à la réponse</div>
+            <textarea id="p-resp-headers" class="input" rows="4" placeholder="X-Custom-Header: valeur&#10;Content-Security-Policy: default-src 'self'">${esc(customHeadersToLines(cfg).join('\n'))}</textarea>
+            <div style="font-size:10px;color:var(--text3);margin-top:4px;">Stockés dans <code>headers.custom</code> (appliqués par le Core). HSTS / X-Frame-Options : section ci-dessus.</div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Pages d'erreur rapides</div>
+            <div class="form-row" style="gap:8px">
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Page 404</label><input id="p-err-404" class="input" placeholder="https://..." value="${esc(cfg.timeouts_and_resilience?.error_handling?.['404']||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Page 502/503</label><input id="p-err-502" class="input" placeholder="https://..." value="${esc(cfg.timeouts_and_resilience?.error_handling?.['502']||cfg.timeouts_and_resilience?.error_handling?.['503']||'')}"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel Auth / SSO -->
+        <div id="ptab-auth" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Authentification SSO / OIDC</div>
+            <div class="field">
+              <label class="field-label" style="font-size:11px">Provider</label>
+              <select id="p-sso-provider" class="input" onchange="updateSSOForm()">
+                <option value="">Désactivé</option>
+                <option value="basic" ${cfg.sso?.provider==='basic'?'selected':''}>Basic Auth</option>
+                <option value="authentik" ${cfg.sso?.provider==='authentik'?'selected':''}>Authentik</option>
+                <option value="authelia" ${cfg.sso?.provider==='authelia'?'selected':''}>Authelia</option>
+                <option value="forward" ${cfg.sso?.provider==='forward'?'selected':''}>Forward Auth générique</option>
+                <option value="pocket_id" ${cfg.sso?.provider==='pocket_id'?'selected':''}>Pocket ID (OIDC)</option>
+                <option value="oidc" ${cfg.sso?.provider==='oidc'?'selected':''}>OIDC générique</option>
+              </select>
+            </div>
+            <div id="p-sso-fwd-fields" style="display:none;margin-top:10px">
+              <div class="field"><label class="field-label" style="font-size:11px">Forward Auth URL</label><input id="p-sso-fwd-url" class="input" placeholder="http://auth.example.com/outpost.goauthentik.io/auth/nginx" value="${esc(cfg.sso?.forward_auth_url||'')}"></div>
+            </div>
+            <div id="p-sso-oidc-fields" style="display:none;margin-top:10px;flex-direction:column;gap:10px">
+              <div class="form-row" style="gap:8px">
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Issuer URL</label><input id="p-oidc-issuer" class="input" placeholder="https://id.example.com" value="${esc(cfg.sso?.oidc?.issuer_url||'')}"></div>
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Client ID</label><input id="p-oidc-client-id" class="input" value="${esc(cfg.sso?.oidc?.client_id||'')}"></div>
+              </div>
+              <div class="form-row" style="gap:8px">
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Client Secret</label><input id="p-oidc-secret" class="input" type="password" value="${esc(cfg.sso?.oidc?.client_secret||'')}"></div>
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Redirect URL</label><input id="p-oidc-redirect" class="input" placeholder="https://app.example.com/_gpx/oidc/callback" value="${esc(cfg.sso?.oidc?.redirect_url||'')}"></div>
+              </div>
+              <div class="form-row" style="gap:8px">
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Session Secret</label><input id="p-oidc-sess-secret" class="input" type="password" value="${esc(cfg.sso?.oidc?.session_secret||'')}"></div>
+                <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Username claim</label><input id="p-oidc-claim" class="input" placeholder="preferred_username" value="${esc(cfg.sso?.oidc?.username_claim||'')}"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel Résilience -->
+        <div id="ptab-resilience" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Health Check</div>
+            <div class="form-row" style="gap:8px">
+              <div class="field" style="flex:2"><label class="field-label" style="font-size:11px">Chemin</label><input id="p-hc-path" class="input" placeholder="/health" value="${esc(cfg.health_check?.path||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Intervalle</label><input id="p-hc-interval" class="input" placeholder="30s" value="${esc(cfg.health_check?.interval||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Timeout</label><input id="p-hc-timeout" class="input" placeholder="5s" value="${esc(cfg.health_check?.timeout||'')}"></div>
+            </div>
+            <div class="form-row" style="gap:8px;margin-top:6px">
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Seuil sain</label><input id="p-hc-healthy" class="input" type="number" placeholder="2" value="${cfg.health_check?.healthy_threshold||''}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Seuil défaillant</label><input id="p-hc-unhealthy" class="input" type="number" placeholder="3" value="${cfg.health_check?.unhealthy_threshold||''}"></div>
+              <div style="flex:2"></div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Circuit Breaker</div>
+            <div style="display:flex;gap:16px;align-items:flex-start;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:22px;">
+                <label class="toggle"><input type="checkbox" id="p-cb-enabled" ${cfg.circuit_breaker?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;font-weight:500;">Activé</span>
+              </label>
+              <div class="field" style="flex:1;margin:0;"><label class="field-label" style="font-size:11px">Seuil erreurs (%)</label><input id="p-cb-threshold" class="input" type="number" placeholder="50" value="${cfg.circuit_breaker?.threshold||''}"></div>
+              <div class="field" style="flex:1;margin:0;"><label class="field-label" style="font-size:11px">Timeout réinit.</label><input id="p-cb-timeout" class="input" placeholder="30s" value="${esc(cfg.circuit_breaker?.timeout||'')}"></div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Retry</div>
+            <div class="form-row" style="gap:8px">
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Max tentatives</label><input id="p-retry-max" class="input" type="number" placeholder="3" value="${cfg.retry_policy?.max_attempts||''}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Délai</label><input id="p-retry-delay" class="input" placeholder="500ms" value="${esc(cfg.retry_policy?.retry_delay||'')}"></div>
+              <div class="field" style="flex:2"><label class="field-label" style="font-size:11px">Retry si</label><input id="p-retry-on" class="input" placeholder="error, timeout, 5xx" value="${esc((cfg.retry_policy?.retry_on||[]).join(', '))}"></div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Canary</div>
+            <div class="form-row" style="gap:8px">
+              <div class="field" style="flex:2"><label class="field-label" style="font-size:11px">URL backend canary</label><input id="p-canary-backend" class="input" placeholder="http://10.0.0.6:3000" value="${esc(cfg.canary?.backend||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">% trafic</label><input id="p-canary-weight" class="input" type="number" min="0" max="100" placeholder="10" value="${cfg.canary?.weight||''}"></div>
+            </div>
+            <div class="form-row" style="gap:8px;margin-top:6px">
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Header</label><input id="p-canary-header" class="input" placeholder="X-Canary" value="${esc(cfg.canary?.header||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Valeur</label><input id="p-canary-hval" class="input" placeholder="true" value="${esc(cfg.canary?.header_value||'')}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Cookie</label><input id="p-canary-cookie" class="input" placeholder="canary" value="${esc(cfg.canary?.cookie_name||'')}"></div>
+            </div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin:12px 0 8px;">Shadow Mirror</div>
+            <div class="field"><label class="field-label" style="font-size:11px">URL miroir (copie silencieuse)</label><input id="p-shadow-backend" class="input" placeholder="http://10.0.0.7:3000" value="${esc(cfg.shadow?.backend||'')}"></div>
+          </div>
+        </div>
+
+        <!-- Panel Avancé -->
+        <div id="ptab-avance" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Performance</div>
+            <div class="gp-split-2" style="gap:10px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <label class="toggle"><input type="checkbox" id="p-cache-enabled" ${cfg.performance?.cache_proxy?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;font-weight:500;">Cache proxy</span>
+              </label>
+              <div class="field" style="margin:0;"><label class="field-label" style="font-size:11px">TTL cache</label><input id="p-cache-ttl" class="input" placeholder="1h" value="${esc(cfg.performance?.cache_proxy?.ttl||'')}"></div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <label class="toggle"><input type="checkbox" id="p-gzip-enabled" ${cfg.performance?.compression_gzip?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;font-weight:500;">Compression gzip</span>
+              </label>
+              <div class="field" style="margin:0;"><label class="field-label" style="font-size:11px">Min size (octets)</label><input id="p-gzip-minsize" class="input" type="number" placeholder="1024" value="${cfg.performance?.compression_gzip?.min_length||''}"></div>
+            </div>
+            <div class="field" style="margin-top:10px;max-width:50%;"><label class="field-label" style="font-size:11px">Max body client (Mo)</label><input id="p-body-size" class="input" type="number" min="1" placeholder="100" value="${cfg.max_body_size ? Math.round(cfg.max_body_size/1048576) : ''}"></div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Timeouts backend (secondes)</div>
+            <div class="form-row" style="gap:8px">
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Connexion</label><input id="p-connect-timeout" class="input" type="number" min="1" placeholder="10" value="${cfg.connect_timeout ? Math.round(cfg.connect_timeout/1e9) : ''}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Réponse (read)</label><input id="p-response-timeout" class="input" type="number" min="1" placeholder="30" value="${cfg.response_timeout ? Math.round(cfg.response_timeout/1e9) : ''}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Envoi (write)</label><input id="p-send-timeout" class="input" type="number" min="1" placeholder="30" value="${cfg.send_timeout ? Math.round(cfg.send_timeout/1e9) : ''}"></div>
+              <div class="field" style="flex:1"><label class="field-label" style="font-size:11px">Buffer (octets)</label><input id="p-buffer-size" class="input" type="number" min="512" placeholder="4096" value="${cfg.buffer_size || ''}"></div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Journalisation par route</div>
+            <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-bottom:2px;">
+                <label class="toggle"><input type="checkbox" id="p-log-enabled" ${cfg.logging?.access_log!==false?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;font-weight:500;">Access log</span>
+              </label>
+              <div class="field" style="flex:1;min-width:120px;margin:0;"><label class="field-label" style="font-size:11px">Format</label><select id="p-log-format" class="input"><option value="combined" ${(cfg.logging?.format||'combined')==='combined'?'selected':''}>Combined</option><option value="json" ${cfg.logging?.format==='json'?'selected':''}>JSON</option><option value="minimal" ${cfg.logging?.format==='minimal'?'selected':''}>Minimal</option><option value="off" ${cfg.logging?.format==='off'?'selected':''}>Désactivé</option></select></div>
+              <div class="field" style="flex:1;min-width:120px;margin:0;"><label class="field-label" style="font-size:11px">Niveau erreurs</label><select id="p-log-level" class="input"><option value="warn" ${(cfg.logging?.level||'warn')==='warn'?'selected':''}>Warn</option><option value="info" ${cfg.logging?.level==='info'?'selected':''}>Info</option><option value="error" ${cfg.logging?.level==='error'?'selected':''}>Error</option><option value="debug" ${cfg.logging?.level==='debug'?'selected':''}>Debug</option></select></div>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-bottom:2px;">
+                <label class="toggle"><input type="checkbox" id="p-prom-enabled" ${cfg.observability?.metrics?.prometheus?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                <span style="font-size:13px;font-weight:500;">Prometheus</span>
+              </label>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:6px;">Pages d'erreur personnalisées</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Choisir un template de la bibliothèque (adaptatif) ou une URL de redirection. Clés : 400, 403, 404, 502, 503, 504 ou 4xx / 5xx.</div>
+            <div id="p-error-pages-list">
+              ${renderErrorPageRows(cfg)}
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="window._addErrorPageRow()">+ Ajouter</button>
+            ${(Object.entries(cfg.error_pages?.pages||{}).some(([_,v])=>v && !/^https?:\/\//.test(v))) ? `
+            <div style="margin-top:10px;font-size:11px;color:var(--text3);padding:8px;background:var(--bg);border-radius:6px">
+              HTML inline legacy détecté — migrez vers un template de la bibliothèque (Paramètres → Pages d'erreur).
+            </div>` : ''}
+          </div>
+        </div>
+
+      </div><!-- end content area -->
+    </div><!-- end flex container -->`;
+
+  const footer = `
+    ${id ? `<div style="margin-right:auto;display:flex;align-items:center;gap:4px;">
+      <button class="btn btn-ghost" style="display:flex;align-items:center;gap:6px;" onclick="closeModal();setTimeout(()=>openProxySecModal('${esc(id)}'),30)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sécurité</button>
+      <button class="btn btn-ghost" style="display:flex;align-items:center;gap:6px;" onclick="closeModal();setTimeout(()=>openDockerLabelsFromProxy('${esc(id)}'),30)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg>Labels</button>
+    </div>` : ''}
+    <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveProxy('${esc(id||'')}')">Enregistrer</button>`;
+
+  const headerRight = `<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;cursor:pointer;">
+    <label class="toggle"><input type="checkbox" id="p-enabled" ${existing?.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
+    <span style="color:var(--text2);">Activé</span>
+  </label>`;
+  modal(id ? 'Modifier le proxy' : 'Nouveau proxy', body, footer, true, headerRight);
+  if (initialTab) switchProxyTab(initialTab);
+  updateProxyForm();
+  // Peupler le sélecteur de certificats
+  const certSel = document.getElementById('p-cert');
+  if (certSel) {
+    api('GET', '/certs').then(certs => {
+      if (!Array.isArray(certs)) return;
+      const current = cfg.cert_name || '';
+      // Construire la liste : wildcard en priorité puis apex
+      const added = new Set();
+      certs.forEach(c => {
+        // Wildcard *.domain
+        const wild = '*.' + c.domain;
+        if (!added.has(wild)) {
+          added.add(wild);
+          const opt = document.createElement('option');
+          opt.value = wild;
+          opt.textContent = wild + ' (exp. ' + c.expires_at?.slice(0,10) + ')';
+          if (wild === current) opt.selected = true;
+          certSel.appendChild(opt);
+        }
+        // Apex domain
+        if (!added.has(c.domain)) {
+          added.add(c.domain);
+          const opt = document.createElement('option');
+          opt.value = c.domain;
+          opt.textContent = c.domain + ' (exp. ' + c.expires_at?.slice(0,10) + ')';
+          if (c.domain === current) opt.selected = true;
+          certSel.appendChild(opt);
+        }
+      });
+      // Si la valeur actuelle n'est pas dans la liste (cert importé manuellement), l'ajouter
+      if (current && !added.has(current)) {
+        const opt = document.createElement('option');
+        opt.value = current;
+        opt.textContent = current;
+        opt.selected = true;
+        certSel.appendChild(opt);
+      }
+      // Pas de valeur actuelle → "Automatique" déjà sélectionné (option value="")
+    }).catch(() => {
+      // Fallback texte libre si l'API échoue
+      const val = cfg.cert_name || '';
+      certSel.outerHTML = `<input id="p-cert" class="input" placeholder="cert-name" value="${esc(val)}">`;
+    });
+  }
+};
+
+window.updateProxyForm = function() {
+  updateSSOForm();
+};
+
+window.switchProxyTab = function(tab) {
+  ['general','entetes','auth','resilience','avance'].forEach(t => {
+    const panel = document.getElementById('ptab-' + t);
+    if (panel) panel.style.display = t === tab ? 'flex' : 'none';
+  });
+  document.querySelectorAll('#proxy-tabs [data-tab]').forEach(el => {
+    const active = el.dataset.tab === tab;
+    el.style.color = active ? 'var(--accent)' : 'var(--text2)';
+    el.style.fontWeight = active ? '600' : '400';
+    el.style.background = active ? 'color-mix(in srgb,var(--accent) 8%,transparent)' : '';
+    el.style.borderLeft = active ? '2.5px solid var(--accent)' : '2.5px solid transparent';
+  });
+};
+
+window.updateSSOForm = function() {
+  const prov = document.getElementById('p-sso-provider')?.value || '';
+  const isFwd = ['authentik','authelia','forward'].includes(prov);
+  const isOIDC = ['pocket_id','oidc'].includes(prov);
+  const fwdFields = document.getElementById('p-sso-fwd-fields');
+  const oidcFields = document.getElementById('p-sso-oidc-fields');
+  if (fwdFields) fwdFields.style.display = isFwd ? '' : 'none';
+  if (oidcFields) oidcFields.style.display = isOIDC ? '' : 'none';
+};
+
+let locationCounter = 200;
+window.addLocationRow = function() {
+  const i = locationCounter++;
+  const list = document.getElementById('p-locations-list');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.id = 'ploc-' + i;
+  div.className = 'p-loc-row';
+  div.style.cssText = 'display:grid;grid-template-columns:1.4fr 0.7fr 2.5fr 28px;gap:4px 6px;align-items:center;';
+  div.innerHTML = `
+    <input id="p-loc-path-${i}" class="input p-loc-path" placeholder="/api" style="margin:0;">
+    <select id="p-loc-pathtype-${i}" class="input p-loc-pathtype" style="margin:0;">
+      ${['prefix','exact','regex'].map(t=>`<option>${t}</option>`).join('')}
+    </select>
+    <input id="p-loc-dest-${i}" class="input p-loc-dest" placeholder="http://backend:8080" style="margin:0;">
+    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-loc-row').remove()" style="opacity:.55;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>`;
+  list.appendChild(div);
+  div.querySelector('.p-loc-path')?.focus();
+};
+
+let conditionCounter = 100;
+window.addConditionRow = function() {
+  const i = conditionCounter++;
+  const list = document.getElementById('p-conditions-list');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.className = 'form-row';
+  div.style.cssText = 'gap:6px;margin-bottom:6px';
+  div.id = 'pcond-' + i;
+  div.innerHTML = `
+    <select id="p-cond-type-${i}" class="input" style="flex:1.2">
+      ${['header','cookie','query','method'].map(t=>`<option>${t}</option>`).join('')}
+    </select>
+    <input id="p-cond-name-${i}" class="input" style="flex:1" placeholder="Nom">
+    <input id="p-cond-val-${i}" class="input" style="flex:1.5" placeholder="Valeur">
+    <input id="p-cond-bk-${i}" class="input" style="flex:2" placeholder="http://backend:port">
+    <button class="btn btn-secondary btn-sm" onclick="this.closest('[id^=pcond]').remove()" style="flex-shrink:0">✕</button>`;
+  list.appendChild(div);
+};
+
+window._addDomainRow = function() {
+  const list = document.getElementById('p-domains-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'p-domain-row';
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center;';
+  row.innerHTML = `<input class="input p-domain-val" style="flex:1;" placeholder="alias.example.fr" title="Alias">
+    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-domain-row').remove()">×</button>`;
+  list.appendChild(row);
+  row.querySelector('.p-domain-val').focus();
+};
+
+window._addBackendRow = function() {
+  const list = document.getElementById('p-backends-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'p-backend-row';
+  row.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;align-items:center';
+  row.innerHTML = `
+    <input class="input p-backend-url" style="flex:1" placeholder="http://10.0.0.5:3000"
+      oninput="this.setCustomValidity(this.value&&!/^https?:\\/\\/.+/.test(this.value.trim())?'URL invalide (doit commencer par http:// ou https://)':'')"
+      title="URL du backend">
+    <input class="input p-backend-weight" style="width:64px" type="number" min="1" max="100" placeholder="Poids" title="Poids (load balancing)">
+    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-backend-row').remove();if(!document.querySelectorAll('.p-backend-row').length)window._addBackendRow()">×</button>`;
+  list.appendChild(row);
+  row.querySelector('.p-backend-url').focus();
+};
+
+window._errorPageTemplates = [];
+
+function renderErrorPageRows(cfg) {
+  const tpls = window._errorPageTemplates || [];
+  const tplOpts = tpls.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
+  const rows = [];
+  const templates = cfg.error_pages?.templates || {};
+  const pages = cfg.error_pages?.pages || {};
+  const codes = new Set([...Object.keys(templates), ...Object.keys(pages)]);
+  for (const code of codes) {
+    const tplId = templates[code] || '';
+    const pageVal = pages[code] || '';
+    const isRedirect = /^https?:\/\//.test(pageVal);
+    const mode = tplId ? 'template' : (isRedirect ? 'redirect' : (pageVal ? 'legacy' : 'template'));
+    rows.push(errorPageRowHTML(code, mode, tplId, isRedirect ? pageVal : '', pageVal && !isRedirect ? pageVal : '', tplOpts));
+  }
+  return rows.join('');
+}
+
+function errorPageRowHTML(code, mode, tplId, redirectURL, legacyHTML, tplOpts) {
+  const opts = tplOpts || (window._errorPageTemplates || []).map(t =>
+    `<option value="${esc(t.id)}" ${t.id===tplId?'selected':''}>${esc(t.name)}</option>`
+  ).join('');
+  return `<div class="p-error-page-row" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center">
+    <input class="input p-error-code" style="width:64px" placeholder="502" value="${esc(code||'')}">
+    <select class="input p-error-mode" style="width:120px" onchange="window._onErrorPageModeChange(this)">
+      <option value="template" ${mode==='template'?'selected':''}>Template</option>
+      <option value="redirect" ${mode==='redirect'?'selected':''}>Redirect URL</option>
+      ${mode==='legacy' ? '<option value="legacy" selected>HTML legacy</option>' : ''}
+    </select>
+    <select class="input p-error-tpl" style="flex:1;min-width:140px;${mode!=='template'?'display:none':''}">
+      <option value="">— Choisir —</option>
+      ${(window._errorPageTemplates||[]).map(t=>`<option value="${esc(t.id)}" ${t.id===tplId?'selected':''}>${esc(t.name)}</option>`).join('') || opts}
+    </select>
+    <input class="input p-error-redirect" style="flex:1;min-width:140px;${mode!=='redirect'?'display:none':''}" placeholder="https://…" value="${esc(redirectURL||'')}">
+    ${mode==='legacy' ? `<input class="input p-error-legacy" style="flex:1;min-width:140px" readonly value="${esc(legacyHTML||'')}" title="Migrez vers un template">` : ''}
+    <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.p-error-page-row').remove()">×</button>
+  </div>`;
+}
+
+window._onErrorPageModeChange = function(sel) {
+  const row = sel.closest('.p-error-page-row');
+  if (!row) return;
+  const mode = sel.value;
+  const tpl = row.querySelector('.p-error-tpl');
+  const redir = row.querySelector('.p-error-redirect');
+  const leg = row.querySelector('.p-error-legacy');
+  if (tpl) tpl.style.display = mode === 'template' ? '' : 'none';
+  if (redir) redir.style.display = mode === 'redirect' ? '' : 'none';
+  if (leg) leg.style.display = mode === 'legacy' ? '' : 'none';
+};
+
+window._addErrorPageRow = function() {
+  const list = document.getElementById('p-error-pages-list');
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', errorPageRowHTML('', 'template', '', '', '', ''));
+  list.lastElementChild?.querySelector('.p-error-code')?.focus();
+};
+
+window.saveProxy = async function(id) {
+  const isHTTPS = document.getElementById('p-https')?.checked;
+  const type = isHTTPS ? 'https' : 'http';
+  const isL4 = false;
+  const backendRows = [...document.querySelectorAll('.p-backend-row')];
+  const backends = backendRows.map(row => {
+    const url = row.querySelector('.p-backend-url')?.value.trim();
+    const weight = parseInt(row.querySelector('.p-backend-weight')?.value||'0')||0;
+    return url ? (weight > 0 ? { url, weight } : { url }) : null;
+  }).filter(Boolean);
+  if (!backends.length) { toast('Au moins un backend est requis', 'error'); return; }
+  const invalid = backends.find(b => !/^https?:\/\/.+/.test(b.url));
+  if (invalid) { toast(`URL invalide : ${invalid.url}`, 'error'); return; }
+  // Canary config
+  const canaryBk = document.getElementById('p-canary-backend')?.value.trim();
+  const canaryWeight = parseInt(document.getElementById('p-canary-weight')?.value||'0');
+  const canary = canaryBk ? {
+    backend: canaryBk,
+    weight: canaryWeight,
+    header: document.getElementById('p-canary-header')?.value.trim()||undefined,
+    header_value: document.getElementById('p-canary-hval')?.value.trim()||undefined,
+    cookie_name: document.getElementById('p-canary-cookie')?.value.trim()||undefined,
+  } : undefined;
+
+  // Shadow config
+  const shadowBk = document.getElementById('p-shadow-backend')?.value.trim();
+  const shadow = shadowBk ? { backend: shadowBk } : undefined;
+
+  // Conditions
+  const condRows = document.querySelectorAll('[id^="pcond-"]');
+  const conditions = Array.from(condRows).map(row => ({
+    type: row.querySelector('[id^="p-cond-type"]')?.value||'header',
+    name: row.querySelector('[id^="p-cond-name"]')?.value.trim()||undefined,
+    value: row.querySelector('[id^="p-cond-val"]')?.value.trim()||'',
+    backend: row.querySelector('[id^="p-cond-bk"]')?.value.trim()||'',
+  })).filter(c => c.value && c.backend);
+
+  // SSO config
+  const ssoProvider = document.getElementById('p-sso-provider')?.value||'';
+  let sso = undefined;
+  if (ssoProvider) {
+    if (['pocket_id','oidc'].includes(ssoProvider)) {
+      sso = {
+        provider: ssoProvider,
+        oidc: {
+          issuer_url: document.getElementById('p-oidc-issuer')?.value.trim()||'',
+          client_id: document.getElementById('p-oidc-client-id')?.value.trim()||'',
+          client_secret: document.getElementById('p-oidc-secret')?.value.trim()||'',
+          redirect_url: document.getElementById('p-oidc-redirect')?.value.trim()||'',
+          session_secret: document.getElementById('p-oidc-sess-secret')?.value.trim()||'',
+          username_claim: document.getElementById('p-oidc-claim')?.value.trim()||'preferred_username',
+        },
+      };
+    } else {
+      sso = {
+        provider: ssoProvider,
+        forward_auth_url: document.getElementById('p-sso-fwd-url')?.value.trim()||'',
+      };
+    }
+  }
+
+  // Locations — collecte par ligne (.p-loc-row), normalise le slash initial (hors regex)
+  const locations = Array.from(document.querySelectorAll('#p-locations-list .p-loc-row')).map(row => {
+    let path = row.querySelector('.p-loc-path')?.value.trim()||'';
+    const pathType = row.querySelector('.p-loc-pathtype')?.value||'prefix';
+    const dest = row.querySelector('.p-loc-dest')?.value.trim()||'';
+    if (!path) return null;
+    if (pathType !== 'regex' && !path.startsWith('/')) path = '/' + path;
+    const entry = { path, path_type: pathType };
+    if (dest) entry.backends = [{ url: dest }];
+    return entry;
+  }).filter(Boolean);
+
+  // Health check
+  const hcPath = document.getElementById('p-hc-path')?.value.trim();
+  const health_check = hcPath ? {
+    path: hcPath,
+    interval: document.getElementById('p-hc-interval')?.value.trim()||undefined,
+    timeout: document.getElementById('p-hc-timeout')?.value.trim()||undefined,
+    healthy_threshold: parseInt(document.getElementById('p-hc-healthy')?.value||'0')||undefined,
+    unhealthy_threshold: parseInt(document.getElementById('p-hc-unhealthy')?.value||'0')||undefined,
+  } : undefined;
+
+  // Circuit breaker
+  const cbEnabled = document.getElementById('p-cb-enabled')?.checked;
+  const cbThreshold = parseInt(document.getElementById('p-cb-threshold')?.value||'0');
+  const circuit_breaker = (cbEnabled || cbThreshold) ? {
+    enabled: cbEnabled,
+    threshold: cbThreshold||undefined,
+    timeout: document.getElementById('p-cb-timeout')?.value.trim()||undefined,
+  } : undefined;
+
+  // Retry
+  const retryMax = parseInt(document.getElementById('p-retry-max')?.value||'0');
+  const retryOn = (document.getElementById('p-retry-on')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const retry_policy = retryMax ? {
+    max_attempts: retryMax,
+    retry_delay: document.getElementById('p-retry-delay')?.value.trim()||undefined,
+    retry_on: retryOn.length ? retryOn : undefined,
+  } : undefined;
+
+  // En-têtes de sécurité natifs (HeadersConfig) + custom (Phase B)
+  const hstsEnabled = document.getElementById('p-hsts')?.checked;
+  const hstsMaxAge = parseInt(document.getElementById('p-hsts-maxage')?.value||'0') || 31536000;
+  const hideServer = document.getElementById('p-hide-server')?.checked;
+  const xfo = document.getElementById('p-xfo')?.value || '';
+  const respHdrLines = (document.getElementById('p-resp-headers')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const customFromText = {};
+  for (const [n, v] of Object.entries(parseResponseAddHeader(respHdrLines))) {
+    const k = n.toLowerCase();
+    if (k === 'strict-transport-security' || k === 'x-frame-options') continue;
+    customFromText[n] = v;
+  }
+  const headers = (hstsEnabled || hideServer || xfo || Object.keys(customFromText).length) ? {
+    hsts: hstsEnabled || false,
+    hsts_max_age: hstsEnabled ? hstsMaxAge : undefined,
+    hide_server: hideServer || false,
+    x_frame_options: xfo || undefined,
+    ...(Object.keys(customFromText).length ? { custom: customFromText } : {}),
+  } : undefined;
+
+  // Headers manipulation — forwarded_headers uniquement (response_add_header migré vers headers.custom)
+  const fwdHdrs = (document.getElementById('p-fwd-headers')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const headers_manipulation = fwdHdrs.length ? {
+    forwarded_headers: fwdHdrs,
+  } : undefined;
+
+  // Performance
+  const cacheEnabled = document.getElementById('p-cache-enabled')?.checked;
+  const cacheTtl = document.getElementById('p-cache-ttl')?.value.trim();
+  const gzipEnabled = document.getElementById('p-gzip-enabled')?.checked;
+  const gzipMin = parseInt(document.getElementById('p-gzip-minsize')?.value||'0');
+  const bodySizeMB = parseInt(document.getElementById('p-body-size')?.value||'0');
+  const performance = (cacheEnabled || gzipEnabled) ? {
+    ...(cacheEnabled || cacheTtl ? { cache_proxy: { enabled: cacheEnabled, ttl: cacheTtl||undefined } } : {}),
+    ...(gzipEnabled || gzipMin ? { compression_gzip: { enabled: gzipEnabled, min_length: gzipMin||undefined } } : {}),
+  } : undefined;
+
+  // Timeouts backend natifs (stockés en nanosecondes pour time.Duration Go)
+  const connectTimeoutS = parseInt(document.getElementById('p-connect-timeout')?.value||'0');
+  const responseTimeoutS = parseInt(document.getElementById('p-response-timeout')?.value||'0');
+  const sendTimeoutS = parseInt(document.getElementById('p-send-timeout')?.value||'0');
+  const bufferSizeB = parseInt(document.getElementById('p-buffer-size')?.value||'0');
+
+  // Protocols
+  const http3 = document.getElementById('p-http3')?.checked;
+  const grpc = document.getElementById('p-grpc')?.checked;
+  const protocols = (http3 || grpc) ? {
+    ...(http3 ? { http3_quic: { enabled: true } } : {}),
+    ...(grpc ? { grpc: { enabled: true } } : {}),
+  } : undefined;
+
+  // Timeouts & error pages
+  const timeoutProfile = document.getElementById('p-timeout-profile')?.value.trim();
+  const err404 = document.getElementById('p-err-404')?.value.trim();
+  const err502 = document.getElementById('p-err-502')?.value.trim();
+  const timeouts_and_resilience = (timeoutProfile || err404 || err502) ? {
+    use_timeout_profile: timeoutProfile||undefined,
+    error_handling: (err404 || err502) ? { ...(err404?{'404':err404}:{}), ...(err502?{'502':err502,'503':err502}:{}) } : undefined,
+  } : undefined;
+
+  // Security (géré via le modal dédié — on préserve la config existante des chemins canoniques)
+  const security = window._openProxyCfg?.security || undefined;
+  const existingWaf = window._openProxyCfg?.waf || undefined;
+  const existingBot = window._openProxyCfg?.bot || undefined;
+  const existingJwt = window._openProxyCfg?.jwt || undefined;
+
+  // Logging par route (natif)
+  const logEnabled = document.getElementById('p-log-enabled')?.checked;
+  const logFormat = document.getElementById('p-log-format')?.value || 'combined';
+  const logLevel = document.getElementById('p-log-level')?.value || 'warn';
+  const logging = { access_log: logEnabled, format: logFormat, level: logLevel };
+
+  // Error pages — templates bibliothèque + redirects (+ legacy HTML conservé)
+  const errorPageRows = [...document.querySelectorAll('.p-error-page-row')];
+  const errorPagesMap = {};
+  const errorTemplatesMap = {};
+  errorPageRows.forEach(row => {
+    const code = row.querySelector('.p-error-code')?.value.trim();
+    if (!code) return;
+    const mode = row.querySelector('.p-error-mode')?.value || 'template';
+    if (mode === 'template') {
+      const tid = row.querySelector('.p-error-tpl')?.value.trim();
+      if (tid) errorTemplatesMap[code] = tid;
+    } else if (mode === 'redirect') {
+      const url = row.querySelector('.p-error-redirect')?.value.trim();
+      if (url) errorPagesMap[code] = url;
+    } else if (mode === 'legacy') {
+      const html = row.querySelector('.p-error-legacy')?.value;
+      if (html) errorPagesMap[code] = html;
+    }
+  });
+  const error_pages = (Object.keys(errorPagesMap).length || Object.keys(errorTemplatesMap).length)
+    ? {
+        ...(Object.keys(errorPagesMap).length ? { pages: errorPagesMap } : {}),
+        ...(Object.keys(errorTemplatesMap).length ? { templates: errorTemplatesMap } : {}),
+      }
+    : undefined;
+
+  // Observability (Prometheus uniquement — logging géré nativement)
+  const promEnabled = document.getElementById('p-prom-enabled')?.checked;
+  const observability = promEnabled ? { metrics: { prometheus: { enabled: true } } } : undefined;
+
+  // Domaines (premier = host, suivants = aliases)
+  const domainVals = [...document.querySelectorAll('.p-domain-val')].map(i=>i.value.trim()).filter(Boolean);
+  const host = domainVals[0] || '';
+  const aliases = domainVals.slice(1);
+  const tags = (document.getElementById('p-tags')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+
+  const config = {
+    type,
+    backends,
+    lb: document.getElementById('p-lb').value,
+    http_version: document.getElementById('p-http-version')?.value||'auto',
+    websocket: document.getElementById('p-ws')?.checked||false,
+    tls_enabled: document.getElementById('p-https')?.checked || false,
+    tls_mode: !document.getElementById('p-https')?.checked ? 'none' : (document.getElementById('p-cert').value.trim() ? 'manual' : 'le'),
+    tls_passthrough: document.getElementById('p-passthrough').checked,
+    tls_skip_verify: document.getElementById('p-skip-verify')?.checked || false,
+    cert_name: document.getElementById('p-cert').value.trim(),
+    host,
+    ...(aliases.length ? { aliases } : {}),
+    ...(tags.length ? { tags } : {}),
+    locations,
+    ...(health_check ? { health_check } : {}),
+    ...(canary ? { canary } : {}),
+    ...(shadow ? { shadow } : {}),
+    ...(conditions.length ? { conditions } : {}),
+    ...(circuit_breaker ? { circuit_breaker } : {}),
+    ...(retry_policy ? { retry_policy } : {}),
+    ...(headers ? { headers } : {}),
+    ...(headers_manipulation ? { headers_manipulation } : {}),
+    ...(performance ? { performance } : {}),
+    ...(protocols ? { protocols } : {}),
+    ...(bodySizeMB > 0 ? { max_body_size: bodySizeMB * 1048576 } : {}),
+    ...(connectTimeoutS > 0 ? { connect_timeout: connectTimeoutS * 1e9 } : {}),
+    ...(responseTimeoutS > 0 ? { response_timeout: responseTimeoutS * 1e9 } : {}),
+    ...(sendTimeoutS > 0 ? { send_timeout: sendTimeoutS * 1e9 } : {}),
+    ...(bufferSizeB > 0 ? { buffer_size: bufferSizeB } : {}),
+    ...(timeouts_and_resilience ? { timeouts_and_resilience } : {}),
+    ...(existingWaf ? { waf: existingWaf } : {}),
+    ...(existingBot ? { bot: existingBot } : {}),
+    ...(existingJwt ? { jwt: existingJwt } : {}),
+    ...(security ? { security } : {}),
+    ...(sso ? { sso } : {}),
+    ...(observability ? { observability } : {}),
+    logging,
+    ...(error_pages ? { error_pages } : {}),
+  };
+  const payload = { config, enabled: document.getElementById('p-enabled').checked };
+  try {
+    if (id) {
+      await api('PUT', `/proxies/${encodeURIComponent(id)}`, payload);
+      toast('Proxy mis à jour', 'success');
+    } else {
+      await api('POST', '/proxies', payload);
+      toast('Proxy créé', 'success');
+    }
+    closeModal();
+    navigate(state.page);
+  } catch(e) { toast(e.message, 'error'); }
+};
+
+
+function _buildStreamModalHtml(cfg, enabled) {
+  const proto = cfg.type || 'tcp';
+  const backends = (cfg.backends||[]).length ? cfg.backends : [{}];
+  const backendsHtml = backends.map((b, i) => `
+    <div class="sp-backend-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+      <input class="input sp-backend-url" style="flex:1" placeholder="10.0.0.5:6379" value="${esc(b.url||b||'')}">
+      <button type="button" class="btn-icon" title="Supprimer" onclick="this.closest('.sp-backend-row').remove();if(!document.querySelectorAll('.sp-backend-row').length)_addStreamBackend()">×</button>
+    </div>`).join('');
+  return `
+    <div style="display:flex;flex-direction:column;gap:16px;padding-top:4px;">
+      <div class="field">
+        <label class="field-label">Nom</label>
+        <input class="input" id="sp-name" placeholder="Redis cache, DNS, …" value="${esc(cfg.host||'')}">
+      </div>
+      <div class="form-row" style="gap:12px;">
+        <div class="field" style="flex:1;">
+          <label class="field-label">Port d'écoute</label>
+          <input class="input" id="sp-port" type="number" min="1" max="65535" placeholder="6379" value="${cfg.listen_port||''}">
+        </div>
+        <div class="field" style="flex:1;">
+          <label class="field-label">Protocole</label>
+          <div class="seg" style="margin-top:2px;">
+            <label class="seg-opt"><input type="radio" name="sp-proto" value="tcp" ${proto==='tcp'?'checked':''}>TCP</label>
+            <label class="seg-opt"><input type="radio" name="sp-proto" value="udp" ${proto==='udp'?'checked':''}>UDP</label>
+            <label class="seg-opt"><input type="radio" name="sp-proto" value="both" ${proto==='both'?'checked':''}>Les deux</label>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label">Backends</label>
+        <div id="sp-backends-list">${backendsHtml}</div>
+        <button type="button" class="btn btn-secondary" style="margin-top:2px;height:28px;padding:0 10px;font-size:12px" onclick="_addStreamBackend()">+ Ajouter un backend</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border);">
+        <label class="toggle"><input type="checkbox" id="sp-enabled" ${enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
+        <span style="font-weight:500">Actif</span>
+      </label>
+    </div>`;
+}
+
+window._addStreamBackend = function() {
+  const list = document.getElementById('sp-backends-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.className = 'sp-backend-row';
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px';
+  row.innerHTML = '<input class="input sp-backend-url" style="flex:1" placeholder="10.0.0.5:6379"><button type="button" class="btn-icon" title="Supprimer" onclick="this.closest(\'.sp-backend-row\').remove();if(!document.querySelectorAll(\'.sp-backend-row\').length)_addStreamBackend()">×</button>';
+  list.appendChild(row);
+  row.querySelector('input')?.focus();
+};
+
+window.openStreamProxyModal = function() {
+  const bodyHtml = _buildStreamModalHtml({}, true);
+  const footerHtml = `
+    <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveStreamProxy()">Créer le flux</button>`;
+  modal('Nouveau flux TCP/UDP', bodyHtml, footerHtml);
+  setTimeout(() => document.getElementById('sp-name')?.focus(), 50);
+};
+
+window.openStreamEditModal = async function(id) {
+  let existing;
+  try { existing = await api('GET', `/proxies/${encodeURIComponent(id)}`); } catch(e) { toast(e.message,'error'); return; }
+  const cfg = typeof existing.config === 'string' ? tryJSON2(existing.config) : (existing.config || {});
+  const bodyHtml = _buildStreamModalHtml(cfg, existing.enabled !== false);
+  const footerHtml = `
+    <button class="btn btn-sm" style="background:var(--red);color:#fff;border:none;border-radius:var(--radius);padding:0 12px;height:30px;font-size:12px;cursor:pointer;margin-right:auto"
+      onclick="confirm_('Supprimer ce flux ?',async()=>{try{await api('DELETE','/proxies/${esc(id)}');closeModal();toast('Flux supprimé','success');refreshProxies();}catch(e){toast(e.message,'error');}})">Supprimer</button>
+    <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+    <button class="btn btn-primary" onclick="saveStreamEdit('${esc(id)}')">Enregistrer</button>`;
+  modal('Modifier le flux', bodyHtml, footerHtml);
+  setTimeout(() => document.getElementById('sp-name')?.focus(), 50);
+};
+
+function _collectStreamForm() {
+  const name   = (document.getElementById('sp-name')?.value || '').trim();
+  const port   = parseInt(document.getElementById('sp-port')?.value || '0');
+  const proto  = document.querySelector('input[name="sp-proto"]:checked')?.value || 'tcp';
+  const enabled = document.getElementById('sp-enabled')?.checked !== false;
+  const backends = [...document.querySelectorAll('.sp-backend-url')]
+    .map(i => i.value.trim()).filter(Boolean).map(url => ({ url }));
+  return { name, port, proto, enabled, backends };
+}
+
+window.saveStreamProxy = async function() {
+  const { name, port, proto, enabled, backends } = _collectStreamForm();
+  if (!port || port < 1 || port > 65535) { toast("Port d'écoute invalide", 'error'); return; }
+  if (!backends.length) { toast('Au moins un backend requis', 'error'); return; }
+  const config = { type: proto, host: name || (proto + '_' + port), listen_port: port, backends };
+  try {
+    await api('POST', '/proxies', { config, enabled });
+    toast('Flux créé', 'success');
+    closeModal();
+    refreshProxies();
+  } catch(e) { toast(e.message || 'Erreur', 'error'); }
+};
+
+window.saveStreamEdit = async function(id) {
+  const { name, port, proto, enabled, backends } = _collectStreamForm();
+  if (!port || port < 1 || port > 65535) { toast("Port d'écoute invalide", 'error'); return; }
+  if (!backends.length) { toast('Au moins un backend requis', 'error'); return; }
+  const config = { type: proto, host: name || (proto + '_' + port), listen_port: port, backends };
+  try {
+    await api('PUT', `/proxies/${encodeURIComponent(id)}`, { config, enabled });
+    toast('Flux mis à jour', 'success');
+    closeModal();
+    refreshProxies();
+  } catch(e) { toast(e.message || 'Erreur', 'error'); }
+};

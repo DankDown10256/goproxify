@@ -1,0 +1,100 @@
+# =============================================================================
+# GOPROXIFY — .gitignore
+# =============================================================================
+
+# --- Binaire compilé ---
+/goproxify
+/goproxify.exe
+/dist/
+
+# --- Go ---
+vendor/
+*.test
+*.out
+coverage.txt
+coverage.html
+.gocache/
+.gomodcache/
+.gotmp/
+.tmp/
+.node-dist/
+# Air (hot-reload dev)
+tmp/
+.air.toml.local
+
+# --- Données de développement local ---
+dev-data/
+
+# --- Configs avec secrets réels (les *.json de dev sont versionnés) ---
+config/admin.prod.json
+config/core.prod.json
+config/agent.prod.json
+*.prod.json
+*.local.json
+
+# --- Variables d'environnement ---
+.env
+.env.*
+!.env.example
+!.env.admin.example
+
+# --- Snapshot public (CI publish) ---
+/public-snapshot/
+
+# --- UI admin (servie via go:embed src/, pas de bundle dist) ---
+internal/admin/ui/dist/
+
+# --- Frontend (services/webapp) ---
+services/webapp/node_modules/
+services/webapp/dist/
+services/webapp/.vite/
+services/webapp/.nuxt/
+services/webapp/.output/
+services/webapp/coverage/
+
+# --- SQLite (base dev locale) ---
+*.db
+*.db-shm
+*.db-wal
+
+# --- Certificats & clés (jamais en repo) ---
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# --- Logs locaux ---
+*.log
+logs/
+!internal/admin/logs/
+!internal/admin/logs/**
+
+# --- Docker ---
+.docker/
+
+# --- Éditeurs & IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# --- OS ---
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Tests & benchmarks ---
+testdata/output/
+bench/
+
+# --- Backup files ---
+*.gpx-core-backup
+*.gpx-admin-backup

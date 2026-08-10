@@ -1,0 +1,48 @@
+{
+  "identity": {
+    "node_name": ""
+  },
+  "control_plane": {
+    "core_endpoint": "http://goproxify-core:8000",
+    "auth_token": ""
+  },
+  "docker": {
+    "socket_path": "/var/run/docker.sock",
+    "poll_interval_ms": 2000,
+    "label_prefix": "goproxify."
+  },
+  "telemetry": {
+    "enabled": true,
+    "metrics_port": 9191,
+    "scrape_interval_ms": 5000
+  },
+  "network_management": {
+    "manage_wireguard": false,
+    "docker_network_driver": "bridge",
+    "core_container_name": "goproxify-core"
+  },
+  "log_forwarding": {
+    "enabled": false,
+    "buffer_lines": 500
+  },
+  "health_escalation": {
+    "enabled": false,
+    "restart_max_retries": 3,
+    "recreate_timeout_s": 30,
+    "check_interval_s": 15
+  },
+  "internal_api": {
+    "port": 8001
+  },
+  "autoscale": {
+    "enabled": false,
+    "check_interval_s": 30,
+    "cooldown_s": 120,
+    "cpu_scale_up_pct": 80.0,
+    "cpu_scale_down_pct": 20.0
+  },
+  "digest_watch": {
+    "enabled": false,
+    "check_interval_s": 3600
+  }
+}
