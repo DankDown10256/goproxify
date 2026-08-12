@@ -236,5 +236,13 @@ pages.dashboard = async function() {
     window._coreNodes = coreNodes;
     window.openCore = function(i, page) { selectCore(window._coreNodes[i], page); };
     if (typeof refreshNavCores === 'function') refreshNavCores();
-  } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+  } catch(e) { content.innerHTML = `
+                <div class="empty">
+                    <p style="color:var(--red)">${esc(e.message)}</p>
+                    <button class="btn btn-primary" onclick="pages.dashboard()">
+                        ${t('common.retry')}
+                    </button>
+                </div>
+                `;
+             }
 };
