@@ -38,7 +38,7 @@ function tryJSON(s) {
 }
 
 function copyText(text, successMsg) {
-  const msg = successMsg || 'Copié';
+  const msg = successMsg || t('common.copied');
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(text).then(() => toast(msg, 'success')).catch(() => toast('Erreur copie', 'error'));
   } else {
@@ -49,6 +49,6 @@ function copyText(text, successMsg) {
       document.execCommand('copy');
       document.body.removeChild(ta);
       toast(msg, 'success');
-    } catch { toast('Erreur copie', 'error'); }
+    } catch { toast(t('common.copy_error'), 'error'); }
   }
 }

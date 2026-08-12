@@ -15,7 +15,8 @@ const GPX_I18N_MESSAGES = {
 
     'brand.tagline': 'Administration',
     'doc.title': 'Goproxify — Administration',
-
+    'common.copied': 'Copied !',
+    'common.copy_error': 'Unable to copy',
     'setup.kicker': 'Initialization',
     'setup.welcome': 'Welcome! Create your administrator account to get started.',
     'setup.email': 'Email address',
@@ -7574,6 +7575,8 @@ const GPX_I18N_MESSAGES = {
     'infra.events.empty': 'Keine aktuellen Ereignisse für diesen Agent',
     'infra.confirm.delete_declared': 'Diesen deklarierten Knoten löschen?',
     'infra.error': 'Fehler',
+    'common.copied': 'Copi� !',
+    'common.copy_error': 'La copie a �chou�e',
     'infra.node_not_found': 'Knoten nicht gefunden.',
     'infra.config_title': 'Konfiguration: {name}',
     'infra.config_unavailable': 'Generierte Konfiguration für diesen Knoten nicht verfügbar — er wurde vor dem Assistenten-Update deklariert.',
