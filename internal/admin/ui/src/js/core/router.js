@@ -83,6 +83,7 @@ window.addEventListener('resize', () => {
 
 // ── Navigation principale ──────────────────────────────────────────────────
 function navigate(page) {
+  if (typeof stopLogsSSE === 'function') stopLogsSSE();
   state.page = page;
 
   // Ferme la sidebar sur mobile après navigation

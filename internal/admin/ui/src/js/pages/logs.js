@@ -21,6 +21,13 @@ let logsSSE = null;
 let liveRows = [];
 let livePaused = false;
 
+function stopLogsSSE() {
+  if (logsSSE) {
+    logsSSE.close();
+    logsSSE = null;
+  }
+}
+
 function logFilterLabels() {
   return {
     domain: t('logs.domain'), ip: t('logs.ip'), method: t('logs.method'), status: t('logs.status'),
@@ -144,7 +151,7 @@ function logsScopeBanner() {
 }
 
 function renderLogsPage() {
-  if (logsSSE) { logsSSE.close(); logsSSE = null; }
+  stopLogsSSE();
   livePaused = false;
   liveRows = [];
   logsActiveTab = 'static';
@@ -602,7 +609,7 @@ function renderLiveLogs() {
 }
 
 window.restartSSE = function() {
-  if (logsSSE) { logsSSE.close(); logsSSE = null; }
+  stopLogsSSE();
   startSSE();
 };
 
