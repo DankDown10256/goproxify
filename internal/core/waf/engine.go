@@ -4,55 +4,113 @@
 package waf
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
+// contextKey est la clé de contexte pour transmettre les matches WAF au access log.
+type contextKey struct{}
+
+// MatchesFromContext retourne les matches WAF attachés à la requête (nil si aucun).
+func MatchesFromContext(ctx context.Context) []Match {
+	if v, ok := ctx.Value(contextKey{}).([]Match); ok {
+		return v
+	}
+	return nil
+}
+
 // Match représente une règle déclenchée.
 type Match struct {
-	RuleID   int
-	Category string
-	Severity Severity
-	Message  string
-	Target   string
-	Value    string
+	RuleID       int
+	Category     string
+	Severity     Severity
+	AnomalyScore int
+	Message      string
+	Target       string
+	Value        string
 }
+
+var (
+	wafMatchesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "waf",
+		Name:      "matches_total",
+		Help:      "Nombre de déclenchements WAF.",
+	}, []string{"host", "category", "severity", "action"})
+
+	wafRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "waf",
+		Name:      "requests_inspected_total",
+		Help:      "Nombre de requêtes inspectées par le WAF.",
+	}, []string{"host"})
+)
 
 // Engine est le moteur WAF.
 type Engine struct {
-	rules   []Rule
+	mu      sync.RWMutex
+	rules   []Rule   // règles par défaut + custom compilées
 	exclude map[int]bool
 	log     *slog.Logger
 }
 
 // NewEngine crée un moteur WAF avec les règles par défaut.
 func NewEngine(cfg *router.WAFConfig, log *slog.Logger) *Engine {
+	e := &Engine{log: log}
+	e.reload(cfg)
+	return e
+}
+
+// UpdateConfig recharge la configuration à chaud (nouvelles règles custom, exclusions).
+func (e *Engine) UpdateConfig(cfg *router.WAFConfig) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.reload(cfg)
+}
+
+func (e *Engine) reload(cfg *router.WAFConfig) {
 	exclude := make(map[int]bool)
+	rules := DefaultRules()
 	if cfg != nil {
 		for _, id := range cfg.ExcludeIDs {
 			exclude[id] = true
 		}
+		if len(cfg.CustomRules) > 0 {
+			custom, err := CompileCustomRules(cfg.CustomRules)
+			if err != nil {
+				e.log.Error("waf: erreur compilation règles custom", "err", err)
+			} else {
+				rules = append(rules, custom...)
+			}
+		}
 	}
-	return &Engine{
-		rules:   DefaultRules(),
-		exclude: exclude,
-		log:     log,
-	}
+	e.rules = rules
+	e.exclude = exclude
 }
 
 // Inspect analyse une requête et retourne les correspondances.
 // excludeIDs additionnels (par route) sont fusionnés avec ceux du moteur.
 func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Match {
-	var matches []Match
+	e.mu.RLock()
+	rules := e.rules
+	baseExclude := e.exclude
+	e.mu.RUnlock()
 
-	exclude := e.exclude
+	exclude := baseExclude
 	if len(excludeIDs) > 0 {
-		exclude = make(map[int]bool, len(e.exclude)+len(excludeIDs))
-		for id := range e.exclude {
+		exclude = make(map[int]bool, len(baseExclude)+len(excludeIDs))
+		for id := range baseExclude {
 			exclude[id] = true
 		}
 		for _, id := range excludeIDs {
@@ -60,22 +118,22 @@ func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Ma
 		}
 	}
 
-	// Préparer les valeurs à inspecter selon les targets
 	uri := r.URL.RequestURI()
 	args := extractArgs(r)
 	headers := extractHeaders(r)
 	cookies := extractCookies(r)
-	body := readBody(r, maxBodyMB)
+	body, bodyVals := readBody(r, maxBodyMB)
 
 	targetValues := map[Target][]string{
 		TargetURI:     {uri},
-		TargetArgs:    args,
+		TargetArgs:    append(args, bodyVals...),
 		TargetHeaders: headers,
 		TargetCookies: cookies,
 		TargetBody:    {body},
 	}
 
-	for _, rule := range e.rules {
+	var matches []Match
+	for _, rule := range rules {
 		if exclude[rule.ID] {
 			continue
 		}
@@ -91,14 +149,15 @@ func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Ma
 						excerpt = excerpt[:64] + "..."
 					}
 					matches = append(matches, Match{
-						RuleID:   rule.ID,
-						Category: rule.Category,
-						Severity: rule.Severity,
-						Message:  rule.Message,
-						Target:   targetName(target),
-						Value:    excerpt,
+						RuleID:       rule.ID,
+						Category:     rule.Category,
+						Severity:     rule.Severity,
+						AnomalyScore: rule.AnomalyScore,
+						Message:      rule.Message,
+						Target:       targetName(target),
+						Value:        excerpt,
 					})
-					goto nextRule // une règle = un match max
+					goto nextRule
 				}
 			}
 		}
@@ -118,31 +177,62 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		excludeIDs = cfg.ExcludeIDs
 	}
 	block := cfg == nil || cfg.Mode != "detect"
+	anomalyThreshold := 0
+	if cfg != nil {
+		anomalyThreshold = cfg.AnomalyThreshold
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		wafRequestsTotal.WithLabelValues(host).Inc()
+
 		matches := e.Inspect(r, maxBody, excludeIDs...)
 		if len(matches) == 0 {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		top := matches[0]
-		e.log.Warn("waf: règle déclenchée",
-			"rule_id", top.RuleID,
-			"category", top.Category,
-			"severity", top.Severity.String(),
-			"message", top.Message,
-			"target", top.Target,
-			"ip", r.RemoteAddr,
-			"uri", r.URL.RequestURI(),
-			"block", block,
-		)
+		// Décision : scoring anomalie ou premier match
+		triggered := false
+		if anomalyThreshold > 0 {
+			total := 0
+			for _, m := range matches {
+				total += m.AnomalyScore
+			}
+			triggered = total >= anomalyThreshold
+		} else {
+			triggered = true
+		}
 
-		if block {
+		// Injecter les matches dans le contexte pour l'access log
+		ctx := context.WithValue(r.Context(), contextKey{}, matches)
+		r = r.WithContext(ctx)
+
+		for _, m := range matches {
+			action := "detect"
+			if triggered && block {
+				action = "block"
+			}
+			wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
+			e.log.Warn("waf: règle déclenchée",
+				"rule_id", m.RuleID,
+				"category", m.Category,
+				"severity", m.Severity.String(),
+				"score", m.AnomalyScore,
+				"message", m.Message,
+				"target", m.Target,
+				"ip", r.RemoteAddr,
+				"uri", r.URL.RequestURI(),
+				"block", triggered && block,
+			)
+		}
+
+		if triggered && block {
 			http.Error(w, "403 Forbidden", http.StatusForbidden)
 			return
 		}
-		// Mode detect : ajoute un header de diagnostic et laisse passer
+		// Mode detect ou score insuffisant : ajoute un header de diagnostic
+		top := matches[0]
 		w.Header().Set("X-WAF-Match", top.Category)
 		next.ServeHTTP(w, r)
 	})
@@ -174,18 +264,64 @@ func extractCookies(r *http.Request) []string {
 	return vals
 }
 
-func readBody(r *http.Request, maxMB int) string {
+// readBody lit le corps et retourne (raw string, valeurs extraites de JSON/form).
+// Les valeurs extraites sont ajoutées aux TargetArgs pour inspecter le contenu décodé.
+func readBody(r *http.Request, maxMB int) (raw string, extracted []string) {
 	if r.Body == nil || r.ContentLength == 0 {
-		return ""
+		return "", nil
 	}
 	limit := int64(maxMB) * 1024 * 1024
 	data, err := io.ReadAll(io.LimitReader(r.Body, limit))
-	if err != nil {
-		return ""
+	if err != nil || len(data) == 0 {
+		return "", nil
 	}
-	// Réinjecte le body pour les handlers suivants
 	r.Body = io.NopCloser(strings.NewReader(string(data)))
-	return string(data)
+	raw = string(data)
+
+	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	switch ct {
+	case "application/json":
+		extracted = extractJSON(data)
+	case "application/x-www-form-urlencoded":
+		if vals, err := url.ParseQuery(raw); err == nil {
+			for _, v := range vals {
+				extracted = append(extracted, v...)
+			}
+		}
+	case "multipart/form-data":
+		if err := r.ParseMultipartForm(limit); err == nil {
+			for _, v := range r.MultipartForm.Value {
+				extracted = append(extracted, v...)
+			}
+			r.Body = io.NopCloser(strings.NewReader(raw))
+		}
+	}
+	return raw, extracted
+}
+
+// extractJSON aplatit les valeurs string d'un JSON arbitraire (objet ou tableau).
+func extractJSON(data []byte) []string {
+	var out []string
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch vv := v.(type) {
+		case string:
+			out = append(out, vv)
+		case map[string]interface{}:
+			for _, val := range vv {
+				walk(val)
+			}
+		case []interface{}:
+			for _, val := range vv {
+				walk(val)
+			}
+		}
+	}
+	var parsed interface{}
+	if err := json.Unmarshal(data, &parsed); err == nil {
+		walk(parsed)
+	}
+	return out
 }
 
 func targetName(t Target) string {

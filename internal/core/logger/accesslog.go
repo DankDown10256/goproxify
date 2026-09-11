@@ -18,6 +18,10 @@ import (
 	"gopkg.in/lumberjack.v2"
 )
 
+// WAFMatchExtractor extrait les catégories WAF déclenchées depuis la requête (après traitement).
+// Registré via SetWAFExtractor pour éviter les cycles d'import.
+type WAFMatchExtractor func(r *http.Request) []string
+
 // AccessLogger écrit les access logs JSON de façon asynchrone et les pousse
 // vers l'Admin (via SetForwarder et/ou SetRemote).
 type AccessLogger struct {
@@ -32,38 +36,43 @@ type AccessLogger struct {
 	remoteToken string
 	nodeName    string
 	forwardFn   func([]ShipEntry) // prioritaire sur HTTP si défini
+
+	wafExtMu sync.RWMutex
+	wafExt   WAFMatchExtractor
 }
 
 type accessEntry struct {
-	Time       string `json:"time"`
-	RequestID  string `json:"request_id,omitempty"`
-	Method     string `json:"method"`
-	Host       string `json:"host"`
-	Path       string `json:"path"`
-	Status     int    `json:"status"`
-	BytesSent  int    `json:"bytes_sent"`
-	DurationMs int64  `json:"duration_ms"`
-	RemoteIP   string `json:"remote_ip"`
-	UserAgent  string `json:"user_agent"`
-	Referrer   string `json:"referrer,omitempty"`
+	Time        string   `json:"time"`
+	RequestID   string   `json:"request_id,omitempty"`
+	Method      string   `json:"method"`
+	Host        string   `json:"host"`
+	Path        string   `json:"path"`
+	Status      int      `json:"status"`
+	BytesSent   int      `json:"bytes_sent"`
+	DurationMs  int64    `json:"duration_ms"`
+	RemoteIP    string   `json:"remote_ip"`
+	UserAgent   string   `json:"user_agent"`
+	Referrer    string   `json:"referrer,omitempty"`
+	WAFMatches  []string `json:"waf_matches,omitempty"`  // catégories WAF déclenchées
 }
 
 // ShipEntry est le format attendu par l'Admin (WS access_log / POST /internal/v1/logs).
 type ShipEntry struct {
-	Ts        string `json:"ts"`
-	Level     string `json:"level"`
-	Component string `json:"component"`
-	NodeName  string `json:"node_name,omitempty"`
-	Domain    string `json:"domain"`
-	Method    string `json:"method"`
-	Path      string `json:"path"`
-	Status    int    `json:"status"`
-	IP        string `json:"ip"`
-	LatencyMs int64  `json:"latency_ms"`
-	Bytes     int64  `json:"bytes"`
-	Message   string `json:"message"`
-	Referrer  string `json:"referrer,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	Ts         string   `json:"ts"`
+	Level      string   `json:"level"`
+	Component  string   `json:"component"`
+	NodeName   string   `json:"node_name,omitempty"`
+	Domain     string   `json:"domain"`
+	Method     string   `json:"method"`
+	Path       string   `json:"path"`
+	Status     int      `json:"status"`
+	IP         string   `json:"ip"`
+	LatencyMs  int64    `json:"latency_ms"`
+	Bytes      int64    `json:"bytes"`
+	Message    string   `json:"message"`
+	Referrer   string   `json:"referrer,omitempty"`
+	RequestID  string   `json:"request_id,omitempty"`
+	WAFMatches []string `json:"waf_matches,omitempty"`
 }
 
 func NewAccessLogger(path string) *AccessLogger {
@@ -134,20 +143,21 @@ func (a *AccessLogger) ship() {
 				lvl = "warn"
 			}
 			payload[i] = ShipEntry{
-				Ts:        e.Time,
-				Level:     lvl,
-				Component: "core",
-				NodeName:  nodeName,
-				Domain:    stripHostPort(e.Host),
-				Method:    e.Method,
-				Path:      e.Path,
-				Status:    e.Status,
-				IP:        e.RemoteIP,
-				LatencyMs: e.DurationMs,
-				Bytes:     int64(e.BytesSent),
-				Message:   shipMessage(e),
-				Referrer:  e.Referrer,
-				RequestID: e.RequestID,
+				Ts:         e.Time,
+				Level:      lvl,
+				Component:  "core",
+				NodeName:   nodeName,
+				Domain:     stripHostPort(e.Host),
+				Method:     e.Method,
+				Path:       e.Path,
+				Status:     e.Status,
+				IP:         e.RemoteIP,
+				LatencyMs:  e.DurationMs,
+				Bytes:      int64(e.BytesSent),
+				Message:    shipMessage(e),
+				Referrer:   e.Referrer,
+				RequestID:  e.RequestID,
+				WAFMatches: e.WAFMatches,
 			}
 		}
 		batch = batch[:0]
@@ -202,6 +212,13 @@ func (a *AccessLogger) SetNodeName(name string) {
 	a.remoteMu.Unlock()
 }
 
+// SetWAFExtractor enregistre la fonction d'extraction des matches WAF (évite le cycle logger↔waf).
+func (a *AccessLogger) SetWAFExtractor(fn WAFMatchExtractor) {
+	a.wafExtMu.Lock()
+	a.wafExt = fn
+	a.wafExtMu.Unlock()
+}
+
 // SetRemote configure (ou désactive si url == "") l'envoi HTTP vers l'Admin.
 // Utilisé en secours si aucun SetForwarder n'est défini.
 func (a *AccessLogger) SetRemote(adminURL, token string) {
@@ -249,6 +266,13 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 		}
 
 		ip := RealIP(r)
+		a.wafExtMu.RLock()
+		ext := a.wafExt
+		a.wafExtMu.RUnlock()
+		var wafMatches []string
+		if ext != nil {
+			wafMatches = ext(r)
+		}
 		select {
 		case a.ch <- accessEntry{
 			Time:       start.UTC().Format(time.RFC3339Nano),
@@ -262,6 +286,7 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 			RemoteIP:   ip,
 			UserAgent:  r.UserAgent(),
 			Referrer:   r.Referer(),
+			WAFMatches: wafMatches,
 		}:
 		default:
 		}

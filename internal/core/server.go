@@ -170,6 +170,21 @@ func New(cfg *config.CoreConfig) (*Server, error) {
 	s.metrics = proxy.NewAgentMetricsStore()
 	s.peers = proxy.NewPeerRegistry()
 	s.wafEngine = waf.NewEngine(nil, log.Logger())
+	s.accessLog.SetWAFExtractor(func(r *http.Request) []string {
+		matches := waf.MatchesFromContext(r.Context())
+		if len(matches) == 0 {
+			return nil
+		}
+		seen := make(map[string]bool, len(matches))
+		cats := make([]string, 0, len(matches))
+		for _, m := range matches {
+			if !seen[m.Category] {
+				seen[m.Category] = true
+				cats = append(cats, m.Category)
+			}
+		}
+		return cats
+	})
 	log.Logger().Info("waf: moteur prêt — activer par route (label goproxify.waf=detect|block ou snippet)")
 	s.portal = portal.NewService(log.Logger())
 
