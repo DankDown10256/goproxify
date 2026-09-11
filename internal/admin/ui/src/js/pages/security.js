@@ -445,10 +445,12 @@ function ipsProviderBanner(provider, f2bCfg, csCfg) {
 
 function threatEngineBanner(cfg) {
   const enabled = !!cfg.enabled;
+  const mode = cfg.mode || 'block';
   const svgBolt = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 
   const wl = cfg.whitelist || {};
   const lists = cfg.lists || {};
+  const custom = cfg.custom_lists || {};
 
   return `<div class="sec-bans-config" style="margin-top:12px">
     <div class="sec-bans-config-head">
@@ -463,6 +465,21 @@ function threatEngineBanner(cfg) {
     </div>
     <div id="threat-engine-body" style="${enabled ? '' : 'display:none'}">
       <form onsubmit="saveThreatConfig(event)" style="margin-top:12px">
+
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
+          <div class="field" style="margin:0;min-width:140px">
+            <label class="field-label">Mode</label>
+            <select id="threat-mode" class="input" style="height:32px">
+              <option value="block" ${mode==='block'?'selected':''}>Block — bannir</option>
+              <option value="detect" ${mode==='detect'?'selected':''}>Detect — journaliser</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0;min-width:140px">
+            <label class="field-label">Score seuil <span style="font-weight:400;color:var(--text3)">(0 = premier signal)</span></label>
+            <input id="threat-score" type="number" class="input" value="${cfg.score_threshold||0}" min="0" placeholder="0">
+          </div>
+        </div>
+
         <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
           <div class="field" style="margin:0">
             <label class="field-label">${t('security.threat.rate_limit')}</label>
@@ -501,7 +518,25 @@ function threatEngineBanner(cfg) {
           </label>
         </div>
 
-        <div style="margin-top:12px">
+        <div style="margin-top:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Listes personnalisées (inline)</div>
+          <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
+            <div class="field" style="margin:0">
+              <label class="field-label">IPs / CIDRs bloqués</label>
+              <textarea id="threat-custom-ips" class="input" rows="3" placeholder="192.168.1.0/24&#10;1.2.3.4">${(custom.ips||[]).join('\n')}</textarea>
+            </div>
+            <div class="field" style="margin:0">
+              <label class="field-label">User-Agents bloqués</label>
+              <textarea id="threat-custom-uas" class="input" rows="3" placeholder="badbot&#10;scrapy">${(custom.uas||[]).join('\n')}</textarea>
+            </div>
+            <div class="field" style="margin:0">
+              <label class="field-label">Paths bloqués (préfixes)</label>
+              <textarea id="threat-custom-paths" class="input" rows="3" placeholder="/admin/secret&#10;/phpmyadmin">${(custom.paths||[]).join('\n')}</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
           <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">${t('security.threat.whitelist')}</div>
           <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
             <div class="field" style="margin:0">
@@ -533,8 +568,12 @@ window.saveThreatConfig = async function(e) {
   const body = document.getElementById('threat-engine-body');
   if (body) body.style.display = enabled ? '' : 'none';
 
+  const splitLines = id => (document.getElementById(id)?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+
   const cfg = {
     enabled,
+    mode: document.getElementById('threat-mode')?.value || 'block',
+    score_threshold: parseInt(document.getElementById('threat-score')?.value || '0', 10) || 0,
     rate_limit: parseFloat(document.getElementById('threat-rate')?.value || '0') || 0,
     error_threshold: parseInt(document.getElementById('threat-errs')?.value || '20', 10),
     error_window: document.getElementById('threat-ewin')?.value || '10s',
@@ -545,10 +584,15 @@ window.saveThreatConfig = async function(e) {
       path_enabled: document.getElementById('threat-path')?.checked ?? false,
       ip_enabled: document.getElementById('threat-ip')?.checked ?? false,
     },
+    custom_lists: {
+      ips:   splitLines('threat-custom-ips'),
+      uas:   splitLines('threat-custom-uas'),
+      paths: splitLines('threat-custom-paths'),
+    },
     whitelist: {
-      ips: (document.getElementById('threat-wl-ips')?.value || '').split('\n').map(s => s.trim()).filter(Boolean),
-      uas: (document.getElementById('threat-wl-uas')?.value || '').split('\n').map(s => s.trim()).filter(Boolean),
-      paths: (document.getElementById('threat-wl-paths')?.value || '').split('\n').map(s => s.trim()).filter(Boolean),
+      ips:   splitLines('threat-wl-ips'),
+      uas:   splitLines('threat-wl-uas'),
+      paths: splitLines('threat-wl-paths'),
     },
   };
 

@@ -304,10 +304,23 @@ type RetryConfig struct {
 
 // WAFConfig configure le WAF par route.
 type WAFConfig struct {
-	Enabled    bool  `json:"enabled"`
-	Mode       string `json:"mode"`        // detect | block
-	ExcludeIDs []int  `json:"exclude_ids"`
-	MaxBodyMB  int    `json:"max_body_mb"`
+	Enabled          bool         `json:"enabled"`
+	Mode             string       `json:"mode"`               // detect | block
+	ExcludeIDs       []int        `json:"exclude_ids"`
+	MaxBodyMB        int          `json:"max_body_mb"`
+	AnomalyThreshold int          `json:"anomaly_threshold"`  // 0 = premier match, >0 = score cumulatif
+	CustomRules      []CustomRule `json:"custom_rules,omitempty"`
+}
+
+// CustomRule est une règle WAF définie par l'utilisateur.
+type CustomRule struct {
+	ID       int      `json:"id"`
+	Category string   `json:"category"`
+	Severity string   `json:"severity"`          // critical | high | medium | low
+	Pattern  string   `json:"pattern"`           // regex Go
+	Targets  []string `json:"targets"`           // uri | args | body | headers | cookies
+	Message  string   `json:"message"`
+	Score    int      `json:"score,omitempty"`   // score anomalie (0 = déduit de la sévérité)
 }
 
 // BotConfig configure la protection bot.

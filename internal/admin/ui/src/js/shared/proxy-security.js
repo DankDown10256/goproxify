@@ -494,8 +494,11 @@ window.openProxySecModal = async function(id, initialTab) {
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">WAF</div>
-            <div style="display:flex;gap:16px;align-items:flex-start;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">WAF</div>
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
+            </div>
+            <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:2px;">
                 <label class="toggle"><input type="checkbox" id="psec-waf-enabled" ${wafCfg?.enabled?'checked':''}><span class="toggle-slider"></span></label>
                 <span style="font-size:13px;font-weight:500;">Activé</span>
@@ -503,9 +506,32 @@ window.openProxySecModal = async function(id, initialTab) {
               <div class="field" style="flex:1;margin:0;">
                 <label class="field-label" style="font-size:11px">Mode</label>
                 <select id="psec-waf-mode" class="input">
-                  <option value="block" ${(wafCfg?.mode||'block')==='block'?'selected':''}>Bloquer</option>
-                  <option value="detect" ${wafCfg?.mode==='detect'?'selected':''}>Détecter (log)</option>
+                  <option value="block" ${(wafCfg?.mode||'block')==='block'?'selected':''}>Bloquer (403)</option>
+                  <option value="detect" ${wafCfg?.mode==='detect'?'selected':''}>Détecter (log seul)</option>
                 </select>
+              </div>
+            </div>
+            <!-- Paramètres avancés WAF -->
+            <div id="psec-waf-advanced" style="display:none;border-top:1px solid var(--border);padding-top:12px;flex-direction:column;gap:10px;">
+              <div class="form-row" style="gap:8px;">
+                <div class="field" style="flex:1;margin:0;">
+                  <label class="field-label" style="font-size:11px">Score anomalie (0 = premier match)</label>
+                  <input id="psec-waf-threshold" type="number" class="input" min="0" max="50" value="${wafCfg?.anomaly_threshold ?? 0}" placeholder="0">
+                  <div style="font-size:10px;color:var(--text3);margin-top:2px;">OWASP recommande 5 (Critical=5, High=4, Medium=3, Low=1)</div>
+                </div>
+                <div class="field" style="flex:1;margin:0;">
+                  <label class="field-label" style="font-size:11px">Max body (Mo)</label>
+                  <input id="psec-waf-maxbody" type="number" class="input" min="1" max="100" value="${wafCfg?.max_body_mb ?? 10}">
+                </div>
+              </div>
+              <div class="field" style="margin:0;">
+                <label class="field-label" style="font-size:11px">IDs de règles à exclure (séparés par virgule)</label>
+                <input id="psec-waf-excludeids" class="input" placeholder="942100, 941110" value="${esc((wafCfg?.exclude_ids||[]).join(', '))}">
+              </div>
+              <div class="field" style="margin:0;">
+                <label class="field-label" style="font-size:11px">Règles custom (une par ligne : <code>id|category|severity|targets|pattern|message</code>)</label>
+                <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Targets : uri, args, body, headers, cookies (séparés par +). Severity : critical, high, medium, low.</div>
+                <textarea id="psec-waf-customrules" class="input" rows="4" style="font-family:monospace;font-size:11px;" placeholder="99001|sqli|high|args+body|(?i)evil-payload|Payload interdit">${esc((wafCfg?.custom_rules||[]).map(r => [r.id,r.category,r.severity,(r.targets||[]).join('+'),r.pattern,r.message].join('|')).join('\n'))}</textarea>
               </div>
             </div>
           </div>
@@ -713,6 +739,36 @@ window.openProxySecModal = async function(id, initialTab) {
     console.error('openProxySecModal', e);
     toast(e.message || 'Impossible d\'ouvrir la modale Sécurité', 'error');
   }
+};
+
+window.psecToggleWAFAdvanced = function() {
+  const el = document.getElementById('psec-waf-advanced');
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+};
+
+window.psecParseCustomRules = function(text) {
+  const rules = [];
+  for (const line of (text || '').split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const parts = t.split('|');
+    if (parts.length < 5) continue;
+    const [id, category, severity, targets, ...rest] = parts;
+    const pattern = rest.slice(0, -1).join('|');
+    const message = rest[rest.length - 1] || '';
+    const numId = parseInt(id, 10);
+    if (!numId || !pattern) continue;
+    rules.push({
+      id: numId,
+      category: category.trim() || 'custom',
+      severity: severity.trim() || 'medium',
+      targets: targets.trim().split('+').map(s => s.trim()).filter(Boolean),
+      pattern: pattern.trim(),
+      message: message.trim(),
+    });
+  }
+  return rules;
 };
 
 window.switchSecTab = function(tab) {
@@ -927,6 +983,10 @@ window.saveProxySec = async function(id) {
   const botEnabled = document.getElementById('psec-bot-enabled')?.checked;
   const wafMode = document.getElementById('psec-waf-mode')?.value || 'block';
   const botMode = document.getElementById('psec-bot-mode')?.value || 'block';
+  const wafThreshold = parseInt(document.getElementById('psec-waf-threshold')?.value || '0', 10) || 0;
+  const wafMaxBody = parseInt(document.getElementById('psec-waf-maxbody')?.value || '10', 10) || 10;
+  const wafExcludeRaw = (document.getElementById('psec-waf-excludeids')?.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => n > 0);
+  const wafCustomRules = typeof psecParseCustomRules === 'function' ? psecParseCustomRules(document.getElementById('psec-waf-customrules')?.value || '') : [];
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
   const xfo = document.getElementById('psec-xfo')?.value || '';
@@ -954,7 +1014,10 @@ window.saveProxySec = async function(id) {
       waf: wafEnabled ? {
         enabled: true,
         mode: wafMode === 'detect' ? 'detect' : 'block',
-        exclude_ids: Array.isArray(cfg.waf?.exclude_ids) ? cfg.waf.exclude_ids : undefined,
+        anomaly_threshold: wafThreshold || undefined,
+        max_body_mb: wafMaxBody !== 10 ? wafMaxBody : undefined,
+        exclude_ids: wafExcludeRaw.length ? wafExcludeRaw : undefined,
+        custom_rules: wafCustomRules.length ? wafCustomRules : undefined,
       } : undefined,
       bot: botEnabled ? {
         enabled: true,
