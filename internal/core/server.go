@@ -186,6 +186,9 @@ func New(cfg *config.CoreConfig) (*Server, error) {
 		return cats
 	})
 	log.Logger().Info("waf: moteur prêt — activer par route (label goproxify.waf=detect|block ou snippet)")
+	s.accessLog.SetThreatExtractor(func(r *http.Request) string {
+		return threat.SignalFromContext(r.Context())
+	})
 	s.portal = portal.NewService(log.Logger())
 
 	// Token store local — source de vérité pour l'auth de l'API interne.
@@ -746,10 +749,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// Moteur de détection automatique (threat engine) — après les bans explicites.
 	if s.threatEngine != nil {
-		if blocked, reason := s.threatEngine.Check(r, remoteIP); blocked {
-			s.log.Warn("ip bloquée par moteur de détection", "ip", remoteIP, "reason", reason)
-			serveDefaultError(w, r, http.StatusForbidden)
-			return
+		if blocked, reason := s.threatEngine.Check(r, remoteIP); reason != "" {
+			r = threat.WithSignal(r, reason)
+			if blocked {
+				s.log.Warn("ip bloquée par moteur de détection", "ip", remoteIP, "reason", reason)
+				serveDefaultError(w, r, http.StatusForbidden)
+				return
+			}
 		}
 	}
 

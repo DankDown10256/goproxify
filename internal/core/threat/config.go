@@ -9,6 +9,12 @@ import "time"
 type Config struct {
 	Enabled bool `json:"enabled"`
 
+	// Mode : "block" (défaut) ou "detect" (log sans bannir).
+	Mode string `json:"mode,omitempty"`
+
+	// ScoreThreshold : score cumulatif avant action (0 = premier signal).
+	ScoreThreshold int `json:"score_threshold,omitempty"`
+
 	// Détection rate — requêtes par seconde au-delà desquelles l'IP est bannie.
 	RateLimit float64 `json:"rate_limit,omitempty"` // req/s, 0 = désactivé
 	// Fenêtre glissante pour le rate limit.
@@ -24,8 +30,18 @@ type Config struct {
 	// Listes actives.
 	Lists ListsConfig `json:"lists,omitempty"`
 
+	// CustomLists : entrées inline (sans fichier disque).
+	CustomLists CustomListsConfig `json:"custom_lists,omitempty"`
+
 	// Whitelist : IPs/CIDRs, User-Agents et path prefixes exemptés.
 	Whitelist Whitelist `json:"whitelist,omitempty"`
+}
+
+// CustomListsConfig contient des entrées inline pour chaque liste.
+type CustomListsConfig struct {
+	IPs   []string `json:"ips,omitempty"`   // IP ou CIDR à bloquer
+	UAs   []string `json:"uas,omitempty"`   // sous-chaînes UA à bloquer
+	Paths []string `json:"paths,omitempty"` // préfixes de path à bloquer
 }
 
 type ListsConfig struct {

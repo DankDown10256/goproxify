@@ -18,9 +18,42 @@ import (
 // Name est l'identifiant affiché dans les logs pour ce moteur.
 const Name = "Sentinel"
 
+// contextKey est la clé de contexte pour transmettre la raison Sentinel à l'access log.
+type contextKey struct{}
+
+// SignalFromContext retourne la raison Sentinel attachée à la requête (vide si aucune).
+func SignalFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(contextKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // BanCallback est appelé quand le moteur détecte une menace et doit bannir une IP.
 // Le caller (server.go) ajoute le ban au BanStore et le notifie à Admin.
 type BanCallback func(ip, reason string, expires time.Time)
+
+// signal représente un critère déclenché avec son score.
+type signal struct {
+	reason string
+	score  int
+}
+
+// scoreForReason retourne le score par défaut selon la raison.
+func scoreForReason(reason string) int {
+	switch reason {
+	case "ip", "custom_ip":
+		return 5 // critique
+	case "ua", "custom_ua":
+		return 3 // moyen
+	case "path", "custom_path":
+		return 2
+	case "rate":
+		return 4
+	default:
+		return 1
+	}
+}
 
 // Engine est le moteur de détection. Un seul par Core, démarré via Start().
 type Engine struct {
@@ -30,6 +63,7 @@ type Engine struct {
 	lists    *Lists
 	counters *counterStore
 	wl       *whitelist
+	custom   *customLists // entrées inline compilées
 
 	banFn BanCallback
 	log   *slog.Logger
@@ -49,9 +83,7 @@ func New(log *slog.Logger, banFn BanCallback) *Engine {
 	}
 }
 
-// Start démarre la boucle de refresh des listes. Doit être appelé une seule fois.
-// Les fichiers de listes par défaut sont toujours seedés dans le volume au démarrage,
-// même si le moteur n'est pas encore activé, afin que l'utilisateur puisse les éditer.
+// Start démarre la boucle de refresh des listes.
 func (e *Engine) Start(ctx context.Context) {
 	e.lists.seedDefaults()
 	ctx, cancel := context.WithCancel(ctx)
@@ -73,9 +105,9 @@ func (e *Engine) UpdateConfig(cfg Config) {
 	e.mu.Lock()
 	e.cfg = cfg
 	e.wl = buildWhitelist(cfg.Whitelist)
+	e.custom = buildCustomLists(cfg.CustomLists)
 	e.mu.Unlock()
 
-	// Charger depuis le disque si le moteur vient d'être activé.
 	if cfg.Enabled {
 		e.lists.loadFromDisk(cfg.Lists)
 	}
@@ -88,53 +120,104 @@ func (e *Engine) Enabled() bool {
 	return e.cfg.Enabled
 }
 
-// Check analyse une requête entrante et retourne la raison si elle doit être bloquée.
-// Doit être appelé avant d'acheminer la requête.
+// Check analyse une requête entrante.
+// Retourne (blocked, reason) :
+//   - blocked=true + reason si la requête doit être rejetée (mode block) ou loguée (mode detect).
+//   - La requête est enrichie avec la raison dans le contexte pour l'access log.
+//
+// Le contexte retourné est enrichi même en mode detect pour que l'access log le trace.
 func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string) {
 	e.mu.RLock()
 	cfg := e.cfg
 	wl := e.wl
+	custom := e.custom
 	e.mu.RUnlock()
 
 	if !cfg.Enabled {
+		threatChecksTotal.WithLabelValues("allow").Inc()
 		return false, ""
 	}
 	if wl.allowedIP(ip) {
+		threatChecksTotal.WithLabelValues("allow").Inc()
 		return false, ""
 	}
 
 	ua := r.Header.Get("User-Agent")
 	if wl.allowedUA(ua) {
+		threatChecksTotal.WithLabelValues("allow").Inc()
 		return false, ""
 	}
 	path := r.URL.Path
 	if wl.allowedPath(path) {
+		threatChecksTotal.WithLabelValues("allow").Inc()
 		return false, ""
 	}
 
-	// 1. Liste IP.
+	// Collecte des signaux.
+	var signals []signal
+
 	if cfg.Lists.IPEnabled && e.lists.MatchIP(ip) {
-		return true, "threat: IP liste noire"
+		signals = append(signals, signal{"ip", scoreForReason("ip")})
 	}
-
-	// 2. User-Agent.
+	if custom != nil && custom.matchIP(ip) {
+		signals = append(signals, signal{"custom_ip", scoreForReason("custom_ip")})
+	}
 	if cfg.Lists.UAEnabled && ua != "" && e.lists.MatchUA(ua) {
-		return true, "threat: User-Agent malveillant"
+		signals = append(signals, signal{"ua", scoreForReason("ua")})
 	}
-
-	// 3. Path suspect.
+	if custom != nil && ua != "" && custom.matchUA(ua) {
+		signals = append(signals, signal{"custom_ua", scoreForReason("custom_ua")})
+	}
 	if cfg.Lists.PathEnabled && e.lists.MatchPath(path) {
-		return true, "threat: path suspect"
+		signals = append(signals, signal{"path", scoreForReason("path")})
+	}
+	if custom != nil && custom.matchPath(path) {
+		signals = append(signals, signal{"custom_path", scoreForReason("custom_path")})
+	}
+	if cfg.RateLimit > 0 && e.counters.rateExceeded(ip, cfg.RateLimit, cfg.RateWindow.Duration) {
+		signals = append(signals, signal{"rate", scoreForReason("rate")})
 	}
 
-	// 4. Rate limit.
-	if cfg.RateLimit > 0 {
-		if e.counters.rateExceeded(ip, cfg.RateLimit, cfg.RateWindow.Duration) {
-			return true, "threat: rate limit"
+	if len(signals) == 0 {
+		threatChecksTotal.WithLabelValues("allow").Inc()
+		return false, ""
+	}
+
+	// Score cumulatif.
+	total := 0
+	var topReason string
+	for _, s := range signals {
+		total += s.score
+		threatSignalsTotal.WithLabelValues(s.reason).Inc()
+		if topReason == "" {
+			topReason = s.reason
 		}
 	}
 
-	return false, ""
+	triggered := cfg.ScoreThreshold <= 0 || total >= cfg.ScoreThreshold
+
+	isDetect := strings.EqualFold(cfg.Mode, "detect")
+	action := "block"
+	if isDetect || !triggered {
+		action = "detect"
+	}
+	threatChecksTotal.WithLabelValues(action).Inc()
+
+	e.log.Warn("sentinel: signal détecté",
+		"ip", ip,
+		"signals", len(signals),
+		"score", total,
+		"threshold", cfg.ScoreThreshold,
+		"triggered", triggered,
+		"mode", cfg.Mode,
+		"reason", topReason,
+	)
+
+	if triggered && !isDetect {
+		return true, "threat: " + topReason
+	}
+	// detect ou score insuffisant : signale sans bloquer
+	return false, "threat: " + topReason
 }
 
 // RecordStatus doit être appelé après chaque réponse pour alimenter les compteurs 4xx.
@@ -155,13 +238,22 @@ func (e *Engine) RecordStatus(ip string, status int) {
 	}
 
 	if e.counters.errorExceeded(ip, cfg.ErrorThreshold, cfg.ErrorWindow.Duration) {
-		expires := time.Now().Add(cfg.BanDuration.Duration)
-		e.log.Warn("threat: ban automatique 4xx", "ip", ip, "status", status)
-		if e.banFn != nil {
+		isDetect := strings.EqualFold(cfg.Mode, "detect")
+		e.log.Warn("sentinel: ban automatique 4xx", "ip", ip, "status", status, "detect", isDetect)
+		threatSignalsTotal.WithLabelValues("error4xx").Inc()
+		if !isDetect && e.banFn != nil {
+			expires := time.Now().Add(cfg.BanDuration.Duration)
+			threatBansTotal.WithLabelValues("error4xx").Inc()
 			e.banFn(ip, "threat: erreurs 4xx répétées", expires)
 		}
 		e.counters.resetErrors(ip)
 	}
+}
+
+// WithSignal enrichit le contexte de la requête avec la raison du signal Sentinel.
+// Utilisé par server.go pour transmettre la raison à l'access log.
+func WithSignal(r *http.Request, reason string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), contextKey{}, reason))
 }
 
 // ApplyHAPayload applique les listes reçues d'un peer HA.
@@ -180,7 +272,6 @@ func (e *Engine) BuildHAPayload() HAPayload {
 func (e *Engine) run(ctx context.Context) {
 	defer close(e.done)
 
-	// Premier refresh immédiat si activé.
 	e.mu.RLock()
 	cfg := e.cfg
 	e.mu.RUnlock()
@@ -217,8 +308,8 @@ func (e *Engine) run(ctx context.Context) {
 type whitelist struct {
 	nets  []*net.IPNet
 	ips   []net.IP
-	uas   []string // sous-chaînes en minuscules
-	paths []string // préfixes en minuscules
+	uas   []string
+	paths []string
 }
 
 func buildWhitelist(wl Whitelist) *whitelist {
@@ -281,6 +372,90 @@ func (w *whitelist) allowedPath(path string) bool {
 	}
 	pathLow := strings.ToLower(path)
 	for _, p := range w.paths {
+		if strings.HasPrefix(pathLow, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// ── Custom inline lists ───────────────────────────────────────────────────────
+
+type customLists struct {
+	nets  []*net.IPNet
+	ips   []net.IP
+	uas   []string
+	paths []string
+}
+
+func buildCustomLists(c CustomListsConfig) *customLists {
+	cl := &customLists{}
+	for _, s := range c.IPs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, "/") {
+			if _, n, err := net.ParseCIDR(s); err == nil {
+				cl.nets = append(cl.nets, n)
+			}
+		} else if ip := net.ParseIP(s); ip != nil {
+			cl.ips = append(cl.ips, ip)
+		}
+	}
+	for _, s := range c.UAs {
+		if t := strings.TrimSpace(s); t != "" {
+			cl.uas = append(cl.uas, strings.ToLower(t))
+		}
+	}
+	for _, s := range c.Paths {
+		if t := strings.TrimSpace(s); t != "" {
+			cl.paths = append(cl.paths, strings.ToLower(t))
+		}
+	}
+	return cl
+}
+
+func (cl *customLists) matchIP(ipStr string) bool {
+	if cl == nil {
+		return false
+	}
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, n := range cl.nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	for _, cip := range cl.ips {
+		if cip.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cl *customLists) matchUA(ua string) bool {
+	if cl == nil {
+		return false
+	}
+	uaLow := strings.ToLower(ua)
+	for _, s := range cl.uas {
+		if strings.Contains(uaLow, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cl *customLists) matchPath(path string) bool {
+	if cl == nil {
+		return false
+	}
+	pathLow := strings.ToLower(path)
+	for _, p := range cl.paths {
 		if strings.HasPrefix(pathLow, p) {
 			return true
 		}
