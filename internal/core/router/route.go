@@ -310,6 +310,11 @@ type WAFConfig struct {
 	MaxBodyMB        int          `json:"max_body_mb"`
 	AnomalyThreshold int          `json:"anomaly_threshold"`  // 0 = premier match, >0 = score cumulatif
 	CustomRules      []CustomRule `json:"custom_rules,omitempty"`
+
+	// Analyse comportementale — stateful, par IP, sur une fenêtre glissante.
+	BehaviorEnabled   bool `json:"behavior_enabled"`
+	BehaviorWindowSec int  `json:"behavior_window_s"`   // durée fenêtre (défaut 60s)
+	BehaviorThreshold int  `json:"behavior_threshold"`  // score avant action (défaut 8)
 }
 
 // CustomRule est une règle WAF définie par l'utilisateur.

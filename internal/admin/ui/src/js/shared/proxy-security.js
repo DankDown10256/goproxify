@@ -533,6 +533,27 @@ window.openProxySecModal = async function(id, initialTab) {
                 <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Targets : uri, args, body, headers, cookies (séparés par +). Severity : critical, high, medium, low.</div>
                 <textarea id="psec-waf-customrules" class="input" rows="4" style="font-family:monospace;font-size:11px;" placeholder="99001|sqli|high|args+body|(?i)evil-payload|Payload interdit">${esc((wafCfg?.custom_rules||[]).map(r => [r.id,r.category,r.severity,(r.targets||[]).join('+'),r.pattern,r.message].join('|')).join('\n'))}</textarea>
               </div>
+              <!-- Analyse comportementale -->
+              <div style="border-top:1px solid var(--border);padding-top:10px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:8px;">Analyse comportementale</div>
+                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Détecte les attaques fragmentées, les scans et les bots par accumulation de signaux sur une fenêtre glissante par IP.</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                  <label class="toggle" style="flex-shrink:0;"><input type="checkbox" id="psec-waf-behavior-enabled" ${wafCfg?.behavior_enabled?'checked':''}><span class="toggle-slider"></span></label>
+                  <span style="font-size:12px;font-weight:500;">Activé</span>
+                </div>
+                <div class="form-row" style="gap:8px;">
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Fenêtre (secondes)</label>
+                    <input id="psec-waf-behavior-window" type="number" class="input" min="10" max="3600" value="${wafCfg?.behavior_window_s ?? 60}" placeholder="60">
+                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Durée d'observation par IP</div>
+                  </div>
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Score seuil</label>
+                    <input id="psec-waf-behavior-threshold" type="number" class="input" min="1" max="30" value="${wafCfg?.behavior_threshold ?? 8}" placeholder="8">
+                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Signaux : 4xx élevé=4, burst=4, WAF cumulé=3-5, path scan=3, rotation UA=3, POST élevé=2</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
@@ -987,6 +1008,9 @@ window.saveProxySec = async function(id) {
   const wafMaxBody = parseInt(document.getElementById('psec-waf-maxbody')?.value || '10', 10) || 10;
   const wafExcludeRaw = (document.getElementById('psec-waf-excludeids')?.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => n > 0);
   const wafCustomRules = typeof psecParseCustomRules === 'function' ? psecParseCustomRules(document.getElementById('psec-waf-customrules')?.value || '') : [];
+  const wafBehaviorEnabled = document.getElementById('psec-waf-behavior-enabled')?.checked ?? false;
+  const wafBehaviorWindow = parseInt(document.getElementById('psec-waf-behavior-window')?.value || '60', 10) || 60;
+  const wafBehaviorThreshold = parseInt(document.getElementById('psec-waf-behavior-threshold')?.value || '8', 10) || 8;
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
   const xfo = document.getElementById('psec-xfo')?.value || '';
@@ -1018,6 +1042,9 @@ window.saveProxySec = async function(id) {
         max_body_mb: wafMaxBody !== 10 ? wafMaxBody : undefined,
         exclude_ids: wafExcludeRaw.length ? wafExcludeRaw : undefined,
         custom_rules: wafCustomRules.length ? wafCustomRules : undefined,
+        behavior_enabled: wafBehaviorEnabled || undefined,
+        behavior_window_s: wafBehaviorEnabled ? wafBehaviorWindow : undefined,
+        behavior_threshold: wafBehaviorEnabled ? wafBehaviorThreshold : undefined,
       } : undefined,
       bot: botEnabled ? {
         enabled: true,

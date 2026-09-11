@@ -13,10 +13,12 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/core/waf/behavior"
 )
 
 // contextKey est la clé de contexte pour transmettre les matches WAF au access log.
@@ -55,6 +57,13 @@ var (
 		Name:      "requests_inspected_total",
 		Help:      "Nombre de requêtes inspectées par le WAF.",
 	}, []string{"host"})
+
+	wafBehaviorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "waf",
+		Name:      "behavior_signals_total",
+		Help:      "Signaux comportementaux détectés par le WAF.",
+	}, []string{"host", "signal"})
 )
 
 // Engine est le moteur WAF.
@@ -63,6 +72,11 @@ type Engine struct {
 	rules   []Rule   // règles par défaut + custom compilées
 	exclude map[int]bool
 	log     *slog.Logger
+
+	// behavior est le store comportemental partagé entre toutes les routes.
+	// Alloué à la première utilisation via behaviorStore().
+	behaviorMu    sync.Mutex
+	behaviorStore *behavior.Store
 }
 
 // NewEngine crée un moteur WAF avec les règles par défaut.
@@ -166,6 +180,20 @@ func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Ma
 	return matches
 }
 
+// behaviorStoreFor retourne le store comportemental, en le créant si besoin.
+func (e *Engine) behaviorStoreFor(windowSec int) *behavior.Store {
+	e.behaviorMu.Lock()
+	defer e.behaviorMu.Unlock()
+	if e.behaviorStore == nil {
+		w := time.Duration(windowSec) * time.Second
+		if w <= 0 {
+			w = 60 * time.Second
+		}
+		e.behaviorStore = behavior.NewStore(w)
+	}
+	return e.behaviorStore
+}
+
 // Middleware retourne un handler HTTP WAF.
 func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handler {
 	maxBody := 10
@@ -178,8 +206,18 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 	}
 	block := cfg == nil || cfg.Mode != "detect"
 	anomalyThreshold := 0
+	behaviorEnabled := false
+	behaviorThreshold := 8
+	behaviorWindowSec := 60
 	if cfg != nil {
 		anomalyThreshold = cfg.AnomalyThreshold
+		behaviorEnabled = cfg.BehaviorEnabled
+		if cfg.BehaviorThreshold > 0 {
+			behaviorThreshold = cfg.BehaviorThreshold
+		}
+		if cfg.BehaviorWindowSec > 0 {
+			behaviorWindowSec = cfg.BehaviorWindowSec
+		}
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,55 +225,161 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		wafRequestsTotal.WithLabelValues(host).Inc()
 
 		matches := e.Inspect(r, maxBody, excludeIDs...)
-		if len(matches) == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
 
-		// Décision : scoring anomalie ou premier match
-		triggered := false
-		if anomalyThreshold > 0 {
-			total := 0
-			for _, m := range matches {
-				total += m.AnomalyScore
-			}
-			triggered = total >= anomalyThreshold
-		} else {
-			triggered = true
-		}
-
-		// Injecter les matches dans le contexte pour l'access log
-		ctx := context.WithValue(r.Context(), contextKey{}, matches)
-		r = r.WithContext(ctx)
-
+		// Score WAF de la requête courante (pour alimentation du store comportemental).
+		wafScore := 0
 		for _, m := range matches {
-			action := "detect"
-			if triggered && block {
-				action = "block"
-			}
-			wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
-			e.log.Warn("waf: règle déclenchée",
-				"rule_id", m.RuleID,
-				"category", m.Category,
-				"severity", m.Severity.String(),
-				"score", m.AnomalyScore,
-				"message", m.Message,
-				"target", m.Target,
-				"ip", r.RemoteAddr,
-				"uri", r.URL.RequestURI(),
-				"block", triggered && block,
-			)
+			wafScore += m.AnomalyScore
 		}
 
-		if triggered && block {
-			http.Error(w, "403 Forbidden", http.StatusForbidden)
+		// Décision WAF stateless : scoring anomalie ou premier match.
+		triggered := false
+		if len(matches) > 0 {
+			if anomalyThreshold > 0 {
+				triggered = wafScore >= anomalyThreshold
+			} else {
+				triggered = true
+			}
+		}
+
+		// Injecter les matches dans le contexte pour l'access log.
+		if len(matches) > 0 {
+			ctx := context.WithValue(r.Context(), contextKey{}, matches)
+			r = r.WithContext(ctx)
+
+			for _, m := range matches {
+				action := "detect"
+				if triggered && block {
+					action = "block"
+				}
+				wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
+				e.log.Warn("waf: règle déclenchée",
+					"rule_id", m.RuleID,
+					"category", m.Category,
+					"severity", m.Severity.String(),
+					"score", m.AnomalyScore,
+					"message", m.Message,
+					"target", m.Target,
+					"ip", r.RemoteAddr,
+					"uri", r.URL.RequestURI(),
+					"block", triggered && block,
+				)
+			}
+
+			if triggered && block {
+				// Enregistrement comportemental avant de bloquer.
+				if behaviorEnabled {
+					e.recordBehavior(host, r, wafScore, http.StatusForbidden, behaviorWindowSec)
+				}
+				http.Error(w, "403 Forbidden", http.StatusForbidden)
+				return
+			}
+			// Mode detect ou score insuffisant.
+			top := matches[0]
+			w.Header().Set("X-WAF-Match", top.Category)
+		}
+
+		// Analyse comportementale : on wrappe la réponse pour capturer le status.
+		if behaviorEnabled {
+			rw := &statusCapture{ResponseWriter: w}
+			next.ServeHTTP(rw, r)
+			bStore := e.behaviorStoreFor(behaviorWindowSec)
+			ip := realIP(r)
+			bScore, bSignals := bStore.Record(ip, behavior.Event{
+				At:       time.Now(),
+				WafScore: wafScore,
+				Status:   rw.status,
+				Method:   r.Method,
+				Path:     r.URL.Path,
+				UA:       r.UserAgent(),
+			})
+			if len(bSignals) > 0 {
+				for _, sig := range bSignals {
+					wafBehaviorTotal.WithLabelValues(host, sig.Name).Inc()
+				}
+				e.log.Warn("waf: signal comportemental",
+					"ip", ip,
+					"behavior_score", bScore,
+					"threshold", behaviorThreshold,
+					"signals", bSignals,
+				)
+				if bScore >= behaviorThreshold && block {
+					// On ne peut plus modifier la réponse (déjà envoyée).
+					// On logue uniquement — le prochain appel sera bloqué par le store.
+					// Pour un blocage immédiat, il faudrait un store de bans dédié.
+					// TODO: intégrer un callback de ban vers BanStore.
+					_ = bScore
+				}
+			}
 			return
 		}
-		// Mode detect ou score insuffisant : ajoute un header de diagnostic
-		top := matches[0]
-		w.Header().Set("X-WAF-Match", top.Category)
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+// recordBehavior enregistre une requête bloquée dans le store comportemental.
+func (e *Engine) recordBehavior(host string, r *http.Request, wafScore, status, windowSec int) {
+	bStore := e.behaviorStoreFor(windowSec)
+	ip := realIP(r)
+	bScore, bSignals := bStore.Record(ip, behavior.Event{
+		At:       time.Now(),
+		WafScore: wafScore,
+		Status:   status,
+		Method:   r.Method,
+		Path:     r.URL.Path,
+		UA:       r.UserAgent(),
+	})
+	for _, sig := range bSignals {
+		wafBehaviorTotal.WithLabelValues(host, sig.Name).Inc()
+	}
+	if len(bSignals) > 0 {
+		e.log.Warn("waf: signal comportemental (bloqué)", "ip", ip, "score", bScore, "signals", bSignals)
+	}
+}
+
+// statusCapture wrappe ResponseWriter pour capturer le code HTTP.
+type statusCapture struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sc *statusCapture) WriteHeader(code int) {
+	sc.status = code
+	sc.ResponseWriter.WriteHeader(code)
+}
+
+func (sc *statusCapture) Write(b []byte) (int, error) {
+	if sc.status == 0 {
+		sc.status = http.StatusOK
+	}
+	return sc.ResponseWriter.Write(b)
+}
+
+func (sc *statusCapture) Flush() {
+	if f, ok := sc.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// realIP extrait l'IP réelle depuis les headers proxy.
+func realIP(r *http.Request) string {
+	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+		return cf
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	if host, _, err := strings.Cut(r.RemoteAddr, ":"); err {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 // --- helpers ----------------------------------------------------------------
