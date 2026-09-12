@@ -22,11 +22,23 @@ func coreServerSource(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller")
 	}
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "server.go"))
+	dir := filepath.Dir(file)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	var sb strings.Builder
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".go" || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sb.Write(b)
+	}
+	return sb.String()
 }
 
 // TestElevatedH3_NoAutoEnrollUnknownBearer — EnsureToken auto sur

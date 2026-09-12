@@ -55,7 +55,7 @@ func TestApplyClusterPeersEnv(t *testing.T) {
 func TestLoadCoreClusterEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "core.json")
-	if err := os.WriteFile(path, []byte(`{"identity":{"node_name":"from-json"},"cluster":{}}`), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GPX_CLUSTER_ENABLED", "true")

@@ -55,7 +55,19 @@ func Load[T AdminConfig | CoreConfig | AgentConfig | LandingConfig](configPath s
 	// Les env vars ne surchargent que les clés absentes du JSON (pas de AutomaticEnv global).
 	// On bind uniquement les clés qui peuvent légitimement manquer dans le JSON
 	// pour permettre à l'utilisateur avancé de les passer en env var.
-	bindIfMissing(v, "cluster.peers") // GPX_CLUSTER_PEERS : liste complexe, non générée par bootstrap
+	// cluster.peers est intentionnellement omis ici : GPX_CLUSTER_PEERS est une chaîne CSV
+	// incompatible avec map[string]string pour viper. Géré par applyClusterPeersEnv après Unmarshal.
+	// GPX_IDENTITY_CORE_NODE_NAME pour compatibilité avec les variables de bootstrap Core.
+	if !v.IsSet("identity.node_name") {
+		_ = v.BindEnv("identity.node_name", "GPX_IDENTITY_CORE_NODE_NAME", "GPX_IDENTITY_NODE_NAME")
+	}
+	bindIfMissing(v, "cluster.enabled")
+	// GPX_CLUSTER_GROUP (alias court) plutôt que GPX_CLUSTER_GROUP_NAME
+	if !v.IsSet("cluster.group_name") {
+		_ = v.BindEnv("cluster.group_name", "GPX_CLUSTER_GROUP")
+	}
+	bindIfMissing(v, "cluster.node_id")
+	bindIfMissing(v, "cluster.raft_port")
 
 	var cfg T
 	if err := v.Unmarshal(&cfg); err != nil {
