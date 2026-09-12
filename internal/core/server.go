@@ -369,6 +369,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// Sync pools discovery depuis les Cores pairs (LB cross-Core)
 	s.startPeerSyncLoop(ctx)
 
+	// Restauration des profils comportementaux WAF depuis le snapshot disque.
+	s.wafEngine.LoadSnapshot("/etc/goproxify/waf-behavior.json")
+
 	// Moteur de détection automatique des menaces.
 	s.threatEngine = threat.New(s.log.Logger(), s.threatBanCallback())
 	s.threatEngine.Start(ctx)
@@ -430,6 +433,10 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.threatEngine != nil {
 		s.threatEngine.Stop()
+	}
+	// Sauvegarde des profils comportementaux WAF à l'arrêt.
+	if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {
+		s.log.Warn("waf: sauvegarde snapshot échouée", "err", err)
 	}
 }
 

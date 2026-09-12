@@ -152,6 +152,46 @@ func (s *Store) ApplyHAPayload(p HAPayload) {
 	}
 }
 
+// Snapshot retourne un HAPayload pouvant être sérialisé pour la persistance.
+// Identique à BuildHAPayload mais inclut toutes les IPs actives (même score=0).
+func (s *Store) Snapshot() HAPayload {
+	return s.BuildHAPayload()
+}
+
+// RestoreSnapshot réinjecte un snapshot (chargé depuis le disque au démarrage).
+func (s *Store) RestoreSnapshot(snap HAPayload) {
+	// On ne filtre pas sur ExpiresAt pour permettre la restauration immédiate.
+	now := time.Now()
+	for ip, entry := range snap.Entries {
+		if entry.ExpiresAt.Before(now) {
+			continue
+		}
+		delta := entry.Score
+		if delta < 1 {
+			continue
+		}
+		if delta < 8 {
+			delta = 8
+		}
+		s.mu.Lock()
+		p, ok := s.profiles[ip]
+		if !ok {
+			p = &Profile{}
+			s.profiles[ip] = p
+		}
+		s.mu.Unlock()
+		p.mu.Lock()
+		p.events = append(p.events, Event{
+			At:       now,
+			WafScore: delta,
+			Status:   200,
+			Method:   "GET",
+			Path:     "/",
+		})
+		p.mu.Unlock()
+	}
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func purgeEvents(p *Profile, now time.Time, window time.Duration) {
@@ -285,7 +325,7 @@ func (s *Store) gcLoop() {
 }
 
 func (s *Store) gc() {
-	cutoff := time.Now().Add(-s.window * 2)
+	cutoff := time.Now().Add(-s.window)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ip, p := range s.profiles {
@@ -296,4 +336,38 @@ func (s *Store) gc() {
 			delete(s.profiles, ip)
 		}
 	}
+}
+
+// Len retourne le nombre de profils IP actifs dans le store.
+func (s *Store) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.profiles)
+}
+
+// DeleteProfile supprime manuellement le profil d'une IP.
+func (s *Store) DeleteProfile(ip string) {
+	s.mu.Lock()
+	delete(s.profiles, ip)
+	s.mu.Unlock()
+}
+
+// Profiles retourne un snapshot des profils actifs : ip → score.
+func (s *Store) Profiles() map[string]int {
+	now := time.Now()
+	cutoff := now.Add(-s.window)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]int, len(s.profiles))
+	for ip, p := range s.profiles {
+		p.mu.Lock()
+		if len(p.events) > 0 && p.events[len(p.events)-1].At.After(cutoff) {
+			score, _ := analyze(p.events)
+			if score > 0 {
+				out[ip] = score
+			}
+		}
+		p.mu.Unlock()
+	}
+	return out
 }

@@ -553,6 +553,11 @@ window.openProxySecModal = async function(id, initialTab) {
                     <div style="font-size:10px;color:var(--text3);margin-top:2px;">Signaux : 4xx élevé=4, burst=4, WAF cumulé=3-5, path scan=3, rotation UA=3, POST élevé=2</div>
                   </div>
                 </div>
+                <div class="field" style="margin:8px 0 0;">
+                  <label class="field-label" style="font-size:11px">Proxies de confiance (CIDRs)</label>
+                  <input id="psec-waf-trusted-proxies" type="text" class="input" value="${(wafCfg?.trusted_proxies||[]).join(', ')}" placeholder="10.0.0.0/8, 172.16.0.0/12, 127.0.0.1">
+                  <div style="font-size:10px;color:var(--text3);margin-top:2px;">IPs/CIDRs dont les headers X-Forwarded-For sont acceptés. Vide = RemoteAddr direct (plus sécurisé).</div>
+                </div>
               </div>
             </div>
           </div>
@@ -1011,6 +1016,7 @@ window.saveProxySec = async function(id) {
   const wafBehaviorEnabled = document.getElementById('psec-waf-behavior-enabled')?.checked ?? false;
   const wafBehaviorWindow = parseInt(document.getElementById('psec-waf-behavior-window')?.value || '60', 10) || 60;
   const wafBehaviorThreshold = parseInt(document.getElementById('psec-waf-behavior-threshold')?.value || '8', 10) || 8;
+  const wafTrustedProxies = (document.getElementById('psec-waf-trusted-proxies')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
   const xfo = document.getElementById('psec-xfo')?.value || '';
@@ -1045,6 +1051,7 @@ window.saveProxySec = async function(id) {
         behavior_enabled: wafBehaviorEnabled || undefined,
         behavior_window_s: wafBehaviorEnabled ? wafBehaviorWindow : undefined,
         behavior_threshold: wafBehaviorEnabled ? wafBehaviorThreshold : undefined,
+        trusted_proxies: wafTrustedProxies.length ? wafTrustedProxies : undefined,
       } : undefined,
       bot: botEnabled ? {
         enabled: true,

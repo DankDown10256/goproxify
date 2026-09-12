@@ -315,6 +315,11 @@ type WAFConfig struct {
 	BehaviorEnabled   bool `json:"behavior_enabled"`
 	BehaviorWindowSec int  `json:"behavior_window_s"`   // durée fenêtre (défaut 60s)
 	BehaviorThreshold int  `json:"behavior_threshold"`  // score avant action (défaut 8)
+
+	// TrustedProxies : CIDRs des proxies de confiance dont les headers X-Forwarded-For
+	// sont acceptés pour déterminer l'IP réelle du client.
+	// Vide = pas de confiance (on utilise RemoteAddr directement).
+	TrustedProxies []string `json:"trusted_proxies,omitempty"`
 }
 
 // CustomRule est une règle WAF définie par l'utilisateur.

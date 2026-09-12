@@ -118,6 +118,9 @@ func (s *Server) autosaveLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.saveCacheNow()
+			if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {
+				s.log.Warn("waf: autosave snapshot échoué", "err", err)
+			}
 		}
 	}
 }

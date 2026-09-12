@@ -9,8 +9,10 @@ import (
 	"io"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -78,10 +80,11 @@ type Engine struct {
 
 	banFn BanCallback // optionnel, câblé via SetBanCallback
 
-	// behavior est le store comportemental partagé entre toutes les routes.
+	// behaviorStores : un store comportemental par host (isolation vhost).
 	// Alloué à la première utilisation via behaviorStoreFor().
-	behaviorMu    sync.Mutex
-	behaviorStore *behavior.Store
+	behaviorMu     sync.Mutex
+	behaviorStores map[string]*behavior.Store // host → store
+	behaviorWindow time.Duration              // fenêtre commune (premier appel la fixe)
 }
 
 // SetBanCallback enregistre le callback de ban comportemental (server.go → BanStore).
@@ -91,10 +94,89 @@ func (e *Engine) SetBanCallback(fn BanCallback) {
 	e.mu.Unlock()
 }
 
-// BehaviorStore retourne le store comportemental (création lazy).
-// Exposé pour la sync HA.
+// BehaviorStore retourne le store comportemental agrégé (tous hosts confondus).
+// Exposé pour la sync HA : on utilise un store synthétique "_all".
 func (e *Engine) BehaviorStore() *behavior.Store {
-	return e.behaviorStoreFor(60)
+	return e.behaviorStoreForHost("_all", 60)
+}
+
+// BehaviorProfiles retourne tous les profils IP actifs, tous hosts confondus.
+func (e *Engine) BehaviorProfiles() map[string]int {
+	e.behaviorMu.Lock()
+	stores := make([]*behavior.Store, 0, len(e.behaviorStores))
+	for _, s := range e.behaviorStores {
+		stores = append(stores, s)
+	}
+	e.behaviorMu.Unlock()
+
+	merged := make(map[string]int)
+	for _, s := range stores {
+		for ip, score := range s.Profiles() {
+			if score > merged[ip] {
+				merged[ip] = score
+			}
+		}
+	}
+	return merged
+}
+
+// DeleteBehaviorProfile supprime le profil comportemental d'une IP (tous hosts).
+func (e *Engine) DeleteBehaviorProfile(ip string) {
+	e.behaviorMu.Lock()
+	stores := make([]*behavior.Store, 0, len(e.behaviorStores))
+	for _, s := range e.behaviorStores {
+		stores = append(stores, s)
+	}
+	e.behaviorMu.Unlock()
+	for _, s := range stores {
+		s.DeleteProfile(ip)
+	}
+}
+
+// SaveSnapshot sérialise les profils comportementaux vers path (JSON).
+func (e *Engine) SaveSnapshot(path string) error {
+	e.behaviorMu.Lock()
+	stores := make(map[string]*behavior.Store, len(e.behaviorStores))
+	for h, s := range e.behaviorStores {
+		stores[h] = s
+	}
+	e.behaviorMu.Unlock()
+
+	type hostSnap struct {
+		Host    string            `json:"host"`
+		Payload behavior.HAPayload `json:"payload"`
+	}
+	snaps := make([]hostSnap, 0, len(stores))
+	for h, s := range stores {
+		snaps = append(snaps, hostSnap{Host: h, Payload: s.Snapshot()})
+	}
+	data, err := json.Marshal(snaps)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+// LoadSnapshot restaure les profils depuis path (JSON). Ignore les erreurs de lecture.
+func (e *Engine) LoadSnapshot(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	type hostSnap struct {
+		Host    string            `json:"host"`
+		Payload behavior.HAPayload `json:"payload"`
+	}
+	var snaps []hostSnap
+	if err := json.Unmarshal(data, &snaps); err != nil {
+		e.log.Warn("waf: snapshot invalide, ignoré", "path", path, "err", err)
+		return
+	}
+	for _, hs := range snaps {
+		s := e.behaviorStoreForHost(hs.Host, 60)
+		s.RestoreSnapshot(hs.Payload)
+	}
+	e.log.Info("waf: snapshot comportemental restauré", "path", path, "hosts", len(snaps))
 }
 
 // NewEngine crée un moteur WAF avec les règles par défaut.
@@ -198,18 +280,27 @@ func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Ma
 	return matches
 }
 
-// behaviorStoreFor retourne le store comportemental, en le créant si besoin.
-func (e *Engine) behaviorStoreFor(windowSec int) *behavior.Store {
+// behaviorStoreForHost retourne le store comportemental pour un host donné.
+// La fenêtre est fixée au premier appel et reste constante.
+func (e *Engine) behaviorStoreForHost(host string, windowSec int) *behavior.Store {
 	e.behaviorMu.Lock()
 	defer e.behaviorMu.Unlock()
-	if e.behaviorStore == nil {
+	if e.behaviorStores == nil {
+		e.behaviorStores = make(map[string]*behavior.Store)
+	}
+	s, ok := e.behaviorStores[host]
+	if !ok {
 		w := time.Duration(windowSec) * time.Second
 		if w <= 0 {
 			w = 60 * time.Second
 		}
-		e.behaviorStore = behavior.NewStore(w)
+		if e.behaviorWindow == 0 {
+			e.behaviorWindow = w
+		}
+		s = behavior.NewStore(e.behaviorWindow)
+		e.behaviorStores[host] = s
 	}
-	return e.behaviorStore
+	return s
 }
 
 // Middleware retourne un handler HTTP WAF.
@@ -227,6 +318,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 	behaviorEnabled := false
 	behaviorThreshold := 8
 	behaviorWindowSec := 60
+	var trustedNets []*net.IPNet
 	if cfg != nil {
 		anomalyThreshold = cfg.AnomalyThreshold
 		behaviorEnabled = cfg.BehaviorEnabled
@@ -236,17 +328,18 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		if cfg.BehaviorWindowSec > 0 {
 			behaviorWindowSec = cfg.BehaviorWindowSec
 		}
+		trustedNets = parseTrustedProxies(cfg.TrustedProxies)
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
-		ip := realIP(r)
+		ip := realIP(r, trustedNets)
 		wafRequestsTotal.WithLabelValues(host).Inc()
 
 		// ── Étape 1 : vérification comportementale PRÉ-requête ────────────
 		// Bloque immédiatement si le profil IP dépasse déjà le seuil.
 		if behaviorEnabled {
-			bStore := e.behaviorStoreFor(behaviorWindowSec)
+			bStore := e.behaviorStoreForHost(host, behaviorWindowSec)
 			preScore, _ := bStore.Score(ip)
 			if preScore >= behaviorThreshold && block {
 				e.log.Warn("waf: blocage comportemental immédiat",
@@ -326,7 +419,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 // postRecord enregistre un événement dans le store comportemental après la requête.
 // Si le nouveau score dépasse le seuil, appelle banFn (ban immédiat pour les suivantes).
 func (e *Engine) postRecord(host, ip string, r *http.Request, wafScore, status, windowSec, threshold int, block bool) {
-	bStore := e.behaviorStoreFor(windowSec)
+	bStore := e.behaviorStoreForHost(host, windowSec)
 	bScore, bSignals := bStore.Record(ip, behavior.Event{
 		At:       time.Now(),
 		WafScore: wafScore,
@@ -380,23 +473,65 @@ func (sc *statusCapture) Flush() {
 }
 
 // realIP extrait l'IP réelle depuis les headers proxy.
-func realIP(r *http.Request) string {
+// trustedCIDRs : liste de CIDRs de proxies de confiance parsés.
+// Si vide, on retourne directement RemoteAddr sans lire les headers (sécurisé par défaut).
+func realIP(r *http.Request, trustedNets []*net.IPNet) string {
+	remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if remoteHost == "" {
+		remoteHost = r.RemoteAddr
+	}
+
+	// Sans proxy de confiance configuré : RemoteAddr est l'IP source.
+	if len(trustedNets) == 0 {
+		return remoteHost
+	}
+
+	// Vérifier que le RemoteAddr appartient à un réseau de confiance.
+	remoteIP := net.ParseIP(remoteHost)
+	trusted := remoteIP != nil && ipInNets(remoteIP, trustedNets)
+	if !trusted {
+		return remoteHost
+	}
+
+	// Le proxy est de confiance — on peut lire les headers.
 	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
-		return cf
+		return strings.TrimSpace(cf)
 	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Prendre la première IP (client original).
 		if i := strings.IndexByte(xff, ','); i >= 0 {
 			return strings.TrimSpace(xff[:i])
 		}
 		return strings.TrimSpace(xff)
 	}
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+		return strings.TrimSpace(xri)
 	}
-	if host, _, err := strings.Cut(r.RemoteAddr, ":"); err {
-		return host
+	return remoteHost
+}
+
+func ipInNets(ip net.IP, nets []*net.IPNet) bool {
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
 	}
-	return r.RemoteAddr
+	return false
+}
+
+// parseTrustedProxies compile une liste de CIDRs en []*net.IPNet.
+func parseTrustedProxies(cidrs []string) []*net.IPNet {
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		if !strings.Contains(c, "/") {
+			c += "/32"
+		}
+		_, n, err := net.ParseCIDR(c)
+		if err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // --- helpers ----------------------------------------------------------------

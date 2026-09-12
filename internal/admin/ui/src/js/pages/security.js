@@ -1420,6 +1420,66 @@ window.makeBanPermanent = async function(id, ip) {
   } catch(e) { toast(e.message, 'error'); }
 };
 
+// ── WAF Profils comportementaux ──────────────────────────────────────────────
+
+async function renderWAFBehaviorProfiles(ctx) {
+  const el = document.getElementById('page-content');
+  if (!el) return;
+
+  const coreCtx = ctx?.mode === 'core' ? ctx : null;
+  const coreId = coreCtx?.coreId || window._selectedCoreId;
+
+  let profiles = {};
+  try {
+    if (coreId) {
+      profiles = await coreProxy(coreId, 'GET', '/internal/v1/waf/behavior/profiles') || {};
+    }
+  } catch(e) { /* ignore */ }
+
+  const rows = Object.entries(profiles).sort((a, b) => b[1] - a[1]);
+
+  el.innerHTML = `
+    <div style="max-width:900px;margin:0 auto;padding:24px 16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h2 style="font-size:18px;font-weight:700;margin:0;">Profils comportementaux WAF</h2>
+        <button class="btn btn-sm" onclick="renderWAFBehaviorProfiles(${JSON.stringify(ctx||{})})">Actualiser</button>
+      </div>
+      ${rows.length === 0
+        ? `<div style="text-align:center;padding:48px;color:var(--text2);font-size:13px;">Aucun profil actif</div>`
+        : `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="border-bottom:2px solid var(--border);">
+            <th style="text-align:left;padding:8px 12px;font-weight:600;">IP</th>
+            <th style="text-align:right;padding:8px 12px;font-weight:600;">Score</th>
+            <th style="padding:8px 12px;"></th>
+          </tr></thead>
+          <tbody>
+            ${rows.map(([ip, score]) => `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px 12px;font-family:monospace;">${ip}</td>
+                <td style="padding:8px 12px;text-align:right;">
+                  <span style="background:${score>=8?'var(--red)':score>=4?'var(--orange)':'var(--text3)'};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;">${score}</span>
+                </td>
+                <td style="padding:8px 12px;text-align:right;">
+                  <button class="btn btn-sm" style="color:var(--red)" onclick="deleteWAFBehaviorProfile('${ip}', ${JSON.stringify(coreId||'')}, ${JSON.stringify(ctx||{})})">Supprimer</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`}
+    </div>`;
+}
+
+window.deleteWAFBehaviorProfile = async function(ip, coreId, ctx) {
+  try {
+    if (coreId) {
+      await coreProxy(coreId, 'DELETE', `/internal/v1/waf/behavior/profiles/${encodeURIComponent(ip)}`);
+    }
+    toast('Profil supprimé', 'success');
+    renderWAFBehaviorProfiles(ctx);
+  } catch(e) { toast(e.message, 'error'); }
+};
+
+pages['core-security-waf-profiles'] = (ctx) => renderWAFBehaviorProfiles({ ...ctx, mode: 'core' });
+
 window.updateCVE = async function(id, status) {
   try {
     await api('PATCH', `/security/cves/${id}`, { status });

@@ -55,6 +55,8 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("GET /internal/v1/threat-lists/export", s.handleHAThreatExport)
 	mux.HandleFunc("POST /internal/v1/waf/behavior/sync", s.handleHAWAFBehaviorSync)
 	mux.HandleFunc("GET /internal/v1/waf/behavior/export", s.handleHAWAFBehaviorExport)
+	mux.HandleFunc("GET /internal/v1/waf/behavior/profiles", s.handleWAFBehaviorProfiles)
+	mux.HandleFunc("DELETE /internal/v1/waf/behavior/profiles/{ip}", s.handleWAFBehaviorDeleteProfile)
 	mux.HandleFunc("POST /internal/v1/settings", s.handlePushSettings)
 	mux.HandleFunc("POST /internal/v1/portal", s.handlePushPortal)
 	mux.HandleFunc("POST /internal/v1/cluster/peers", s.handlePushClusterPeers)
@@ -347,6 +349,31 @@ func (s *Server) handleHAThreatExport(w http.ResponseWriter, r *http.Request) {
 	p := s.threatEngine.BuildHAPayload()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(p) //nolint:errcheck
+}
+
+func (s *Server) handleWAFBehaviorProfiles(w http.ResponseWriter, r *http.Request) {
+	if s.wafEngine == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{}")) //nolint:errcheck
+		return
+	}
+	profiles := s.wafEngine.BehaviorProfiles()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profiles) //nolint:errcheck
+}
+
+func (s *Server) handleWAFBehaviorDeleteProfile(w http.ResponseWriter, r *http.Request) {
+	if s.wafEngine == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	ip := r.PathValue("ip")
+	if ip == "" {
+		http.Error(w, "ip requis", http.StatusBadRequest)
+		return
+	}
+	s.wafEngine.DeleteBehaviorProfile(ip)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleHAWAFBehaviorExport(w http.ResponseWriter, r *http.Request) {
