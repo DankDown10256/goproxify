@@ -2,18 +2,33 @@
 
 Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
-## Livré (v0)
+## Livré
+
+### v0.3 — Sécurité avancée et observabilité _(septembre 2026)_
+
+- **WAF avancé** : scoring anomalie, inspection JSON/form, règles custom hot-reload, métriques
+- **Sentinel** : moteur de détection comportementale stateful par IP (fenêtre glissante, detect mode, listes custom)
+- **Politiques d’accès centralisées** : vue unifiée IP/GeoIP/Bot par proxy dans l’Admin
+- **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
+- **Prism** : taux d’erreurs et IPs bannies par pays
+
+### v0.2 — Architecture distribuée _(juillet – août 2026)_
 
 - Reverse proxy distribué Admin / Core / Agent (un binaire, trois modes)
-- Quickstart Docker Compose + images GHCR
-- GoProxify Access (portail SSH / shell)
-- Wizard architecture (toile, tickets QR / curl|bash, multi-Core/HA)
-- Sécurité : MFA, CrowdSec, WAF labels, Advisories GitHub
+- Relay Core→Core multi-hôtes (Portainer / délégation)
+- GoProxify Access (portail SSH / shell, 2FA, sessions TTL)
+- Wizard architecture (toile, tickets QR / `curl|bash`, multi-Core / HA)
+- Sécurité : MFA, CrowdSec bouncer, WAF, GeoIP, RBAC grants, SSO (OIDC/SAML/LDAP/GitHub)
+- Tokens API utilisateur (PAT) + MCP server
+- CLI opérationnel (`token`, `backup`, `alert`, `import`, `nodes`, `access`)
+- Métriques Prometheus, Prism dashboard, Logs d’accès live
+- i18n EN / FR / ES / DE
+- Quickstart Docker Compose + images GHCR (preview)
 
 ## En cours / prochain
 
 - [ ] Stabiliser les tags SemVer et Releases GitHub régulières
-- [ ] Hygiène CI publique (lint/tests documentés ; automatisation GHCR plus tard)
+- [ ] Hygiène CI publique (lint/tests documentés)
 - [ ] Polish UX Access et docs opérateur
 - [ ] SBOM attaché à chaque Release
 
@@ -21,6 +36,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
 - Intégrations discovery supplémentaires
 - Améliorations HA portail
+- Dashboard Sentinel / alerting comportemental
 - Contributions communauté (issues / Discussions)
 
 Proposer des idées via

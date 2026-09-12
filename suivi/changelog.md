@@ -9,6 +9,63 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ---
 
+## [0.3.0] — 2026-09-12
+
+### Ajouté — WAF avancé + moteur Sentinel
+
+**WAF — inspection et scoring (Core `0.3.72`)**
+- Scoring anomalie par requête : chaque règle contribue un score, seuil configurable avant blocage
+- Inspection corps JSON et form-data (pas uniquement les headers/URI)
+- Règles custom hot-reload (rechargement sans redémarrage)
+- Métriques WAF exposées (`goproxify_waf_*`) : hits par règle, scores, bloqués vs détectés
+- Access log WAF : chaque décision tracée dans les logs d'accès
+
+**Sentinel — moteur de détection comportementale**
+- Analyse comportementale stateful par IP : fenêtre glissante configurable (taux d'erreurs, fréquence, patterns)
+- Scoring anomalie Sentinel indépendant du WAF (complémentaire)
+- Detect mode : log sans bloquer, pour calibrer les seuils avant mise en production
+- Listes custom IP allowlist/denylist intégrées au moteur Sentinel
+- Métriques Sentinel : événements, scores, décisions
+- Propagation de la config Sentinel de l'Admin vers tous les Cores (WS)
+
+**UI Admin**
+- Nom « Sentinel » déployé dans l'interface (remplace l'ancienne appellation générique)
+- Page et section dédiées WAF/Sentinel dans les paramètres de sécurité
+- Section **Accès centralisée** + page **Politiques d'accès** : vue unifiée des règles IP/GeoIP/Bot par proxy
+- Fix badges cert et alignement en-têtes colonnes dans la page Politiques d'accès
+
+### Ajouté — Logs : corrélation et performances
+
+**Corrélation exacte par `request_id` (Admin `0.2.122`, Core `0.3.69`)**
+- Chaque requête porte un `request_id` unique ; les logs Admin et Core sont corrélés par cet identifiant
+- Fix : `RealIP` appliqué dans le middleware admin pour éviter la double IP dans les logs
+- Corrélation élargie aux logs admin (même identifiant visible dans Prism et les logs d'accès)
+
+**Performances et affichage (Admin `0.2.121`, Webapp `0.3.102`)**
+- Keyset pagination sur la table des logs : performances constantes quelle que soit la profondeur
+- Index partiels SQLite sur les colonnes de filtrage fréquentes
+- Vue live logs : format `log-row` compact restauré sur desktop ; tableau desktop + cards mobile alignés
+
+### Amélioré — Prism
+
+- Taux d'erreurs et IPs bannies affichés par pays (carte GeoIP)
+
+### Amélioré — Admin : port local de secours
+
+- `local_port` configurable sur l'Admin : accès direct à l'Admin sans passer par le Core (utile si le Core est injoignable)
+
+### Refactorisé — Topologie dans le backup global
+
+- Les snapshots de topologie (`topology_snapshots`) sont désormais intégrés au backup global Admin
+- Table `topology_snapshots` supprimée — simplification du schéma
+
+### Corrigé
+
+- Core : gestion des IPs/CIDRs de confiance (`trusted_proxies`) corrigée (parsing CIDR + IPv6)
+- Admin : `iconConfig` défini dans `infraAgentCard` (corrige une `ReferenceError` JS)
+
+---
+
 ## [0.2.3] — 2026-08-30
 
 ### Ajouté — Relay Core→Core multi-hôtes (Portainer / délégation)
