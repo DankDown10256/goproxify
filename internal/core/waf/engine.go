@@ -66,6 +66,9 @@ var (
 	}, []string{"host", "signal"})
 )
 
+// BanCallback est appelé par le moteur comportemental quand une IP doit être bannie.
+type BanCallback func(ip, reason string, expires time.Time)
+
 // Engine est le moteur WAF.
 type Engine struct {
 	mu      sync.RWMutex
@@ -73,10 +76,25 @@ type Engine struct {
 	exclude map[int]bool
 	log     *slog.Logger
 
+	banFn BanCallback // optionnel, câblé via SetBanCallback
+
 	// behavior est le store comportemental partagé entre toutes les routes.
-	// Alloué à la première utilisation via behaviorStore().
+	// Alloué à la première utilisation via behaviorStoreFor().
 	behaviorMu    sync.Mutex
 	behaviorStore *behavior.Store
+}
+
+// SetBanCallback enregistre le callback de ban comportemental (server.go → BanStore).
+func (e *Engine) SetBanCallback(fn BanCallback) {
+	e.mu.Lock()
+	e.banFn = fn
+	e.mu.Unlock()
+}
+
+// BehaviorStore retourne le store comportemental (création lazy).
+// Exposé pour la sync HA.
+func (e *Engine) BehaviorStore() *behavior.Store {
+	return e.behaviorStoreFor(60)
 }
 
 // NewEngine crée un moteur WAF avec les règles par défaut.
@@ -222,8 +240,24 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
+		ip := realIP(r)
 		wafRequestsTotal.WithLabelValues(host).Inc()
 
+		// ── Étape 1 : vérification comportementale PRÉ-requête ────────────
+		// Bloque immédiatement si le profil IP dépasse déjà le seuil.
+		if behaviorEnabled {
+			bStore := e.behaviorStoreFor(behaviorWindowSec)
+			preScore, _ := bStore.Score(ip)
+			if preScore >= behaviorThreshold && block {
+				e.log.Warn("waf: blocage comportemental immédiat",
+					"ip", ip, "score", preScore, "threshold", behaviorThreshold)
+				wafBehaviorTotal.WithLabelValues(host, "pre_block").Inc()
+				http.Error(w, "403 Forbidden", http.StatusForbidden)
+				return
+			}
+		}
+
+		// ── Étape 2 : inspection WAF stateless ───────────────────────────
 		matches := e.Inspect(r, maxBody, excludeIDs...)
 
 		// Score WAF de la requête courante (pour alimentation du store comportemental).
@@ -260,57 +294,28 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 					"score", m.AnomalyScore,
 					"message", m.Message,
 					"target", m.Target,
-					"ip", r.RemoteAddr,
+					"ip", ip,
 					"uri", r.URL.RequestURI(),
 					"block", triggered && block,
 				)
 			}
 
 			if triggered && block {
-				// Enregistrement comportemental avant de bloquer.
 				if behaviorEnabled {
-					e.recordBehavior(host, r, wafScore, http.StatusForbidden, behaviorWindowSec)
+					e.postRecord(host, ip, r, wafScore, http.StatusForbidden, behaviorWindowSec, behaviorThreshold, block)
 				}
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
-			// Mode detect ou score insuffisant.
 			top := matches[0]
 			w.Header().Set("X-WAF-Match", top.Category)
 		}
 
-		// Analyse comportementale : on wrappe la réponse pour capturer le status.
+		// ── Étape 3 : service de la requête + enregistrement comportemental
 		if behaviorEnabled {
-			rw := &statusCapture{ResponseWriter: w}
+			rw := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
-			bStore := e.behaviorStoreFor(behaviorWindowSec)
-			ip := realIP(r)
-			bScore, bSignals := bStore.Record(ip, behavior.Event{
-				At:       time.Now(),
-				WafScore: wafScore,
-				Status:   rw.status,
-				Method:   r.Method,
-				Path:     r.URL.Path,
-				UA:       r.UserAgent(),
-			})
-			if len(bSignals) > 0 {
-				for _, sig := range bSignals {
-					wafBehaviorTotal.WithLabelValues(host, sig.Name).Inc()
-				}
-				e.log.Warn("waf: signal comportemental",
-					"ip", ip,
-					"behavior_score", bScore,
-					"threshold", behaviorThreshold,
-					"signals", bSignals,
-				)
-				if bScore >= behaviorThreshold && block {
-					// On ne peut plus modifier la réponse (déjà envoyée).
-					// On logue uniquement — le prochain appel sera bloqué par le store.
-					// Pour un blocage immédiat, il faudrait un store de bans dédié.
-					// TODO: intégrer un callback de ban vers BanStore.
-					_ = bScore
-				}
-			}
+			e.postRecord(host, ip, r, wafScore, rw.status, behaviorWindowSec, behaviorThreshold, block)
 			return
 		}
 
@@ -318,10 +323,10 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 	})
 }
 
-// recordBehavior enregistre une requête bloquée dans le store comportemental.
-func (e *Engine) recordBehavior(host string, r *http.Request, wafScore, status, windowSec int) {
+// postRecord enregistre un événement dans le store comportemental après la requête.
+// Si le nouveau score dépasse le seuil, appelle banFn (ban immédiat pour les suivantes).
+func (e *Engine) postRecord(host, ip string, r *http.Request, wafScore, status, windowSec, threshold int, block bool) {
 	bStore := e.behaviorStoreFor(windowSec)
-	ip := realIP(r)
 	bScore, bSignals := bStore.Record(ip, behavior.Event{
 		At:       time.Now(),
 		WafScore: wafScore,
@@ -330,11 +335,23 @@ func (e *Engine) recordBehavior(host string, r *http.Request, wafScore, status, 
 		Path:     r.URL.Path,
 		UA:       r.UserAgent(),
 	})
+	if len(bSignals) == 0 {
+		return
+	}
 	for _, sig := range bSignals {
 		wafBehaviorTotal.WithLabelValues(host, sig.Name).Inc()
 	}
-	if len(bSignals) > 0 {
-		e.log.Warn("waf: signal comportemental (bloqué)", "ip", ip, "score", bScore, "signals", bSignals)
+	e.log.Warn("waf: signal comportemental",
+		"ip", ip, "score", bScore, "threshold", threshold, "signals", bSignals)
+
+	if bScore >= threshold && block {
+		e.mu.RLock()
+		banFn := e.banFn
+		e.mu.RUnlock()
+		if banFn != nil {
+			expires := time.Now().Add(24 * time.Hour)
+			banFn(ip, "waf: comportement suspect", expires)
+		}
 	}
 }
 

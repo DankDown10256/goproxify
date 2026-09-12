@@ -16,6 +16,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
 	"github.com/vincamok/goproxify/internal/core/threat"
+	"github.com/vincamok/goproxify/internal/core/waf/behavior"
 	corews "github.com/vincamok/goproxify/internal/core/ws"
 )
 
@@ -52,6 +53,8 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("POST /internal/v1/threat-config", s.handlePushThreatConfig)
 	mux.HandleFunc("POST /internal/v1/threat-lists/sync", s.handleHAThreatSync)
 	mux.HandleFunc("GET /internal/v1/threat-lists/export", s.handleHAThreatExport)
+	mux.HandleFunc("POST /internal/v1/waf/behavior/sync", s.handleHAWAFBehaviorSync)
+	mux.HandleFunc("GET /internal/v1/waf/behavior/export", s.handleHAWAFBehaviorExport)
 	mux.HandleFunc("POST /internal/v1/settings", s.handlePushSettings)
 	mux.HandleFunc("POST /internal/v1/portal", s.handlePushPortal)
 	mux.HandleFunc("POST /internal/v1/cluster/peers", s.handlePushClusterPeers)
@@ -344,6 +347,30 @@ func (s *Server) handleHAThreatExport(w http.ResponseWriter, r *http.Request) {
 	p := s.threatEngine.BuildHAPayload()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(p) //nolint:errcheck
+}
+
+func (s *Server) handleHAWAFBehaviorExport(w http.ResponseWriter, r *http.Request) {
+	if s.wafEngine == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	p := s.wafEngine.BehaviorStore().BuildHAPayload()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(p) //nolint:errcheck
+}
+
+func (s *Server) handleHAWAFBehaviorSync(w http.ResponseWriter, r *http.Request) {
+	if s.wafEngine == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var p behavior.HAPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.wafEngine.BehaviorStore().ApplyHAPayload(p)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // threatBanCallback retourne la fonction appelée par le moteur quand il détecte une menace.

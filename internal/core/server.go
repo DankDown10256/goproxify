@@ -168,6 +168,7 @@ func New(cfg *config.CoreConfig) (*Server, error) {
 		}
 		return cats
 	})
+	s.wafEngine.SetBanCallback(waf.BanCallback(s.threatBanCallback()))
 	log.Logger().Info("waf: moteur prêt — activer par route (label goproxify.waf=detect|block ou snippet)")
 	s.accessLog.SetThreatExtractor(func(r *http.Request) string {
 		return threat.SignalFromContext(r.Context())

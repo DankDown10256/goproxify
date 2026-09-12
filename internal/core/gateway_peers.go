@@ -14,6 +14,7 @@ import (
 
 	"github.com/vincamok/goproxify/internal/core/proxy"
 	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/core/waf/behavior"
 )
 
 const peerSyncInterval = 15 * time.Second
@@ -183,6 +184,9 @@ func (s *Server) syncPeer(ctx context.Context, p proxy.PeerInfo) {
 		}
 	}
 
+	// Profils comportementaux WAF
+	s.syncWAFBehaviorFromPeer(ctx, client, p)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Endpoint+"/internal/v1/agent/containers", nil)
 	if err != nil {
 		return
@@ -266,6 +270,30 @@ func backendsEqualURLs(a, b []router.Backend) bool {
 		}
 	}
 	return true
+}
+
+func (s *Server) syncWAFBehaviorFromPeer(ctx context.Context, client *http.Client, p proxy.PeerInfo) {
+	if s.wafEngine == nil {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.Endpoint+"/internal/v1/waf/behavior/export", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+p.Token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	var payload behavior.HAPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return
+	}
+	s.wafEngine.BehaviorStore().ApplyHAPayload(payload)
 }
 
 // applyGatewayPeersWS applique un push WS de peers gateway.

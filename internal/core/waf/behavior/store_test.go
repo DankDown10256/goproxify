@@ -103,3 +103,48 @@ func TestWindowPurge(t *testing.T) {
 		t.Fatalf("old events should be purged, got score %d", score)
 	}
 }
+
+func TestScorePreRequest(t *testing.T) {
+	s := NewStore(60 * time.Second)
+	now := time.Now()
+	// Pas encore de profil → Score doit retourner 0
+	score, sigs := s.Score("7.7.7.7")
+	if score != 0 || len(sigs) != 0 {
+		t.Fatal("unknown IP should score 0")
+	}
+	// Créer un profil avec scan de chemins
+	for i := 0; i < 20; i++ {
+		s.Record("7.7.7.7", Event{At: now, Status: 404, Method: "GET", Path: fmt.Sprintf("/x/%d", i), UA: "bot"})
+	}
+	// Score en lecture seule doit refléter le profil
+	score, _ = s.Score("7.7.7.7")
+	if score == 0 {
+		t.Fatal("Score() should reflect existing profile")
+	}
+}
+
+func TestHAPayload(t *testing.T) {
+	s := NewStore(60 * time.Second)
+	now := time.Now()
+	// Créer un profil avec path scanning (>15 paths) → score > 0
+	for i := 0; i < 20; i++ {
+		s.Record("8.8.8.8", Event{At: now, Status: 404, Method: "GET", Path: fmt.Sprintf("/scan/%d", i), UA: "bot"})
+	}
+	origScore, _ := s.Score("8.8.8.8")
+	if origScore == 0 {
+		t.Fatal("source store should have a non-zero score before export")
+	}
+
+	payload := s.BuildHAPayload()
+	if _, ok := payload.Entries["8.8.8.8"]; !ok {
+		t.Fatal("BuildHAPayload should include active scored IPs")
+	}
+
+	// Appliquer sur un store vide → doit injecter un profil synthétique
+	s2 := NewStore(60 * time.Second)
+	s2.ApplyHAPayload(payload)
+	score2, _ := s2.Score("8.8.8.8")
+	if score2 == 0 {
+		t.Fatal("ApplyHAPayload should populate the target store with a non-zero score")
+	}
+}
