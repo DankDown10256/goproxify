@@ -357,18 +357,19 @@ Un `days_until_expiry` négatif indique un certificat expiré.
 
 ### `list_logs`
 
-Retourne les 100 derniers logs d'accès, filtrables par domaine et niveau.
+Retourne les 100 derniers logs d'accès, filtrables par domaine, niveau ou `request_id`.
 
-| Paramètre | Type   | Requis | Description                                           |
-|-----------|--------|--------|-------------------------------------------------------|
-| `domain`  | string | —      | Filtrer par domaine proxy                             |
-| `level`   | string | —      | Filtrer par niveau : `info`, `warn`, `error`          |
+| Paramètre    | Type   | Requis | Description                                                        |
+|--------------|--------|--------|--------------------------------------------------------------------|
+| `domain`     | string | —      | Filtrer par domaine proxy                                          |
+| `level`      | string | —      | Filtrer par niveau : `info`, `warn`, `error`                       |
+| `request_id` | string | —      | Corrélation exacte : retourne tous les logs portant cet identifiant|
 
 **Réponse exemple :**
 ```json
 [
   {
-    "ts": "2026-08-02T10:01:05Z",
+    "ts": "2026-09-12T10:01:05Z",
     "level": "info",
     "component": "core",
     "domain": "app.example.fr",
@@ -383,7 +384,7 @@ Retourne les 100 derniers logs d'accès, filtrables par domaine et niveau.
 ]
 ```
 
-Chaque entrée inclut un champ `request_id` permettant la corrélation exacte entre logs Admin et logs Core (depuis v0.3).
+Le champ `request_id` est présent quand le proxy cible a l'option **Injection request_id** activée. Utilisez-le comme filtre pour récupérer l'ensemble des entrées (Admin + Core) d'une même requête HTTP.
 
 ---
 

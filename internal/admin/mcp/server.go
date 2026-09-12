@@ -290,10 +290,11 @@ var tools = []map[string]any{
 	// Logs
 	{
 		"name":        "list_logs",
-		"description": "Retourne les derniers logs d'accès (100 entrées max).",
+		"description": "Retourne les derniers logs d'accès (100 entrées max), filtrables par domaine, niveau ou request_id.",
 		"inputSchema": schema(
 			opt("domain", "string", "Filtrer par domaine proxy"),
 			opt("level", "string", "Filtrer par niveau (info, warn, error)"),
+			opt("request_id", "string", "Corrélation exacte par request_id (retourne tous les logs de la requête)"),
 		),
 	},
 	// Équipes
@@ -431,7 +432,8 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "list_logs":
 		domain, _ := p.Arguments["domain"].(string)
 		level, _ := p.Arguments["level"].(string)
-		result, toolErr = h.toolListLogs(r, domain, level)
+		requestID, _ := p.Arguments["request_id"].(string)
+		result, toolErr = h.toolListLogs(r, domain, level, requestID)
 	case "list_teams":
 		result, toolErr = h.toolListTeams(r)
 	case "get_audit_log":
@@ -1019,10 +1021,14 @@ func (h *Handler) toolListCerts(r *http.Request) (any, error) {
 	return out, nil
 }
 
-func (h *Handler) toolListLogs(r *http.Request, domain, level string) (any, error) {
-	q := `SELECT ts, level, component, domain, method, path, status, ip, latency_ms, message
+func (h *Handler) toolListLogs(r *http.Request, domain, level, requestID string) (any, error) {
+	q := `SELECT ts, level, component, domain, method, path, status, ip, latency_ms, COALESCE(request_id,''), message
 	      FROM logs WHERE 1=1`
 	args := []any{}
+	if requestID != "" {
+		q += ` AND request_id = ?`
+		args = append(args, requestID)
+	}
 	if domain != "" {
 		q += ` AND domain = ?`
 		args = append(args, domain)
@@ -1040,16 +1046,20 @@ func (h *Handler) toolListLogs(r *http.Request, domain, level string) (any, erro
 	var out []map[string]any
 	for rows.Next() {
 		var ts time.Time
-		var lvl, component, dom, method, path, ip, message string
+		var lvl, component, dom, method, path, ip, reqID, message string
 		var status, latency int
-		if err := rows.Scan(&ts, &lvl, &component, &dom, &method, &path, &status, &ip, &latency, &message); err != nil {
+		if err := rows.Scan(&ts, &lvl, &component, &dom, &method, &path, &status, &ip, &latency, &reqID, &message); err != nil {
 			continue
 		}
-		out = append(out, map[string]any{
+		entry := map[string]any{
 			"ts": ts, "level": lvl, "component": component, "domain": dom,
 			"method": method, "path": path, "status": status,
 			"ip": ip, "latency_ms": latency, "message": message,
-		})
+		}
+		if reqID != "" {
+			entry["request_id"] = reqID
+		}
+		out = append(out, entry)
 	}
 	if out == nil {
 		out = []map[string]any{}
@@ -1347,7 +1357,7 @@ func (h *Handler) handleResourcesRead(req rpcRequest, r *http.Request) rpcRespon
 	case "goproxify://certs":
 		data, err = h.toolListCerts(r)
 	case "goproxify://logs":
-		data, err = h.toolListLogs(r, "", "")
+		data, err = h.toolListLogs(r, "", "", "")
 	case "goproxify://security/bans":
 		data, err = h.toolListSecurityBans(r, map[string]any{"active_only": true})
 	case "goproxify://security/threats":
