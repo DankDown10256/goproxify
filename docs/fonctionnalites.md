@@ -58,16 +58,17 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 | Fonctionnalité | Détails |
 |---|---|
 | Filtrage IP/CIDR | Profils intégrés : Cloudflare, Tor, Bogons, plages personnalisées |
-| Géo-IP | Autorisation ou blocage par pays (prévu) |
-| Rate limiting | Token bucket par IP, seuils configurables |
+| Géo-IP | Autorisation ou blocage par pays (MaxMind GeoLite2 ; auto-download au démarrage) |
+| Rate limiting | Token bucket par IP, seuils configurables (`rps`/`burst`) |
 | Headers de sécurité HTTP | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
 | CORS | Origines, méthodes et en-têtes configurables |
 | Masquage du fingerprint serveur | Suppression des en-têtes révélateurs (`Server`, `X-Powered-By`) |
-| WAF | ModSecurity / OWASP CRS-4 (Jalon 5) |
+| WAF | Moteur natif Go : scoring anomalie par requête, inspection JSON/form-data, règles custom hot-reload, detect/block mode, métriques `goproxify_waf_*` |
+| Sentinel | Détection comportementale stateful par IP : fenêtre glissante, scoring, detect mode, listes custom allowlist/denylist, propagation config Admin→Cores |
 | Fail2Ban natif Go | Bannissement automatique après N échecs, sans dépendance externe |
 | CrowdSec | Bouncer LAPI stream → bans poussés au Core (403), compatible Docker |
-| JWT validation | JWKS (Jalon 5) |
-| SSO | Authentik, Authelia, Basic Auth (Jalon 5) |
+| SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
+| JWT validation | JWKS (prévue) |
 
 ### Résilience
 

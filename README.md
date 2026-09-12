@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-preview%20%2F%200.x-orange.svg)](DISCLAIMER.md)
-[![Go](https://img.shields.io/badge/go-1.23+-00ADD8.svg)](go.mod)
+[![Go](https://img.shields.io/badge/go-1.25+-00ADD8.svg)](go.mod)
 [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fvincamok%2Fgoproxify-black)](https://github.com/Vincamok/goproxify/pkgs/container/goproxify%2Fadmin)
 [![Release](https://img.shields.io/github/v/release/Vincamok/goproxify?display_name=tag&sort=semver)](https://github.com/Vincamok/goproxify/releases)
 

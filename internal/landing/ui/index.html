@@ -1052,11 +1052,11 @@
         </div>
         <div class="feature-subtitle" data-i18n="f5.sub">Security</div>
         <h3 data-i18n="f5.title">Protect what you publish</h3>
-        <p data-i18n="f5.body">Putting sites on the internet invites bots and abuse. GoProxify helps you slow attacks, block threats, and ask for a login when a site should stay private.</p>
+        <p data-i18n="f5.body">Putting sites on the internet invites bots and abuse. GoProxify includes a WAF, the Sentinel behavioural engine, CrowdSec integration, GeoIP filtering, and SSO — all configured from the Admin.</p>
         <ul class="feature-points">
-          <li data-i18n="f5.p1">Limit abusive traffic and suspicious visitors</li>
-          <li data-i18n="f5.p2">Block known threats before they reach your apps</li>
-          <li data-i18n="f5.p3">Require a login for sensitive tools and internal apps</li>
+          <li data-i18n="f5.p1">WAF with anomaly scoring, JSON inspection and hot-reload rules</li>
+          <li data-i18n="f5.p2">Sentinel — behavioural detection per IP (sliding window, detect mode)</li>
+          <li data-i18n="f5.p3">Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)</li>
         </ul>
       </div>
 
@@ -2022,7 +2022,7 @@ agent:
       'f4.sub': 'Reliability', 'f4.title': 'Keeps working when things break',
       'f4.body': 'Your sites should not go dark because one machine hiccups. Gateways remember their settings, a spare gateway can take over, and unhealthy apps are skipped.',
       'f5.sub': 'Security', 'f5.title': 'Protect what you publish',
-      'f5.body': 'Putting sites on the internet invites bots and abuse. GoProxify helps you slow attacks, block threats, and ask for a login when a site should stay private.',
+      'f5.body': 'Putting sites on the internet invites bots and abuse. GoProxify includes a WAF, the Sentinel behavioural engine, CrowdSec integration, GeoIP filtering, and SSO — all configured from the Admin.',
       'f6.sub': 'Visibility', 'f6.title': 'See what happens',
       'f6.body': 'Know who visits which site, spot errors quickly, and get notified where your team already works — without digging through server files.',
       'f7.sub': 'Access', 'f7.title': 'Reach servers from the browser',
@@ -2074,9 +2074,9 @@ agent:
       'f4.p1': 'Sites keep answering even if the Admin is briefly offline',
       'f4.p2': 'A second gateway covers for the first',
       'f4.p3': 'Failing apps are bypassed so visitors still reach a healthy copy',
-      'f5.p1': 'Limit abusive traffic and suspicious visitors',
-      'f5.p2': 'Block known threats before they reach your apps',
-      'f5.p3': 'Require a login for sensitive tools and internal apps',
+      'f5.p1': 'WAF with anomaly scoring, JSON inspection and hot-reload rules',
+      'f5.p2': 'Sentinel — behavioural detection per IP (sliding window, detect mode)',
+      'f5.p3': 'Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
       'f6.p1': 'Live views of traffic across your published sites',
       'f6.p2': 'Clear access logs you can actually read',
       'f6.p3': 'Alerts on several channels when something goes wrong',
@@ -2147,7 +2147,7 @@ agent:
       'f4.sub': 'Fiabilité', 'f4.title': 'Continue de tourner quand ça casse',
       'f4.body': 'Vos sites ne doivent pas s’éteindre pour un hic sur une machine. Les passerelles retiennent leurs réglages, une passerelle de secours peut prendre le relais, et les apps en panne sont contournées.',
       'f5.sub': 'Sécurité', 'f5.title': 'Protégez ce que vous publiez',
-      'f5.body': 'Mettre des sites sur Internet attire bots et abus. GoProxify aide à ralentir les attaques, bloquer les menaces, et demander une connexion quand un site doit rester privé.',
+      'f5.body': 'Mettre des sites sur Internet attire bots et abus. GoProxify intègre un WAF, le moteur comportemental Sentinel, CrowdSec, GeoIP et SSO — tout configuré depuis l'Admin.',
       'f6.sub': 'Visibilité', 'f6.title': 'Voyez ce qui se passe',
       'f6.body': 'Savoir qui visite quel site, repérer les erreurs vite, et être notifié là où votre équipe travaille déjà — sans fouiller les fichiers serveur.',
       'f7.sub': 'Access', 'f7.title': 'Atteindre les serveurs depuis le navigateur',
@@ -2199,9 +2199,9 @@ agent:
       'f4.p1': 'Les sites répondent même si l’Admin est brièvement hors ligne',
       'f4.p2': 'Une seconde passerelle couvre la première',
       'f4.p3': 'Les apps en panne sont contournées pour joindre une copie saine',
-      'f5.p1': 'Limiter le trafic abusif et les visiteurs suspects',
-      'f5.p2': 'Bloquer les menaces connues avant qu’elles touchent vos apps',
-      'f5.p3': 'Exiger une connexion pour les outils sensibles et apps internes',
+      ‘f5.p1’: ‘WAF avec scoring anomalie, inspection JSON et règles hot-reload’,
+      ‘f5.p2’: ‘Sentinel — détection comportementale par IP (fenêtre glissante, detect mode)’,
+      ‘f5.p3’: ‘Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)’,
       'f6.p1': 'Vues en direct du trafic sur vos sites publiés',
       'f6.p2': 'Journaux d’accès clairs et lisibles',
       'f6.p3': 'Alertes sur plusieurs canaux quand quelque chose cloche',
@@ -2272,7 +2272,7 @@ agent:
       'f4.sub': 'Fiabilidad', 'f4.title': 'Sigue funcionando cuando algo falla',
       'f4.body': 'Tus sitios no deberían apagarse por un tropiezo de una máquina. Las pasarelas recuerdan su configuración, una de reserva puede tomar el relevo y las apps enfermas se omiten.',
       'f5.sub': 'Seguridad', 'f5.title': 'Protege lo que publicas',
-      'f5.body': 'Publicar en internet atrae bots y abusos. GoProxify ayuda a frenar ataques, bloquear amenazas y pedir inicio de sesión cuando un sitio debe ser privado.',
+      'f5.body': 'Publicar en internet atrae bots y abusos. GoProxify incluye WAF, el motor Sentinel, CrowdSec, GeoIP y SSO — todo configurado desde el Admin.',
       'f6.sub': 'Visibilidad', 'f6.title': 'Ve lo que ocurre',
       'f6.body': 'Saber quién visita qué sitio, detectar errores rápido y recibir avisos donde ya trabaja tu equipo — sin husmear archivos del servidor.',
       'f7.sub': 'Access', 'f7.title': 'Accede a servidores desde el navegador',
@@ -2324,9 +2324,9 @@ agent:
       'f4.p1': 'Los sitios siguen respondiendo si el Admin está offline un momento',
       'f4.p2': 'Una segunda pasarela cubre a la primera',
       'f4.p3': 'Las apps fallidas se omiten para llegar a una copia sana',
-      'f5.p1': 'Limitar tráfico abusivo y visitantes sospechosos',
-      'f5.p2': 'Bloquear amenazas conocidas antes de que lleguen a tus apps',
-      'f5.p3': 'Exigir login para herramientas sensibles y apps internas',
+      'f5.p1': 'WAF con puntuación de anomalías, inspección JSON y reglas hot-reload',
+      'f5.p2': 'Sentinel — detección conductual por IP (ventana deslizante, modo detect)',
+      'f5.p3': 'Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
       'f6.p1': 'Vistas en vivo del tráfico en tus sitios publicados',
       'f6.p2': 'Registros de acceso claros y legibles',
       'f6.p3': 'Alertas en varios canales cuando algo va mal',
@@ -2397,7 +2397,7 @@ agent:
       'f4.sub': 'Zuverlässigkeit', 'f4.title': 'Läuft weiter, wenn etwas bricht',
       'f4.body': 'Ihre Sites sollten nicht ausfallen, weil eine Maschine hakt. Gateways merken sich Einstellungen, ein Reserve-Gateway kann übernehmen, und kranke Apps werden übersprungen.',
       'f5.sub': 'Sicherheit', 'f5.title': 'Schützen Sie, was Sie veröffentlichen',
-      'f5.body': 'Sites im Internet ziehen Bots und Missbrauch an. GoProxify hilft, Angriffe zu drosseln, Bedrohungen zu blockieren und Login zu verlangen, wenn eine Site privat bleiben soll.',
+      'f5.body': 'Sites im Internet ziehen Bots und Missbrauch an. GoProxify enthält WAF, die Sentinel-Verhaltensanalyse, CrowdSec, GeoIP und SSO — alles über das Admin konfiguriert.',
       'f6.sub': 'Sichtbarkeit', 'f6.title': 'Sehen Sie, was passiert',
       'f6.body': 'Wissen, wer welche Site besucht, Fehler schnell sehen und dort benachrichtigt werden, wo Ihr Team schon arbeitet — ohne Serverdateien zu wühlen.',
       'f7.sub': 'Access', 'f7.title': 'Server im Browser erreichen',
@@ -2449,9 +2449,9 @@ agent:
       'f4.p1': 'Sites antworten weiter, auch wenn das Admin kurz offline ist',
       'f4.p2': 'Ein zweites Gateway deckt das erste ab',
       'f4.p3': 'Ausfallende Apps werden umgangen, damit Besucher eine gesunde Kopie erreichen',
-      'f5.p1': 'Missbräuchlichen Traffic und verdächtige Besucher begrenzen',
-      'f5.p2': 'Bekannte Bedrohungen blockieren, bevor sie Apps erreichen',
-      'f5.p3': 'Login für sensible Tools und interne Apps verlangen',
+      'f5.p1': 'WAF mit Anomalie-Scoring, JSON-Inspektion und Hot-Reload-Regeln',
+      'f5.p2': 'Sentinel — Verhaltensanalyse pro IP (gleitendes Fenster, Detect-Modus)',
+      'f5.p3': 'Rate-Limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
       'f6.p1': 'Live-Ansichten des Traffics auf Ihren veröffentlichten Sites',
       'f6.p2': 'Klare, lesbare Access-Logs',
       'f6.p3': 'Alerts auf mehreren Kanälen, wenn etwas schiefläuft',
