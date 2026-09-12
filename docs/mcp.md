@@ -377,10 +377,13 @@ Retourne les 100 derniers logs d'accès, filtrables par domaine et niveau.
     "status": 200,
     "ip": "1.2.3.4",
     "latency_ms": 38,
+    "request_id": "req_01jx4z8k",
     "message": ""
   }
 ]
 ```
+
+Chaque entrée inclut un champ `request_id` permettant la corrélation exacte entre logs Admin et logs Core (depuis v0.3).
 
 ---
 

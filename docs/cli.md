@@ -293,6 +293,27 @@ goproxify update rollback -container <nom>
 
 ---
 
+### `goproxify migrate-yaml`
+
+Convertit les fichiers de configuration proxy du format JSON (legacy) vers YAML.
+
+```
+goproxify migrate-yaml
+```
+
+Lit tous les fichiers `*.json` dans le répertoire de données (`/etc/goproxify` ou `GPX_DATA_PATH`) et les convertit en `*.yaml`. Les fichiers JSON d'origine sont conservés ; une erreur de conversion est signalée sans interrompre les autres fichiers.
+
+Variables d'environnement :
+
+| Variable | Usage |
+|----------|-------|
+| `GPX_DATA_PATH` | Répertoire racine des données (prioritaire) |
+| `GPX_CORE_CACHE_PATH` | Utilisé pour déduire le répertoire si `GPX_DATA_PATH` absent |
+
+> Cette commande est destinée à la migration ponctuelle depuis les versions < 0.2. Les nouvelles installations utilisent directement le format YAML.
+
+---
+
 ### `goproxify version`
 
 Affiche les versions de tous les composants embarqués.
