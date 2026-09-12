@@ -101,7 +101,7 @@ func (e *Engine) BehaviorStore() *behavior.Store {
 }
 
 // BehaviorProfiles retourne tous les profils IP actifs, tous hosts confondus.
-func (e *Engine) BehaviorProfiles() map[string]int {
+func (e *Engine) BehaviorProfiles() map[string]behavior.ProfileInfo {
 	e.behaviorMu.Lock()
 	stores := make([]*behavior.Store, 0, len(e.behaviorStores))
 	for _, s := range e.behaviorStores {
@@ -109,11 +109,11 @@ func (e *Engine) BehaviorProfiles() map[string]int {
 	}
 	e.behaviorMu.Unlock()
 
-	merged := make(map[string]int)
+	merged := make(map[string]behavior.ProfileInfo)
 	for _, s := range stores {
-		for ip, score := range s.Profiles() {
-			if score > merged[ip] {
-				merged[ip] = score
+		for ip, info := range s.Profiles() {
+			if info.Score > merged[ip].Score {
+				merged[ip] = info
 			}
 		}
 	}
@@ -341,9 +341,10 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		if behaviorEnabled {
 			bStore := e.behaviorStoreForHost(host, behaviorWindowSec)
 			preScore, _ := bStore.Score(ip)
-			if preScore >= behaviorThreshold && block {
+			effectiveThreshold := behaviorThreshold + bStore.TrustBonus(ip)
+			if preScore >= effectiveThreshold && block {
 				e.log.Warn("waf: blocage comportemental immédiat",
-					"ip", ip, "score", preScore, "threshold", behaviorThreshold)
+					"ip", ip, "score", preScore, "threshold", effectiveThreshold)
 				wafBehaviorTotal.WithLabelValues(host, "pre_block").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
@@ -437,7 +438,8 @@ func (e *Engine) postRecord(host, ip string, r *http.Request, wafScore, status, 
 	e.log.Warn("waf: signal comportemental",
 		"ip", ip, "score", bScore, "threshold", threshold, "signals", bSignals)
 
-	if bScore >= threshold && block {
+	effectiveThreshold := threshold + bStore.TrustBonus(ip)
+	if bScore >= effectiveThreshold && block {
 		e.mu.RLock()
 		banFn := e.banFn
 		e.mu.RUnlock()

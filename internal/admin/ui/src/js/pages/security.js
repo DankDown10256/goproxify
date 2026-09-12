@@ -1436,10 +1436,15 @@ async function renderWAFBehaviorProfiles(ctx) {
     }
   } catch(e) { /* ignore */ }
 
-  const rows = Object.entries(profiles).sort((a, b) => b[1] - a[1]);
+  const rows = Object.entries(profiles).sort((a, b) => b[1].score - a[1].score);
+
+  const scoreColor = (s) => s >= 8 ? 'var(--red)' : s >= 4 ? 'var(--orange)' : 'var(--text3)';
+  const signalBadges = (sigs) => (sigs || []).map(s =>
+    `<span style="display:inline-block;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px;margin:1px;">${s.name}<span style="color:var(--text2);margin-left:3px;">+${s.score}</span></span>`
+  ).join('');
 
   el.innerHTML = `
-    <div style="max-width:900px;margin:0 auto;padding:24px 16px;">
+    <div style="max-width:960px;margin:0 auto;padding:24px 16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
         <h2 style="font-size:18px;font-weight:700;margin:0;">Profils comportementaux WAF</h2>
         <button class="btn btn-sm" onclick="renderWAFBehaviorProfiles(${JSON.stringify(ctx||{})})">Actualiser</button>
@@ -1450,14 +1455,22 @@ async function renderWAFBehaviorProfiles(ctx) {
           <thead><tr style="border-bottom:2px solid var(--border);">
             <th style="text-align:left;padding:8px 12px;font-weight:600;">IP</th>
             <th style="text-align:right;padding:8px 12px;font-weight:600;">Score</th>
+            <th style="text-align:left;padding:8px 12px;font-weight:600;">Signaux</th>
+            <th style="text-align:center;padding:8px 12px;font-weight:600;">Crédit</th>
             <th style="padding:8px 12px;"></th>
           </tr></thead>
           <tbody>
-            ${rows.map(([ip, score]) => `
+            ${rows.map(([ip, info]) => `
               <tr style="border-bottom:1px solid var(--border);">
                 <td style="padding:8px 12px;font-family:monospace;">${ip}</td>
                 <td style="padding:8px 12px;text-align:right;">
-                  <span style="background:${score>=8?'var(--red)':score>=4?'var(--orange)':'var(--text3)'};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;">${score}</span>
+                  <span style="background:${scoreColor(info.score)};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;">${info.score}</span>
+                </td>
+                <td style="padding:8px 12px;">${signalBadges(info.signals)}</td>
+                <td style="padding:8px 12px;text-align:center;color:var(--text2);font-size:12px;">
+                  ${info.trust_bonus > 0
+                    ? `<span title="${info.clean_requests} req propres" style="color:var(--green);font-weight:600;">+${info.trust_bonus}</span>`
+                    : `<span title="${info.clean_requests} req propres">–</span>`}
                 </td>
                 <td style="padding:8px 12px;text-align:right;">
                   <button class="btn btn-sm" style="color:var(--red)" onclick="deleteWAFBehaviorProfile('${ip}', ${JSON.stringify(coreId||'')}, ${JSON.stringify(ctx||{})})">Supprimer</button>

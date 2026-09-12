@@ -28,10 +28,19 @@ type Signal struct {
 	Score int
 }
 
-// HAEntry est le format d'échange HA pour un profil IP : score + expiry.
+// HAEntry est le format d'échange HA pour un profil IP : score + expiry + trust.
 type HAEntry struct {
 	Score     int       `json:"score"`
 	ExpiresAt time.Time `json:"expires_at"`
+	CleanReqs int64     `json:"clean_reqs,omitempty"`
+}
+
+// ProfileInfo est retourné par Profiles() pour la visibilité admin.
+type ProfileInfo struct {
+	Score      int      `json:"score"`
+	Signals    []Signal `json:"signals"`
+	TrustBonus int      `json:"trust_bonus"`
+	CleanReqs  int64    `json:"clean_requests"`
 }
 
 // HAPayload est échangé entre nœuds HA.
@@ -41,8 +50,9 @@ type HAPayload struct {
 
 // Profile contient l'historique glissant d'une IP.
 type Profile struct {
-	mu     sync.Mutex
-	events []Event // fenêtre glissante, purgée à chaque accès
+	mu            sync.Mutex
+	events        []Event // fenêtre glissante, purgée à chaque accès
+	cleanRequests int64   // compteur cumulatif de requêtes propres (non-fenêtré)
 }
 
 // Store conserve les profils par IP avec nettoyage périodique.
@@ -93,6 +103,9 @@ func (s *Store) Record(ip string, ev Event) (score int, signals []Signal) {
 
 	purgeEvents(p, ev.At, s.window)
 	p.events = append(p.events, ev)
+	if ev.WafScore == 0 && ev.Status >= 200 && ev.Status < 400 {
+		p.cleanRequests++
+	}
 	return analyze(p.events)
 }
 
@@ -114,6 +127,7 @@ func (s *Store) BuildHAPayload() HAPayload {
 				entries[ip] = HAEntry{
 					Score:     score,
 					ExpiresAt: p.events[len(p.events)-1].At.Add(s.window),
+					CleanReqs: p.cleanRequests,
 				}
 			}
 		}
@@ -149,6 +163,16 @@ func (s *Store) ApplyHAPayload(p HAPayload) {
 			UA:       "",
 		}
 		s.Record(ip, synthetic)
+		// Synchroniser cleanRequests si le pair en a plus.
+		s.mu.Lock()
+		if pp, ok := s.profiles[ip]; ok {
+			pp.mu.Lock()
+			if entry.CleanReqs > pp.cleanRequests {
+				pp.cleanRequests = entry.CleanReqs
+			}
+			pp.mu.Unlock()
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -188,6 +212,9 @@ func (s *Store) RestoreSnapshot(snap HAPayload) {
 			Method:   "GET",
 			Path:     "/",
 		})
+		if entry.CleanReqs > p.cleanRequests {
+			p.cleanRequests = entry.CleanReqs
+		}
 		p.mu.Unlock()
 	}
 }
@@ -352,19 +379,47 @@ func (s *Store) DeleteProfile(ip string) {
 	s.mu.Unlock()
 }
 
-// Profiles retourne un snapshot des profils actifs : ip → score.
-func (s *Store) Profiles() map[string]int {
+// TrustBonus retourne le bonus de confiance d'une IP (0–5 points).
+// Chaque tranche de 100 requêtes propres ajoute 1 point au seuil de ban effectif.
+func (s *Store) TrustBonus(ip string) int {
+	s.mu.RLock()
+	p, ok := s.profiles[ip]
+	s.mu.RUnlock()
+	if !ok {
+		return 0
+	}
+	p.mu.Lock()
+	cr := p.cleanRequests
+	p.mu.Unlock()
+	return calcTrustBonus(cr)
+}
+
+func calcTrustBonus(cleanReqs int64) int {
+	b := int(cleanReqs / 100)
+	if b > 5 {
+		b = 5
+	}
+	return b
+}
+
+// Profiles retourne un snapshot des profils actifs avec score, signaux et trust.
+func (s *Store) Profiles() map[string]ProfileInfo {
 	now := time.Now()
 	cutoff := now.Add(-s.window)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make(map[string]int, len(s.profiles))
+	out := make(map[string]ProfileInfo, len(s.profiles))
 	for ip, p := range s.profiles {
 		p.mu.Lock()
 		if len(p.events) > 0 && p.events[len(p.events)-1].At.After(cutoff) {
-			score, _ := analyze(p.events)
+			score, sigs := analyze(p.events)
 			if score > 0 {
-				out[ip] = score
+				out[ip] = ProfileInfo{
+					Score:      score,
+					Signals:    sigs,
+					TrustBonus: calcTrustBonus(p.cleanRequests),
+					CleanReqs:  p.cleanRequests,
+				}
 			}
 		}
 		p.mu.Unlock()
