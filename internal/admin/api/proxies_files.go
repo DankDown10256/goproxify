@@ -401,8 +401,8 @@ func (h *ProxiesHandler) writeCoreErr(w http.ResponseWriter, r *http.Request, er
 		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
 		return
 	}
-	h.Log.Error("proxies/files", "err", err)
-	http.Error(w, err.Error(), http.StatusBadGateway)
+	h.Log.Error("proxies/files: core injoignable", "err", err)
+	writeErr(w, r, http.StatusServiceUnavailable, "api.err.core_unreachable")
 }
 
 func envelopeToRow(env *proxystore.Envelope) proxyRow {
