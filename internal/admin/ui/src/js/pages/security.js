@@ -10,6 +10,7 @@ function securityPageId(variant, mode) {
     bans:     isCore ? 'core-security-bans' : 'security-bans',
     vulns:    isCore ? 'core-security-vulns' : 'security-vulns',
     posture:  isCore ? 'core-security-posture' : 'security-posture',
+    sentinel: isCore ? 'core-security-sentinel' : 'security-sentinel',
   };
   return map[variant] || map.overview;
 }
@@ -209,6 +210,7 @@ async function renderSecurityOverview(ctx) {
     const navBans = securityPageId('bans', mode);
     const navVulns = securityPageId('vulns', mode);
     const navPosture = securityPageId('posture', mode);
+    const navSentinel = securityPageId('sentinel', mode);
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
@@ -237,6 +239,11 @@ async function renderSecurityOverview(ctx) {
           <div class="sec-tile-label">${t('security.certs')}</div>
           <div class="sec-tile-value" style="color:${certsExpired>0?'var(--red)':certsExpiring>0?'var(--yellow)':'var(--green)'}">${certs.length}</div>
           <div class="sec-tile-sub">${t('security.certs_sub', { expired: certsExpired, expiring: certsExpiring })}</div>
+        </div>
+        <div class="sec-tile" style="cursor:pointer" onclick="navigate('${navSentinel}')" title="${t('security.sentinel_title')||'Sentinel'}">
+          <div class="sec-tile-label">${t('security.sentinel_tile_label')||'Sentinel'}</div>
+          <div class="sec-tile-value" style="color:var(--primary);font-size:22px">&#x1f6e1;</div>
+          <div class="sec-tile-sub">${t('security.sentinel_tile_sub')||'Threat engine'}</div>
         </div>
       </div>
 
@@ -389,6 +396,117 @@ pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
 pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
 pages['core-security-vulns'] = () => renderSecurityVulns({ mode: 'core' });
 pages['core-security-posture'] = () => renderSecurityPosture({ mode: 'core' });
+pages['security-sentinel'] = () => renderSentinelDashboard({ mode: 'admin' });
+pages['core-security-sentinel'] = () => renderSentinelDashboard({ mode: 'core' });
+
+async function renderSentinelDashboard({ mode }) {
+  const content = document.getElementById('content');
+  const coreCtx = mode === 'core' ? getCoreContext() : null;
+  const coreQ = coreCtx ? `?core=${encodeURIComponent(coreCtx.coreID)}` : '';
+  content.innerHTML = `<div style="padding:20px 0"><div class="spinner"></div></div>`;
+  try {
+    const [bansRaw, threats, threatCfg] = await Promise.all([
+      api('GET', `/security/bans?active=true${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
+      api('GET', `/security/threats?limit=500${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
+      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+    ]);
+    const bans = filterSecBans(bansRaw || [], coreCtx);
+    const threatList = threats || [];
+
+    // Top IPs by ban/threat count
+    const ipCount = {};
+    for (const b of bans) { ipCount[b.ip] = (ipCount[b.ip] || 0) + 1; }
+    for (const th of threatList) { ipCount[th.ip] = (ipCount[th.ip] || 0) + 1; }
+    const topIPs = Object.entries(ipCount).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    // Scenario breakdown
+    const scenariosMap = {};
+    for (const th of threatList) {
+      const s = th.scenario || th.type || 'unknown';
+      scenariosMap[s] = (scenariosMap[s] || 0) + 1;
+    }
+    const scenarios = Object.entries(scenariosMap).sort((a,b)=>b[1]-a[1]);
+
+    // Bans over time (last 24h buckets of 1h)
+    const now = Date.now();
+    const buckets = Array(24).fill(0);
+    for (const b of bans) {
+      if (!b.created_at && !b.banned_at) continue;
+      const ts = new Date(b.created_at || b.banned_at).getTime();
+      const hoursAgo = Math.floor((now - ts) / 3600000);
+      if (hoursAgo >= 0 && hoursAgo < 24) buckets[23 - hoursAgo]++;
+    }
+    const maxBucket = Math.max(...buckets, 1);
+    const barW = 100 / 24;
+
+    const cfgEnabled = threatCfg?.enabled;
+    const cfgThreshold = threatCfg?.score_threshold || 0;
+
+    content.innerHTML = `
+      <div class="page-header" style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('overview', mode)}')">&larr; ${t('common.back')||'Retour'}</button>
+        <h1 class="page-title" style="margin:0">&#x1f6e1; Sentinel</h1>
+        <span class="tag ${cfgEnabled?'tag-green':'tag-neutral'}" style="margin-left:8px">${cfgEnabled ? t('common.active')||'Actif' : t('common.inactive')||'Inactif'}</span>
+      </div>
+      <div class="sec-grid" style="margin-bottom:20px">
+        <div class="sec-tile">
+          <div class="sec-tile-label">${t('security.active_bans')||'Bans actifs'}</div>
+          <div class="sec-tile-value" style="color:${bans.length>0?'var(--red)':'var(--green)'}">${bans.length}</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">${t('security.crowdsec_threats')||'Menaces détectées'}</div>
+          <div class="sec-tile-value" style="color:${threatList.length>0?'var(--yellow)':'var(--green)'}">${threatList.length}</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">${t('security.sentinel_threshold')||'Seuil score'}</div>
+          <div class="sec-tile-value">${cfgThreshold}</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">${t('security.sentinel_scenarios')||'Scénarios actifs'}</div>
+          <div class="sec-tile-value">${scenarios.length}</div>
+        </div>
+      </div>
+
+      <div class="card blueprint" style="margin-bottom:20px">
+        <div class="card-header"><span class="card-title">&#x1f4c5; ${t('security.sentinel_bans_timeline')||'Bans (24 dernières heures)'}</span></div>
+        <div style="padding:16px">
+          <div style="display:flex;align-items:flex-end;height:80px;gap:2px">
+            ${buckets.map((v,i)=>`<div title="${v} ban(s) il y a ${23-i}h" style="flex:1;background:var(--primary);opacity:0.7;height:${Math.round(v/maxBucket*100)}%;min-height:${v>0?'3px':'0'};border-radius:2px 2px 0 0"></div>`).join('')}
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-top:4px">
+            <span>-23h</span><span>-12h</span><span>maintenant</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div class="card blueprint">
+          <div class="card-header"><span class="card-title">&#x1f4ca; ${t('security.sentinel_top_ips')||'Top IPs'}</span></div>
+          <div style="padding:0 16px 16px">
+            ${topIPs.length === 0 ? `<p style="color:var(--text2);font-size:13px">${t('security.no_data')||'Aucune donnée'}</p>` :
+              `<table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)">IP</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border)">${t('common.count')||'Occurrences'}</th></tr></thead>
+                <tbody>${topIPs.map(([ip,n])=>`<tr><td style="padding:4px;font-family:monospace">${esc(ip)}</td><td style="text-align:right;padding:4px"><span class="tag tag-red">${n}</span></td></tr>`).join('')}</tbody>
+              </table>`}
+          </div>
+        </div>
+        <div class="card blueprint">
+          <div class="card-header"><span class="card-title">&#x1f5c2; ${t('security.sentinel_scenarios')||'Scénarios'}</span></div>
+          <div style="padding:0 16px 16px">
+            ${scenarios.length === 0 ? `<p style="color:var(--text2);font-size:13px">${t('security.no_data')||'Aucune donnée'}</p>` :
+              `<table style="width:100%;border-collapse:collapse;font-size:13px">
+                <thead><tr><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)">${t('security.col.scenario')||'Scénario'}</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border)">${t('common.count')||'Nb'}</th></tr></thead>
+                <tbody>${scenarios.map(([s,n])=>`<tr><td style="padding:4px;font-size:12px">${esc(s)}</td><td style="text-align:right;padding:4px"><span class="tag tag-yellow">${n}</span></td></tr>`).join('')}</tbody>
+              </table>`}
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('bans', mode)}')">${t('security.view_all_bans')||'Voir tous les bans'} &rarr;</button>
+      </div>`;
+  } catch(e) { toast(e.message,'error'); }
+}
 
 function secProxyCountLabel(n, total) {
   const suffix = n === 1 ? t('security.proxy_count', { n }) : t('security.proxy_count_n', { n });

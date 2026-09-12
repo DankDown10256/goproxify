@@ -448,6 +448,14 @@ pre.chain {
     <div class="panel">
       <h2>Vérification 2FA</h2>
       <p class="hint" id="twofaHint">Entrez le code de votre application ou OTP email.</p>
+      <div id="twofaCountdownBar" style="display:none;margin-bottom:.75rem">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2,#888);margin-bottom:4px">
+          <span>Expiration du challenge</span><span id="twofaCountdownLabel"></span>
+        </div>
+        <div style="height:4px;background:var(--border,#e5e7eb);border-radius:2px;overflow:hidden">
+          <div id="twofaCountdownTrack" style="height:100%;background:var(--primary,#2563eb);transition:width 1s linear;border-radius:2px"></div>
+        </div>
+      </div>
       <div class="row">
         <div><label for="twofaMethod">Méthode</label>
           <select id="twofaMethod"><option value="totp">TOTP</option><option value="email">Email</option></select>
@@ -695,7 +703,8 @@ function showInvite() {
   $('twofa').classList.add('hidden');
   $('invite').classList.remove('hidden');
 }
-function showTwoFA(methods) {
+let _twofaCountdownInterval = null;
+function showTwoFA(methods, ttlSeconds) {
   $('app').classList.add('hidden');
   $('auth').classList.add('hidden');
   $('invite').classList.add('hidden');
@@ -710,6 +719,32 @@ function showTwoFA(methods) {
   $('btnTwoFAEmail').classList.toggle('hidden', !(methods || []).includes('email'));
   $('twofaCode').value = '';
   $('twofaErr').textContent = '';
+  if (_twofaCountdownInterval) { clearInterval(_twofaCountdownInterval); _twofaCountdownInterval = null; }
+  const bar = $('twofaCountdownBar');
+  if (ttlSeconds && ttlSeconds > 0) {
+    bar.style.display = 'block';
+    const total = ttlSeconds;
+    let remaining = total;
+    const tick = () => {
+      remaining--;
+      const pct = Math.max(0, remaining / total * 100);
+      const track = $('twofaCountdownTrack');
+      const label = $('twofaCountdownLabel');
+      if (track) { track.style.width = pct + '%'; track.style.background = pct < 30 ? 'var(--red,#dc2626)' : pct < 60 ? 'var(--yellow,#d97706)' : 'var(--primary,#2563eb)'; }
+      if (label) label.textContent = remaining + 's';
+      if (remaining <= 0) {
+        clearInterval(_twofaCountdownInterval);
+        _twofaCountdownInterval = null;
+        $('twofaErr').textContent = 'Challenge expiré — veuillez vous reconnecter.';
+        $('btnTwoFA').disabled = true;
+      }
+    };
+    $('twofaCountdownTrack').style.width = '100%';
+    $('twofaCountdownLabel').textContent = remaining + 's';
+    _twofaCountdownInterval = setInterval(tick, 1000);
+  } else {
+    bar.style.display = 'none';
+  }
 }
 function clearSession() {
   state.token = ''; state.user = '';
@@ -771,7 +806,7 @@ $('btnLogin').onclick = async () => {
     if (d.need_2fa) {
       state.challengeId = d.challenge_id;
       state.user = d.username || '';
-      showTwoFA(d.methods || []);
+      showTwoFA(d.methods || [], d.ttl_seconds);
       return;
     }
     state.token = d.token; state.user = d.username;
@@ -790,6 +825,8 @@ $('btnTwoFA').onclick = async () => {
     state.token = d.token; state.user = d.username;
     state.challengeId = '';
     $('twofaCode').value = '';
+    if (_twofaCountdownInterval) { clearInterval(_twofaCountdownInterval); _twofaCountdownInterval = null; }
+    $('btnTwoFA').disabled = false;
     persistSession();
     showApp();
   } catch (e) { $('twofaErr').textContent = e.message; }

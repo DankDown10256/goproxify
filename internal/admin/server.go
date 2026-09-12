@@ -444,6 +444,25 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/logs/", protected(logsH))
 	mux.Handle("/api/v1/security", adminOnly(securityH))
 	mux.Handle("/api/v1/security/", adminOnly(securityH))
+	mux.Handle("GET /api/v1/cores/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rows, err := s.db.QueryContext(r.Context(),
+			`SELECT key, value FROM settings WHERE key LIKE 'waf_reloaded_at:%'`)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		result := map[string]string{}
+		for rows.Next() {
+			var k, v string
+			if rows.Scan(&k, &v) == nil {
+				node := k[len("waf_reloaded_at:"):]
+				result[node] = v
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result) //nolint:errcheck
+	})))
 	mux.Handle("/api/v1/import", adminOnly(importH))
 	mux.Handle("/api/v1/import/", adminOnly(importH))
 	mux.Handle("/api/v1/backups", adminOnly(backupH))

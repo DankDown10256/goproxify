@@ -90,6 +90,15 @@ window.saveSnippet = async function(id) {
     toast(t('snippets.saved'), 'success');
     closeModal();
     refreshSnippets();
+    if (payload.type === 'waf') {
+      setTimeout(async () => {
+        try {
+          const status = await api('GET', '/cores/waf-status');
+          const nodes = Object.keys(status || {});
+          if (nodes.length > 0) toast(t('snippets.waf_applied') || `WAF appliqué (${nodes.join(', ')})`, 'success');
+        } catch {}
+      }, 1500);
+    }
   } catch(e) { toast(e.message, 'error'); }
 };
 window.deleteSnippet = function(id) {

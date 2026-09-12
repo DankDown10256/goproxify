@@ -83,7 +83,22 @@ func DefaultPageFallback(key string) string {
 	case PageSetPassword:
 		return `<section data-page="set-password"><h1>{{brand}}</h1><p>Définir le mot de passe — {{user_email}}</p></section>`
 	case Page2FAChallenge:
-		return `<section data-page="2fa-challenge"><h1>{{brand}}</h1><p>Vérification 2FA</p></section>`
+		return `<section data-page="2fa-challenge">
+  <h1>{{brand}}</h1>
+  <p>Vérification en deux étapes — <strong>{{user_name}}</strong></p>
+  <form id="form2fa" onsubmit="return false">
+    <label>Méthode
+      <select id="method2fa">{{method_options}}</select>
+    </label>
+    <label>Code
+      <input id="code2fa" type="text" inputmode="numeric" autocomplete="one-time-code" autofocus placeholder="123456"/>
+    </label>
+    <button type="submit" id="btn2fa">Valider</button>
+    <button type="button" id="btnSendEmail" style="display:none">Envoyer OTP email</button>
+    <p id="err2fa" style="color:red"></p>
+    <p id="hint2fa" style="color:gray;font-size:13px">{{ttl_hint}}</p>
+  </form>
+</section>`
 	case PageVault:
 		return `<section data-page="vault"><h1>{{brand}}</h1><p>Coffre</p></section>`
 	case PageSessions:

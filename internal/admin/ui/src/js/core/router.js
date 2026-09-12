@@ -27,12 +27,12 @@ const CORE_PAGES = new Set([
   'core-trafic','core-proxies','core-streams','core-waf','core-ipfilter',
   'core-certs','core-auth','core-logs-access','core-logs-system',
   'core-observability','core-prism','core-metrics','core-cluster','core-settings','core-general','ip-profiles',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-vulns','security-posture','security-bans',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans',
+  'security','security-vulns','security-posture','security-bans','security-sentinel',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
 ]);
 
 // ── Sidebar mobile ────────────────────────────────────────────────────────

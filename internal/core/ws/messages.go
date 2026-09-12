@@ -70,7 +70,8 @@ const (
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
-	TypeThreatBan             = "threat_ban" // IP bannie par le moteur de détection automatique
+	TypeThreatBan             = "threat_ban"   // IP bannie par le moteur de détection automatique
+	TypeWAFReloaded           = "waf_reloaded" // Confirmation Core → Admin : règles WAF appliquées
 )
 
 // ThreatBanPayload est envoyé par Core → Admin quand le moteur détecte et banne une IP.

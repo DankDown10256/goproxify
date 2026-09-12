@@ -305,6 +305,7 @@ func (h *HTTPServer) finishLogin(w http.ResponseWriter, u UserRecord, key [32]by
 			"challenge_id": ch.ID,
 			"methods":      User2FAMethods(u),
 			"username":     u.Username,
+			"ttl_seconds":  int(MFAChallengeTTL.Seconds()),
 		})
 		return
 	}

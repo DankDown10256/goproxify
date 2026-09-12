@@ -54,8 +54,9 @@ type Manager struct {
 
 	settingsMu     sync.RWMutex
 	settings       Settings // derniers paramètres poussés (utilisés au full_sync)
-	onAgentPending func(id, name, version string)
-	onLogBatch     func(entries []coreWS.LogEntryPayload)
+	onAgentPending  func(id, name, version string)
+	onLogBatch      func(entries []coreWS.LogEntryPayload)
+	onWAFReloaded   func(nodeName string)
 }
 
 // NewManager crée un Manager WS Admin→Core.
@@ -255,6 +256,11 @@ func (m *Manager) SetLogBatchHandler(fn func(entries []coreWS.LogEntryPayload)) 
 	m.onLogBatch = fn
 }
 
+// SetWAFReloadedHandler enregistre un callback appelé quand Core confirme l'application des snippets WAF.
+func (m *Manager) SetWAFReloadedHandler(fn func(nodeName string)) {
+	m.onWAFReloaded = fn
+}
+
 // HandleCoreMessage dispatche les messages reçus du Core.
 func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 	switch msg.Type {
@@ -282,6 +288,26 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handlePortalAudit(msg.Payload)
 	case coreWS.TypeThreatBan:
 		m.handleThreatBan(msg.Payload)
+	case coreWS.TypeWAFReloaded:
+		m.handleWAFReloaded(msg.Payload)
+	}
+}
+
+func (m *Manager) handleWAFReloaded(raw json.RawMessage) {
+	var p struct {
+		NodeName string `json:"node_name"`
+		Status   string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil || p.NodeName == "" {
+		return
+	}
+	if m.db != nil {
+		key := "waf_reloaded_at:" + p.NodeName
+		m.db.Exec(`INSERT INTO settings (key, value) VALUES (?, CURRENT_TIMESTAMP)
+			ON CONFLICT(key) DO UPDATE SET value=CURRENT_TIMESTAMP`, key) //nolint:errcheck
+	}
+	if m.onWAFReloaded != nil {
+		m.onWAFReloaded(p.NodeName)
 	}
 }
 

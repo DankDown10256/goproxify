@@ -78,6 +78,17 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		}
 		s.snippetStore.Replace(snippets)
 		s.saveCache()
+		for _, sn := range snippets {
+			if sn.Type == router.SnippetWAF {
+				if ack, err := corews.NewMessage(0, corews.TypeWAFReloaded, map[string]string{
+					"node_name": s.cfg.Identity.NodeName,
+					"status":    "ok",
+				}); err == nil {
+					s.wsHub.BroadcastToAdmins(ack)
+				}
+				break
+			}
+		}
 
 	case corews.TypePushAuthProviders:
 		var providers []*router.AuthProvider
