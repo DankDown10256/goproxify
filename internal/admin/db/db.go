@@ -379,6 +379,8 @@ func migrate(db *sql.DB) error {
 		// Prism : indexes d'accès HTTP (bases déjà migrées avant l'ajout dans stmts).
 		`CREATE INDEX IF NOT EXISTS idx_logs_access_ts ON logs (ts) WHERE status > 0`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_access_domain_ts ON logs (domain, ts) WHERE status > 0`,
+		// Prism : analytics filtrées par nœud + période (évite full scan quand node_name est renseigné).
+		`CREATE INDEX IF NOT EXISTS idx_logs_analytics_node ON logs (node_name, ts) WHERE status > 0`,
 	} {
 		db.Exec(s) //nolint:errcheck
 	}

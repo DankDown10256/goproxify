@@ -5,6 +5,7 @@
 package analytics
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"time"
 )
+
+const queryTimeout = 25 * time.Second
 
 // Params filtre commun à toutes les requêtes.
 type Params struct {
@@ -129,7 +132,9 @@ func where(p Params) (string, []any) {
 // Pas de COUNT(DISTINCT ip) ici — trop coûteux ; voir GetUniqueIPs.
 func rawKPIs(db *sql.DB, p Params) (reqs, bw, errs, bots int64, avgLat float64) {
 	w, args := where(p)
-	db.QueryRow( //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	db.QueryRowContext(ctx, //nolint:errcheck
 		`SELECT
 		   COUNT(*),
 		   COALESCE(SUM(bytes), 0),
@@ -145,7 +150,9 @@ func rawKPIs(db *sql.DB, p Params) (reqs, bw, errs, bots int64, avgLat float64) 
 func GetUniqueIPs(db *sql.DB, p Params) int64 {
 	w, args := where(p)
 	var n int64
-	db.QueryRow(`SELECT COUNT(DISTINCT ip) FROM logs `+w, args...).Scan(&n) //nolint:errcheck
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT ip) FROM logs `+w, args...).Scan(&n) //nolint:errcheck
 	return n
 }
 
@@ -216,7 +223,9 @@ func GetTimeline(db *sql.DB, p Params, bucket string) []TimePoint {
 		tfmt = "%Y-%m-%dT%H:00"
 	}
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT strftime('`+tfmt+`', ts, 'localtime') as b, COUNT(*), SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END), COALESCE(SUM(bytes),0)
 		 FROM logs `+w+` GROUP BY b ORDER BY b`, args...)
 	if err != nil {
@@ -235,7 +244,9 @@ func GetTimeline(db *sql.DB, p Params, bucket string) []TimePoint {
 // GetStatusGroups retourne la répartition par famille de codes HTTP.
 func GetStatusGroups(db *sql.DB, p Params) []StatusGroup {
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT status, COUNT(*) FROM logs `+w+` GROUP BY status ORDER BY status`, args...)
 	if err != nil {
 		return nil
@@ -307,7 +318,9 @@ func GetTopPaths(db *sql.DB, p Params, search string, limit, offset int) (paths 
 		args = append(args, "%"+search+"%")
 	}
 
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT path, COUNT(*) as n,
 		        SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END),
 		        COALESCE(AVG(latency_ms),0),
@@ -336,7 +349,9 @@ func GetTopIPs(db *sql.DB, p Params, limit int) []IPEntry {
 		limit = 50
 	}
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT ip, COUNT(*) as n,
 		        SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END),
 		        COALESCE(SUM(bytes),0)
@@ -379,7 +394,9 @@ func GetTopAgents(db *sql.DB, p Params, limit int) []AgentEntry {
 		limit = 30
 	}
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT component, COUNT(*) as n FROM logs `+w+` GROUP BY component ORDER BY n DESC LIMIT ?`,
 		append(args, limit)...)
 	if err != nil {
@@ -423,12 +440,14 @@ func GetTopAgents(db *sql.DB, p Params, limit int) []AgentEntry {
 // GetProxies retourne les domaines configurés (table proxies), sans scanner logs.
 // Si nodeName est non vide, ne retourne que les domaines vus dans les logs d'accès de ce Core.
 func GetProxies(db *sql.DB, nodeName string) []ProxyOption {
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
 	var (
 		rows *sql.Rows
 		err  error
 	)
 	if nodeName != "" {
-		rows, err = db.Query(
+		rows, err = db.QueryContext(ctx,
 			`SELECT DISTINCT domain, domain
 			 FROM logs
 			 WHERE status > 0
@@ -436,7 +455,7 @@ func GetProxies(db *sql.DB, nodeName string) []ProxyOption {
 			   AND domain IS NOT NULL AND domain != ''
 			 ORDER BY domain`, nodeName)
 	} else {
-		rows, err = db.Query(
+		rows, err = db.QueryContext(ctx,
 			`SELECT json_extract(config,'$.host') AS domain, name
 			 FROM proxies
 			 WHERE enabled = 1
@@ -477,7 +496,9 @@ func GetTopReferrers(db *sql.DB, p Params, limit int) []ReferrerEntry {
 	w, args := where(p)
 	// Remplace "WHERE status > 0" par condition sur referrer non vide
 	w2 := strings.Replace(w, "status > 0", "status > 0 AND referrer != ''", 1)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT referrer, COUNT(*) as n FROM logs `+w2+` GROUP BY referrer ORDER BY n DESC LIMIT ?`,
 		append(args, limit)...)
 	if err != nil {
@@ -503,7 +524,9 @@ func GetTopReferrers(db *sql.DB, p Params, limit int) []ReferrerEntry {
 // ExportCSV exporte les données brutes filtrées en CSV.
 func ExportCSV(db *sql.DB, p Params) ([]byte, error) {
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT ts, domain, method, path, status, ip, latency_ms, bytes, message
 		 FROM logs `+w+` ORDER BY ts DESC LIMIT 50000`, args...)
 	if err != nil {
@@ -528,7 +551,9 @@ func ExportCSV(db *sql.DB, p Params) ([]byte, error) {
 // ExportJSON exporte les données brutes filtrées en JSON.
 func ExportJSON(db *sql.DB, p Params) ([]byte, error) {
 	w, args := where(p)
-	rows, err := db.Query(
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
 		`SELECT ts, domain, method, path, status, ip, latency_ms, bytes, message
 		 FROM logs `+w+` ORDER BY ts DESC LIMIT 50000`, args...)
 	if err != nil {
