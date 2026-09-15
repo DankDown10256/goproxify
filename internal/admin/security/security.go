@@ -25,6 +25,18 @@ type Ban struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// BanEvent représente une entrée dans l'historique des bans d'une IP.
+type BanEvent struct {
+	ID        int64     `json:"id"`
+	IP        string    `json:"ip"`
+	Domain    string    `json:"domain"`
+	Action    string    `json:"action"` // banned | unbanned
+	Reason    string    `json:"reason"`
+	Source    string    `json:"source"`
+	BanID     string    `json:"ban_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Threat représente une décision CrowdSec.
 type Threat struct {
 	ID        int64     `json:"id"`

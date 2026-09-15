@@ -51,6 +51,8 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.overview(w, r)
 	case r.Method == http.MethodGet && sub == "overview":
 		h.overview(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "history":
+		h.listBanHistory(w, r)
 	case r.Method == http.MethodGet && sub == "bans":
 		h.listBans(w, r)
 	case r.Method == http.MethodPost && sub == "bans":
@@ -229,6 +231,10 @@ func (h *SecurityHandler) createBan(w http.ResponseWriter, r *http.Request) {
 	if h.OnBansChange != nil {
 		h.OnBansChange()
 	}
+	h.DB.ExecContext(r.Context(), //nolint:errcheck
+		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?, ?, 'banned', ?, ?, ?)`,
+		body.IP, body.Domain, body.Reason, body.Source, id,
+	)
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"id": id})
 }
@@ -276,11 +282,51 @@ func (h *SecurityHandler) updateBan(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (h *SecurityHandler) deleteBan(w http.ResponseWriter, r *http.Request, id string) {
+	var ip, domain, reason, source string
+	h.DB.QueryRowContext(r.Context(), //nolint:errcheck
+		`SELECT ip, domain, reason, source FROM security_bans WHERE id=?`, id,
+	).Scan(&ip, &domain, &reason, &source)
 	h.DB.ExecContext(r.Context(), `DELETE FROM security_bans WHERE id=?`, id) //nolint:errcheck
+	if ip != "" {
+		h.DB.ExecContext(r.Context(), //nolint:errcheck
+			`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?, ?, 'unbanned', ?, ?, ?)`,
+			ip, domain, reason, source, id,
+		)
+	}
 	if h.OnBansChange != nil {
 		h.OnBansChange()
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *SecurityHandler) listBanHistory(w http.ResponseWriter, r *http.Request) {
+	ip := r.URL.Query().Get("ip")
+	if ip == "" {
+		http.Error(w, "ip requis", http.StatusBadRequest)
+		return
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, ip, domain, action, reason, source, ban_id, created_at FROM security_ban_history WHERE ip=? ORDER BY created_at DESC LIMIT 100`,
+		ip)
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	var out []security.BanEvent
+	for rows.Next() {
+		var ev security.BanEvent
+		var createdAt string
+		if err := rows.Scan(&ev.ID, &ev.IP, &ev.Domain, &ev.Action, &ev.Reason, &ev.Source, &ev.BanID, &createdAt); err != nil {
+			continue
+		}
+		ev.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		out = append(out, ev)
+	}
+	if out == nil {
+		out = []security.BanEvent{}
+	}
+	jsonOK(w, out)
 }
 
 // ── Threats ───────────────────────────────────────────────────────────────────

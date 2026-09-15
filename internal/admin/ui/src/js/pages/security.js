@@ -876,14 +876,16 @@ function bansTableRows(list) {
     return `<div class="empty"><p>${t(emptyKey)}</p></div>`;
   }
   return `<div class="table-wrap sec-bans-table-scroll"><table>
-    <thead><tr><th>${t('logs.ip')}</th><th>${t('security.col.domain')}</th><th>${t('security.col.source')}</th><th>${t('security.col.reason')}</th><th>${t('security.col.expires')}</th><th></th></tr></thead>
+    <thead><tr><th>${t('logs.ip')}</th><th>${t('security.col.domain')}</th><th>${t('security.col.source')}</th><th>${t('security.col.reason')}</th><th>${t('security.col.expires')}</th><th>${t('common.date')}</th><th></th></tr></thead>
     <tbody>${list.map((b) => `<tr>
       <td class="mono">${esc(b.ip)}</td>
       <td>${esc(b.domain||'—')}</td>
       <td><span class="tag tag-neutral">${esc(_secSourceLabel(b.source))}</span></td>
       <td style="color:var(--text2);font-size:12px">${esc(b.reason||'—')}</td>
       <td style="font-size:11px">${b.expires_at ? fmtDate(b.expires_at) : t('common.permanent')}</td>
+      <td style="font-size:11px;color:var(--text3)">${b.created_at ? fmtDate(b.created_at) : '—'}</td>
       <td style="display:flex;gap:4px;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="showBanHistory('${esc(b.ip)}')" title="${esc(t('security.ban_history'))}" aria-label="${esc(t('security.ban_history'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
         ${b.expires_at ? `<button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="makeBanPermanent('${esc(String(b.id))}','${esc(b.ip)}')" title="${esc(t('security.ban_make_permanent'))}" aria-label="${esc(t('security.ban_make_permanent'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>` : ''}
         <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="deleteBan('${esc(String(b.id))}','${esc(b.ip)}')" title="${esc(t('security.unban'))}" aria-label="${esc(t('security.unban'))}" style="color:var(--red)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/><path d="M12 16v2"/></svg></button>
       </td>
@@ -1536,6 +1538,43 @@ window.makeBanPermanent = async function(id, ip) {
     toast(t('security.ban_make_permanent_success'), 'success');
     reloadCurrentSecurityPage();
   } catch(e) { toast(e.message, 'error'); }
+};
+
+window.showBanHistory = async function(ip) {
+  let events = [];
+  try {
+    events = await api('GET', `/security/bans/history?ip=${encodeURIComponent(ip)}`);
+  } catch(e) { toast(e.message, 'error'); return; }
+
+  const actionTag = (a) => a === 'unbanned'
+    ? `<span class="tag tag-neutral">${a}</span>`
+    : `<span class="tag tag-red">${a}</span>`;
+
+  const rows = events.length
+    ? events.map(e => `<tr>
+        <td style="font-size:11px;color:var(--text3)">${fmtDate(e.created_at)}</td>
+        <td>${actionTag(e.action)}</td>
+        <td style="font-size:12px;color:var(--text2)">${esc(e.source||'—')}</td>
+        <td style="font-size:12px">${esc(e.reason||'—')}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">${t('security.ban_history_empty')}</td></tr>`;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5)';
+  modal.innerHTML = `<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:20px;min-width:540px;max-width:90vw;max-height:80vh;overflow:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <strong>${t('security.ban_history_title', { ip })}</strong>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('[style]').remove()">✕</button>
+    </div>
+    <table style="width:100%"><thead><tr>
+      <th style="font-size:11px">${t('common.date')}</th>
+      <th style="font-size:11px">${t('security.col.action')}</th>
+      <th style="font-size:11px">${t('security.col.source')}</th>
+      <th style="font-size:11px">${t('security.col.reason')}</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 };
 
 // ── WAF Profils comportementaux ──────────────────────────────────────────────

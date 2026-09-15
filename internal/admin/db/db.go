@@ -186,6 +186,18 @@ func migrate(db *sql.DB) error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_bans_ip ON security_bans (ip)`,
+		// Historique des bans IP (créés et supprimés)
+		`CREATE TABLE IF NOT EXISTS security_ban_history (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			ip         TEXT NOT NULL,
+			domain     TEXT NOT NULL DEFAULT '',
+			action     TEXT NOT NULL DEFAULT 'banned',
+			reason     TEXT NOT NULL DEFAULT '',
+			source     TEXT NOT NULL DEFAULT 'native',
+			ban_id     TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ban_history_ip ON security_ban_history (ip)`,
 		// Décisions CrowdSec
 		`CREATE TABLE IF NOT EXISTS security_threats (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
