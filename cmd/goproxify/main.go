@@ -96,6 +96,8 @@ func main() {
 		runIPProfile()
 	case "containers":
 		runContainers()
+	case "me":
+		runMe()
 	case "migrate-yaml":
 		runMigrateYAML()
 	case "version":
@@ -148,6 +150,7 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   teams          Équipes RBAC (list/get/create/update/members/delete)
   ip-profile     Profils IP GeoIP/réputation (list/get/create/update/delete)
   containers     Conteneurs Docker découverts par les Agents (lecture seule)
+  me             Profil courant + tokens API personnels (PAT)
   security       Sentinel (threat engine), bans, WAF par proxy
   status    État du cluster
   access    GoProxify Access (config, catalogue, users, templates, audit)

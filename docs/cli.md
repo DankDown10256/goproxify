@@ -655,6 +655,37 @@ goproxify containers list
 
 ---
 
+### `goproxify me`
+
+Profil de l'utilisateur connecté et gestion de ses tokens API personnels (PAT `gpx_pat_*`).
+
+```
+goproxify me get    [-admin-url …] [-token …]
+goproxify me update [-email <email>] [-admin-url …] [-token …]
+goproxify me passwd -current <mdp-actuel> -password <nouveau-mdp> [-admin-url …] [-token …]
+
+goproxify me tokens list   [-admin-url …] [-token …]
+goproxify me tokens scopes [-admin-url …] [-token …]
+goproxify me tokens create -label <nom> -scopes <s1,s2,…> [-expires <RFC3339>] [-admin-url …] [-token …]
+goproxify me tokens revoke <id> [-admin-url …] [-token …]
+```
+
+`tokens scopes` liste les scopes disponibles pour votre compte (dépend de votre rôle).
+`tokens create` affiche la valeur du token une seule fois à la création.
+
+Exemples :
+
+```bash
+goproxify me get
+goproxify me tokens list
+goproxify me tokens scopes
+goproxify me tokens create -label "CI pipeline" -scopes "proxies:read,logs:read"
+goproxify me tokens create -label "tmp" -scopes "proxies:read" -expires 2026-12-31T23:59:59Z
+goproxify me tokens revoke <id>
+```
+
+---
+
 ### `goproxify status`
 
 État du cluster — nœuds (Core, Agent HTTP) et agents WS.
