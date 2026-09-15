@@ -135,8 +135,8 @@ Endpoint `https://<admin>:9443/mcp` — protocole MCP `2025-03-26`, JSON-RPC 2.0
 
 - **Auth :** PAT uniquement (`Authorization: Bearer gpx_pat_…`) — le JWT de session UI est refusé
 - **Scopes :** chaque outil exige un scope (`proxies:read|write|delete`, `nodes:read|write`, `audit:read` pour la sécurité, `portal:read|write` pour Access, …) ∩ droits courants du compte
-- **Lecture :** proxies, nœuds, agents, declared-nodes, alertes, métriques, backups, users, snippets, domaines, certs, logs, teams, audit, bans / menaces / CVE, Access (config, catalogue, users, templates, audit)
-- **Écriture :** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, outils Access (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
+- **Lecture :** proxies, nœuds, agents, declared-nodes, alertes, métriques, backups, users, snippets, domaines, certs, logs, teams, audit, bans / menaces / CVE, alert channels/rules, auth providers, IP profiles, Access (config, catalogue, users, templates, audit)
+- **Écriture :** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `create_auth_provider`, `delete_auth_provider`, `create_ip_profile`, `delete_ip_profile`, `create_snippet`, `delete_snippet`, `create_domain`, `renew_domain`, `obtain_cert`, outils Access (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
 - Documentation : [docs/mcp.md](mcp.md)
 
 ### Wizard architecture
@@ -437,22 +437,37 @@ goproxify <commande> [options]
 
 | Commande | Rôle |
 |---|---|
-| `admin` | Démarre l'Administration (Control Plane + Web UI) |
+| `admin` | Démarre l’Administration (Control Plane + Web UI) |
 | `core` | Démarre le Core (Data Plane — Reverse Proxy) |
-| `agent` | Démarre l'Agent (Discovery & Télémétrie) |
-| `token create/list/revoke` | Tokens d'appairage Core/Agent (API Admin) |
+| `agent` | Démarre l’Agent (Discovery & Télémétrie) |
+| `token create/list/revoke` | Tokens d’appairage Core/Agent (API Admin) |
 | `backup create/list/restore` | Snapshots Admin + export routage (API Admin) |
 | `import` | Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote) |
-| `alert test` | Test des canaux de notification |
+| `proxy list/get/enable/disable/delete` | Gestion des routes proxy |
+| `cert list/obtain/delete` | Certificats TLS |
+| `user list/get/create/update/passwd/delete` | Comptes utilisateurs Admin |
+| `audit list/export` | Journal d’audit des actions |
+| `logs list/export` | Logs d’accès et système |
+| `alert channels/rules/test` | Canaux et règles d’alerte |
+| `snippet list/get/create/update/delete` | Snippets middleware réutilisables |
+| `domain list/get/create/renew/delete` | Domaines ACME gérés |
+| `agent-mgmt list/get/approve/revoke/delete` | Agents Docker enregistrés (gestion) |
+| `settings smtp/mfa` | Config Admin : SMTP, MFA (SMS, WebAuthn) |
+| `auth-provider list/get/create/update/enable/disable/delete` | Fournisseurs auth externe (OIDC, SAML…) |
+| `teams list/get/create/update/delete + members` | Équipes RBAC |
+| `ip-profile list/get/create/update/delete` | Profils IP (allowlist/blocklist CIDR, GeoIP) |
+| `containers list` | Conteneurs Docker découverts (lecture seule) |
+| `me get/update/passwd + me tokens` | Profil courant + tokens API personnels (PAT) |
+| `security threat/bans/waf` | Sécurité : Sentinel, bans IP, WAF par proxy |
 | `status` | État du cluster (nœuds, versions, santé) |
 | `access` | GoProxify Access (config, catalogue, users, templates, audit) |
 | `nodes` | Liste / accept / reject des nœuds (Infrastructure) |
 | `declared` | Nœuds déclarés du wizard architecture |
 | `bootstrap` | Tickets QR / curl\|bash d’intégration d’hôtes |
 | `core cache show/refresh/export/clear` | Gestion du cache local du Core |
-| `update check/apply/rollback` | Mises à jour d'images Docker (via Agent) |
+| `update check/apply/rollback` | Mises à jour d’images Docker (via Agent) |
 | `version` | Affiche la version du binaire |
-| `help` | Affiche l'aide |
+| `help` | Affiche l’aide |
 
 Options communes : `-config <chemin>`, `-admin-url <url>`, `-token <token>` (ou `GPX_CONTROLPLANE_ADMIN_ENDPOINT` / `GPX_CONTROLPLANE_AUTH_TOKEN`).
 

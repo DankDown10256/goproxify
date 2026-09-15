@@ -549,6 +549,210 @@ Accepte ou rejette un nœud en attente (`pending_nodes`) après présentation du
 
 ---
 
+## Canaux et règles d'alerte
+
+Scopes PAT : `audit:read` (lecture) / `audit:write` (écriture).
+
+### `list_alert_channels`
+
+Liste les canaux de notification (email, webhook, ntfy, Gotify, Jira…).
+
+**Paramètres :** aucun
+
+---
+
+### `create_alert_channel`
+
+Crée un canal de notification.
+
+| Paramètre | Type   | Requis | Description                                    |
+|-----------|--------|--------|------------------------------------------------|
+| `name`    | string | ✓      | Nom du canal                                   |
+| `type`    | string | ✓      | `email`, `webhook`, `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi` |
+| `config`  | object | ✓      | Configuration dépendant du type                |
+
+**Réponse :** `{ "id": "ac_…", "name": "…", "type": "…" }`
+
+---
+
+### `delete_alert_channel`
+
+| Paramètre | Type   | Requis | Description         |
+|-----------|--------|--------|---------------------|
+| `id`      | string | ✓      | ID du canal         |
+
+---
+
+### `list_alert_rules`
+
+Liste les règles d'alerte avec leurs déclencheurs, scopes et canaux associés.
+
+**Paramètres :** aucun
+
+---
+
+### `create_alert_rule`
+
+Crée une règle d'alerte.
+
+| Paramètre      | Type    | Requis | Description                                          |
+|----------------|---------|--------|------------------------------------------------------|
+| `name`         | string  | ✓      | Nom de la règle                                      |
+| `channel_id`   | string  | ✓      | ID du canal de notification                          |
+| `triggers`     | array   | ✓      | Déclencheurs (ex: `["cpu_pct > 90"]`)                |
+| `enabled`      | boolean | —      | Activée par défaut (`true`)                          |
+| `cooldown_sec` | number  | —      | Délai anti-spam en secondes (défaut : 300)           |
+| `scope`        | object  | —      | Scope : `nodes`, `domain_pattern`, `component`, etc. |
+
+**Réponse :** `{ "id": "ar_…", "name": "…", "enabled": true }`
+
+---
+
+### `delete_alert_rule`
+
+| Paramètre | Type   | Requis | Description         |
+|-----------|--------|--------|---------------------|
+| `id`      | string | ✓      | ID de la règle      |
+
+---
+
+## Fournisseurs d'authentification
+
+Scopes PAT : `proxies:read` (lecture) / `proxies:write` (écriture).
+
+### `list_auth_providers`
+
+Liste les fournisseurs d'authentification externe (OIDC, SAML, LDAP…).
+
+**Paramètres :** aucun
+
+**Réponse exemple :**
+```json
+[
+  { "id": "ap_01", "name": "Google", "type": "oidc", "enabled": true }
+]
+```
+
+---
+
+### `create_auth_provider`
+
+Crée un fournisseur d'authentification.
+
+| Paramètre | Type    | Requis | Description                                  |
+|-----------|---------|--------|----------------------------------------------|
+| `name`    | string  | ✓      | Nom du fournisseur                            |
+| `type`    | string  | ✓      | `oidc`, `saml`, `ldap`, `github`, `google`   |
+| `config`  | object  | ✓      | Configuration dépendant du type              |
+| `enabled` | boolean | —      | Activé par défaut (`true`)                   |
+
+---
+
+### `delete_auth_provider`
+
+| Paramètre | Type   | Requis | Description                |
+|-----------|--------|--------|----------------------------|
+| `id`      | string | ✓      | ID du fournisseur          |
+
+---
+
+## Profils IP
+
+Scopes PAT : `proxies:read` (lecture) / `proxies:write` (écriture).
+
+### `list_ip_profiles`
+
+Liste les profils IP (listes blanches/noires CIDR, GeoIP, réputation).
+
+**Paramètres :** aucun
+
+---
+
+### `create_ip_profile`
+
+Crée un profil IP.
+
+| Paramètre     | Type   | Requis | Description                           |
+|---------------|--------|--------|---------------------------------------|
+| `name`        | string | ✓      | Nom du profil                         |
+| `action`      | string | ✓      | `allow` ou `block`                    |
+| `cidrs`       | array  | —      | Liste de CIDRs/IPs                    |
+| `countries`   | array  | —      | Codes pays ISO 3166-1 alpha-2         |
+| `description` | string | —      | Description libre                     |
+
+---
+
+### `delete_ip_profile`
+
+| Paramètre | Type   | Requis | Description        |
+|-----------|--------|--------|--------------------|
+| `id`      | string | ✓      | ID du profil IP    |
+
+---
+
+## Snippets
+
+Scopes PAT : `proxies:read` (lecture) / `proxies:write` (écriture).
+
+### `create_snippet`
+
+Crée un snippet middleware réutilisable (WAF, rate-limit, headers…).
+
+| Paramètre | Type   | Requis | Description                                      |
+|-----------|--------|--------|--------------------------------------------------|
+| `name`    | string | ✓      | Nom du snippet                                   |
+| `type`    | string | ✓      | `waf`, `rate_limit`, `headers`, `cors`, `auth`   |
+| `config`  | object | ✓      | Configuration dépendant du type                  |
+
+---
+
+### `delete_snippet`
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|-------------------|
+| `id`      | string | ✓      | ID du snippet     |
+
+---
+
+## Domaines
+
+Scopes PAT : `proxies:read` (lecture) / `proxies:write` (écriture).
+
+### `create_domain`
+
+Déclare un nouveau domaine géré (ACME DNS-01).
+
+| Paramètre | Type   | Requis | Description                            |
+|-----------|--------|--------|----------------------------------------|
+| `domain`  | string | ✓      | Domaine (ex : `app.example.fr`)        |
+| `core_id` | string | —      | ID du Core d'entrée                    |
+
+**Réponse :** `{ "id": "dm_…", "domain": "app.example.fr", "core_id": "…" }`
+
+---
+
+### `renew_domain`
+
+Force le renouvellement du certificat d'un domaine.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|-------------------|
+| `id`      | string | ✓      | ID du domaine     |
+
+---
+
+## Certificats
+
+### `obtain_cert`
+
+Déclenche l'émission ACME d'un certificat pour un domaine.
+
+| Paramètre | Type   | Requis | Description                     |
+|-----------|--------|--------|---------------------------------|
+| `domain`  | string | ✓      | Domaine cible                   |
+
+---
+
 ## GoProxify Access (portail)
 
 Scopes PAT : `portal:read` (lecture) / `portal:write` (écriture + push). Réservés aux rôles admin.
