@@ -477,6 +477,23 @@ func (s *Server) loadFromAdminOrCache(ctx context.Context) error {
 	return nil
 }
 
+// refreshSentinelWhitelists relit toutes les routes de la table et met à jour la whitelist du moteur.
+func (s *Server) refreshSentinelWhitelists() {
+	if s.threatEngine == nil {
+		return
+	}
+	s.threatEngine.MergeRouteWhitelists(collectSentinelWhitelists(s.table.All()))
+}
+
+// collectSentinelWhitelists agrège les entrées sentinel_whitelist de toutes les routes.
+func collectSentinelWhitelists(routes []*router.Route) []string {
+	var out []string
+	for _, r := range routes {
+		out = append(out, r.SentinelWhitelist...)
+	}
+	return out
+}
+
 // backendURLsFromRoutes extrait toutes les URLs backends uniques d'un ensemble de routes.
 // Les routes UDP sont exclues : un dial TCP sur un port UDP échoue systématiquement,
 // ce qui rendrait tous les streams UDP "down" alors qu'ils fonctionnent.
@@ -504,6 +521,9 @@ func (s *Server) applySnapshot(snap *corecache.Snapshot) {
 	if snap.Routes != nil {
 		s.table.Replace(snap.Routes) //nolint:errcheck
 		s.health.StartChecks(backendURLsFromRoutes(snap.Routes), 30*time.Second)
+		if s.threatEngine != nil {
+			s.threatEngine.MergeRouteWhitelists(collectSentinelWhitelists(snap.Routes))
+		}
 	}
 	for _, c := range snap.Certs {
 		if err := s.certStore.StorePEM(c.Name, c.CertPEM, c.KeyPEM); err != nil {

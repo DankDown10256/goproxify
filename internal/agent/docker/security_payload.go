@@ -117,6 +117,11 @@ func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 		payload["headers_remove"] = labels.ParseHeaderRemoveList(v)
 	}
 
+	// Sentinel whitelist
+	if cidrs := labels.ParseCSVIDs(spec.SentinelWhitelist); len(cidrs) > 0 {
+		payload["sentinel_whitelist"] = cidrs
+	}
+
 	// Cache
 	if v := strings.TrimSpace(spec.Cache); v != "" {
 		payload["cache"] = labels.ParseCache(v)

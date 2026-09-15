@@ -256,6 +256,33 @@ func WithSignal(r *http.Request, reason string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), contextKey{}, reason))
 }
 
+// MergeRouteWhitelists fusionne les IPs/CIDRs issus des labels sentinel_whitelist
+// de toutes les routes dans la whitelist globale du moteur, sans écraser les entrées
+// configurées manuellement dans Config.Whitelist.
+func (e *Engine) MergeRouteWhitelists(entries []string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// Dédupliquer : combiner whitelist manuelle + entrées routes.
+	seen := make(map[string]struct{}, len(e.cfg.Whitelist.IPs)+len(entries))
+	merged := make([]string, 0, len(e.cfg.Whitelist.IPs)+len(entries))
+	for _, ip := range e.cfg.Whitelist.IPs {
+		if _, ok := seen[ip]; !ok {
+			seen[ip] = struct{}{}
+			merged = append(merged, ip)
+		}
+	}
+	for _, ip := range entries {
+		if _, ok := seen[ip]; !ok {
+			seen[ip] = struct{}{}
+			merged = append(merged, ip)
+		}
+	}
+	cfg := e.cfg
+	cfg.Whitelist.IPs = merged
+	e.cfg = cfg
+	e.wl = buildWhitelist(cfg.Whitelist)
+}
+
 // ApplyHAPayload applique les listes reçues d'un peer HA.
 func (e *Engine) ApplyHAPayload(p HAPayload) {
 	e.mu.RLock()

@@ -106,6 +106,10 @@ type Route struct {
 	// (équivalent nginx proxy_cookie_path <backend_path> <replace>).
 	CookiePaths []CookieRewrite `json:"cookie_paths,omitempty"`
 
+	// SentinelWhitelist : IPs/CIDRs exemptés du moteur de détection automatique pour cette route.
+	// Ces entrées sont fusionnées dans la whitelist globale du moteur Sentinel.
+	SentinelWhitelist []string `json:"sentinel_whitelist,omitempty"`
+
 	// Observabilité par route
 	Logging    *RouteLoggingConfig `json:"logging,omitempty"`
 

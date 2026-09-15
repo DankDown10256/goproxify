@@ -153,6 +153,9 @@ type agentContainerPayload struct {
 	Cache   json.RawMessage `json:"cache"`
 	Logging json.RawMessage `json:"logging"`
 
+	// Sentinel whitelist par route
+	SentinelWhitelist []string `json:"sentinel_whitelist,omitempty"`
+
 	// Relayed indique que ce payload a déjà été relayé par un Core pair (anti-boucle).
 	Relayed bool `json:"relayed,omitempty"`
 }
@@ -384,6 +387,7 @@ func (s *Server) handleAgentContainerStart(w http.ResponseWriter, r *http.Reques
 			}
 			rt.ID = routeID
 		}
+		s.refreshSentinelWhitelists()
 	}
 
 	switch role {

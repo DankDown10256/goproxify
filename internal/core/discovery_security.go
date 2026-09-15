@@ -42,6 +42,9 @@ func applyDiscoverySecurity(rt *router.Route, p *agentContainerPayload, defaultG
 	if cfg := decodeBot(p.Bot); cfg != nil {
 		rt.Bot = cfg
 	}
+	if len(p.SentinelWhitelist) > 0 {
+		rt.SentinelWhitelist = append([]string(nil), p.SentinelWhitelist...)
+	}
 }
 
 func decodeRateLimit(raw json.RawMessage) *router.RateLimitConfig {

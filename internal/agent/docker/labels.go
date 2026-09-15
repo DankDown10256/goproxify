@@ -36,6 +36,7 @@ const (
 	LabelWAFBehaviorWindow      = "goproxify.waf.behavior.window"      // ex: "60" (secondes)
 	LabelWAFBehaviorThreshold   = "goproxify.waf.behavior.threshold"   // ex: "8"
 	LabelWAFTrustedProxies      = "goproxify.waf.trusted_proxies"      // CSV de CIDRs ex: "10.0.0.0/8"
+	LabelSentinelWhitelist      = "goproxify.sentinel.whitelist"        // CSV IPs/CIDRs exemptés du moteur Sentinel
 	LabelBot                    = "goproxify.bot"                      // "true"
 	LabelBotMode                = "goproxify.bot.mode"                 // block|monitor|log|challenge
 	LabelLogs            = "goproxify.logs"          // "true" active le log forwarding
@@ -128,6 +129,7 @@ type ProxySpec struct {
 	WAFBehaviorWindow   int // secondes
 	WAFBehaviorThreshold int
 	WAFTrustedProxies   string // CSV CIDRs
+	SentinelWhitelist   string // CSV IPs/CIDRs exemptés du moteur Sentinel
 	Bot                 string // "true"
 	BotMode             string // block|monitor|log|challenge
 
@@ -278,6 +280,7 @@ func ParseLabelsMulti(containerID, containerName, image, networkID string, label
 		WAFBehaviorWindow:    intLabel(labels, LabelWAFBehaviorWindow, 0),
 		WAFBehaviorThreshold: intLabel(labels, LabelWAFBehaviorThreshold, 0),
 		WAFTrustedProxies:    labels[LabelWAFTrustedProxies],
+		SentinelWhitelist:    labels[LabelSentinelWhitelist],
 		Bot:                  labels[LabelBot],
 		BotMode:              stringLabel(labels, LabelBotMode, ""),
 

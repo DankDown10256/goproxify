@@ -176,6 +176,35 @@ func TestWithSignal(t *testing.T) {
 	}
 }
 
+func TestMergeRouteWhitelists(t *testing.T) {
+	e := newTestEngine()
+	e.UpdateConfig(Config{
+		Enabled: true,
+		Mode:    "block",
+		Lists:   ListsConfig{IPEnabled: true},
+	})
+	// Sans whitelist : une IP custom blacklistée est bloquée.
+	// On simule juste que MergeRouteWhitelists ajoute l'IP à la whitelist.
+	e.MergeRouteWhitelists([]string{"10.0.0.1"})
+
+	r := httptest.NewRequest("GET", "/", nil)
+	blocked, _ := e.Check(r, "10.0.0.1")
+	if blocked {
+		t.Fatal("IP ajoutée via MergeRouteWhitelists ne doit pas être bloquée")
+	}
+
+	// Appel multiple : pas de déduplons la config manuelle.
+	e.UpdateConfig(Config{
+		Enabled:   true,
+		Mode:      "block",
+		Whitelist: Whitelist{IPs: []string{"172.16.0.1"}},
+	})
+	e.MergeRouteWhitelists([]string{"10.0.0.2", "172.16.0.1"})
+	if len(e.cfg.Whitelist.IPs) != 2 {
+		t.Fatalf("dédup attendu: got %v", e.cfg.Whitelist.IPs)
+	}
+}
+
 func TestCustomCIDR(t *testing.T) {
 	e := newTestEngine()
 	e.UpdateConfig(Config{
