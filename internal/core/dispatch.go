@@ -147,11 +147,19 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	h := s.handlerForRoute(route, locPath)
 
 	// Métriques
+	metrics.Core.ActiveRequests.WithLabelValues(host).Inc()
 	start := time.Now()
 	rw := &statusCapture{ResponseWriter: w}
 	h.ServeHTTP(rw, r)
+	metrics.Core.ActiveRequests.WithLabelValues(host).Dec()
 	metrics.Core.RequestsTotal.WithLabelValues(host, r.Method, fmt.Sprintf("%d", rw.status)).Inc()
 	metrics.Core.RequestDuration.WithLabelValues(host).Observe(time.Since(start).Seconds())
+	if rw.bytes > 0 {
+		metrics.Core.BytesOut.Add(float64(rw.bytes))
+	}
+	if r.ContentLength > 0 {
+		metrics.Core.BytesIn.Add(float64(r.ContentLength))
+	}
 
 	if s.threatEngine != nil {
 		s.threatEngine.RecordStatus(remoteIP, rw.status)
@@ -263,11 +271,18 @@ func (w *stripHeaderWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 type statusCapture struct {
 	http.ResponseWriter
 	status int
+	bytes  int
 }
 
 func (sc *statusCapture) WriteHeader(code int) {
 	sc.status = code
 	sc.ResponseWriter.WriteHeader(code)
+}
+
+func (sc *statusCapture) Write(b []byte) (int, error) {
+	n, err := sc.ResponseWriter.Write(b)
+	sc.bytes += n
+	return n, err
 }
 
 func (sc *statusCapture) Flush() {

@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/middleware"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
@@ -348,6 +350,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i, backend := range attempts {
+		if i > 0 {
+			metrics.Backend.RetriesTotal.WithLabelValues(h.route.Host, attempts[i-1].URL).Inc()
+		}
 		// Dernière chance d'écrire l'erreur : plus aucun candidat après celui-ci
 		writeOnError := i == len(attempts)-1
 		ok, responded, transportErr := h.do(w, r, backend, i, writeOnError)
@@ -521,12 +526,37 @@ func (h *Handler) do(w http.ResponseWriter, r *http.Request, b *router.Backend, 
 
 	att := &proxyAttempt{writeOnError: writeOnError, attempt: attempt, backend: b.URL}
 	r = r.WithContext(context.WithValue(r.Context(), proxyAttemptKey{}, att))
+	sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	rp := h.reverseProxyFor(b, target)
-	rp.ServeHTTP(w, r)
+	start := time.Now()
+	rp.ServeHTTP(sr, r)
+	dur := time.Since(start)
+	backendHost := target.Host
 	if att.failed {
+		metrics.Backend.ErrorsTotal.WithLabelValues(h.route.Host, backendHost, backendErrorType(att.err)).Inc()
 		return false, writeOnError, att.err // réponse écrite seulement si writeOnError
 	}
+	metrics.Backend.RequestsTotal.WithLabelValues(h.route.Host, backendHost, fmt.Sprintf("%d", sr.status)).Inc()
+	metrics.Backend.Duration.WithLabelValues(h.route.Host, backendHost).Observe(dur.Seconds())
 	return true, true, nil
+}
+
+// backendErrorType classifie une erreur transport pour le label Prometheus.
+func backendErrorType(err error) string {
+	if err == nil {
+		return "other"
+	}
+	s := err.Error()
+	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(s, "timeout") || strings.Contains(s, "deadline") {
+		return "timeout"
+	}
+	if strings.Contains(s, "connection refused") || strings.Contains(s, "no such host") || strings.Contains(s, "dial") {
+		return "connect"
+	}
+	if strings.Contains(s, "EOF") || strings.Contains(s, "reset") || strings.Contains(s, "broken pipe") {
+		return "reset"
+	}
+	return "other"
 }
 
 func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.ReverseProxy {

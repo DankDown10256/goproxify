@@ -81,3 +81,40 @@ var Core = struct {
 		Help:      "Nombre de certificats TLS en mémoire.",
 	}),
 }
+
+// Backend expose les métriques Prometheus par backend upstream.
+var Backend = struct {
+	RequestsTotal *prometheus.CounterVec
+	Duration      *prometheus.HistogramVec
+	ErrorsTotal   *prometheus.CounterVec
+	RetriesTotal  *prometheus.CounterVec
+}{
+	RequestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "requests_total",
+		Help:      "Nombre de requêtes envoyées à chaque backend upstream.",
+	}, []string{"host", "backend", "status"}),
+
+	Duration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "duration_seconds",
+		Help:      "Durée des requêtes vers les backends upstream.",
+		Buckets:   prometheus.DefBuckets,
+	}, []string{"host", "backend"}),
+
+	ErrorsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "errors_total",
+		Help:      "Erreurs transport vers les backends upstream.",
+	}, []string{"host", "backend", "error_type"}),
+
+	RetriesTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "retries_total",
+		Help:      "Tentatives de failover vers un autre backend.",
+	}, []string{"host", "backend"}),
+}
