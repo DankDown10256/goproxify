@@ -266,7 +266,7 @@ Voir `.env.example` pour la liste complète.
 
 | Domaine | Choix |
 |---------|-------|
-| Langage | Go 1.23 — binaire statique unique, zéro dépendance runtime |
+| Langage | Go 1.25 — binaire statique unique, zéro dépendance runtime |
 | Protocoles | HTTP/1.1, HTTP/2, HTTP/3 QUIC (quic-go), TCP/UDP L4 |
 | **Plan de contrôle** | **WebSocket persistant `nhooyr.io/websocket` — Admin→Core(WS), Agent→Core(WS)** |
 | TLS | Terminaison SSL + Passthrough SNI, ACME DNS-01 wildcard |
