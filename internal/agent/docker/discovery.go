@@ -211,20 +211,29 @@ func (d *Discovery) handleEvent(ctx context.Context, ev Event) {
 // resolveNetworkWhitelist résout le CIDR du réseau Docker et l'ajoute à spec.SentinelWhitelist
 // si goproxify.sentinel.whitelist.network est "true".
 func (d *Discovery) resolveNetworkWhitelist(ctx context.Context, spec *ProxySpec, networkID string) {
-	if !spec.SentinelWhitelistNetwork || networkID == "" {
-		return
+	var extra []string
+
+	if spec.SentinelWhitelistSelf && spec.IPAddress != "" {
+		extra = append(extra, spec.IPAddress)
 	}
-	cidrs := d.client.NetworkCIDRs(ctx, networkID)
-	if len(cidrs) == 0 {
-		d.log.Warn("docker: sentinel.whitelist.network: CIDR introuvable", "network", networkID, "container", spec.ContainerID)
+
+	if spec.SentinelWhitelistNetwork && networkID != "" {
+		cidrs := d.client.NetworkCIDRs(ctx, networkID)
+		if len(cidrs) == 0 {
+			d.log.Warn("docker: sentinel.whitelist.network: CIDR introuvable", "network", networkID, "container", spec.ContainerID)
+		}
+		extra = append(extra, cidrs...)
+	}
+
+	if len(extra) == 0 {
 		return
 	}
 	existing := spec.SentinelWhitelist
-	for _, cidr := range cidrs {
+	for _, e := range extra {
 		if existing == "" {
-			existing = cidr
+			existing = e
 		} else {
-			existing += "," + cidr
+			existing += "," + e
 		}
 	}
 	spec.SentinelWhitelist = existing

@@ -38,6 +38,7 @@ const (
 	LabelWAFTrustedProxies      = "goproxify.waf.trusted_proxies"      // CSV de CIDRs ex: "10.0.0.0/8"
 	LabelSentinelWhitelist        = "goproxify.sentinel.whitelist"          // CSV IPs/CIDRs exemptés du moteur Sentinel
 	LabelSentinelWhitelistNetwork = "goproxify.sentinel.whitelist.network"  // "true" : exempte automatiquement le réseau Docker du container
+	LabelSentinelWhitelistSelf    = "goproxify.sentinel.whitelist.self"     // "true" : exempte l'IP du container lui-même
 	LabelBot                    = "goproxify.bot"                      // "true"
 	LabelBotMode                = "goproxify.bot.mode"                 // block|monitor|log|challenge
 	LabelLogs            = "goproxify.logs"          // "true" active le log forwarding
@@ -132,6 +133,7 @@ type ProxySpec struct {
 	WAFTrustedProxies   string // CSV CIDRs
 	SentinelWhitelist        string // CSV IPs/CIDRs exemptés du moteur Sentinel
 	SentinelWhitelistNetwork bool   // true = résoudre le CIDR du réseau Docker et l'ajouter
+	SentinelWhitelistSelf    bool   // true = ajouter l'IP du container lui-même
 	Bot                 string // "true"
 	BotMode             string // block|monitor|log|challenge
 
@@ -284,6 +286,7 @@ func ParseLabelsMulti(containerID, containerName, image, networkID string, label
 		WAFTrustedProxies:    labels[LabelWAFTrustedProxies],
 		SentinelWhitelist:        labels[LabelSentinelWhitelist],
 		SentinelWhitelistNetwork: boolLabel(labels, LabelSentinelWhitelistNetwork),
+		SentinelWhitelistSelf:    boolLabel(labels, LabelSentinelWhitelistSelf),
 		Bot:                  labels[LabelBot],
 		BotMode:              stringLabel(labels, LabelBotMode, ""),
 
