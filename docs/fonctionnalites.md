@@ -247,6 +247,8 @@ Formats supportés : nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels,
 
 ### Labels Docker supportés
 
+> Référence complète : [docs/labels.md](labels.md)
+
 ```yaml
 # Proxy
 goproxify.enable: "true"
