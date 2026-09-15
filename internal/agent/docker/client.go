@@ -279,6 +279,34 @@ type Event struct {
 	Time int64 `json:"time"`
 }
 
+// NetworkInspect est la réponse de GET /networks/{id}.
+type NetworkInspect struct {
+	IPAM struct {
+		Config []struct {
+			Subnet string `json:"Subnet"`
+		} `json:"Config"`
+	} `json:"IPAM"`
+}
+
+// NetworkCIDRs retourne les CIDRs (subnets) d'un réseau Docker par son ID ou nom.
+// Retourne une slice vide en cas d'erreur ou si le réseau n'a pas d'IPAM configuré.
+func (c *Client) NetworkCIDRs(ctx context.Context, networkID string) []string {
+	if networkID == "" {
+		return nil
+	}
+	var n NetworkInspect
+	if err := c.Get(ctx, "/networks/"+networkID, &n); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(n.IPAM.Config))
+	for _, cfg := range n.IPAM.Config {
+		if cfg.Subnet != "" {
+			out = append(out, cfg.Subnet)
+		}
+	}
+	return out
+}
+
 // NetworkConnectBody est le corps de POST /networks/{id}/connect.
 type NetworkConnectBody struct {
 	Container string `json:"Container"`

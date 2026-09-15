@@ -139,6 +139,7 @@ func (d *Discovery) ScanAll(ctx context.Context) {
 			}
 		}
 		for _, spec := range specs {
+			d.resolveNetworkWhitelist(ctx, spec, netName)
 			d.report(ctx, spec)
 		}
 		d.mu.Lock()
@@ -175,6 +176,7 @@ func (d *Discovery) handleEvent(ctx context.Context, ev Event) {
 			}
 		}
 		for _, spec := range specs {
+			d.resolveNetworkWhitelist(ctx, spec, firstNet)
 			d.report(ctx, spec)
 		}
 		d.mu.Lock()
@@ -204,6 +206,28 @@ func (d *Discovery) handleEvent(ctx context.Context, ev Event) {
 		}
 		d.emitLifecycle(ev.Actor.ID, name, action)
 	}
+}
+
+// resolveNetworkWhitelist résout le CIDR du réseau Docker et l'ajoute à spec.SentinelWhitelist
+// si goproxify.sentinel.whitelist.network est "true".
+func (d *Discovery) resolveNetworkWhitelist(ctx context.Context, spec *ProxySpec, networkID string) {
+	if !spec.SentinelWhitelistNetwork || networkID == "" {
+		return
+	}
+	cidrs := d.client.NetworkCIDRs(ctx, networkID)
+	if len(cidrs) == 0 {
+		d.log.Warn("docker: sentinel.whitelist.network: CIDR introuvable", "network", networkID, "container", spec.ContainerID)
+		return
+	}
+	existing := spec.SentinelWhitelist
+	for _, cidr := range cidrs {
+		if existing == "" {
+			existing = cidr
+		} else {
+			existing += "," + cidr
+		}
+	}
+	spec.SentinelWhitelist = existing
 }
 
 // report envoie la config proxy vers le Core.
