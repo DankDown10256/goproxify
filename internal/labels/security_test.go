@@ -82,3 +82,45 @@ func TestParseWAFBot(t *testing.T) {
 		t.Fatalf("bot: %#v", b)
 	}
 }
+
+func TestParseWAFExtended(t *testing.T) {
+	w := ParseWAF("block")
+	ParseWAFExtended(w, 10, 5, 60, 8, "942100,941100", "10.0.0.0/8,172.16.0.0/12", true)
+	if w.AnomalyThreshold != 10 {
+		t.Fatalf("AnomalyThreshold = %d", w.AnomalyThreshold)
+	}
+	if w.MaxBodyMB != 5 {
+		t.Fatalf("MaxBodyMB = %d", w.MaxBodyMB)
+	}
+	if len(w.ExcludeIDs) != 2 || w.ExcludeIDs[0] != 942100 || w.ExcludeIDs[1] != 941100 {
+		t.Fatalf("ExcludeIDs = %v", w.ExcludeIDs)
+	}
+	if !w.BehaviorEnabled || w.BehaviorWindowSec != 60 || w.BehaviorThreshold != 8 {
+		t.Fatalf("behavior = %v/%d/%d", w.BehaviorEnabled, w.BehaviorWindowSec, w.BehaviorThreshold)
+	}
+	if len(w.TrustedProxies) != 2 {
+		t.Fatalf("TrustedProxies = %v", w.TrustedProxies)
+	}
+}
+
+func TestParseCSVInts(t *testing.T) {
+	got := ParseCSVInts("942100, 941100, abc, 933100")
+	if len(got) != 3 || got[0] != 942100 || got[2] != 933100 {
+		t.Fatalf("ParseCSVInts = %v", got)
+	}
+	if ParseCSVInts("") != nil {
+		t.Fatal("empty should return nil")
+	}
+}
+
+func TestParseBotMode(t *testing.T) {
+	b := ParseBot("true")
+	ParseBotMode(b, "monitor")
+	if b.Mode != "monitor" {
+		t.Fatalf("BotMode = %q", b.Mode)
+	}
+	ParseBotMode(b, "invalid")
+	if b.Mode != "monitor" {
+		t.Fatalf("invalid mode should be ignored, got %q", b.Mode)
+	}
+}

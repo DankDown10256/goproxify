@@ -29,9 +29,13 @@ func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 		payload["geo_ip"] = geo
 	}
 	if waf := labels.ParseWAF(spec.WAF); waf != nil {
+		labels.ParseWAFExtended(waf, spec.WAFAnomalyThreshold, spec.WAFMaxBodyMB,
+			spec.WAFBehaviorWindow, spec.WAFBehaviorThreshold,
+			spec.WAFExcludeIDs, spec.WAFTrustedProxies, spec.WAFBehavior)
 		payload["waf"] = waf
 	}
 	if bot := labels.ParseBot(spec.Bot); bot != nil {
+		labels.ParseBotMode(bot, spec.BotMode)
 		payload["bot"] = bot
 	}
 	if spec.LimitConn > 0 {

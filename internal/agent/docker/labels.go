@@ -28,8 +28,16 @@ const (
 	LabelGeoIP           = "goproxify.geo_ip"        // "allow:FR,DE"
 	LabelSnippets        = "goproxify.snippets"      // IDs snippets Admin, CSV
 	LabelAuthProvider    = "goproxify.auth_provider" // ID fournisseur auth Admin
-	LabelWAF             = "goproxify.waf"           // true|block|detect
-	LabelBot             = "goproxify.bot"           // "true"
+	LabelWAF                    = "goproxify.waf"                     // true|block|detect
+	LabelWAFAnomalyThreshold    = "goproxify.waf.anomaly_threshold"    // ex: "10" (score cumulatif)
+	LabelWAFMaxBodyMB           = "goproxify.waf.max_body_mb"          // ex: "10"
+	LabelWAFExcludeIDs          = "goproxify.waf.exclude_ids"          // CSV d'IDs ex: "942100,941100"
+	LabelWAFBehavior            = "goproxify.waf.behavior"             // "true" active l'analyse comportementale
+	LabelWAFBehaviorWindow      = "goproxify.waf.behavior.window"      // ex: "60" (secondes)
+	LabelWAFBehaviorThreshold   = "goproxify.waf.behavior.threshold"   // ex: "8"
+	LabelWAFTrustedProxies      = "goproxify.waf.trusted_proxies"      // CSV de CIDRs ex: "10.0.0.0/8"
+	LabelBot                    = "goproxify.bot"                      // "true"
+	LabelBotMode                = "goproxify.bot.mode"                 // block|monitor|log|challenge
 	LabelLogs            = "goproxify.logs"          // "true" active le log forwarding
 	LabelUpdateAuto      = "goproxify.update.auto"   // "true" mise à jour auto
 	LabelUpdatePrune     = "goproxify.update.prune"  // "true" supprime les anciennes images
@@ -112,8 +120,16 @@ type ProxySpec struct {
 
 	SnippetIDs     string // CSV d'IDs snippets Admin
 	AuthProviderID string
-	WAF            string // true|block|detect
-	Bot            string // "true"
+	WAF                 string // true|block|detect
+	WAFAnomalyThreshold int    // 0 = premier match
+	WAFMaxBodyMB        int
+	WAFExcludeIDs       string // CSV d'IDs
+	WAFBehavior         bool
+	WAFBehaviorWindow   int // secondes
+	WAFBehaviorThreshold int
+	WAFTrustedProxies   string // CSV CIDRs
+	Bot                 string // "true"
+	BotMode             string // block|monitor|log|challenge
 
 	LogForwarding bool
 	LogFormat     string // combined | json | minimal
@@ -254,8 +270,16 @@ func ParseLabelsMulti(containerID, containerName, image, networkID string, label
 
 		SnippetIDs:     labels[LabelSnippets],
 		AuthProviderID: labels[LabelAuthProvider],
-		WAF:            labels[LabelWAF],
-		Bot:            labels[LabelBot],
+		WAF:                  labels[LabelWAF],
+		WAFAnomalyThreshold:  intLabel(labels, LabelWAFAnomalyThreshold, 0),
+		WAFMaxBodyMB:         intLabel(labels, LabelWAFMaxBodyMB, 0),
+		WAFExcludeIDs:        labels[LabelWAFExcludeIDs],
+		WAFBehavior:          boolLabel(labels, LabelWAFBehavior),
+		WAFBehaviorWindow:    intLabel(labels, LabelWAFBehaviorWindow, 0),
+		WAFBehaviorThreshold: intLabel(labels, LabelWAFBehaviorThreshold, 0),
+		WAFTrustedProxies:    labels[LabelWAFTrustedProxies],
+		Bot:                  labels[LabelBot],
+		BotMode:              stringLabel(labels, LabelBotMode, ""),
 
 		LogForwarding: boolLabel(labels, LabelLogs),
 		LogFormat:     stringLabel(labels, LabelLogFormat, ""),

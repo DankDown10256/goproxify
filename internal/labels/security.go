@@ -160,12 +160,64 @@ func ParseWAF(s string) *router.WAFConfig {
 	}
 }
 
+// ParseWAFExtended enrichit une WAFConfig existante avec les labels avancés.
+// cfg doit être non-nil (retour de ParseWAF).
+func ParseWAFExtended(cfg *router.WAFConfig, anomalyThreshold, maxBodyMB, behaviorWindow, behaviorThreshold int, excludeIDs, trustedProxies string, behaviorEnabled bool) {
+	if cfg == nil {
+		return
+	}
+	if anomalyThreshold > 0 {
+		cfg.AnomalyThreshold = anomalyThreshold
+	}
+	if maxBodyMB > 0 {
+		cfg.MaxBodyMB = maxBodyMB
+	}
+	if ids := ParseCSVInts(excludeIDs); len(ids) > 0 {
+		cfg.ExcludeIDs = ids
+	}
+	if behaviorEnabled {
+		cfg.BehaviorEnabled = true
+		if behaviorWindow > 0 {
+			cfg.BehaviorWindowSec = behaviorWindow
+		}
+		if behaviorThreshold > 0 {
+			cfg.BehaviorThreshold = behaviorThreshold
+		}
+	}
+	if cidrs := splitCSV(trustedProxies); len(cidrs) > 0 {
+		cfg.TrustedProxies = cidrs
+	}
+}
+
+// ParseCSVInts découpe une liste d'entiers séparés par des virgules.
+func ParseCSVInts(s string) []int {
+	var out []int
+	for _, p := range splitCSV(s) {
+		if n, err := strconv.Atoi(p); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // ParseBot interprète "true" pour activer la protection bot de base.
 func ParseBot(s string) *router.BotConfig {
 	if strings.EqualFold(strings.TrimSpace(s), "true") || strings.TrimSpace(s) == "1" {
 		return &router.BotConfig{Enabled: true}
 	}
 	return nil
+}
+
+// ParseBotMode applique un mode sur une BotConfig existante.
+func ParseBotMode(cfg *router.BotConfig, mode string) {
+	if cfg == nil {
+		return
+	}
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "block", "monitor", "log", "challenge":
+		cfg.Mode = mode
+	}
 }
 
 // ParseRetry interprète "3" ou "3:500ms" → RetryConfig.
