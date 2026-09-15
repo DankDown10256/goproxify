@@ -264,8 +264,27 @@ goproxify.cors: "true"                           # ou origins CSV
 goproxify.geo_ip: "allow:FR,DE"                  # ou deny:CN,RU
 goproxify.snippets: "waf-default,headers-secure" # IDs snippets Admin
 goproxify.auth_provider: "authentik-prod"        # ID fournisseur auth Admin
-goproxify.waf: "block"                           # true|block|detect
-goproxify.bot: "true"
+
+# WAF
+goproxify.waf: "block"                           # true|block|detect — active le WAF
+goproxify.waf.anomaly_threshold: "10"            # score cumulatif avant blocage (défaut: 5)
+goproxify.waf.max_body_mb: "10"                  # taille max du corps de requête en Mo
+goproxify.waf.exclude_ids: "942100,941100"       # IDs de règles OWASP à désactiver (CSV)
+goproxify.waf.behavior: "true"                   # active l'analyse comportementale par IP
+goproxify.waf.behavior.window: "60"              # fenêtre d'observation en secondes (défaut: 60)
+goproxify.waf.behavior.threshold: "8"            # score comportemental avant blocage (défaut: 8)
+goproxify.waf.trusted_proxies: "10.0.0.0/8"     # CIDRs dont X-Forwarded-For est accepté (CSV)
+
+# Protection bot
+goproxify.bot: "true"                            # active la détection de bots
+goproxify.bot.mode: "block"                      # block | monitor | log | challenge (JS challenge)
+
+# Sentinel — whitelist par route
+# Le Sentinel est un moteur global de détection de menaces (avant routage).
+# Ces labels exemptent certaines IPs/CIDRs pour ce conteneur uniquement.
+goproxify.sentinel.whitelist: "192.168.1.5,10.0.0.0/8"  # CSV d'IPs/CIDRs statiques
+goproxify.sentinel.whitelist.self: "true"                 # exempte l'IP du conteneur lui-même (DHCP-safe)
+goproxify.sentinel.whitelist.network: "true"              # exempte le sous-réseau Docker du conteneur (CIDR auto-détecté)
 
 # Mises à jour d'images
 goproxify.update.auto: "true"
