@@ -508,6 +508,47 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolAcceptNode(r, p.Arguments)
 	case "reject_node":
 		result, toolErr = h.toolRejectNode(r, p.Arguments)
+	case "list_alert_channels":
+		result, toolErr = h.toolListAlertChannels(r)
+	case "create_alert_channel":
+		result, toolErr = h.toolCreateAlertChannel(r, p.Arguments)
+	case "delete_alert_channel":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteAlertChannel(r.Context(), id)
+	case "list_alert_rules":
+		result, toolErr = h.toolListAlertRules(r)
+	case "create_alert_rule":
+		result, toolErr = h.toolCreateAlertRule(r, p.Arguments)
+	case "delete_alert_rule":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteAlertRule(r.Context(), id)
+	case "list_auth_providers":
+		result, toolErr = h.toolListAuthProviders(r)
+	case "create_auth_provider":
+		result, toolErr = h.toolCreateAuthProvider(r, p.Arguments)
+	case "delete_auth_provider":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteAuthProvider(r.Context(), id)
+	case "list_ip_profiles":
+		result, toolErr = h.toolListIPProfiles(r)
+	case "create_ip_profile":
+		result, toolErr = h.toolCreateIPProfile(r, p.Arguments)
+	case "delete_ip_profile":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteIPProfile(r.Context(), id)
+	case "create_snippet":
+		result, toolErr = h.toolCreateSnippet(r, p.Arguments)
+	case "delete_snippet":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteSnippet(r.Context(), id)
+	case "create_domain":
+		result, toolErr = h.toolCreateDomain(r, p.Arguments)
+	case "renew_domain":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolRenewDomain(r, id)
+	case "obtain_cert":
+		domain, _ := p.Arguments["domain"].(string)
+		result, toolErr = h.toolObtainCert(r, domain)
 	default:
 		return errResp(req.ID, -32601, "outil inconnu: "+p.Name)
 	}
