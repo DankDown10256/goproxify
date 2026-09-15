@@ -1887,7 +1887,7 @@ agent:
 </section>
 
 <!-- ============================================================
-     DOCS PLACEHOLDER
+     DOCS
 ============================================================ -->
 <section id="docs" class="section">
   <div class="container" style="text-align:center">
@@ -1904,7 +1904,10 @@ agent:
     <p class="section-sub fade-in" style="max-width:520px" data-i18n="sec.docs.sub">
       Guides, API contract, MCP server and version tracking — all in the repo.
     </p>
-    <div class="features-grid fade-in" style="text-align:left;max-width:900px;margin:0 auto 28px">
+
+    <!-- Guides -->
+    <p class="fade-in" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-faint);text-align:left;max-width:900px;margin:0 auto 12px" data-i18n="doc.group.guides">Guides</p>
+    <div class="features-grid fade-in" style="text-align:left;max-width:900px;margin:0 auto 32px">
       <a href="#" id="docs-api" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">REST</div>
         <h3 data-i18n="doc.api.title">API specifications</h3>
@@ -1925,7 +1928,48 @@ agent:
         <h3 data-i18n="doc.deleg.title">Domain delegation</h3>
         <p data-i18n="doc.deleg.body">Passthrough vs Terminate between entry Core and target Core.</p>
       </a>
+      <a href="#" id="docs-features" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle" data-i18n="doc.features.sub">Features</div>
+        <h3 data-i18n="doc.features.title">Feature catalog</h3>
+        <p data-i18n="doc.features.body">Full inventory of Core, Admin and Agent capabilities.</p>
+      </a>
+      <a href="#" id="docs-faq" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">FAQ</div>
+        <h3 data-i18n="doc.faq.title">Frequently asked questions</h3>
+        <p data-i18n="doc.faq.body">First start, password reset, Docker labels, delegation edge cases.</p>
+      </a>
     </div>
+
+    <!-- Reference -->
+    <p class="fade-in" style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-faint);text-align:left;max-width:900px;margin:0 auto 12px" data-i18n="doc.group.reference">Reference</p>
+    <div class="features-grid fade-in" style="text-align:left;max-width:900px;margin:0 auto 32px">
+      <a href="#" id="docs-cli" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">CLI</div>
+        <h3 data-i18n="doc.cli.title">CLI reference</h3>
+        <p data-i18n="doc.cli.body">All commands: proxy, cert, domain, alert, security, access, tokens, backup…</p>
+      </a>
+      <a href="#" id="docs-labels" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Labels</div>
+        <h3 data-i18n="doc.labels.title">Docker labels</h3>
+        <p data-i18n="doc.labels.body">Complete <code style="font-size:.8em;background:var(--bg-surface);border:1px solid var(--border);padding:1px 5px;border-radius:3px">goproxify.*</code> label reference — routing, WAF, Sentinel, canary, shadow.</p>
+      </a>
+      <a href="#" id="docs-config" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Schema</div>
+        <h3 data-i18n="doc.config.title">Config schema</h3>
+        <p data-i18n="doc.config.body">JSON Schema for proxy YAML files — for editor autocomplete and validation.</p>
+      </a>
+      <a href="#" id="docs-roadmap" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Roadmap</div>
+        <h3 data-i18n="doc.roadmap.title">Public roadmap</h3>
+        <p data-i18n="doc.roadmap.body">Upcoming milestones and planned features.</p>
+      </a>
+      <a href="#" id="docs-contributing" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Contributing</div>
+        <h3 data-i18n="doc.contrib.title">Contributing</h3>
+        <p data-i18n="doc.contrib.body">PR workflow, tests, DCO sign-off, coding conventions.</p>
+      </a>
+    </div>
+
     <div class="hero-buttons fade-in" style="justify-content:center;margin-top:0">
       <a href="#" id="docs-github-btn" class="btn-primary" data-i18n="doc.github">View on GitHub →</a>
     </div>
@@ -2012,6 +2056,14 @@ agent:
       'doc.mcp.title': 'Tools & AI clients', 'doc.mcp.body': 'Claude Desktop, Cursor — plug in a gpx_pat_*.',
       'doc.arch.title': 'How it works', 'doc.arch.body': 'Admin, gateways, Agent and Portainer — a clear picture of the layout.',
       'doc.deleg.title': 'Sharing traffic between gateways', 'doc.deleg.body': 'How several gateways work together to keep your sites available.',
+      'doc.group.guides': 'Guides', 'doc.group.reference': 'Reference',
+      'doc.features.sub': 'Features', 'doc.features.title': 'Feature catalog', 'doc.features.body': 'Full inventory of Core, Admin and Agent capabilities.',
+      'doc.faq.title': 'Frequently asked questions', 'doc.faq.body': 'First start, password reset, Docker labels, delegation edge cases.',
+      'doc.cli.title': 'CLI reference', 'doc.cli.body': 'All commands: proxy, cert, domain, alert, security, access, tokens, backup…',
+      'doc.labels.title': 'Docker labels', 'doc.labels.body': 'Complete goproxify.* label reference — routing, WAF, Sentinel, canary, shadow.',
+      'doc.config.title': 'Config schema', 'doc.config.body': 'JSON Schema for proxy YAML files — for editor autocomplete and validation.',
+      'doc.roadmap.title': 'Public roadmap', 'doc.roadmap.body': 'Upcoming milestones and planned features.',
+      'doc.contrib.title': 'Contributing', 'doc.contrib.body': 'PR workflow, tests, DCO sign-off, coding conventions.',
       'doc.github': 'View on GitHub →',
       'f1.sub': 'Gateway', 'f1.title': 'The traffic gateways',
       'f1.body': 'Gateways are the public front door. They welcome visitors on your https://… addresses and send each one to the right site in your fleet — quietly, and at scale.',
@@ -2137,6 +2189,14 @@ agent:
       'doc.mcp.title': 'Outils & clients IA', 'doc.mcp.body': 'Claude Desktop, Cursor — branchez un gpx_pat_*.',
       'doc.arch.title': 'Comment ça marche', 'doc.arch.body': 'Admin, passerelles, Agent et Portainer — une vue claire de la configuration.',
       'doc.deleg.title': 'Partager le trafic entre passerelles', 'doc.deleg.body': 'Comment plusieurs passerelles travaillent ensemble pour garder vos sites disponibles.',
+      'doc.group.guides': 'Guides', 'doc.group.reference': 'Référence',
+      'doc.features.sub': 'Fonctionnalités', 'doc.features.title': 'Catalogue des fonctionnalités', 'doc.features.body': 'Inventaire complet des capacités du Core, de l'Admin et de l'Agent.',
+      'doc.faq.title': 'Foire aux questions', 'doc.faq.body': 'Premier démarrage, reset mot de passe, labels Docker, cas limites de délégation.',
+      'doc.cli.title': 'Référence CLI', 'doc.cli.body': 'Toutes les commandes : proxy, cert, domain, alert, security, access, tokens, backup…',
+      'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Référence complète des labels goproxify.* — routage, WAF, Sentinel, canary, shadow.',
+      'doc.config.title': 'Schéma de configuration', 'doc.config.body': 'JSON Schema pour les fichiers YAML proxy — autocomplétion et validation dans l'éditeur.',
+      'doc.roadmap.title': 'Roadmap publique', 'doc.roadmap.body': 'Jalons à venir et fonctionnalités planifiées.',
+      'doc.contrib.title': 'Contribuer', 'doc.contrib.body': 'Workflow PR, tests, DCO, conventions de code.',
       'doc.github': 'Voir sur GitHub →',
       'f1.sub': 'Passerelle', 'f1.title': 'Les passerelles de trafic',
       'f1.body': 'Les passerelles sont la porte d’entrée publique. Elles accueillent les visiteurs sur vos adresses https://… et envoient chacun vers le bon site de la flotte — discrètement, et à grande échelle.',
@@ -2262,6 +2322,14 @@ agent:
       'doc.mcp.title': 'Herramientas y clientes IA', 'doc.mcp.body': 'Claude Desktop, Cursor — conecta un gpx_pat_*.',
       'doc.arch.title': 'Cómo funciona', 'doc.arch.body': 'Admin, pasarelas, Agent y Portainer — una vista clara de la configuración.',
       'doc.deleg.title': 'Compartir tráfico entre pasarelas', 'doc.deleg.body': 'Cómo varias pasarelas trabajan juntas para mantener tus sitios disponibles.',
+      'doc.group.guides': 'Guías', 'doc.group.reference': 'Referencia',
+      'doc.features.sub': 'Funcionalidades', 'doc.features.title': 'Catálogo de funcionalidades', 'doc.features.body': 'Inventario completo de capacidades del Core, Admin y Agent.',
+      'doc.faq.title': 'Preguntas frecuentes', 'doc.faq.body': 'Primer inicio, reset de contraseña, labels Docker, casos límite de delegación.',
+      'doc.cli.title': 'Referencia CLI', 'doc.cli.body': 'Todos los comandos: proxy, cert, domain, alert, security, access, tokens, backup…',
+      'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Referencia completa de labels goproxify.* — enrutamiento, WAF, Sentinel, canary, shadow.',
+      'doc.config.title': 'Esquema de configuración', 'doc.config.body': 'JSON Schema para archivos YAML proxy — autocompletado y validación en el editor.',
+      'doc.roadmap.title': 'Hoja de ruta pública', 'doc.roadmap.body': 'Próximos hitos y funcionalidades planificadas.',
+      'doc.contrib.title': 'Contribuir', 'doc.contrib.body': 'Flujo de PR, tests, DCO, convenciones de código.',
       'doc.github': 'Ver en GitHub →',
       'f1.sub': 'Pasarela', 'f1.title': 'Las pasarelas de tráfico',
       'f1.body': 'Las pasarelas son la puerta pública. Reciben a los visitantes en tus direcciones https://… y envían a cada uno al sitio correcto de la flota — en silencio y a escala.',
@@ -2387,6 +2455,14 @@ agent:
       'doc.mcp.title': 'Tools & KI-Clients', 'doc.mcp.body': 'Claude Desktop, Cursor — gpx_pat_* anbinden.',
       'doc.arch.title': 'So funktioniert’s', 'doc.arch.body': 'Admin, Gateways, Agent und Portainer — ein klares Bild des Aufbaus.',
       'doc.deleg.title': 'Traffic zwischen Gateways teilen', 'doc.deleg.body': 'Wie mehrere Gateways zusammenarbeiten, damit Ihre Sites erreichbar bleiben.',
+      'doc.group.guides': 'Anleitungen', 'doc.group.reference': 'Referenz',
+      'doc.features.sub': 'Funktionen', 'doc.features.title': 'Funktionskatalog', 'doc.features.body': 'Vollständiges Verzeichnis der Core-, Admin- und Agent-Fähigkeiten.',
+      'doc.faq.title': 'Häufige Fragen', 'doc.faq.body': 'Erster Start, Passwort-Reset, Docker-Labels, Delegierungs-Sonderfälle.',
+      'doc.cli.title': 'CLI-Referenz', 'doc.cli.body': 'Alle Befehle: proxy, cert, domain, alert, security, access, tokens, backup…',
+      'doc.labels.title': 'Docker-Labels', 'doc.labels.body': 'Vollständige goproxify.*-Label-Referenz — Routing, WAF, Sentinel, Canary, Shadow.',
+      'doc.config.title': 'Konfigurationsschema', 'doc.config.body': 'JSON-Schema für Proxy-YAML-Dateien — Editor-Autovervollständigung und Validierung.',
+      'doc.roadmap.title': 'Öffentliche Roadmap', 'doc.roadmap.body': 'Bevorstehende Meilensteine und geplante Funktionen.',
+      'doc.contrib.title': 'Beitragen', 'doc.contrib.body': 'PR-Workflow, Tests, DCO-Signoff, Codierungskonventionen.',
       'doc.github': 'Auf GitHub ansehen →',
       'f1.sub': 'Gateway', 'f1.title': 'Die Traffic-Gateways',
       'f1.body': 'Gateways sind die öffentliche Haustür. Sie empfangen Besucher auf Ihren https://…-Adressen und senden jeden zur richtigen Site in der Flotte — ruhig und skalierbar.',
@@ -2550,10 +2626,17 @@ agent:
     });
     var base = SITE_CONFIG.githubUrl + '/blob/public/main/';
     var docMap = {
-      'docs-api': base + 'docs/api_specs.md',
-      'docs-mcp': base + 'docs/mcp.md',
-      'docs-arch': base + 'docs/architecture.md',
-      'docs-delegation': base + 'docs/delegation.md',
+      'docs-api':          base + 'docs/api_specs.md',
+      'docs-mcp':          base + 'docs/mcp.md',
+      'docs-arch':         base + 'docs/architecture.md',
+      'docs-delegation':   base + 'docs/delegation.md',
+      'docs-features':     base + 'docs/fonctionnalites.md',
+      'docs-faq':          base + 'docs/faq.md',
+      'docs-cli':          base + 'docs/cli.md',
+      'docs-labels':       base + 'docs/labels.md',
+      'docs-config':       base + 'docs/config_schema.json',
+      'docs-roadmap':      base + 'suivi/roadmap-public.md',
+      'docs-contributing': base + 'CONTRIBUTING.md',
     };
     Object.keys(docMap).forEach(function(id) {
       var el = document.getElementById(id);
@@ -2563,7 +2646,7 @@ agent:
       el.textContent = SITE_CONFIG.domain;
     });
     var roadmap = document.getElementById('footer-roadmap');
-    if (roadmap) roadmap.href = SITE_CONFIG.githubUrl + '/blob/public/main/suivi/roadmap-public.md';
+    if (roadmap) roadmap.href = base + 'suivi/roadmap-public.md';
     var disc = SITE_CONFIG.disclaimerUrl || (SITE_CONFIG.githubUrl + '/blob/public/main/DISCLAIMER.md');
     ['banner-disclaimer', 'footer-disclaimer'].forEach(function(id) {
       var el = document.getElementById(id);
