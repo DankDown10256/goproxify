@@ -447,6 +447,111 @@ goproxify settings smtp test
 
 ---
 
+### `goproxify auth-provider`
+
+Fournisseurs d'authentification externe (OIDC, SAML, LDAP…).
+
+```
+goproxify auth-provider list    [-admin-url …] [-token …]
+goproxify auth-provider get     <id> [-admin-url …] [-token …]
+goproxify auth-provider create  -file <provider.json> [-admin-url …] [-token …]
+goproxify auth-provider update  <id> -file <provider.json> [-admin-url …] [-token …]
+goproxify auth-provider enable  <id> [-admin-url …] [-token …]
+goproxify auth-provider disable <id> [-admin-url …] [-token …]
+goproxify auth-provider delete  <id> [-y] [-admin-url …] [-token …]
+```
+
+Exemple de fichier `provider.json` (OIDC) :
+
+```json
+{
+  "name": "Google",
+  "type": "oidc",
+  "enabled": true,
+  "config": {
+    "client_id": "xxx.apps.googleusercontent.com",
+    "client_secret": "GOCSPX-…",
+    "issuer": "https://accounts.google.com"
+  }
+}
+```
+
+Exemples :
+
+```bash
+goproxify auth-provider list
+goproxify auth-provider create -file google-oidc.json
+goproxify auth-provider enable  <id>
+goproxify auth-provider disable <id>
+goproxify auth-provider delete  <id> -y
+```
+
+---
+
+### `goproxify teams`
+
+Équipes RBAC — regroupement d'utilisateurs avec un rôle commun.
+
+```
+goproxify teams list   [-admin-url …] [-token …]
+goproxify teams get    <id> [-admin-url …] [-token …]
+goproxify teams create <nom> [-role admin|operator|viewer] [-admin-url …] [-token …]
+goproxify teams update <id> [-name <nom>] [-role admin|operator|viewer] [-admin-url …] [-token …]
+goproxify teams delete <id> [-y] [-admin-url …] [-token …]
+
+goproxify teams members list   <team-id> [-admin-url …] [-token …]
+goproxify teams members add    <team-id> -user <user-id> [-admin-url …] [-token …]
+goproxify teams members remove <team-id> -user <user-id> [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify teams list
+goproxify teams create ops-team -role operator
+goproxify teams members list   <team-id>
+goproxify teams members add    <team-id> -user <user-id>
+goproxify teams members remove <team-id> -user <user-id>
+goproxify teams delete <team-id> -y
+```
+
+---
+
+### `goproxify ip-profile`
+
+Profils IP — listes blanches/noires basées sur CIDR, pays (GeoIP) ou réputation.
+
+```
+goproxify ip-profile list   [-admin-url …] [-token …]
+goproxify ip-profile get    <id> [-admin-url …] [-token …]
+goproxify ip-profile create -file <profile.json> [-admin-url …] [-token …]
+goproxify ip-profile update <id> -file <profile.json> [-admin-url …] [-token …]
+goproxify ip-profile delete <id> [-y] [-admin-url …] [-token …]
+```
+
+Exemple de fichier `profile.json` :
+
+```json
+{
+  "name": "blocklist-scanners",
+  "action": "block",
+  "cidrs": ["1.2.3.0/24", "5.6.7.8"],
+  "countries": ["CN", "RU"],
+  "description": "IPs de scanners connus"
+}
+```
+
+Exemples :
+
+```bash
+goproxify ip-profile list
+goproxify ip-profile create -file blocklist.json
+goproxify ip-profile update <id> -file blocklist.json
+goproxify ip-profile delete <id> -y
+```
+
+---
+
 ### `goproxify security`
 
 Sentinel (threat engine global), gestion des bans, et config WAF par proxy.

@@ -88,6 +88,12 @@ func main() {
 		runAgentCmd()
 	case "settings":
 		runSettings()
+	case "auth-provider":
+		runAuthProvider()
+	case "teams":
+		runTeams()
+	case "ip-profile":
+		runIPProfile()
 	case "migrate-yaml":
 		runMigrateYAML()
 	case "version":
@@ -134,9 +140,12 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   alert     Canaux et règles d'alerte (channels/rules/test)
   snippet   Snippets de sécurité réutilisables (list/get/create/update/delete)
   domain    Domaines gérés ACME (list/get/create/renew/delete)
-  agent-mgmt  Agents Docker enregistrés (list/get/approve/revoke/delete)
-  settings  Configuration Admin (smtp get/set/test)
-  security  Sentinel (threat engine), bans, WAF par proxy
+  agent-mgmt     Agents Docker enregistrés (list/get/approve/revoke/delete)
+  settings       Configuration Admin (smtp get/set/test)
+  auth-provider  Fournisseurs SSO/OIDC/SAML/LDAP (list/get/create/update/enable/disable/delete)
+  teams          Équipes RBAC (list/get/create/update/members/delete)
+  ip-profile     Profils IP GeoIP/réputation (list/get/create/update/delete)
+  security       Sentinel (threat engine), bans, WAF par proxy
   status    État du cluster
   access    GoProxify Access (config, catalogue, users, templates, audit)
   nodes     Nœuds Infrastructure (list / accept / reject pending)
