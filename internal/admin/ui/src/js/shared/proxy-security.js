@@ -575,6 +575,14 @@ window.openProxySecModal = async function(id, initialTab) {
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Sentinel — whitelist</div>
+            <div class="field" style="margin:0;">
+              <label class="field-label" style="font-size:11px">IPs / CIDRs exemptés du Sentinel (séparés par virgule)</label>
+              <input id="psec-sentinel-whitelist" type="text" class="input" value="${esc((cfg.sentinel_whitelist||[]).join(', '))}" placeholder="10.0.0.0/8, 192.168.1.5">
+              <div style="font-size:10px;color:var(--text3);margin-top:2px;">Ces IPs/CIDRs seront ajoutés à la whitelist globale du Sentinel pour toutes les requêtes vers ce proxy. Utile pour les health-checkers ou les systèmes de monitoring.</div>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Rate limiting</div>
             <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:22px;">
@@ -1017,6 +1025,7 @@ window.saveProxySec = async function(id) {
   const wafBehaviorWindow = parseInt(document.getElementById('psec-waf-behavior-window')?.value || '60', 10) || 60;
   const wafBehaviorThreshold = parseInt(document.getElementById('psec-waf-behavior-threshold')?.value || '8', 10) || 8;
   const wafTrustedProxies = (document.getElementById('psec-waf-trusted-proxies')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const sentinelWhitelist = (document.getElementById('psec-sentinel-whitelist')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
   const xfo = document.getElementById('psec-xfo')?.value || '';
@@ -1077,6 +1086,7 @@ window.saveProxySec = async function(id) {
         countries: geoCountries,
         db_path: geoDb || cfg.geo_ip?.db_path || (typeof GPX_GEO_DEFAULT_DB !== 'undefined' ? GPX_GEO_DEFAULT_DB : '/etc/goproxify/geoip/GeoLite2-Country.mmdb'),
       } : undefined,
+      sentinel_whitelist: sentinelWhitelist.length ? sentinelWhitelist : undefined,
       snippet_ids: (() => {
         const ids = typeof psecGetSnippetIds === 'function' ? psecGetSnippetIds() : (cfg.snippet_ids || []);
         return ids.length ? ids : undefined;
