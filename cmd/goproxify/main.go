@@ -68,6 +68,8 @@ func main() {
 		runDeclared()
 	case "bootstrap":
 		runBootstrap()
+	case "security":
+		runSecurity()
 	case "migrate-yaml":
 		runMigrateYAML()
 	case "version":
@@ -107,6 +109,7 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   import    Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote)
   update    Mise à jour des images Docker (via Agent)
   alert     Test des canaux de notification
+  security  Sentinel (threat engine), bans, WAF par proxy
   status    État du cluster
   access    GoProxify Access (config, catalogue, users, templates, audit)
   nodes     Nœuds Infrastructure (list / accept / reject pending)

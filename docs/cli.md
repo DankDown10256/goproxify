@@ -185,6 +185,59 @@ goproxify alert test -all
 
 ---
 
+### `goproxify security`
+
+Sentinel (threat engine global), gestion des bans, et config WAF par proxy.
+
+```
+# Config du moteur Sentinel
+goproxify security threat get  [-core <id>] [-admin-url …] [-token …]
+goproxify security threat set  [-core <id>] -file <threat-config.json> [-admin-url …] [-token …]
+
+# Bans
+goproxify security bans list   [-admin-url …] [-token …]
+goproxify security bans add    -ip <ip> [-reason <raison>] [-ttl <durée>] [-admin-url …] [-token …]
+goproxify security bans delete -id <ban-id> [-admin-url …] [-token …]
+
+# WAF par proxy
+goproxify security waf get -proxy <proxy-id> [-admin-url …] [-token …]
+goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url …] [-token …]
+```
+
+**`security threat`** — lit ou écrit la configuration du moteur Sentinel (fail2ban, seuils, whitelist globale…). Le paramètre `-core` cible un Core spécifique dans un cluster multi-Core.
+
+**`security bans`** — liste, ajoute ou supprime des IPs bannies manuellement. `-ttl` accepte des durées Go (`1h`, `24h`, `7d`).
+
+**`security waf`** — lit (`get`) ou met à jour (`set`) les champs `waf` et `sentinel_whitelist` d'un proxy sans toucher au reste de sa configuration. Le fichier JSON peut contenir uniquement les clés à modifier :
+
+```json
+{
+  "waf": {
+    "enabled": true,
+    "mode": "block",
+    "anomaly_threshold": 10,
+    "behavior_enabled": true
+  },
+  "sentinel_whitelist": ["10.0.0.0/8", "192.168.1.5"]
+}
+```
+
+Exemples :
+
+```bash
+goproxify security threat get
+goproxify security threat set -file threat.json
+
+goproxify security bans list
+goproxify security bans add -ip 1.2.3.4 -reason "scan" -ttl 24h
+goproxify security bans delete -id <ban-id>
+
+goproxify security waf get -proxy app.example.fr
+goproxify security waf set -proxy app.example.fr -file waf.json
+```
+
+---
+
 ### `goproxify status`
 
 État du cluster — nœuds (Core, Agent HTTP) et agents WS.
