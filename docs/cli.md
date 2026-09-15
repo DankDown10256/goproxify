@@ -445,6 +445,37 @@ goproxify settings smtp set -file smtp.json
 goproxify settings smtp test
 ```
 
+#### MFA serveur
+
+```
+goproxify settings mfa sms     get [-admin-url …] [-token …]
+goproxify settings mfa sms     set -file <sms.json> [-admin-url …] [-token …]
+goproxify settings mfa webauthn get [-admin-url …] [-token …]
+goproxify settings mfa webauthn set -file <webauthn.json> [-admin-url …] [-token …]
+```
+
+Exemple `sms.json` :
+
+```json
+{ "provider": "twilio", "api_sid": "AC…", "api_secret": "…", "from": "+33600000000" }
+```
+
+Exemple `webauthn.json` :
+
+```json
+{ "rp_id": "admin.example.fr", "rp_origin": "https://admin.example.fr", "display_name": "GoProxify" }
+```
+
+> **Cas de déblocage** : si `rp_origin` est incorrect, personne ne peut se connecter via WebAuthn.
+> Corrigez-le avec `settings mfa webauthn set` sans passer par l'UI.
+
+```bash
+goproxify settings mfa webauthn get
+goproxify settings mfa webauthn set -file webauthn.json
+goproxify settings mfa sms get
+goproxify settings mfa sms set -file sms.json
+```
+
 ---
 
 ### `goproxify auth-provider`
