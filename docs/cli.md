@@ -636,6 +636,25 @@ goproxify security waf set -proxy app.example.fr -file waf.json
 
 ---
 
+### `goproxify containers`
+
+Conteneurs Docker découverts par les Agents (lecture seule). Agrège les résultats de tous les Cores connectés.
+
+```
+goproxify containers [list] [-admin-url …] [-token …]
+```
+
+Affiche pour chaque conteneur : le host, TLS, le Core source, l'Agent et les backends.
+
+Exemples :
+
+```bash
+goproxify containers
+goproxify containers list
+```
+
+---
+
 ### `goproxify status`
 
 État du cluster — nœuds (Core, Agent HTTP) et agents WS.
