@@ -299,11 +299,150 @@ goproxify logs export -format json -output access.json
 
 ### `goproxify alert`
 
-Test des canaux de notification.
+Canaux de notification, règles d'alerte, et tests.
 
 ```
-goproxify alert test -channel <channel-id>
+# Canaux
+goproxify alert channels list   [-admin-url …] [-token …]
+goproxify alert channels get    <id> [-admin-url …] [-token …]
+goproxify alert channels create -file <channel.json> [-admin-url …] [-token …]
+goproxify alert channels update <id> -file <channel.json> [-admin-url …] [-token …]
+goproxify alert channels delete <id> [-y] [-admin-url …] [-token …]
+
+# Règles
+goproxify alert rules list   [-admin-url …] [-token …]
+goproxify alert rules get    <id> [-admin-url …] [-token …]
+goproxify alert rules create -file <rule.json> [-admin-url …] [-token …]
+goproxify alert rules update <id> -file <rule.json> [-admin-url …] [-token …]
+goproxify alert rules delete <id> [-y] [-admin-url …] [-token …]
+
+# Tests
+goproxify alert test -channel <id> [-admin-url …] [-token …]
+goproxify alert test -all          [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify alert channels list
+goproxify alert channels create -file slack-channel.json
+goproxify alert rules create -file cpu-alert.json
+goproxify alert test -channel <id>
 goproxify alert test -all
+```
+
+---
+
+### `goproxify snippet`
+
+Snippets de sécurité réutilisables (WAF, Sentinel, rate-limit…).
+
+```
+goproxify snippet list   [-admin-url …] [-token …]
+goproxify snippet get    <id> [-admin-url …] [-token …]
+goproxify snippet create -file <snippet.json> [-admin-url …] [-token …]
+goproxify snippet update <id> -file <snippet.json> [-admin-url …] [-token …]
+goproxify snippet delete <id> [-admin-url …] [-token …]
+```
+
+Exemple de fichier `snippet.json` :
+
+```json
+{
+  "name": "waf-strict",
+  "type": "waf",
+  "config": { "enabled": true, "mode": "block", "anomaly_threshold": 5 }
+}
+```
+
+Exemples :
+
+```bash
+goproxify snippet list
+goproxify snippet create -file waf-strict.json
+goproxify snippet update <id> -file waf-strict.json
+goproxify snippet delete <id>
+```
+
+---
+
+### `goproxify domain`
+
+Domaines gérés par ACME (certificats Let's Encrypt dédiés).
+
+```
+goproxify domain list   [-admin-url …] [-token …]
+goproxify domain get    <id> [-admin-url …] [-token …]
+goproxify domain create <domaine> [-core <core-id>] [-admin-url …] [-token …]
+goproxify domain renew  <id> [-admin-url …] [-token …]
+goproxify domain delete <id> [-y] [-admin-url …] [-token …]
+  -y  Confirmation automatique
+```
+
+`list` affiche l'expiration en jours (⚠ si < 14 j) et le Core associé.
+
+Exemples :
+
+```bash
+goproxify domain list
+goproxify domain create app.example.fr -core prod-core-1
+goproxify domain renew <id>
+goproxify domain delete <id> -y
+```
+
+---
+
+### `goproxify agent-mgmt`
+
+Agents Docker enregistrés auprès de l'Admin (distinct de `goproxify agent` qui démarre le processus).
+
+```
+goproxify agent-mgmt list    [-admin-url …] [-token …]
+goproxify agent-mgmt get     <id> [-admin-url …] [-token …]
+goproxify agent-mgmt approve <id> [-admin-url …] [-token …]
+goproxify agent-mgmt revoke  <id> [-admin-url …] [-token …]
+goproxify agent-mgmt delete  <id> [-y] [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify agent-mgmt list
+goproxify agent-mgmt approve <id>
+goproxify agent-mgmt revoke  <id>
+```
+
+---
+
+### `goproxify settings`
+
+Configuration de l'Admin.
+
+```
+goproxify settings smtp get  [-admin-url …] [-token …]
+goproxify settings smtp set  -file <smtp.json> [-admin-url …] [-token …]
+goproxify settings smtp test [-admin-url …] [-token …]
+```
+
+Exemple de fichier `smtp.json` :
+
+```json
+{
+  "host": "smtp.example.fr",
+  "port": 587,
+  "username": "noreply@example.fr",
+  "password": "s3cret",
+  "from": "GoProxify <noreply@example.fr>",
+  "tls": true
+}
+```
+
+Exemples :
+
+```bash
+goproxify settings smtp get
+goproxify settings smtp set -file smtp.json
+goproxify settings smtp test
 ```
 
 ---

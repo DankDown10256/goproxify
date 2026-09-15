@@ -80,6 +80,14 @@ func main() {
 		runAudit()
 	case "logs":
 		runLogs()
+	case "snippet":
+		runSnippet()
+	case "domain":
+		runDomain()
+	case "agent-mgmt":
+		runAgentCmd()
+	case "settings":
+		runSettings()
 	case "migrate-yaml":
 		runMigrateYAML()
 	case "version":
@@ -123,7 +131,11 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   user      Utilisateurs (list/get/create/update/passwd/delete)
   audit     Journal d'audit (list/export)
   logs      Logs d'accès et système (list/export)
-  alert     Test des canaux de notification
+  alert     Canaux et règles d'alerte (channels/rules/test)
+  snippet   Snippets de sécurité réutilisables (list/get/create/update/delete)
+  domain    Domaines gérés ACME (list/get/create/renew/delete)
+  agent-mgmt  Agents Docker enregistrés (list/get/approve/revoke/delete)
+  settings  Configuration Admin (smtp get/set/test)
   security  Sentinel (threat engine), bans, WAF par proxy
   status    État du cluster
   access    GoProxify Access (config, catalogue, users, templates, audit)
