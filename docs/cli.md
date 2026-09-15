@@ -174,6 +174,129 @@ goproxify import -file traefik.yml -format traefik-yaml
 
 ---
 
+### `goproxify proxy`
+
+Gestion des proxies (lecture et cycle de vie).
+
+```
+goproxify proxy list    [-admin-url …] [-token …]
+goproxify proxy get     <id> [-admin-url …] [-token …]
+goproxify proxy enable  <id> [-admin-url …] [-token …]
+goproxify proxy disable <id> [-admin-url …] [-token …]
+goproxify proxy delete  <id> [-y] [-admin-url …] [-token …]
+  -y  Confirmation automatique
+```
+
+Exemples :
+
+```bash
+goproxify proxy list
+goproxify proxy get app.example.fr
+goproxify proxy disable app.example.fr
+goproxify proxy delete app.example.fr -y
+```
+
+---
+
+### `goproxify cert`
+
+Gestion des certificats TLS (ACME / Let's Encrypt).
+
+```
+goproxify cert list   [-admin-url …] [-token …]
+goproxify cert obtain <domaine> [-admin-url …] [-token …]
+goproxify cert delete <domaine> [-admin-url …] [-token …]
+```
+
+`list` affiche le domaine, le statut, le nombre de jours avant expiration (⚠ si < 14 j) et l'émetteur.
+
+Exemples :
+
+```bash
+goproxify cert list
+goproxify cert obtain app.example.fr
+goproxify cert delete old.example.fr
+```
+
+---
+
+### `goproxify user`
+
+Gestion des utilisateurs de l'Administration.
+
+```
+goproxify user list   [-admin-url …] [-token …]
+goproxify user get    <id> [-admin-url …] [-token …]
+goproxify user create -email <email> [-password <mdp>] [-role admin|operator|viewer] [-admin-url …] [-token …]
+goproxify user update <id> [-role admin|operator|viewer] [-status active|disabled] [-admin-url …] [-token …]
+goproxify user passwd <id> -password <nouveau-mdp> [-admin-url …] [-token …]
+goproxify user delete <id> [-y] [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify user list
+goproxify user create -email ops@example.fr -role operator
+goproxify user update <id> -status disabled
+goproxify user passwd <id> -password s3cret
+goproxify user delete <id> -y
+```
+
+---
+
+### `goproxify audit`
+
+Journal d'audit des actions administratives.
+
+```
+goproxify audit list   [-actor <email>] [-action <action>] [-limit <n>] [-admin-url …] [-token …]
+goproxify audit export [-output <fichier.csv>] [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify audit list -actor admin@example.fr -limit 20
+goproxify audit export -output /var/log/audit-2026.csv
+```
+
+---
+
+### `goproxify logs`
+
+Logs d'accès et logs système.
+
+```
+goproxify logs list
+  [-level debug|info|warn|error]
+  [-domain <host>]
+  [-ip <ip>]
+  [-method GET|POST|…]
+  [-status <code>]
+  [-path <préfixe>]
+  [-search <texte>]
+  [-from <RFC3339>]  [-to <RFC3339>]
+  [-limit <n>]  [-page <n>]
+  [-admin-url …] [-token …]
+
+goproxify logs export
+  [-format csv|json]
+  [-output <fichier>]
+  [-level …] [-domain …] [-ip …] [-from …] [-to …]
+  [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify logs list -domain app.example.fr -status 5xx -limit 100
+goproxify logs list -ip 1.2.3.4 -from 2026-09-01T00:00:00Z
+goproxify logs export -format json -output access.json
+```
+
+---
+
 ### `goproxify alert`
 
 Test des canaux de notification.

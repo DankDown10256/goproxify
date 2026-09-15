@@ -70,6 +70,16 @@ func main() {
 		runBootstrap()
 	case "security":
 		runSecurity()
+	case "proxy":
+		runProxy()
+	case "cert":
+		runCert()
+	case "user":
+		runUser()
+	case "audit":
+		runAudit()
+	case "logs":
+		runLogs()
 	case "migrate-yaml":
 		runMigrateYAML()
 	case "version":
@@ -108,6 +118,11 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   backup    Snapshots Admin + export routage (create/list/restore)
   import    Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote)
   update    Mise à jour des images Docker (via Agent)
+  proxy     Proxies (list/get/enable/disable/delete)
+  cert      Certificats TLS (list/obtain/delete)
+  user      Utilisateurs (list/get/create/update/passwd/delete)
+  audit     Journal d'audit (list/export)
+  logs      Logs d'accès et système (list/export)
   alert     Test des canaux de notification
   security  Sentinel (threat engine), bans, WAF par proxy
   status    État du cluster
