@@ -57,8 +57,8 @@ var Core = struct {
 		Namespace: "gpx",
 		Subsystem: "core",
 		Name:      "request_duration_seconds",
-		Help:      "Durée des requêtes HTTP proxifiées.",
-		Buckets:   prometheus.DefBuckets,
+		Help:      "Durée totale des requêtes HTTP proxifiées (vue client, pipeline inclus).",
+		Buckets:   latencyBuckets,
 	}, []string{"host"}),
 
 	ActiveRequests: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -137,10 +137,14 @@ var Routing = struct {
 	}, []string{"host"}),
 }
 
+// latencyBuckets couvre de 1 ms à 30 s avec une résolution fine sur le bas de gamme.
+var latencyBuckets = []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}
+
 // Backend expose les métriques Prometheus par backend upstream.
 var Backend = struct {
 	RequestsTotal *prometheus.CounterVec
 	Duration      *prometheus.HistogramVec
+	TTFB          *prometheus.HistogramVec
 	ErrorsTotal   *prometheus.CounterVec
 	RetriesTotal  *prometheus.CounterVec
 }{
@@ -155,8 +159,16 @@ var Backend = struct {
 		Namespace: "gpx",
 		Subsystem: "backend",
 		Name:      "duration_seconds",
-		Help:      "Durée des requêtes vers les backends upstream.",
-		Buckets:   prometheus.DefBuckets,
+		Help:      "Durée totale des requêtes vers les backends upstream (headers + body).",
+		Buckets:   latencyBuckets,
+	}, []string{"host", "backend", "status_class"}),
+
+	TTFB: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "ttfb_seconds",
+		Help:      "Temps jusqu'à réception des headers de réponse du backend (sans transfer du body).",
+		Buckets:   latencyBuckets,
 	}, []string{"host", "backend"}),
 
 	ErrorsTotal: promauto.NewCounterVec(prometheus.CounterOpts{

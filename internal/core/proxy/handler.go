@@ -44,6 +44,7 @@ type Handler struct {
 }
 
 type proxyAttemptKey struct{}
+type backendCallStartKey struct{}
 
 type proxyAttempt struct {
 	writeOnError bool
@@ -526,21 +527,38 @@ func (h *Handler) do(w http.ResponseWriter, r *http.Request, b *router.Backend, 
 		r.Body = http.MaxBytesReader(w, r.Body, h.route.MaxBodySize)
 	}
 
+	callStart := time.Now()
 	att := &proxyAttempt{writeOnError: writeOnError, attempt: attempt, backend: b.URL}
-	r = r.WithContext(context.WithValue(r.Context(), proxyAttemptKey{}, att))
+	ctx := context.WithValue(r.Context(), proxyAttemptKey{}, att)
+	ctx = context.WithValue(ctx, backendCallStartKey{}, callStart)
+	r = r.WithContext(ctx)
 	sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	rp := h.reverseProxyFor(b, target)
-	start := time.Now()
 	rp.ServeHTTP(sr, r)
-	dur := time.Since(start)
+	dur := time.Since(callStart)
 	backendHost := target.Host
 	if att.failed {
 		metrics.Backend.ErrorsTotal.WithLabelValues(h.route.Host, backendHost, backendErrorType(att.err)).Inc()
 		return false, writeOnError, att.err // réponse écrite seulement si writeOnError
 	}
-	metrics.Backend.RequestsTotal.WithLabelValues(h.route.Host, backendHost, fmt.Sprintf("%d", sr.status)).Inc()
-	metrics.Backend.Duration.WithLabelValues(h.route.Host, backendHost).Observe(dur.Seconds())
+	statusStr := fmt.Sprintf("%d", sr.status)
+	metrics.Backend.RequestsTotal.WithLabelValues(h.route.Host, backendHost, statusStr).Inc()
+	metrics.Backend.Duration.WithLabelValues(h.route.Host, backendHost, statusClass(sr.status)).Observe(dur.Seconds())
 	return true, true, nil
+}
+
+// statusClass retourne la classe HTTP (2xx, 3xx, 4xx, 5xx) pour un label Prometheus.
+func statusClass(code int) string {
+	switch {
+	case code < 300:
+		return "2xx"
+	case code < 400:
+		return "3xx"
+	case code < 500:
+		return "4xx"
+	default:
+		return "5xx"
+	}
 }
 
 // backendErrorType classifie une erreur transport pour le label Prometheus.
@@ -593,6 +611,11 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 		Transport:  transport,
 		BufferPool: bufferPoolFor(h.route.BufferSize),
 		ModifyResponse: func(resp *http.Response) error {
+			if resp.Request != nil {
+				if t, ok := resp.Request.Context().Value(backendCallStartKey{}).(time.Time); ok {
+					metrics.Backend.TTFB.WithLabelValues(h.route.Host, urlHost).Observe(time.Since(t).Seconds())
+				}
+			}
 			if len(h.route.CookieDomains) > 0 || len(h.route.CookiePaths) > 0 {
 				rewriteSetCookieHeaders(resp, h.route.CookieDomains, h.route.CookiePaths)
 			}
