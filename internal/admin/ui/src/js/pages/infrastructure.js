@@ -662,10 +662,16 @@ async function agentConfigure(nodeName, node) {
   }
   const fallback = declaredCfg || {};
   const d = (node && node._agent_config && node._agent_config.docker) || {};
-  const p = (node && node._agent_config && node._agent_config.portainer) || {
-    enabled: !!fallback.portainer,
-    url: fallback.portainer_url || '',
-    api_key: fallback.portainer_key || '',
+  // Merge live portainer config with wizard-declared fallback field by field,
+  // so the modal pre-fills even when the agent hasn't yet pushed its own config.
+  const pLive = (node && node._agent_config && node._agent_config.portainer) || {};
+  const p = {
+    enabled: pLive.enabled !== undefined ? pLive.enabled : !!fallback.portainer,
+    url: pLive.url || fallback.portainer_url || '',
+    api_key: pLive.api_key || fallback.portainer_key || '',
+    poll_interval_s: pLive.poll_interval_s,
+    skip_endpoints: pLive.skip_endpoints,
+    endpoint_cores: pLive.endpoint_cores,
   };
   const cp = (node && node._agent_config && node._agent_config.control_plane) || {};
 
