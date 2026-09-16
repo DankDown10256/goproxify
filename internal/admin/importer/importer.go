@@ -27,6 +27,8 @@ type Backup struct {
 	Proxies        []BackupProxy              `json:"proxies"`
 	Users          []BackupUser               `json:"users"`
 	Tokens         []BackupToken              `json:"tokens"`
+	TokenScopes    []BackupTokenScope         `json:"token_scopes,omitempty"`
+	PATs           []BackupPAT                `json:"pats,omitempty"`
 	Snippets       []BackupSnippet            `json:"snippets"`
 	AlertChannels  []map[string]any           `json:"alert_channels"`
 	AlertRules     []map[string]any           `json:"alert_rules"`
@@ -51,9 +53,27 @@ type BackupToken struct {
 	ID           string  `json:"id"`
 	Token        string  `json:"token"`
 	Role         string  `json:"role"`
+	RBACRole     string  `json:"rbac_role,omitempty"`
 	NodeName     string  `json:"node_name"`
 	NodeEndpoint string  `json:"node_endpoint"`
 	ExpiresAt    *string `json:"expires_at"`
+}
+
+type BackupTokenScope struct {
+	ID         string `json:"id"`
+	TokenID    string `json:"token_id"`
+	ScopeType  string `json:"scope_type"`
+	ScopeValue string `json:"scope_value"`
+}
+
+type BackupPAT struct {
+	ID          string   `json:"id"`
+	UserID      string   `json:"user_id"`
+	Label       string   `json:"label"`
+	TokenHash   string   `json:"token_hash"`
+	TokenPrefix string   `json:"token_prefix"`
+	Scopes      []string `json:"scopes"`
+	ExpiresAt   *string  `json:"expires_at,omitempty"`
 }
 
 type BackupSnippet struct {
@@ -70,6 +90,8 @@ type BackupSummary struct {
 	Proxies            []ProxySummary `json:"proxies"`
 	UserCount          int            `json:"user_count"`
 	TokenCount         int            `json:"token_count"`
+	TokenScopeCount    int            `json:"token_scope_count"`
+	PATCount           int            `json:"pat_count"`
 	SnippetCount       int            `json:"snippet_count"`
 	ChannelCount       int            `json:"channel_count"`
 	RuleCount          int            `json:"rule_count"`
@@ -90,10 +112,11 @@ type ImportSelection struct {
 	ProxyIDs       []string `json:"proxy_ids"`      // vide = tous
 	ImportUsers    bool     `json:"import_users"`
 	ImportTokens   bool     `json:"import_tokens"`
+	ImportPATs     bool     `json:"import_pats"`
 	ImportSnippets bool     `json:"import_snippets"`
 	ImportChannels bool     `json:"import_alert_channels"`
 	ImportRules    bool     `json:"import_alert_rules"`
-	OnConflict     string   `json:"on_conflict"`    // skip | overwrite
+	OnConflict     string   `json:"on_conflict"`     // skip | overwrite
 	RestoreConfigs bool     `json:"restore_configs"` // écrire les fichiers config sur disque
 }
 
@@ -102,6 +125,7 @@ type ImportResult struct {
 	Proxies  int `json:"proxies"`
 	Users    int `json:"users"`
 	Tokens   int `json:"tokens"`
+	PATs     int `json:"pats"`
 	Snippets int `json:"snippets"`
 	Channels int `json:"channels"`
 	Rules    int `json:"rules"`
@@ -120,6 +144,8 @@ func SummarizeBackup(data []byte) (*Backup, *BackupSummary, error) {
 		CreatedAt:         b.CreatedAt,
 		UserCount:         len(b.Users),
 		TokenCount:        len(b.Tokens),
+		TokenScopeCount:   len(b.TokenScopes),
+		PATCount:          len(b.PATs),
 		SnippetCount:      len(b.Snippets),
 		ChannelCount:      len(b.AlertChannels),
 		RuleCount:         len(b.AlertRules),
@@ -227,10 +253,52 @@ func Apply(db *sql.DB, b *Backup, sel ImportSelection) ImportResult {
 				verb = `INSERT OR REPLACE`
 			}
 			stored, hash := auth.PrepareNodeTokenForStore(t.Token)
-			_, err := db.Exec(verb+` INTO tokens (id, token, token_hash, role, node_name, node_endpoint, expires_at) VALUES (?,?,?,?,?,?,?)`,
-				id, stored, hash, t.Role, t.NodeName, t.NodeEndpoint, t.ExpiresAt)
+			rbacRole := t.RBACRole
+			_, err := db.Exec(verb+` INTO tokens (id, token, token_hash, role, rbac_role, node_name, node_endpoint, expires_at) VALUES (?,?,?,?,?,?,?,?)`,
+				id, stored, hash, t.Role, rbacRole, t.NodeName, t.NodeEndpoint, t.ExpiresAt)
 			if err == nil {
 				res.Tokens++
+			} else {
+				res.Skipped++
+			}
+		}
+		// token_scopes
+		for _, s := range b.TokenScopes {
+			id := s.ID
+			if id == "" {
+				id = uuid.New().String()
+			}
+			verb := `INSERT OR IGNORE`
+			if overwrite {
+				verb = `INSERT OR REPLACE`
+			}
+			db.Exec(verb+` INTO token_scopes (id, token_id, scope_type, scope_value) VALUES (?,?,?,?)`, //nolint:errcheck
+				id, s.TokenID, s.ScopeType, s.ScopeValue)
+		}
+	}
+
+	// PATs (user_api_tokens)
+	if sel.ImportPATs {
+		for _, p := range b.PATs {
+			if p.TokenHash == "" {
+				res.Skipped++
+				continue
+			}
+			id := p.ID
+			if id == "" {
+				id = uuid.New().String()
+			}
+			verb := `INSERT OR IGNORE`
+			if overwrite {
+				verb = `INSERT OR REPLACE`
+			}
+			_, err := db.Exec(verb+` INTO user_api_tokens (id, user_id, label, token_hash, token_prefix, expires_at) VALUES (?,?,?,?,?,?)`,
+				id, p.UserID, p.Label, p.TokenHash, p.TokenPrefix, p.ExpiresAt)
+			if err == nil {
+				res.PATs++
+				for _, scope := range p.Scopes {
+					db.Exec(`INSERT OR IGNORE INTO user_api_token_scopes (token_id, scope) VALUES (?,?)`, id, scope) //nolint:errcheck
+				}
 			} else {
 				res.Skipped++
 			}
@@ -382,14 +450,14 @@ func ExportBackup(db *sql.DB) (*Backup, error) {
 	}
 
 	// Tokens — n'exporter jamais le secret en clair (H7) ; métadonnées seulement.
-	trows, _ := db.Query(`SELECT id, token, role, node_name, node_endpoint, expires_at FROM tokens WHERE revoked=0 ORDER BY created_at`)
+	trows, _ := db.Query(`SELECT id, token, role, COALESCE(rbac_role,''), node_name, node_endpoint, expires_at FROM tokens WHERE revoked=0 ORDER BY created_at`)
 	if trows != nil {
 		defer trows.Close()
 		for trows.Next() {
 			var t BackupToken
 			var exp sql.NullString
 			var rawTok string
-			trows.Scan(&t.ID, &rawTok, &t.Role, &t.NodeName, &t.NodeEndpoint, &exp) //nolint:errcheck
+			trows.Scan(&t.ID, &rawTok, &t.Role, &t.RBACRole, &t.NodeName, &t.NodeEndpoint, &exp) //nolint:errcheck
 			_ = rawTok
 			t.Token = "" // toujours rédigé à l'export
 			if exp.Valid {
@@ -397,6 +465,43 @@ func ExportBackup(db *sql.DB) (*Backup, error) {
 				t.ExpiresAt = &s
 			}
 			b.Tokens = append(b.Tokens, t)
+		}
+	}
+
+	// Token scopes
+	tsrows, _ := db.Query(`SELECT id, token_id, scope_type, scope_value FROM token_scopes ORDER BY token_id, scope_type, scope_value`)
+	if tsrows != nil {
+		defer tsrows.Close()
+		for tsrows.Next() {
+			var s BackupTokenScope
+			tsrows.Scan(&s.ID, &s.TokenID, &s.ScopeType, &s.ScopeValue) //nolint:errcheck
+			b.TokenScopes = append(b.TokenScopes, s)
+		}
+	}
+
+	// PATs (user_api_tokens) — exporter les hashes (non-réversibles, comme /etc/shadow)
+	patrows, _ := db.Query(`SELECT id, user_id, label, token_hash, token_prefix, expires_at FROM user_api_tokens WHERE revoked=0 ORDER BY created_at`)
+	if patrows != nil {
+		defer patrows.Close()
+		for patrows.Next() {
+			var p BackupPAT
+			var exp sql.NullString
+			patrows.Scan(&p.ID, &p.UserID, &p.Label, &p.TokenHash, &p.TokenPrefix, &exp) //nolint:errcheck
+			if exp.Valid {
+				s := exp.String
+				p.ExpiresAt = &s
+			}
+			// Load scopes
+			scopeRows, _ := db.Query(`SELECT scope FROM user_api_token_scopes WHERE token_id=? ORDER BY scope`, p.ID)
+			if scopeRows != nil {
+				for scopeRows.Next() {
+					var sc string
+					scopeRows.Scan(&sc) //nolint:errcheck
+					p.Scopes = append(p.Scopes, sc)
+				}
+				scopeRows.Close()
+			}
+			b.PATs = append(b.PATs, p)
 		}
 	}
 
