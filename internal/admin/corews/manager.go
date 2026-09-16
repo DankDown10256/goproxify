@@ -76,8 +76,18 @@ func (m *Manager) SetDataDir(dir string) {
 	m.dataDir = dir
 }
 
+type coreTokenDisk struct {
+	ID           string `json:"id"`
+	Token        string `json:"token"`  // sealed
+	TokenHash    string `json:"token_hash"`
+	RBACRole     string `json:"rbac_role"`
+	NodeName     string `json:"node_name"`
+	NodeEndpoint string `json:"node_endpoint"`
+}
+
 // LoadFromDB charge les Cores existants depuis la table tokens et crée un client WS pour chacun.
 // Ignore les nœuds déjà connectés (même id ou même node_name) pour cohabiter avec ConnectFromEnv.
+// Si la table est vide, tente une restauration depuis node_tokens.json (disque).
 func (m *Manager) LoadFromDB(ctx context.Context) error {
 	rows, err := m.db.QueryContext(ctx,
 		`SELECT id, node_name, node_endpoint, COALESCE(rbac_role, 'admin')
@@ -85,26 +95,115 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 		 WHERE role='core' AND revoked=0 AND node_endpoint != ''
 		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
 	if err != nil {
+		// DB error → try disk
+		m.restoreCoreTokensFromDisk(ctx)
 		return err
 	}
 	defer rows.Close()
 
-	n := 0
+	type entry struct{ id, name, ep, role string }
+	var entries []entry
 	for rows.Next() {
-		var id, nodeName, endpoint, rbacRole string
-		if err := rows.Scan(&id, &nodeName, &endpoint, &rbacRole); err != nil {
+		var e entry
+		if err := rows.Scan(&e.id, &e.name, &e.ep, &e.role); err != nil {
 			continue
 		}
-		if m.hasCore(id, nodeName) {
+		entries = append(entries, e)
+	}
+	rows.Close()
+
+	if len(entries) == 0 {
+		m.restoreCoreTokensFromDisk(ctx)
+		// reload after restore
+		rows2, err2 := m.db.QueryContext(ctx,
+			`SELECT id, node_name, node_endpoint, COALESCE(rbac_role, 'admin')
+			 FROM tokens
+			 WHERE role='core' AND revoked=0 AND node_endpoint != ''
+			   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
+		if err2 == nil {
+			for rows2.Next() {
+				var e entry
+				if err2 := rows2.Scan(&e.id, &e.name, &e.ep, &e.role); err2 == nil {
+					entries = append(entries, e)
+				}
+			}
+			rows2.Close()
+		}
+	} else {
+		// Persist current tokens to disk
+		m.saveCoreTokensToDisk(ctx)
+	}
+
+	n := 0
+	for _, e := range entries {
+		if m.hasCore(e.id, e.name) {
 			continue
 		}
-		m.Register(id, nodeName, endpoint, rbacRole)
+		m.Register(e.id, e.name, e.ep, e.role)
 		n++
 	}
 	if n > 0 {
 		m.log.Info("corews: Cores supplémentaires chargés depuis DB", "count", n)
 	}
 	return nil
+}
+
+// saveCoreTokensToDisk persiste les tokens Core actifs dans node_tokens.json.
+func (m *Manager) saveCoreTokensToDisk(ctx context.Context) {
+	if m.dataDir == "" {
+		return
+	}
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT id, token, token_hash, COALESCE(rbac_role,'admin'), node_name, node_endpoint
+		 FROM tokens
+		 WHERE role='core' AND revoked=0 AND node_endpoint != ''
+		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	var list []coreTokenDisk
+	for rows.Next() {
+		var t coreTokenDisk
+		if err := rows.Scan(&t.ID, &t.Token, &t.TokenHash, &t.RBACRole, &t.NodeName, &t.NodeEndpoint); err != nil {
+			continue
+		}
+		list = append(list, t)
+	}
+	if len(list) > 0 {
+		m.writeJSONFile("node_tokens.json", list)
+	}
+}
+
+// restoreCoreTokensFromDisk ré-insère les tokens Core depuis node_tokens.json si la table est vide.
+func (m *Manager) restoreCoreTokensFromDisk(ctx context.Context) {
+	if m.dataDir == "" {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(m.dataDir, "node_tokens.json"))
+	if err != nil {
+		return
+	}
+	var list []coreTokenDisk
+	if err := json.Unmarshal(b, &list); err != nil || len(list) == 0 {
+		return
+	}
+	n := 0
+	for _, t := range list {
+		if t.ID == "" || t.NodeName == "" || t.NodeEndpoint == "" {
+			continue
+		}
+		_, err := m.db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO tokens (id, token, token_hash, role, rbac_role, node_name, node_endpoint)
+			 VALUES (?, ?, ?, 'core', ?, ?, ?)`,
+			t.ID, t.Token, t.TokenHash, t.RBACRole, t.NodeName, t.NodeEndpoint)
+		if err == nil {
+			n++
+		}
+	}
+	if n > 0 {
+		m.log.Info("corews: tokens Core restaurés depuis disque", "count", n)
+	}
 }
 
 func (m *Manager) hasCore(coreID, nodeName string) bool {
@@ -181,6 +280,7 @@ func (m *Manager) Register(coreID, nodeName, endpoint, rbacRole string) {
 		m.log.Info("corews: doublon retiré", "core", nodeName, "id", s.id)
 	}
 	m.log.Info("corews: client enregistré", "core", nodeName, "id", coreID, "endpoint", endpoint)
+	go m.saveCoreTokensToDisk(context.Background())
 }
 
 // Unregister ferme le client WS d'un Core et le supprime du Manager.
@@ -250,6 +350,9 @@ func (m *Manager) ensureCoreToken(ctx context.Context, nodeName, endpoint string
 		`INSERT INTO tokens (id, token, token_hash, role, rbac_role, node_name, node_endpoint)
 		 VALUES (?, ?, ?, 'core', 'admin', ?, ?)`,
 		id, stored, hash, nodeName, endpoint)
+	if err == nil {
+		m.saveCoreTokensToDisk(ctx)
+	}
 	return id, "admin", err
 }
 
