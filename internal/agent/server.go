@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	agentdocker "github.com/vincamok/goproxify/internal/agent/docker"
@@ -458,10 +459,31 @@ func (a *Agent) handleWSCommand(action string, payload json.RawMessage) {
 		triggerRescan()
 	case "command":
 		var cmd struct {
-			Action string `json:"action"`
+			Action string          `json:"action"`
+			Patch  json.RawMessage `json:"patch"`
 		}
-		if json.Unmarshal(payload, &cmd) == nil && cmd.Action == "rescan" {
+		if json.Unmarshal(payload, &cmd) != nil {
+			break
+		}
+		switch cmd.Action {
+		case "rescan":
 			triggerRescan()
+		case "configure":
+			if a.internalAPI.cfgPath == "" {
+				a.log.Warn("agent: configure WS ignoré — cfgPath non configuré")
+				break
+			}
+			if err := applyConfigPatch(a.internalAPI.cfgPath, cmd.Patch); err != nil {
+				a.log.Error("agent: configure WS échoué", "err", err)
+				break
+			}
+			a.log.Info("agent: configure WS appliqué — redémarrage")
+			go func() {
+				p, err := os.FindProcess(os.Getpid())
+				if err == nil {
+					_ = p.Signal(syscall.SIGTERM)
+				}
+			}()
 		}
 	case corews.TypeShellOpen, corews.TypeShellData, corews.TypeShellClose:
 		if a.shellHub != nil {
