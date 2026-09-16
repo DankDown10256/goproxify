@@ -650,10 +650,17 @@ async function agentConfigure(nodeName, node) {
          style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);font-family:inherit;">
      </label>`;
 
-  // Fallback: si pas de heartbeat, utiliser la config déclarée (wizard)
+  // Chercher la declared config (wizard) pour pré-remplir les champs si l'agent est live.
   // Le declared config stocke des champs plats (portainer_url, portainer_key) contrairement
   // à _agent_config qui utilise un objet imbriqué {portainer: {url, api_key, enabled}}.
-  const fallback = (node && node._declared_config) || {};
+  let declaredCfg = (node && node._declared_config) || null;
+  if (!declaredCfg) {
+    const declaredNodes = await api('GET', '/declared-nodes').catch(() => []);
+    const dn = (Array.isArray(declaredNodes) ? declaredNodes : [])
+      .find(n => n.role === 'agent' && n.name === nodeName);
+    declaredCfg = (dn && dn.config) || null;
+  }
+  const fallback = declaredCfg || {};
   const d = (node && node._agent_config && node._agent_config.docker) || {};
   const p = (node && node._agent_config && node._agent_config.portainer) || {
     enabled: !!fallback.portainer,
