@@ -194,11 +194,22 @@ func (s *Server) Start(ctx context.Context) error {
 			go userStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
 		}
 	}
+	var configStore *archstore.ConfigStore
+	if s.cfg.Storage.BasePath != "" {
+		configStore = archstore.NewConfigStore(filepath.Join(s.cfg.Storage.BasePath, "state"))
+		_ = configStore.LoadIntoDB(ctx, s.db)
+		go configStore.SyncFromDB(ctx, s.db) //nolint:errcheck
+	}
+	syncConfig := func() {
+		if configStore != nil {
+			go configStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
+		}
+	}
 	usersH := &api.UsersHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
-	snippetsH := &api.SnippetsHandler{DB: s.db, Log: s.log}
-	errorPagesH := &api.ErrorPageTemplatesHandler{DB: s.db, Log: s.log, Pusher: manager}
+	snippetsH := &api.SnippetsHandler{DB: s.db, Log: s.log, OnChange: syncConfig}
+	errorPagesH := &api.ErrorPageTemplatesHandler{DB: s.db, Log: s.log, Pusher: manager, OnChange: syncConfig}
 	portalPagesH := &api.PortalPageTemplatesHandler{DB: s.db, Log: s.log, Pusher: manager}
-	authProvidersH := &api.AuthProvidersHandler{DB: s.db, Log: s.log}
+	authProvidersH := &api.AuthProvidersHandler{DB: s.db, Log: s.log, OnChange: syncConfig}
 	portalH := &api.PortalHandler{DB: s.db, Log: s.log, Pusher: manager}
 	// Fallback direct sur les vars d'env si Viper n'a pas résolu les clés imbriquées
 	if !s.cfg.ACME.Enabled {
@@ -258,8 +269,8 @@ func (s *Server) Start(ctx context.Context) error {
 		Built:   buildinfo.Built,
 	}
 	auditH := &api.AuditHandler{DB: s.db, Log: s.log, Auditor: s.auditor}
-	channelsH := &api.ChannelsHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine}
-	rulesH := &api.RulesHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine}
+	channelsH := &api.ChannelsHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
+	rulesH := &api.RulesHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
 	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db}
 	f2bEngine := fail2ban.New(s.db, s.log)
 	vsScanner := vulnscan.New(s.db, s.log, "")
@@ -317,7 +328,7 @@ func (s *Server) Start(ctx context.Context) error {
 	importH := &api.ImportHandler{DB: s.db, Log: s.log}
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
-	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater}
+	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater, OnChange: syncConfig}
 	syncArch := func() {
 		if archStore != nil {
 			go archStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
@@ -393,6 +404,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Store:     mfa.NewStore(s.db),
 		JWTSecret: jwtSecret,
 		WebAuthn:  waInstance,
+		OnChange:  syncUsers,
 	}
 
 	meH := &api.MeHandler{DB: s.db, Log: s.log, OnChange: syncUsers}

@@ -32,6 +32,13 @@ type MFAHandler struct {
 	JWTSecret string
 	// WebAuthn est instancié au démarrage avec rpID/rpOrigin depuis les settings.
 	WebAuthn *webauthn.WebAuthn
+	OnChange func()
+}
+
+func (h *MFAHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 // webAuthnUser implémente webauthn.User pour un utilisateur Goproxify.
@@ -194,6 +201,7 @@ func (h *MFAHandler) totpVerify(w http.ResponseWriter, r *http.Request, userID s
 		return
 	}
 	h.Store.MarkVerified(r.Context(), userID, mfa.MethodTOTP) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -239,6 +247,7 @@ func (h *MFAHandler) emailVerify(w http.ResponseWriter, r *http.Request, userID 
 		return
 	}
 	h.Store.MarkVerified(r.Context(), userID, mfa.MethodEmail) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -289,6 +298,7 @@ func (h *MFAHandler) smsVerify(w http.ResponseWriter, r *http.Request, userID st
 		return
 	}
 	h.Store.MarkVerified(r.Context(), userID, mfa.MethodSMS) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -315,6 +325,7 @@ func (h *MFAHandler) pushSetup(w http.ResponseWriter, r *http.Request, userID st
 		method = mfa.MethodPushGotify
 	}
 	h.Store.UpsertMethod(r.Context(), userID, method, cfg, true) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -387,6 +398,7 @@ func (h *MFAHandler) webAuthnRegisterFinish(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.Store.UpsertMethod(r.Context(), userID, mfa.MethodWebAuthn, credential, true) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -588,6 +600,7 @@ func (h *MFAHandler) backupCodesGenerate(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	h.Store.UpsertMethod(r.Context(), userID, mfa.MethodBackup, map[string]int{"count": mfa.BackupCodeCount}, true) //nolint:errcheck
+	h.notifyChange()
 	jsonOK(w, map[string]any{"codes": plain, "count": len(plain)})
 }
 
@@ -614,6 +627,7 @@ func (h *MFAHandler) deleteMethod(w http.ResponseWriter, r *http.Request, userID
 	if method == mfa.MethodBackup {
 		h.Store.SaveBackupCodes(r.Context(), userID, nil) //nolint:errcheck
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 

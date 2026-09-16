@@ -29,8 +29,15 @@ type AuthProvider struct {
 
 // AuthProvidersHandler gère le CRUD HTTP des fournisseurs SSO.
 type AuthProvidersHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func()
+}
+
+func (h *AuthProvidersHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *AuthProvidersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +146,7 @@ func (h *AuthProvidersHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "create", "auth_provider:"+id, req.Name)
+	h.notifyChange()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -181,6 +189,7 @@ func (h *AuthProvidersHandler) update(w http.ResponseWriter, r *http.Request, id
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "update", "auth_provider:"+id, req.Name)
+	h.notifyChange()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -200,6 +209,7 @@ func (h *AuthProvidersHandler) delete(w http.ResponseWriter, r *http.Request, id
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "delete", "auth_provider:"+id, "")
+	h.notifyChange()
 
 	w.WriteHeader(http.StatusNoContent)
 }

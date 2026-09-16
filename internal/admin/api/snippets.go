@@ -29,8 +29,15 @@ type Snippet struct {
 
 // SnippetsHandler gère le CRUD HTTP des snippets.
 type SnippetsHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func()
+}
+
+func (h *SnippetsHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *SnippetsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -145,6 +152,7 @@ func (h *SnippetsHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "create", "snippet:"+id, req.Name)
+	h.notifyChange()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -179,6 +187,7 @@ func (h *SnippetsHandler) update(w http.ResponseWriter, r *http.Request, id stri
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "update", "snippet:"+id, req.Name)
+	h.notifyChange()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -198,6 +207,7 @@ func (h *SnippetsHandler) delete(w http.ResponseWriter, r *http.Request, id stri
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "delete", "snippet:"+id, "")
+	h.notifyChange()
 
 	w.WriteHeader(http.StatusNoContent)
 }

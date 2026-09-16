@@ -50,9 +50,16 @@ type ErrorPageTemplateDTO struct {
 
 // ErrorPageTemplatesHandler CRUD + sync Core.
 type ErrorPageTemplatesHandler struct {
-	DB     *sql.DB
-	Log    *slog.Logger
-	Pusher ErrorPageTemplatePusher
+	DB       *sql.DB
+	Log      *slog.Logger
+	Pusher   ErrorPageTemplatePusher
+	OnChange func()
+}
+
+func (h *ErrorPageTemplatesHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *ErrorPageTemplatesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -157,6 +164,7 @@ func (h *ErrorPageTemplatesHandler) create(w http.ResponseWriter, r *http.Reques
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "create", "error_page_template:"+id, req.Name)
+	h.notifyChange()
 	h.push(r.Context())
 
 	t, _ := h.loadTemplate(r.Context(), id, true)
@@ -202,6 +210,7 @@ func (h *ErrorPageTemplatesHandler) update(w http.ResponseWriter, r *http.Reques
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "update", "error_page_template:"+id, req.Name)
+	h.notifyChange()
 	h.push(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -224,6 +233,7 @@ func (h *ErrorPageTemplatesHandler) delete(w http.ResponseWriter, r *http.Reques
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "delete", "error_page_template:"+id, "")
+	h.notifyChange()
 	h.push(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -273,6 +283,7 @@ func (h *ErrorPageTemplatesHandler) addAsset(w http.ResponseWriter, r *http.Requ
 	}
 	_, _ = h.DB.ExecContext(r.Context(),
 		`UPDATE error_page_templates SET updated_at=CURRENT_TIMESTAMP WHERE id=?`, templateID)
+	h.notifyChange()
 	h.push(r.Context())
 	jsonOK(w, ErrorPageAssetDTO{ID: id, Filename: fn, ContentType: ct, Size: len(raw)})
 }
@@ -294,6 +305,7 @@ func (h *ErrorPageTemplatesHandler) deleteAsset(w http.ResponseWriter, r *http.R
 		http.Error(w, "asset introuvable", http.StatusNotFound)
 		return
 	}
+	h.notifyChange()
 	h.push(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }

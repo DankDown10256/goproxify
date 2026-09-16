@@ -18,9 +18,16 @@ import (
 
 // IPProfilesHandler gère les profils de filtrage IP.
 type IPProfilesHandler struct {
-	DB      *sql.DB
-	Log     *slog.Logger
-	Updater *ipprofile.Updater
+	DB       *sql.DB
+	Log      *slog.Logger
+	Updater  *ipprofile.Updater
+	OnChange func()
+}
+
+func (h *IPProfilesHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *IPProfilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +161,7 @@ func (h *IPProfilesHandler) create(w http.ResponseWriter, r *http.Request) {
 		jsonErrF(w, err, http.StatusInternalServerError)
 		return
 	}
+	h.notifyChange()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": id}) //nolint:errcheck
@@ -187,11 +195,13 @@ func (h *IPProfilesHandler) update(w http.ResponseWriter, r *http.Request, id st
 		jsonErrF(w, err, http.StatusInternalServerError)
 		return
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *IPProfilesHandler) delete(w http.ResponseWriter, r *http.Request, id string) {
 	h.DB.ExecContext(r.Context(), `DELETE FROM ip_profiles WHERE id=?`, id) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 

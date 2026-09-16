@@ -18,9 +18,16 @@ import (
 
 // ChannelsHandler gère le CRUD des canaux de notification.
 type ChannelsHandler struct {
-	DB     *sql.DB
-	Log    *slog.Logger
-	Engine *alerting.Engine
+	DB       *sql.DB
+	Log      *slog.Logger
+	Engine   *alerting.Engine
+	OnChange func()
+}
+
+func (h *ChannelsHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *ChannelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +116,7 @@ func (h *ChannelsHandler) create(w http.ResponseWriter, r *http.Request) {
 		alertJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"id": id})
 }
@@ -136,11 +144,13 @@ func (h *ChannelsHandler) update(w http.ResponseWriter, r *http.Request, id stri
 		alertJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *ChannelsHandler) delete(w http.ResponseWriter, r *http.Request, id string) {
 	h.DB.Exec(`DELETE FROM alert_channels WHERE id=?`, id) //nolint:errcheck
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -185,9 +195,16 @@ func (h *ChannelsHandler) test(w http.ResponseWriter, r *http.Request, id string
 
 // RulesHandler gère le CRUD des règles d'alertes + simulation.
 type RulesHandler struct {
-	DB     *sql.DB
-	Log    *slog.Logger
-	Engine *alerting.Engine
+	DB       *sql.DB
+	Log      *slog.Logger
+	Engine   *alerting.Engine
+	OnChange func()
+}
+
+func (h *RulesHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *RulesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -289,6 +306,7 @@ func (h *RulesHandler) create(w http.ResponseWriter, r *http.Request) {
 	if h.Engine != nil {
 		h.Engine.InvalidateRuleCache()
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"id": id})
 }
@@ -319,6 +337,7 @@ func (h *RulesHandler) update(w http.ResponseWriter, r *http.Request, id string)
 	if h.Engine != nil {
 		h.Engine.InvalidateRuleCache()
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -327,6 +346,7 @@ func (h *RulesHandler) delete(w http.ResponseWriter, r *http.Request, id string)
 	if h.Engine != nil {
 		h.Engine.InvalidateRuleCache()
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 

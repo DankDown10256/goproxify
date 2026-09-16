@@ -24,13 +24,28 @@ type UserScopeEntry struct {
 	AccessMode string `yaml:"access_mode"`
 }
 
+// UserMFAEntry est une méthode MFA activée et vérifiée pour un utilisateur.
+type UserMFAEntry struct {
+	ID     string `yaml:"id"`
+	Method string `yaml:"method"`
+	Config string `yaml:"config"` // JSON (peut contenir secret TOTP / credential WebAuthn)
+}
+
+// UserBackupCodeEntry est un code de secours MFA non encore utilisé.
+type UserBackupCodeEntry struct {
+	ID       string `yaml:"id"`
+	CodeHash string `yaml:"code_hash"` // bcrypt
+}
+
 // UserEntry décrit un compte admin (hash bcrypt — aucun secret en clair).
 type UserEntry struct {
-	ID           string           `yaml:"id"`
-	Email        string           `yaml:"email"`
-	PasswordHash string           `yaml:"password_hash"` // bcrypt, non réversible
-	Role         string           `yaml:"role"`
-	Scopes       []UserScopeEntry `yaml:"scopes,omitempty"`
+	ID           string                `yaml:"id"`
+	Email        string                `yaml:"email"`
+	PasswordHash string                `yaml:"password_hash"` // bcrypt, non réversible
+	Role         string                `yaml:"role"`
+	Scopes       []UserScopeEntry      `yaml:"scopes,omitempty"`
+	MFAMethods   []UserMFAEntry        `yaml:"mfa_methods,omitempty"`
+	BackupCodes  []UserBackupCodeEntry `yaml:"backup_codes,omitempty"`
 }
 
 // PATEntry décrit un token API utilisateur (hash SHA-256 — non réversible).
@@ -110,6 +125,16 @@ func (s *UserStore) LoadIntoDB(ctx context.Context, db *sql.DB) error {
 				db.ExecContext(ctx, //nolint:errcheck
 					`INSERT OR IGNORE INTO user_scopes(id, user_id, scope_type, scope_value, access_mode) VALUES(?,?,?,?,?)`,
 					sc.ID, u.ID, sc.ScopeType, sc.ScopeValue, sc.AccessMode)
+			}
+			for _, m := range u.MFAMethods {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO user_mfa(id, user_id, method, config, enabled, verified) VALUES(?,?,?,?,1,1)`,
+					m.ID, u.ID, m.Method, m.Config)
+			}
+			for _, bc := range u.BackupCodes {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO user_backup_codes(id, user_id, code_hash) VALUES(?,?,?)`,
+					bc.ID, u.ID, bc.CodeHash)
 			}
 		}
 	}
@@ -192,6 +217,38 @@ func (s *UserStore) buildFromDB(ctx context.Context, db *sql.DB) (*UsersArchive,
 			}
 		}
 		usrows.Close()
+	}
+
+	// user_mfa — méthodes vérifiées, attachées à chaque UserEntry
+	mfarows, _ := db.QueryContext(ctx,
+		`SELECT id, user_id, method, config FROM user_mfa WHERE enabled=1 AND verified=1 ORDER BY user_id`)
+	if mfarows != nil {
+		for mfarows.Next() {
+			var m UserMFAEntry
+			var uid string
+			if mfarows.Scan(&m.ID, &uid, &m.Method, &m.Config) == nil {
+				if idx, ok := userIdx[uid]; ok {
+					archive.Users[idx].MFAMethods = append(archive.Users[idx].MFAMethods, m)
+				}
+			}
+		}
+		mfarows.Close()
+	}
+
+	// user_backup_codes — codes non utilisés, attachés à chaque UserEntry
+	bcrows, _ := db.QueryContext(ctx,
+		`SELECT id, user_id, code_hash FROM user_backup_codes WHERE used=0 ORDER BY user_id`)
+	if bcrows != nil {
+		for bcrows.Next() {
+			var bc UserBackupCodeEntry
+			var uid string
+			if bcrows.Scan(&bc.ID, &uid, &bc.CodeHash) == nil {
+				if idx, ok := userIdx[uid]; ok {
+					archive.Users[idx].BackupCodes = append(archive.Users[idx].BackupCodes, bc)
+				}
+			}
+		}
+		bcrows.Close()
 	}
 
 	prows, err := db.QueryContext(ctx,
