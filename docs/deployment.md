@@ -14,10 +14,11 @@ De zéro à l'application fonctionnelle, toutes méthodes.
 4. [Méthode B — Portainer (Stack avec stack.env)](#4-méthode-b--portainer-stack-avec-stackenv)
 5. [Méthode C — Portainer (Stack tout-en-un, sans fichier d'env)](#5-méthode-c--portainer-stack-tout-en-un-sans-fichier-denv)
 6. [Méthode D — CLI (binaire natif)](#6-méthode-d--cli-binaire-natif)
-7. [Multi-hôtes — Agent sur un serveur distant](#7-multi-hôtes--agent-sur-un-serveur-distant)
-8. [Premier démarrage — initialisation de l'Admin](#8-premier-démarrage--initialisation-de-ladmin)
-9. [Vérifier que tout est opérationnel](#9-vérifier-que-tout-est-opérationnel)
-10. [Dépannage courant](#10-dépannage-courant)
+7. [Multi-hôtes — Core supplémentaire sur un serveur distant](#7-multi-hôtes--core-supplémentaire-sur-un-serveur-distant)
+8. [Multi-hôtes — Agent sur un serveur distant](#8-multi-hôtes--agent-sur-un-serveur-distant)
+9. [Premier démarrage — initialisation de l'Admin](#9-premier-démarrage--initialisation-de-ladmin)
+10. [Vérifier que tout est opérationnel](#10-vérifier-que-tout-est-opérationnel)
+11. [Dépannage courant](#11-dépannage-courant)
 
 ---
 
@@ -372,7 +373,108 @@ systemctl enable --now goproxify-admin goproxify-core goproxify-agent
 
 ---
 
-## 7. Multi-hôtes — Agent sur un serveur distant
+## 7. Multi-hôtes — Core supplémentaire sur un serveur distant
+
+Quand vous avez un **deuxième serveur** qui doit gérer du trafic HTTP/HTTPS indépendamment, déployez-y un Core seul. L'Admin central reste unique et pilote tous les Cores.
+
+```
+┌─────────────┐  WS :8000  ┌──────────────────┐  :80/:443
+│    ADMIN    │ ──────────► │  Core principal  │ ◄── trafic web A
+│  (serveur 1)│             └──────────────────┘
+│             │  WS :8000  ┌──────────────────┐  :80/:443
+│             │ ──────────► │  Core secondaire │ ◄── trafic web B
+└─────────────┘             └──────────────────┘
+```
+
+### 7.1 Prérequis réseau
+
+Le port **8000** du Core secondaire doit être joignable depuis le serveur Admin (et depuis les Agents qui s'y connectent). Ouvrir uniquement vers les IPs concernées :
+
+```bash
+# Exemple UFW — sur le serveur Core secondaire
+ufw allow from <IP_ADMIN> to any port 8000
+ufw allow from <IP_AGENT> to any port 8000
+```
+
+### 7.2 Déployer le Core secondaire
+
+Sur le serveur distant, créer un `docker-compose.yml` minimal :
+
+```yaml
+networks:
+  goproxify_net:
+    name: goproxify_net
+
+volumes:
+  core-lucas_data:
+
+services:
+  goproxify-core:
+    image: ghcr.io/vincamok/goproxify/core:preview
+    container_name: goproxify-core
+    restart: unless-stopped
+    command: ["core"]
+    environment:
+      - TZ=Europe/Paris
+      # Même valeur que l'Admin et le Core principal
+      - GPX_PAIRING_SECRET=<MÊME_PAIRING_SECRET>
+      # Nom unique pour ce Core — doit correspondre exactement au nom configuré dans l'Admin
+      - GPX_IDENTITY_CORE_NODE_NAME=core-lucas
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      # Exposer 8000 pour que l'Admin (et les Agents distants) puissent s'y connecter
+      - "8000:8000"
+    volumes:
+      - core-lucas_data:/etc/goproxify
+    networks: [goproxify_net]
+```
+
+```bash
+docker compose up -d
+```
+
+### 7.3 Enregistrer le Core secondaire dans l'Admin
+
+L'Admin doit connaître l'adresse du Core secondaire. Deux façons :
+
+**Via le Wizard architecture** (recommandé) :
+1. Admin → **Infrastructure → Wizard**
+2. Ajouter un hôte de type Core, indiquer l'IP/hostname du serveur distant
+3. Cliquer **Enregistrer** — l'Admin tente immédiatement la connexion WS
+
+**Via les variables d'environnement de l'Admin** :
+```bash
+# Ajouter dans le .env de l'Admin (redémarrage requis)
+GPX_IDENTITY_CORE_NODE_NAME=core-lucas        # nom du Core secondaire tel que configuré sur lui
+GPX_CORE_EXTRA_ENDPOINTS=http://<IP_CORE_SECONDAIRE>:8000
+```
+
+### 7.4 Vérifier la connexion
+
+Dans l'Admin → **Infrastructure → Nœuds** : le Core secondaire doit passer de `declared` à `online` en quelques secondes après son démarrage.
+
+Si le Core reste en `Non connecté / En attente` :
+
+```bash
+# Depuis le serveur Admin : le port 8000 est-il joignable ?
+curl http://<IP_CORE_SECONDAIRE>:8000/healthz
+
+# Logs du Core secondaire — doit afficher "full_sync reçu de l'Admin"
+docker logs goproxify-core | tail -50
+
+# Vérifier que GPX_PAIRING_SECRET est identique sur les deux machines
+docker exec goproxify-core env | grep GPX_PAIRING_SECRET
+```
+
+> **`GPX_IDENTITY_CORE_NODE_NAME` est critique.** La valeur configurée sur le Core doit correspondre exactement au nom que l'Admin utilise pour le joindre. Une divergence provoque un état `declared` permanent sans message d'erreur explicite.
+
+---
+
+## 8. Multi-hôtes — Agent sur un serveur distant
+
+
 
 Quand l'Agent tourne sur un hôte **différent** du Core :
 
@@ -427,7 +529,7 @@ services:
 
 ---
 
-## 8. Premier démarrage — initialisation de l'Admin
+## 9. Premier démarrage — initialisation de l'Admin
 
 ### 8.1 Accéder à l'Admin
 
@@ -478,7 +580,7 @@ Pour les certificats HTTPS automatiques (ACME Let's Encrypt) :
 
 ---
 
-## 9. Vérifier que tout est opérationnel
+## 10. Vérifier que tout est opérationnel
 
 ### Conteneurs actifs
 
@@ -519,7 +621,7 @@ curl -I http://localhost/
 
 ---
 
-## 10. Dépannage courant
+## 11. Dépannage courant
 
 ### L'Agent n'apparaît pas dans l'Admin
 
