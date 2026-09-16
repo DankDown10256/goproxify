@@ -32,6 +32,9 @@ func (s *Server) initProxyStore() {
 			"err", err, "root", root)
 		return
 	}
+	if err := os.MkdirAll(filepath.Join(root, "certs"), 0o700); err != nil {
+		s.log.Warn("core: impossible de créer certs/", "err", err)
+	}
 	s.log.Info("proxystore: dossiers prêts",
 		"root", root,
 		"proxies", s.proxyStore.ProdDir(),
