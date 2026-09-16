@@ -48,4 +48,13 @@ type CoreConfig struct {
 		DBURL        string `mapstructure:"db_url"`        // URL de téléchargement si absente
 	} `mapstructure:"geoip"`
 
+	// Timeouts HTTP — protection contre Slowloris et clients lents.
+	// Valeurs 0 = désactivé (déconseillé en production).
+	Timeouts struct {
+		ReadHeaderSeconds int `mapstructure:"read_header_seconds"` // délai max pour recevoir les headers (défaut 10s)
+		ReadSeconds       int `mapstructure:"read_seconds"`        // délai max pour lire la requête entière (défaut 30s)
+		WriteSeconds      int `mapstructure:"write_seconds"`       // délai max pour écrire la réponse (défaut 60s)
+		IdleSeconds       int `mapstructure:"idle_seconds"`        // keep-alive idle max (défaut 120s)
+	} `mapstructure:"timeouts"`
+
 }
