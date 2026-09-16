@@ -503,16 +503,16 @@ async function _archSaveTopology() {
     }
   }
 
-  // Synchroniser la config ACME sur le service Admin en ligne si l'email est renseigné.
-  // Permet de configurer ACME depuis le wizard sans variables d'env.
-  for (const { svc } of allSvcs) {
-    if (svc.type === 'admin' && svc.status === 'online' && svc.acme && svc.acmeEmail) {
-      await api('PUT', '/settings/acme', {
-        enabled: true,
-        email: svc.acmeEmail,
-        dns_type: svc.dnsProvider !== 'none' ? (svc.dnsProvider || '') : '',
-      }).catch(() => {});
-    }
+  // Synchroniser la config ACME vers l'Admin depuis les paramètres des services Core.
+  // L'email ACME est configuré sur le Core dans le wizard, mais persiste côté Admin.
+  const acmeCoreSvc = allSvcs.find(({ svc }) => svc.type === 'core' && svc.acme && svc.acmeEmail);
+  if (acmeCoreSvc) {
+    const c = acmeCoreSvc.svc;
+    await api('PUT', '/settings/acme', {
+      enabled: true,
+      email: c.acmeEmail,
+      dns_type: c.dnsProvider !== 'none' ? (c.dnsProvider || '') : '',
+    }).catch(() => {});
   }
 
   // Appliquer le portail Access sur les Cores en ligne
