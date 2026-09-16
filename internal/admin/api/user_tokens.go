@@ -19,8 +19,15 @@ import (
 
 // UserTokensHandler gère /api/v1/me/tokens — PAT self-service.
 type UserTokensHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func() // appelé après create/revoke
+}
+
+func (h *UserTokensHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 type userTokenRow struct {
@@ -228,6 +235,7 @@ func (h *UserTokensHandler) create(w http.ResponseWriter, r *http.Request, userI
 	}
 
 	_ = admindb.WriteAudit(h.DB, userID, "create", "user_api_token:"+id, label)
+	h.notifyChange()
 
 	resp := map[string]any{
 		"id":         id,
@@ -257,5 +265,6 @@ func (h *UserTokensHandler) revoke(w http.ResponseWriter, r *http.Request, userI
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, userID, "revoke", "user_api_token:"+id, "")
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -17,8 +17,15 @@ import (
 
 // MeHandler gère /api/v1/me — profil de l'utilisateur connecté.
 type MeHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func() // appelé après changement email/mot de passe
+}
+
+func (h *MeHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 type meScope struct {
@@ -171,6 +178,7 @@ func (h *MeHandler) updateEmail(w http.ResponseWriter, r *http.Request, userID s
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, userID, "update_email", "user:"+userID, req.Email)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -208,5 +216,6 @@ func (h *MeHandler) changePassword(w http.ResponseWriter, r *http.Request, userI
 	}
 	h.DB.ExecContext(r.Context(), `UPDATE users SET password_hash=? WHERE id=?`, newHash, userID) //nolint:errcheck
 	_ = admindb.WriteAudit(h.DB, userID, "change_password", "user:"+userID, "")
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }

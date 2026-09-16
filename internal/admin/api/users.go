@@ -18,8 +18,15 @@ import (
 
 // UsersHandler gère le CRUD des utilisateurs.
 type UsersHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func() // appelé après create/update/delete
+}
+
+func (h *UsersHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *UsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -282,6 +289,7 @@ func (h *UsersHandler) update(w http.ResponseWriter, r *http.Request, id string)
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "update", "user:"+id, req.Email)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -343,7 +351,7 @@ func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "create", "user:"+id, req.Email)
-
+	h.notifyChange()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(userRow{ID: id, Email: req.Email, Role: role})
@@ -390,7 +398,7 @@ func (h *UsersHandler) changePassword(w http.ResponseWriter, r *http.Request, id
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "change_password", "user:"+id, "")
-
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -419,6 +427,6 @@ func (h *UsersHandler) delete(w http.ResponseWriter, r *http.Request, id string)
 
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "delete", "user:"+id, "")
-
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }

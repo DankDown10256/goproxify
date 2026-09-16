@@ -182,7 +182,19 @@ func (s *Server) Start(ctx context.Context) error {
 			manager.BroadcastRevokeAgent(agentID)
 		},
 	}
-	usersH := &api.UsersHandler{DB: s.db, Log: s.log}
+	var userStore *archstore.UserStore
+	if s.cfg.Storage.BasePath != "" {
+		userStore = archstore.NewUserStore(filepath.Join(s.cfg.Storage.BasePath, "state"))
+		// Restaurer depuis disque si DB vide, puis synchroniser
+		_ = userStore.LoadIntoDB(ctx, s.db)
+		go userStore.SyncFromDB(ctx, s.db) //nolint:errcheck
+	}
+	syncUsers := func() {
+		if userStore != nil {
+			go userStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
+		}
+	}
+	usersH := &api.UsersHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 	snippetsH := &api.SnippetsHandler{DB: s.db, Log: s.log}
 	errorPagesH := &api.ErrorPageTemplatesHandler{DB: s.db, Log: s.log, Pusher: manager}
 	portalPagesH := &api.PortalPageTemplatesHandler{DB: s.db, Log: s.log, Pusher: manager}
@@ -378,7 +390,7 @@ func (s *Server) Start(ctx context.Context) error {
 		WebAuthn:  waInstance,
 	}
 
-	meH := &api.MeHandler{DB: s.db, Log: s.log}
+	meH := &api.MeHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 
 	// Routes publiques
 	mux.Handle("GET /api/v1/health", healthH)
@@ -418,7 +430,7 @@ func (s *Server) Start(ctx context.Context) error {
 		})))
 	}
 	adminOnly := func(h http.Handler) http.Handler { return protected(rbac.RequireAdmin(s.db)(h)) }
-	userTokensH := &api.UserTokensHandler{DB: s.db, Log: s.log}
+	userTokensH := &api.UserTokensHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 
 	// Routes proxies : lecture pour tous les authentifiés (filtrée par scope dans le handler),
 	// écriture/suppression vérifiées dans le handler selon le rôle.
