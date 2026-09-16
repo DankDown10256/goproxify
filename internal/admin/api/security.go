@@ -461,8 +461,17 @@ func (h *SecurityHandler) timeline(w http.ResponseWriter, r *http.Request) {
 		Domain    string `json:"domain,omitempty"`
 		Summary   string `json:"summary"`
 		Severity  string `json:"severity"`
+		Source    string `json:"source,omitempty"`
 	}
 	var events []event
+
+	banSourceLabel := map[string]string{
+		"fail2ban": "Fail2Ban",
+		"native":   "Natif",
+		"crowdsec": "CrowdSec",
+		"threat":   "Sentinel",
+		"agent":    "Agent",
+	}
 
 	if source == "" || source == "ban" || source == "all" {
 		rows, _ := h.DB.QueryContext(r.Context(),
@@ -472,8 +481,12 @@ func (h *SecurityHandler) timeline(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var ip, domain, src, reason, ts string
 				rows.Scan(&ip, &domain, &src, &reason, &ts) //nolint:errcheck
-				events = append(events, event{Type: "ban", IP: ip, Domain: domain, CreatedAt: ts,
-					Summary: src + ": " + ip + " banni — " + reason, Severity: "warning"})
+				label := banSourceLabel[src]
+				if label == "" {
+					label = src
+				}
+				events = append(events, event{Type: "ban", IP: ip, Domain: domain, CreatedAt: ts, Source: src,
+					Summary: label + ": " + ip + " banni — " + reason, Severity: "warning"})
 			}
 		}
 	}
