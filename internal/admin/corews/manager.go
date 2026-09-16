@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/api"
+	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/delegation"
 	"github.com/vincamok/goproxify/internal/admin/mailer"
@@ -52,7 +53,8 @@ type Manager struct {
 	hmacSecret string
 	db         *sql.DB
 	log        *slog.Logger
-	dataDir    string // basePath Admin pour fallback disque snippets/providers
+	dataDir    string           // basePath Admin pour fallback disque snippets/providers
+	archStore  *archstore.Store // référentiel architecture disque
 
 	settingsMu     sync.RWMutex
 	settings       Settings // derniers paramètres poussés (utilisés au full_sync)
@@ -74,6 +76,11 @@ func NewManager(hmacSecret string, db *sql.DB, log *slog.Logger) *Manager {
 // SetDataDir configure le répertoire de persistance disque pour snippets et auth providers.
 func (m *Manager) SetDataDir(dir string) {
 	m.dataDir = dir
+}
+
+// SetArchStore injecte le référentiel architecture.
+func (m *Manager) SetArchStore(s *archstore.Store) {
+	m.archStore = s
 }
 
 type coreTokenDisk struct {
@@ -114,6 +121,9 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 
 	if len(entries) == 0 {
 		m.restoreCoreTokensFromDisk(ctx)
+		if m.archStore != nil {
+			_ = m.archStore.LoadIntoDB(ctx, m.db)
+		}
 		// reload after restore
 		rows2, err2 := m.db.QueryContext(ctx,
 			`SELECT id, node_name, node_endpoint, COALESCE(rbac_role, 'admin')
@@ -132,6 +142,9 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 	} else {
 		// Persist current tokens to disk
 		m.saveCoreTokensToDisk(ctx)
+		if m.archStore != nil {
+			go func() { _ = m.archStore.SyncFromDB(ctx, m.db) }()
+		}
 	}
 
 	n := 0
@@ -341,6 +354,9 @@ func (m *Manager) ensureCoreToken(ctx context.Context, nodeName, endpoint string
 	if acc.TokenID != "" {
 		_, _ = m.db.ExecContext(ctx,
 			`UPDATE tokens SET node_endpoint=? WHERE id=?`, endpoint, acc.TokenID)
+		if m.archStore != nil {
+			_ = m.archStore.UpsertEndpoint(acc.TokenID, endpoint, acc.Role)
+		}
 		return acc.TokenID, acc.Role, nil
 	}
 	id = uuid.New().String()

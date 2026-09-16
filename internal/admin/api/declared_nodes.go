@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/backup"
 )
 
@@ -21,6 +22,7 @@ type DeclaredNodesHandler struct {
 	Log          *slog.Logger
 	CoreNodeName string // depuis admin.json identity.core_node_name ; sert de base déclarative
 	Scheduler    *backup.Scheduler
+	ArchStore    *archstore.Store // nil = pas de persistance disque
 }
 
 type declaredNode struct {
@@ -200,6 +202,13 @@ func (h *DeclaredNodesHandler) create(w http.ResponseWriter, r *http.Request) {
 	).Scan(&n.ID, &n.Role, &n.Name, &n.Region, &n.Environment, &cfgBack, &n.CreatedAt)
 	n.Config = json.RawMessage(cfgBack)
 
+	if h.ArchStore != nil {
+		_ = h.ArchStore.Upsert(archstore.NodeEntry{
+			ID: n.ID, Role: n.Role, Name: n.Name,
+			Region: n.Region, Environment: n.Environment, Config: cfgBack,
+		})
+	}
+
 	if existingID != "" {
 		jsonOK(w, n)
 		return
@@ -222,6 +231,9 @@ func (h *DeclaredNodesHandler) delete(w http.ResponseWriter, r *http.Request, id
 	if n == 0 {
 		writeErr(w, r, http.StatusNotFound, "api.err.node_not_found")
 		return
+	}
+	if h.ArchStore != nil {
+		_ = h.ArchStore.Delete(id)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

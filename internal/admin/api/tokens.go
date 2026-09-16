@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
+	"github.com/vincamok/goproxify/internal/admin/archstore"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 )
 
@@ -24,8 +25,9 @@ import (
 type TokensHandler struct {
 	DB            *sql.DB
 	Log           *slog.Logger
-	Cores         CoreConnector // optionnel — enregistre les Cores WS dès qu'un endpoint est fourni
-	Pusher        ScopePusher   // optionnel — re-pousse routes/certs après mutation de périmètre
+	Cores         CoreConnector    // optionnel — enregistre les Cores WS dès qu'un endpoint est fourni
+	Pusher        ScopePusher      // optionnel — re-pousse routes/certs après mutation de périmètre
+	ArchStore     *archstore.Store // optionnel — référentiel architecture disque
 	OnAgentRevoke func(agentID string) // optionnel — ferme la WS Agent sur les Cores
 }
 
@@ -190,6 +192,13 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 
 	if h.Cores != nil && req.Role == "core" && endpoint != "" {
 		h.Cores.Register(id, req.NodeName, endpoint, req.RBACRole)
+	}
+
+	if h.ArchStore != nil && req.Role == "core" {
+		_ = h.ArchStore.Upsert(archstore.NodeEntry{
+			ID: id, Role: "core", Name: req.NodeName,
+			Endpoint: endpoint, RBACRole: req.RBACRole,
+		})
 	}
 
 	actor := adminauth.UserIDFromContext(r.Context())
@@ -369,6 +378,9 @@ func (h *TokensHandler) addScope(w http.ResponseWriter, r *http.Request, tokenID
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "add_token_scope", "token:"+tokenID, req.ScopeType+":"+req.Value)
+	if h.ArchStore != nil {
+		_ = h.ArchStore.AddScope(tokenID, archstore.ScopeEntry{ID: id, Type: req.ScopeType, Value: req.Value})
+	}
 	h.resyncAfterScopeChange()
 	s := tokenScopeRow{ID: id, ScopeType: req.ScopeType, Value: req.Value}
 	w.Header().Set("Content-Type", "application/json")
@@ -390,6 +402,9 @@ func (h *TokensHandler) removeScope(w http.ResponseWriter, r *http.Request, toke
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "remove_token_scope", "token:"+tokenID, scopeID)
+	if h.ArchStore != nil {
+		_ = h.ArchStore.RemoveScope(tokenID, scopeID)
+	}
 	h.resyncAfterScopeChange()
 	w.WriteHeader(http.StatusNoContent)
 }

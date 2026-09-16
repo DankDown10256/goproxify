@@ -20,6 +20,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/alerting"
 	"github.com/vincamok/goproxify/internal/admin/analytics"
 	"github.com/vincamok/goproxify/internal/admin/api"
+	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/audit"
 	"github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/backup"
@@ -119,8 +120,12 @@ func (s *Server) Start(ctx context.Context) error {
 	// Manager WS Admin→Core — HMAC partagé via GPX_PAIRING_SECRET
 	hmacSecret := os.Getenv("GPX_PAIRING_SECRET")
 	manager := corews.NewManager(hmacSecret, s.db, s.log)
+	var archStore *archstore.Store
 	if s.cfg.Storage.BasePath != "" {
-		manager.SetDataDir(filepath.Join(s.cfg.Storage.BasePath, "state"))
+		stateDir := filepath.Join(s.cfg.Storage.BasePath, "state")
+		manager.SetDataDir(stateDir)
+		archStore = archstore.New(stateDir)
+		manager.SetArchStore(archStore)
 	}
 	s.wsManager = manager
 	manager.SetSettings(s.runtimeSettings())
@@ -172,6 +177,7 @@ func (s *Server) Start(ctx context.Context) error {
 	backupH := &api.BackupHandler{DB: s.db, Log: s.log, Scheduler: backupSched, Pusher: manager}
 	tokensH := &api.TokensHandler{
 		DB: s.db, Log: s.log, Cores: manager, Pusher: manager,
+		ArchStore: archStore,
 		OnAgentRevoke: func(agentID string) {
 			manager.BroadcastRevokeAgent(agentID)
 		},
@@ -218,7 +224,7 @@ func (s *Server) Start(ctx context.Context) error {
 	nodesH := &api.NodesHandler{DB: s.db, Log: s.log}
 	autoConfigurer := &api.AgentAutoConfigurer{DB: s.db, Log: s.log, Nodes: nodesH}
 	go autoConfigurer.Start(ctx)
-	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, CoreNodeName: s.cfg.Identity.CoreNodeName, Scheduler: backupSched}
+	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, CoreNodeName: s.cfg.Identity.CoreNodeName, Scheduler: backupSched, ArchStore: archStore}
 	bootstrapH := &api.BootstrapHandler{
 		DB:  s.db,
 		Log: s.log,
