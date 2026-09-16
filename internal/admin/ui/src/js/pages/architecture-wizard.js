@@ -620,7 +620,7 @@ function _archCanvasHTML() {
       ${_archCountsHTML()}
       <div class="arch-actionbar-btns">
         ${_arch.packs.length
-          ? `<button class="btn btn-ghost" onclick="_arch.step='handoff';_archRender()">${t('arch.back_handoff') || 'Voir les packs →'}</button>`
+          ? ''
           : `<button class="btn btn-ghost" onclick="closeArchWizard()">${t('common.cancel') || 'Annuler'}</button>`
         }
         <button class="btn btn-primary" onclick="_archGoHandoff()" ${err ? 'disabled' : ''}>${t('arch.continue')}</button>
