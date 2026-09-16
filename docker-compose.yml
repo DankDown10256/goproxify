@@ -173,7 +173,7 @@ services:
   # approuvé dans l'interface Admin (menu Agents).
   # ---------------------------------------------------------------------------
   goproxify-agent:
-    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/agent:${GOPROXIFY_AGENT_TAG:-0.3.47}
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/agent:${GOPROXIFY_AGENT_TAG:-0.3.48}
     container_name: goproxify-agent
     restart: unless-stopped
     command: ["agent"]
