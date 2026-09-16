@@ -78,7 +78,16 @@ func (h *DeclaredNodesHandler) list(w http.ResponseWriter, r *http.Request) {
 
 	// Compléter avec les nœuds dérivés des fichiers config (source de vérité déclarative).
 	// 1. Core principal déclaré dans admin.json (identity.core_node_name).
-	if h.CoreNodeName != "" && !inDB["core:"+h.CoreNodeName] {
+	// N'ajouter le Core env-var que si aucun Core n'est déjà déclaré en DB (évite doublon
+	// quand l'opérateur renomme le Core principal via le Wizard).
+	hasDBCore := false
+	for k := range inDB {
+		if len(k) > 5 && k[:5] == "core:" {
+			hasDBCore = true
+			break
+		}
+	}
+	if h.CoreNodeName != "" && !inDB["core:"+h.CoreNodeName] && !hasDBCore {
 		result = append(result, declaredNode{
 			ID:     "cfg:core:" + h.CoreNodeName,
 			Role:   "core",

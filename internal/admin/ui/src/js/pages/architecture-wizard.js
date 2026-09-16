@@ -1617,7 +1617,16 @@ function _archHandoffSetField(packIdx, role, field, value) {
   const p = _arch.packs[packIdx];
   if (!p) return;
   const svc = (p.services || []).find(s => s.type === role);
-  if (svc) svc[field] = value;
+  if (svc) {
+    // Mémoriser le nom original avant la première modification de nom
+    if (field === 'name' && role === 'core' && !p._prevCoreName && svc.name !== value) {
+      p._prevCoreName = svc.name;
+    }
+    if (field === 'name' && role === 'agent' && !p._prevAgentName && svc.name !== value) {
+      p._prevAgentName = svc.name;
+    }
+    svc[field] = value;
+  }
   // Sync aussi dans _arch.hosts pour cohérence toile ↔ handoff
   for (const h of _arch.hosts) {
     const hs = (h.services || []).find(s => s.type === role && (role === 'core'
@@ -1714,6 +1723,14 @@ async function _archHandoffSave(packIdx) {
         internet_exposed: !!(host && host.internet),
         auto_accept: true,
       };
+      // Supprimer l'ancienne entrée si le nom a changé (évite doublon)
+      if (p._prevCoreName && p._prevCoreName !== p.coreOpts.name) {
+        const old = (_arch.declaredNodes || []).find(n => n.role === 'core' && n.name === p._prevCoreName);
+        if (old && old.id && !old.id.startsWith('cfg:')) {
+          await api('DELETE', '/declared-nodes/' + old.id).catch(() => {});
+        }
+        p._prevCoreName = null;
+      }
       await api('POST', '/declared-nodes', { role: 'core', name: p.coreOpts.name, region: (host && host.region) || '', environment: '', config: cfg }).catch(() => {});
     }
   } catch {}
