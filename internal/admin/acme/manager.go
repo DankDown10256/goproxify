@@ -265,24 +265,76 @@ func (m *Manager) fulfillAllDNS01(ctx context.Context, client *xacme.Client, aut
 }
 
 func (m *Manager) renewExpiring(ctx context.Context) {
-	rows, err := m.db.QueryContext(ctx,
-		`SELECT domain FROM certs WHERE expires_at <= datetime('now', '+30 days') AND issuer='letsencrypt'`)
-	if err != nil {
-		m.log.Error("acme: lecture certs à renouveler", "err", err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var domain string
-		if err := rows.Scan(&domain); err != nil {
-			continue
-		}
+	domains := m.domainsToRenew(ctx)
+	for _, domain := range domains {
 		m.log.Info("acme: renouvellement", "domain", domain)
 		if err := m.ObtainCert(ctx, domain); err != nil {
 			m.log.Error("acme: renouvellement échoué", "domain", domain, "err", err)
 		}
 	}
+}
+
+// domainsToRenew retourne les domaines ACME expirant dans ≤ 30 jours.
+// Si la table DB est vide, utilise les fichiers disque comme source de vérité.
+func (m *Manager) domainsToRenew(ctx context.Context) []string {
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT domain FROM certs WHERE expires_at <= datetime('now', '+30 days') AND issuer='letsencrypt'`)
+	if err != nil {
+		m.log.Error("acme: lecture certs à renouveler", "err", err)
+		return m.domainsFromDisk(30 * 24 * time.Hour)
+	}
+	defer rows.Close()
+	var domains []string
+	for rows.Next() {
+		var domain string
+		if err := rows.Scan(&domain); err != nil {
+			continue
+		}
+		domains = append(domains, domain)
+	}
+	if len(domains) == 0 {
+		return m.domainsFromDisk(30 * 24 * time.Hour)
+	}
+	return domains
+}
+
+// domainsFromDisk retourne les domaines dont le cert disque expire dans threshold.
+func (m *Manager) domainsFromDisk(threshold time.Duration) []string {
+	if m.certDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(m.certDir)
+	if err != nil {
+		return nil
+	}
+	deadline := time.Now().Add(threshold)
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".crt") {
+			continue
+		}
+		certPEM, err := os.ReadFile(filepath.Join(m.certDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		if leaf.NotAfter.Before(deadline) {
+			base := strings.TrimSuffix(e.Name(), ".crt")
+			domain := strings.ReplaceAll(base, "_", "*")
+			out = append(out, domain)
+		}
+	}
+	if len(out) > 0 {
+		m.log.Info("acme: renouvellements depuis disque (DB vide)", "count", len(out))
+	}
+	return out
 }
 
 func (m *Manager) saveCertMeta(domain, issuer string, expiresAt time.Time, certPEM, keyPEM []byte) error {

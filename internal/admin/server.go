@@ -119,6 +119,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// Manager WS Admin→Core — HMAC partagé via GPX_PAIRING_SECRET
 	hmacSecret := os.Getenv("GPX_PAIRING_SECRET")
 	manager := corews.NewManager(hmacSecret, s.db, s.log)
+	if s.cfg.Storage.BasePath != "" {
+		manager.SetDataDir(filepath.Join(s.cfg.Storage.BasePath, "state"))
+	}
 	s.wsManager = manager
 	manager.SetSettings(s.runtimeSettings())
 	manager.ConnectFromEnv(ctx)

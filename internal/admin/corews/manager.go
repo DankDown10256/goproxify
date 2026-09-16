@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -51,6 +52,7 @@ type Manager struct {
 	hmacSecret string
 	db         *sql.DB
 	log        *slog.Logger
+	dataDir    string // basePath Admin pour fallback disque snippets/providers
 
 	settingsMu     sync.RWMutex
 	settings       Settings // derniers paramètres poussés (utilisés au full_sync)
@@ -67,6 +69,11 @@ func NewManager(hmacSecret string, db *sql.DB, log *slog.Logger) *Manager {
 		db:         db,
 		log:        log,
 	}
+}
+
+// SetDataDir configure le répertoire de persistance disque pour snippets et auth providers.
+func (m *Manager) SetDataDir(dir string) {
+	m.dataDir = dir
 }
 
 // LoadFromDB charge les Cores existants depuis la table tokens et crée un client WS pour chacun.
@@ -1135,7 +1142,7 @@ func (m *Manager) loadRoutes(ctx context.Context) ([]router.Route, error) {
 func (m *Manager) loadSnippets(ctx context.Context) ([]json.RawMessage, error) {
 	rows, err := m.db.QueryContext(ctx, `SELECT id, name, type, config FROM snippets`)
 	if err != nil {
-		return nil, err
+		return m.loadSnippetsFromDisk(), nil
 	}
 	defer rows.Close()
 	type snippet struct {
@@ -1155,10 +1162,18 @@ func (m *Manager) loadSnippets(ctx context.Context) ([]json.RawMessage, error) {
 		b, _ := json.Marshal(s)
 		list = append(list, b)
 	}
-	if list == nil {
-		list = []json.RawMessage{}
+	if len(list) == 0 {
+		if disk := m.loadSnippetsFromDisk(); len(disk) > 0 {
+			return disk, nil
+		}
+		return []json.RawMessage{}, nil
 	}
+	m.writeJSONFile("snippets.json", list)
 	return list, nil
+}
+
+func (m *Manager) loadSnippetsFromDisk() []json.RawMessage {
+	return m.readJSONArrayFile("snippets.json")
 }
 
 func (m *Manager) loadErrorPages(ctx context.Context) ([]errorpages.Template, error) {
@@ -1199,7 +1214,7 @@ func (m *Manager) loadErrorPages(ctx context.Context) ([]errorpages.Template, er
 func (m *Manager) loadAuthProviders(ctx context.Context) ([]json.RawMessage, error) {
 	rows, err := m.db.QueryContext(ctx, `SELECT id, name, provider, config FROM auth_providers WHERE enabled=1`)
 	if err != nil {
-		return []json.RawMessage{}, nil
+		return m.loadAuthProvidersFromDisk(), nil
 	}
 	defer rows.Close()
 	type provider struct {
@@ -1219,10 +1234,49 @@ func (m *Manager) loadAuthProviders(ctx context.Context) ([]json.RawMessage, err
 		b, _ := json.Marshal(pr)
 		list = append(list, b)
 	}
-	if list == nil {
-		list = []json.RawMessage{}
+	if len(list) == 0 {
+		if disk := m.loadAuthProvidersFromDisk(); len(disk) > 0 {
+			return disk, nil
+		}
+		return []json.RawMessage{}, nil
 	}
+	m.writeJSONFile("auth_providers.json", list)
 	return list, nil
+}
+
+func (m *Manager) loadAuthProvidersFromDisk() []json.RawMessage {
+	return m.readJSONArrayFile("auth_providers.json")
+}
+
+// writeJSONFile persiste une slice JSON dans dataDir/<filename>.
+func (m *Manager) writeJSONFile(filename string, v any) {
+	if m.dataDir == "" {
+		return
+	}
+	if err := os.MkdirAll(m.dataDir, 0o700); err != nil {
+		return
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(m.dataDir, filename), b, 0o600)
+}
+
+// readJSONArrayFile lit un fichier JSON de dataDir et retourne le tableau.
+func (m *Manager) readJSONArrayFile(filename string) []json.RawMessage {
+	if m.dataDir == "" {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(m.dataDir, filename))
+	if err != nil {
+		return nil
+	}
+	var list []json.RawMessage
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil
+	}
+	return list
 }
 
 func (m *Manager) loadIPProfiles(ctx context.Context) ([]json.RawMessage, error) {
