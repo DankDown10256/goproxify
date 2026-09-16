@@ -1611,6 +1611,162 @@ async function _archCreateTickets() {
   }
 }
 
+// ── Handoff : édition inline des paramètres sans regénérer les tickets ───────
+
+function _archHandoffSetField(packIdx, role, field, value) {
+  const p = _arch.packs[packIdx];
+  if (!p) return;
+  const svc = (p.services || []).find(s => s.type === role);
+  if (svc) svc[field] = value;
+  // Sync aussi dans _arch.hosts pour cohérence toile ↔ handoff
+  for (const h of _arch.hosts) {
+    const hs = (h.services || []).find(s => s.type === role && (role === 'core'
+      ? (p.coreOpts && s.name === p.coreOpts.name) || s.id === (svc && svc.id)
+      : (p.agentOpts && s.name === p.agentOpts.name) || s.id === (svc && svc.id)));
+    if (hs) hs[field] = value;
+  }
+}
+
+async function _archHandoffSave(packIdx) {
+  const p = _arch.packs[packIdx];
+  if (!p) return;
+  // Rebuild opts + textes pour ce pack uniquement
+  const host = _arch.hosts.find(h => h.id === p.hostId);
+  if (!host) return;
+  const cores = host.services.filter(s => s.type === 'core');
+  const agents = host.services.filter(s => s.type === 'agent');
+  const admins = host.services.filter(s => s.type === 'admin');
+  if (cores[0]) {
+    const c = cores[0];
+    const cGroup = _archGroupOfSvc(c.id);
+    const inHA = !!cGroup && cGroup.members.length >= 2;
+    const haLeader = inHA ? _archFindSvc(cGroup.members[0]) : null;
+    p.coreOpts = _buildCoreOpts({
+      wc_name: c.name,
+      wc_cluster: inHA,
+      wc_cluster_node_id: c.name,
+      wc_cluster_group: cGroup ? cGroup.id : 'ha-1',
+      wc_cluster_peers: inHA ? _archHAPeersCSV(c.id) : '',
+      wc_raft_leader: inHA && haLeader && haLeader.id !== c.id ? haLeader.name : '',
+      wc_portal: !!c.access,
+      wc_http3: false,
+    });
+  }
+  if (agents[0]) {
+    const a = agents[0];
+    const ep = _archResolveCoreEndpoint(host, a);
+    p.agentOpts = _buildAgentOpts({
+      wa_name: a.name,
+      wa_core_url: ep,
+      wa_core_container_name: cores[0] ? cores[0].name : '',
+      wa_region: (host.region || '').trim(),
+      wa_docker: !!a.docker && !a.podman,
+      wa_podman: !!a.podman,
+      wa_runtime: a.podman ? 'podman' : (a.docker ? 'docker' : ''),
+      wa_k8s: !!a.k8s,
+      wa_portainer: !!a.portainer,
+      wa_portainer_url: a.portainerUrl || '',
+      wa_portainer_key: a.portainerKey || '',
+      wa_placement: cores[0] ? 'colocated' : 'remote',
+    });
+  }
+  let adminOpts = null;
+  if (admins.length && p.coreOpts) {
+    adminOpts = _buildAdminOpts({
+      wa_core_name: p.coreOpts.name,
+      wa_jwt_secret: _arch.jwtSecret,
+      wa_admin_email: (admins[0].acmeEmail || '').trim() || 'admin@example.com',
+      wa_admin_password: 'CHANGE_ME',
+    });
+  }
+  if (p.coreOpts && p.agentOpts && adminOpts) {
+    p.composeText = _cfgComposeTextFullAdmin(p.coreOpts, p.agentOpts, adminOpts, 'env_file');
+    p.envText = _cfgEnvFileTextFull(p.coreOpts, p.agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
+    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(p.agentOpts) + '\n\n' + _cfgCliText(adminOpts);
+  } else if (p.coreOpts && p.agentOpts) {
+    p.composeText = _cfgComposeTextFull(p.coreOpts, p.agentOpts, 'env_file');
+    p.envText = _cfgEnvFileTextFull(p.coreOpts, p.agentOpts);
+    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(p.agentOpts);
+  } else if (p.coreOpts && adminOpts) {
+    p.composeText = _cfgComposeTextAdmin(p.coreOpts, adminOpts, 'env_file');
+    p.envText = [...p.coreOpts.envVars, ...adminOpts.envVars].map(({k,v}) => `${k}=${v}`).join('\n');
+    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(adminOpts);
+  } else if (p.coreOpts) {
+    p.composeText = _cfgComposeText(p.coreOpts, 'env_file');
+    p.envText = _cfgEnvFileText(p.coreOpts);
+    p.cliText = _cfgCliText(p.coreOpts);
+  } else if (p.agentOpts) {
+    p.composeText = _cfgComposeText(p.agentOpts, 'env_file');
+    p.envText = _cfgEnvFileText(p.agentOpts);
+    p.cliText = _cfgCliText(p.agentOpts);
+  }
+  try { localStorage.setItem('gpx_last_packs', JSON.stringify(_arch.packs)); } catch {}
+  // Persistance declared-nodes avec les nouvelles valeurs
+  try {
+    if (p.coreOpts) {
+      const c = cores[0];
+      const cfg = {
+        reachable_host: (c && c.reachable) || '',
+        docker: !!(c && c.docker), podman: !!(c && c.podman),
+        portal: !!(c && c.access),
+        cluster: _archInHA(c && c.id),
+        cluster_group: (() => { const g = _archGroupOfSvc(c && c.id); return g ? g.id : ''; })(),
+        internet_exposed: !!(host && host.internet),
+        auto_accept: true,
+      };
+      await api('POST', '/declared-nodes', { role: 'core', name: p.coreOpts.name, region: (host && host.region) || '', environment: '', config: cfg }).catch(() => {});
+    }
+  } catch {}
+  toast(t('common.saved') || 'Enregistré', 'success');
+  _archRender();
+}
+
+function _archHandoffShowConfig(packIdx) {
+  const p = _arch.packs[packIdx];
+  if (!p) return;
+  const tabs = [
+    { id: 'compose', label: 'docker-compose.yml', text: p.composeText || '' },
+    { id: 'env',     label: '.env',               text: p.envText || '' },
+    { id: 'cli',     label: 'CLI',                text: p.cliText || '' },
+  ].filter(tab => tab.text.trim());
+
+  const tabsHTML = tabs.map((tab, i) =>
+    `<button class="btn ${i === 0 ? 'btn-primary' : 'btn-ghost'} btn-sm" id="arch-cfg-tab-${i}"
+      onclick="_archHandoffSwitchTab(${packIdx},${i})">${esc(tab.label)}</button>`
+  ).join('');
+
+  const contentsHTML = tabs.map((tab, i) =>
+    `<div id="arch-cfg-body-${i}" style="${i !== 0 ? 'display:none;' : ''}position:relative;">
+      <button class="btn btn-ghost btn-sm" style="position:absolute;top:6px;right:6px;"
+        onclick="navigator.clipboard.writeText(${JSON.stringify(tab.text)}).then(()=>toast(t('common.copied')||'Copié','success'))">${t('dockerlbl.copy') || 'Copier'}</button>
+      <pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px 12px;font-size:11px;overflow:auto;max-height:400px;white-space:pre;tab-size:2;">${esc(tab.text)}</pre>
+    </div>`
+  ).join('');
+
+  const modalHTML = `<div id="arch-cfg-modal" style="position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);"
+    onclick="if(event.target===this)this.remove()">
+    <div style="background:var(--bg2,var(--surface));border:1px solid var(--border);border-radius:10px;padding:20px;width:min(720px,95vw);max-height:85vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px;" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <strong style="font-size:14px;">${esc(p.hostName)} — ${t('arch.show_config') || 'Configuration'}</strong>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('arch-cfg-modal').remove()">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${tabsHTML}</div>
+      ${contentsHTML}
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+window._archHandoffSwitchTab = function(packIdx, tabIdx) {
+  let i = 0;
+  while (document.getElementById('arch-cfg-body-' + i)) {
+    document.getElementById('arch-cfg-body-' + i).style.display = i === tabIdx ? '' : 'none';
+    const btn = document.getElementById('arch-cfg-tab-' + i);
+    if (btn) { btn.className = 'btn btn-sm ' + (i === tabIdx ? 'btn-primary' : 'btn-ghost'); }
+    i++;
+  }
+};
+
 function _archCopyBootstrap(i) {
   const p = _arch.packs[i];
   if (!p) return;
@@ -1637,6 +1793,29 @@ function _archHandoffHTML() {
     const roleChips = (p.services || []).map(s =>
       `<span class="arch-chip" style="--arch-accent:${_archRoleAccent(s.type)};">${esc(t(_ARCH_ROLES[s.type].label))} · ${esc(s.name)}</span>`
     ).join('');
+    const coreSvc = (p.services || []).find(s => s.type === 'core');
+    const agentSvc = (p.services || []).find(s => s.type === 'agent');
+    const paramFields = `
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+        ${coreSvc ? `
+        <div class="arch-field">
+          <span class="arch-field-label">${t('arch.role.name')} (Core)</span>
+          <input class="arch-input" value="${esc(coreSvc.name)}" oninput="_archHandoffSetField(${i},'core','name',this.value)">
+        </div>
+        <div class="arch-field">
+          <span class="arch-field-label">${t('arch.opt.reachable')}</span>
+          <input class="arch-input" value="${esc(coreSvc.reachable || '')}" placeholder="core.example.com" oninput="_archHandoffSetField(${i},'core','reachable',this.value)">
+        </div>` : ''}
+        ${agentSvc ? `
+        <div class="arch-field">
+          <span class="arch-field-label">${t('arch.role.name')} (Agent)</span>
+          <input class="arch-input" value="${esc(agentSvc.name)}" oninput="_archHandoffSetField(${i},'agent','name',this.value)">
+        </div>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        <button class="btn btn-primary btn-sm" onclick="_archHandoffSave(${i})">${t('common.save') || 'Enregistrer'}</button>
+        <button class="btn btn-secondary btn-sm" onclick="_archHandoffShowConfig(${i})">${t('arch.show_config') || 'Voir la configuration'}</button>
+      </div>`;
     return `
     <div class="arch-panel" style="margin-bottom:14px;">
       <div class="arch-panel-head" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
@@ -1645,6 +1824,7 @@ function _archHandoffHTML() {
         <span style="display:flex;gap:4px;flex-wrap:wrap;margin-left:auto;">${roleChips}</span>
       </div>
       <div class="arch-panel-body" style="gap:14px;">
+        ${paramFields}
         <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
           ${p.qrCode ? `<img src="${esc(p.qrCode)}" alt="QR" width="150" height="150" style="background:#fff;padding:8px;border:1px solid var(--border);">` : ''}
           <div style="flex:1;min-width:220px;">
@@ -1663,7 +1843,6 @@ function _archHandoffHTML() {
             <div class="arch-cap-desc" style="margin-top:8px;">${t('arch.qr_hint')}</div>
           </div>
         </div>
-        ${p.html || ''}
       </div>
     </div>`;
   }).join('');
