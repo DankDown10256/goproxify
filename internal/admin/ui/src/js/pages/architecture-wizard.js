@@ -498,6 +498,16 @@ async function _archSaveTopology() {
     }
   }
 
+  // Appliquer le portail Access sur les Cores en ligne
+  for (const { svc } of allSvcs) {
+    if (svc.type === 'core' && (svc.status === 'online') ) {
+      const coreName = svc.nodeName || svc.name;
+      const q = '?core=' + encodeURIComponent(coreName);
+      const existing = await api('GET', '/portal' + q).catch(() => ({}));
+      await api('PUT', '/portal' + q, { ...existing, enabled: !!svc.access }).catch(() => {});
+    }
+  }
+
   // Recharge declaredNodes pour refléter l'état persisté
   const fresh = await api('GET', '/declared-nodes').catch(() => null);
   if (fresh) { _arch.declaredNodes = fresh; _wiz.declaredNodes = fresh; }
@@ -953,11 +963,6 @@ function _archInspectRole(svc) {
       }</div>`)}`;
   }
 
-  const applyBtn = svc.type === 'core' && svc.status === 'online'
-    ? `<button class="btn btn-primary btn-sm" style="align-self:flex-start;"
-        onclick="_archApplyPortal('${esc(svc.nodeName || svc.name)}',${!!svc.access})">${t('arch.role.apply')}</button>`
-    : '';
-
   return `<div class="arch-panel" style="--arch-accent:${accent};">
     <div class="arch-insp-head">
       <div class="arch-insp-level">${t('arch.level.role')} · ${esc(t(_ARCH_ROLES[svc.type].label))}</div>
@@ -967,7 +972,6 @@ function _archInspectRole(svc) {
     <div class="arch-insp-body">
       ${body}
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        ${applyBtn}
         <button class="btn btn-ghost btn-sm" style="color:var(--red);"
           onclick="_archRemoveSvc('${host ? host.id : ''}','${svc.id}')">${t('arch.role.remove')}</button>
       </div>
