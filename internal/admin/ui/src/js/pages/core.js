@@ -547,26 +547,53 @@ pages['core-metrics'] = async function() {
     const core = state.selectedCore;
     const coreLabel = core?.display_name || core?.node_name || core?.id || '—';
 
-    let health = null;
-    if (core?.node_endpoint) {
-      health = await api('GET', `/nodes/${core.id}/health`).catch(() => null);
+    if (!core?.id) {
+      content.innerHTML = `<p style="color:var(--text2)">${t('common.no_core_selected')}</p>`;
+      return;
     }
 
-    const cpu = core?.cpu_pct ?? health?.cpu_pct ?? null;
-    const mem = core?.mem_pct ?? health?.mem_pct ?? null;
-    const rps = health?.requests_per_sec ?? null;
-    const latency = health?.latency_p95_ms ?? null;
-    const errRate = health?.error_rate_pct ?? null;
-    const bw = health?.bandwidth_mbps ?? null;
+    const m = await api('GET', `/nodes/${core.id}/metrics-summary`).catch(() => null);
 
-    const fmtNum = (v, suffix='') => v != null ? `${typeof v === 'number' ? v.toFixed(v < 10 ? 1 : 0) : v}${suffix}` : '—';
+    const fmtNum = (v, suffix='') => v != null && v !== undefined ? `${typeof v === 'number' ? (v < 10 ? v.toFixed(1) : v.toFixed(0)) : v}${suffix}` : '—';
+    const fmtMs = v => v != null ? `${v.toFixed(1)} ms` : '—';
+    const errRatePct = (m && m.requests_total > 0) ? ((m.errors_total / m.requests_total) * 100) : null;
+    const errRateStr = errRatePct != null ? fmtNum(errRatePct, '%') : '—';
 
-    const days = [
-      t('corepage.metrics.day_mon'), t('corepage.metrics.day_tue'), t('corepage.metrics.day_wed'),
-      t('corepage.metrics.day_thu'), t('corepage.metrics.day_fri'), t('corepage.metrics.day_sat'),
-      t('corepage.metrics.day_sun'),
-    ];
-    const fakeBars = days.map(d => ({ label: d, pct: Math.floor(30 + Math.random()*60) }));
+    const backendRows = (m?.backends || []).map(b => {
+      const errPct = b.requests > 0 ? ((b.errors / b.requests) * 100).toFixed(1) + '%' : '—';
+      const errClass = b.error_rate > 0.1 ? 'color:var(--red)' : b.error_rate > 0.01 ? 'color:var(--orange,#f59e0b)' : '';
+      return `<tr>
+        <td style="font-family:var(--font-mono,monospace);font-size:12px;">${esc(b.backend)}</td>
+        <td>${b.requests}</td>
+        <td style="${errClass}">${errPct}</td>
+        <td>${fmtMs(b.p95_ms)}</td>
+      </tr>`;
+    }).join('');
+
+    const DAY_WARN = 7 * 24 * 3600;
+    const certRows = (m?.certs || []).map(c => {
+      const days = Math.floor(c.exp_secs / 86400);
+      const warn = c.exp_secs < DAY_WARN;
+      const color = c.exp_secs <= 0 ? 'var(--red)' : warn ? 'var(--orange,#f59e0b)' : 'var(--green,#22c55e)';
+      const label = c.exp_secs <= 0 ? 'EXPIRED' : warn ? `${days}d` : `${days}d`;
+      return `<tr>
+        <td style="font-family:var(--font-mono,monospace);font-size:12px;">${esc(c.domain)}</td>
+        <td style="color:${color};font-weight:600;">${label}</td>
+      </tr>`;
+    }).join('');
+
+    const pipeline = m?.pipeline || [];
+    const maxPipelineCount = pipeline.reduce((acc, p) => Math.max(acc, p.count), 1);
+    const pipelineRows = pipeline.map(p => {
+      const pct = Math.round((p.count / maxPipelineCount) * 100);
+      return `<tr>
+        <td style="font-family:var(--font-mono,monospace);font-size:12px;">${esc(p.stage)}</td>
+        <td style="width:40%;">
+          <div style="background:var(--accent);opacity:0.8;height:14px;width:${pct}%;min-width:2px;border-radius:2px;"></div>
+        </td>
+        <td style="font-size:12px;opacity:0.8;text-align:right;">${p.count}</td>
+      </tr>`;
+    }).join('');
 
     content.innerHTML = `
       <div style="margin-bottom:20px">
@@ -576,50 +603,66 @@ pages['core-metrics'] = async function() {
       <div class="gp-stat-grid" style="margin-bottom:20px;">
         <div class="card blueprint">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <div class="card-kicker">${t('corepage.metrics.rps')}</div>
-          <div class="card-title">${fmtNum(rps)}</div>
-          <div class="card-meta">${t('corepage.metrics.rps_meta')}</div>
+          <div class="card-kicker">${t('corepage.metrics.latency_p95')}</div>
+          <div class="card-title">${fmtMs(m?.p95_ms)}</div>
+          <div class="card-meta">p50: ${fmtMs(m?.p50_ms)} · p99: ${fmtMs(m?.p99_ms)}</div>
         </div>
         <div class="card blueprint">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <div class="card-kicker">${t('corepage.metrics.latency_p95')}</div>
-          <div class="card-title">${latency != null ? fmtNum(latency,'ms') : '—'}</div>
+          <div class="card-kicker">TTFB p95</div>
+          <div class="card-title">${fmtMs(m?.backend_ttfb_p95_ms)}</div>
           <div class="card-meta">${t('corepage.metrics.latency_meta')}</div>
         </div>
         <div class="card blueprint">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div class="card-kicker">${t('corepage.metrics.error_rate')}</div>
-          <div class="card-title">${errRate != null ? fmtNum(errRate,'%') : '—'}</div>
-          <div class="card-meta">${t('corepage.metrics.error_meta')}</div>
+          <div class="card-title">${errRateStr}</div>
+          <div class="card-meta">${t('corepage.metrics.error_meta')} · ${fmtNum(m?.requests_total)} req</div>
         </div>
         <div class="card blueprint">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <div class="card-kicker">${t('corepage.metrics.cpu')}</div>
-          <div class="card-title">${fmtNum(cpu,'%')}</div>
-          <div class="card-meta">${t('corepage.metrics.memory', { pct: fmtNum(mem,'%') })}</div>
+          <div class="card-kicker">Active requests</div>
+          <div class="card-title">${fmtNum(m?.active_requests)}</div>
+          <div class="card-meta">${fmtNum(m?.routes_total)} routes</div>
         </div>
       </div>
+      ${backendRows ? `
       <div class="card blueprint" style="padding:20px;margin-bottom:16px;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <h6 style="margin:0 0 16px;">${t('corepage.metrics.activity_7d')}</h6>
-        <div style="display:flex;align-items:flex-end;gap:12px;height:140px;">
-          ${fakeBars.map(d => `
-          <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;height:100%;justify-content:flex-end;">
-            <div style="width:100%;max-width:36px;background:var(--accent);height:${d.pct}%;"></div>
-            <span style="font-size:11px;opacity:0.6;">${d.label}</span>
-          </div>`).join('')}
-        </div>
-      </div>
-      <div class="card blueprint" style="padding:20px;">
+        <h6 style="margin:0 0 12px;">Backends upstream</h6>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="opacity:0.55;text-align:left;">
+            <th style="padding:4px 8px 8px 0;">Backend</th>
+            <th style="padding:4px 8px 8px 0;">Requests</th>
+            <th style="padding:4px 8px 8px 0;">Error rate</th>
+            <th style="padding:4px 8px 8px 0;">p95 latency</th>
+          </tr></thead>
+          <tbody>${backendRows}</tbody>
+        </table>
+      </div>` : ''}
+      ${certRows ? `
+      <div class="card blueprint" style="padding:20px;margin-bottom:16px;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <h6 style="margin:0;">${t('corepage.metrics.prometheus_title')}</h6>
-          <span class="tag tag-accent">${t('trafic.active')}</span>
-        </div>
-        <p style="margin:0;font-size:13px;opacity:0.7;">
-          ${t('corepage.metrics.prometheus_desc')}
-        </p>
-      </div>`;
+        <h6 style="margin:0 0 12px;">TLS certificates</h6>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="opacity:0.55;text-align:left;">
+            <th style="padding:4px 8px 8px 0;">Domain</th>
+            <th style="padding:4px 8px 8px 0;">Expiry</th>
+          </tr></thead>
+          <tbody>${certRows}</tbody>
+        </table>
+      </div>` : ''}
+      ${pipelineRows ? `
+      <div class="card blueprint" style="padding:20px;margin-bottom:16px;">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <h6 style="margin:0 0 12px;">Security pipeline blocks</h6>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <tbody>${pipelineRows}</tbody>
+        </table>
+      </div>` : ''}
+      ${!m ? `<div class="card blueprint" style="padding:20px;"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <p style="margin:0;font-size:13px;opacity:0.7;">${t('corepage.metrics.prometheus_desc')}</p>
+      </div>` : ''}`;
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
 

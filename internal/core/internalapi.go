@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
@@ -65,6 +67,7 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("GET /internal/v1/lb/scores", s.handleLBScores)
 	mux.HandleFunc("GET /internal/v1/health", s.handleInternalHealth)
 	mux.HandleFunc("GET /internal/v1/backends/health", s.handleBackendsHealth)
+	mux.HandleFunc("GET /internal/v1/metrics/summary", s.handleMetricsSummary)
 
 	// Endpoints Agent → Core
 	mux.HandleFunc("POST /internal/v1/agent/heartbeat", s.handleAgentHeartbeat)
@@ -635,6 +638,222 @@ func (s *Server) ensurePortalPublicRoute() {
 		Backends:   []router.Backend{{URL: backend, Weight: 1}},
 	})
 	s.log.Info("portal: route HTTPS publique", "host", host, "backend", backend)
+}
+
+// handleMetricsSummary retourne un résumé JSON des métriques Prometheus clés.
+// Utilisé par l'UI admin pour la page core-metrics (pas de parsing text/prometheus côté client).
+func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
+	mfs, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		http.Error(w, "gather error", http.StatusInternalServerError)
+		return
+	}
+
+	// Index name → MetricFamily pour lookup O(1)
+	idx := make(map[string]*dto.MetricFamily, len(mfs))
+	for _, mf := range mfs {
+		idx[mf.GetName()] = mf
+	}
+
+	getGauge := func(name string, labels map[string]string) float64 {
+		mf, ok := idx[name]
+		if !ok {
+			return 0
+		}
+		for _, m := range mf.GetMetric() {
+			if matchLabels(m.GetLabel(), labels) {
+				return m.GetGauge().GetValue()
+			}
+		}
+		return 0
+	}
+
+	sumCounter := func(name string, filterLabel, filterVal string) float64 {
+		mf, ok := idx[name]
+		if !ok {
+			return 0
+		}
+		var total float64
+		for _, m := range mf.GetMetric() {
+			if filterLabel == "" || labelVal(m.GetLabel(), filterLabel) == filterVal {
+				total += m.GetCounter().GetValue()
+			}
+		}
+		return total
+	}
+
+	// Histogramme p50/p95/p99 agrégé sur tous les hosts/backends
+	quantile := func(name string, q float64) float64 {
+		mf, ok := idx[name]
+		if !ok {
+			return 0
+		}
+		var sumCount, sumSum float64
+		buckets := map[float64]float64{}
+		for _, m := range mf.GetMetric() {
+			h := m.GetHistogram()
+			sumSum += h.GetSampleSum()
+			sumCount += float64(h.GetSampleCount())
+			for _, b := range h.GetBucket() {
+				buckets[b.GetUpperBound()] += float64(b.GetCumulativeCount())
+			}
+		}
+		if sumCount == 0 {
+			return 0
+		}
+		target := q * sumCount
+		var prevBound, prevCount float64
+		for _, bound := range sortedBounds(buckets) {
+			count := buckets[bound]
+			if count >= target {
+				if count == prevCount {
+					return bound
+				}
+				return prevBound + (bound-prevBound)*(target-prevCount)/(count-prevCount)
+			}
+			prevBound, prevCount = bound, count
+		}
+		return sumSum / sumCount
+	}
+
+	// Backends uniques avec leur taux d'erreur
+	type backendStat struct {
+		Backend   string  `json:"backend"`
+		Requests  float64 `json:"requests"`
+		Errors    float64 `json:"errors"`
+		ErrorRate float64 `json:"error_rate"`
+		P95ms     float64 `json:"p95_ms"`
+	}
+	backendMap := map[string]*backendStat{}
+	if mf, ok := idx["gpx_backend_requests_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			b := labelVal(m.GetLabel(), "backend")
+			if b == "" {
+				continue
+			}
+			if _, exists := backendMap[b]; !exists {
+				backendMap[b] = &backendStat{Backend: b}
+			}
+			backendMap[b].Requests += m.GetCounter().GetValue()
+			if st := labelVal(m.GetLabel(), "status"); len(st) > 0 && st[0] == '5' {
+				backendMap[b].Errors += m.GetCounter().GetValue()
+			}
+		}
+	}
+	if mf, ok := idx["gpx_backend_duration_seconds"]; ok {
+		p95ByBackend := map[string]struct{ sum, count float64 }{}
+		for _, m := range mf.GetMetric() {
+			b := labelVal(m.GetLabel(), "backend")
+			if b == "" {
+				continue
+			}
+			h := m.GetHistogram()
+			e := p95ByBackend[b]
+			e.sum += h.GetSampleSum()
+			e.count += float64(h.GetSampleCount())
+			p95ByBackend[b] = e
+		}
+		for b, e := range p95ByBackend {
+			if bs, ok := backendMap[b]; ok && e.count > 0 {
+				bs.P95ms = (e.sum / e.count) * 1000
+			}
+		}
+	}
+	backends := make([]backendStat, 0, len(backendMap))
+	for _, bs := range backendMap {
+		if bs.Requests > 0 {
+			bs.ErrorRate = bs.Errors / bs.Requests * 100
+		}
+		backends = append(backends, *bs)
+	}
+
+	// Certs expiry (secondes restantes)
+	type certStat struct {
+		Domain  string  `json:"domain"`
+		ExpSecs float64 `json:"exp_secs"`
+	}
+	var certs []certStat
+	if mf, ok := idx["gpx_tls_cert_expiry_seconds"]; ok {
+		for _, m := range mf.GetMetric() {
+			domain := labelVal(m.GetLabel(), "domain")
+			certs = append(certs, certStat{Domain: domain, ExpSecs: m.GetGauge().GetValue()})
+		}
+	}
+
+	// Pipeline blocks par stage
+	type pipelineStat struct {
+		Stage  string  `json:"stage"`
+		Count  float64 `json:"count"`
+	}
+	stageMap := map[string]float64{}
+	if mf, ok := idx["gpx_pipeline_blocked_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			stage := labelVal(m.GetLabel(), "stage")
+			stageMap[stage] += m.GetCounter().GetValue()
+		}
+	}
+	var pipeline []pipelineStat
+	for stage, count := range stageMap {
+		pipeline = append(pipeline, pipelineStat{Stage: stage, Count: count})
+	}
+
+	summary := map[string]any{
+		"active_requests":    getGauge("gpx_core_active_requests", nil),
+		"routes_total":       getGauge("gpx_core_routes_total", nil),
+		"requests_total":     sumCounter("gpx_core_requests_total", "", ""),
+		"errors_total":       sumCounter("gpx_core_requests_total", "status", "5xx"),
+		"p50_ms":             quantile("gpx_core_request_duration_seconds", 0.5) * 1000,
+		"p95_ms":             quantile("gpx_core_request_duration_seconds", 0.95) * 1000,
+		"p99_ms":             quantile("gpx_core_request_duration_seconds", 0.99) * 1000,
+		"backend_ttfb_p95_ms": quantile("gpx_backend_ttfb_seconds", 0.95) * 1000,
+		"bytes_in":           sumCounter("gpx_core_bytes_received_total", "", ""),
+		"bytes_out":          sumCounter("gpx_core_bytes_sent_total", "", ""),
+		"backends":           backends,
+		"certs":              certs,
+		"pipeline":           pipeline,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(summary) //nolint:errcheck
+}
+
+func matchLabels(pairs []*dto.LabelPair, want map[string]string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		m[p.GetName()] = p.GetValue()
+	}
+	for k, v := range want {
+		if m[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+func labelVal(pairs []*dto.LabelPair, name string) string {
+	for _, p := range pairs {
+		if p.GetName() == name {
+			return p.GetValue()
+		}
+	}
+	return ""
+}
+
+func sortedBounds(m map[float64]float64) []float64 {
+	keys := make([]float64, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	// tri insertion simple (< 20 éléments)
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
+			keys[j], keys[j-1] = keys[j-1], keys[j]
+		}
+	}
+	return keys
 }
 
 // handlePushClusterPeers reçoit la topologie Raft poussée par Admin.

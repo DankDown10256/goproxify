@@ -82,6 +82,8 @@ func (h *NodesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.metaValues(w, r, "environment")
 	case r.Method == http.MethodGet && id != "" && action == "":
 		h.get(w, r, id)
+	case r.Method == http.MethodGet && id != "" && action == "metrics-summary":
+		h.metricsSummary(w, r, id)
 	case r.Method == http.MethodPatch && id != "" && action == "":
 		h.patch(w, r, id)
 	case r.Method == http.MethodPost && id != "" && action == "accept":
