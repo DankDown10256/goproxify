@@ -615,7 +615,10 @@ function _archCanvasHTML() {
     <div class="arch-actionbar">
       ${_archCountsHTML()}
       <div class="arch-actionbar-btns">
-        <button class="btn btn-ghost" onclick="closeArchWizard()">${t('common.cancel') || 'Annuler'}</button>
+        ${_arch.packs.length
+          ? `<button class="btn btn-ghost" onclick="_arch.step='handoff';_archRender()">${t('arch.back_handoff') || 'Voir les packs →'}</button>`
+          : `<button class="btn btn-ghost" onclick="closeArchWizard()">${t('common.cancel') || 'Annuler'}</button>`
+        }
         <button class="btn btn-primary" onclick="_archGoHandoff()" ${err ? 'disabled' : ''}>${t('arch.continue')}</button>
       </div>
     </div>
@@ -1877,7 +1880,7 @@ function _archHandoffHTML() {
         <h2 style="font-family:var(--font-heading);font-size:20px;font-weight:700;margin:0;letter-spacing:-.01em;">${t('arch.handoff_title')}</h2>
         <p style="font-size:12.5px;color:var(--text2);margin-top:5px;max-width:52rem;line-height:1.5;">${t('arch.handoff_sub')}</p>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="try{localStorage.removeItem('gpx_last_packs')}catch{};_arch.step='canvas';_archRender()">${t('arch.back_canvas')}</button>
+      <button class="btn btn-ghost btn-sm" onclick="_arch.step='canvas';_archRender()">${t('arch.edit_topology') || 'Modifier la topologie'}</button>
     </div>
 
     ${inetBanner}
@@ -1901,8 +1904,8 @@ function _archHandoffHTML() {
     <div class="arch-actionbar">
       <div class="arch-summary"><span>${t('arch.handoff_packs', { n: _arch.packs.length })}</span></div>
       <div class="arch-actionbar-btns">
-        <button class="btn btn-ghost" onclick="try{localStorage.removeItem('gpx_last_packs')}catch{};_arch.step='canvas';_archRender()">${t('arch.back_canvas')}</button>
-        <button class="btn btn-primary" onclick="try{localStorage.removeItem('gpx_last_packs')}catch{}navigate('infrastructure')">${t('arch.done')}</button>
+        <button class="btn btn-ghost" onclick="_arch.step='canvas';_archRender()">${t('arch.edit_topology') || 'Modifier la topologie'}</button>
+        <button class="btn btn-primary" onclick="navigate('infrastructure')">${t('arch.done')}</button>
       </div>
     </div>
   </div>`;
