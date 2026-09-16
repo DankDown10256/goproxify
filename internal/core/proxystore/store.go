@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -32,6 +33,9 @@ var (
 // Store persists proxy envelopes as flat JSON files under a Core data root.
 type Store struct {
 	basePath string
+
+	idMu    sync.RWMutex
+	idIndex map[string]string // id → absolute path ; nil = non encore construit
 }
 
 // New creates a Store rooted at basePath (typically /etc/goproxify).
@@ -183,6 +187,11 @@ func (s *Store) WriteProd(env *Envelope) error {
 			_ = os.Remove(strings.TrimSuffix(legacy, ".yaml") + ".json")
 		}
 	}
+	s.idMu.Lock()
+	if s.idIndex != nil {
+		s.idIndex[cp.ID] = path
+	}
+	s.idMu.Unlock()
 	return nil
 }
 
@@ -222,18 +231,68 @@ func (s *Store) ReadProdByHostID(host, id string) (*Envelope, error) {
 	return readEnvelope(s.ProdPath(host, id))
 }
 
-// ReadProdByID scans production files for a matching id.
+// ReadProdByID retourne l'envelope de production pour l'id donné.
+// L'index id→path est construit paresseusement au premier appel puis maintenu
+// par WriteProd et DeleteProdByID.
 func (s *Store) ReadProdByID(id string) (*Envelope, error) {
-	list, err := s.ListProd()
+	path, ok := s.lookupIDIndex(id)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	env, err := readEnvelope(path)
+	if errors.Is(err, ErrNotFound) {
+		// Le fichier a disparu entre-temps (suppression externe) ; invalider l'index.
+		s.idMu.Lock()
+		s.idIndex = nil
+		s.idMu.Unlock()
+	}
+	return env, err
+}
+
+// lookupIDIndex retourne le chemin absolu du fichier pour l'id donné.
+// Construit l'index à partir du disque si besoin.
+func (s *Store) lookupIDIndex(id string) (string, bool) {
+	s.idMu.RLock()
+	path, ok := s.idIndex[id]
+	s.idMu.RUnlock()
+	if ok {
+		return path, true
+	}
+
+	s.idMu.Lock()
+	defer s.idMu.Unlock()
+	// Double-check après acquisition du verrou exclusif.
+	if path, ok = s.idIndex[id]; ok {
+		return path, true
+	}
+	if s.idIndex == nil {
+		s.idIndex = s.buildIDIndex()
+	}
+	path, ok = s.idIndex[id]
+	return path, ok
+}
+
+// buildIDIndex lit le répertoire prod et construit la map id→path.
+// Doit être appelé avec s.idMu verrouillé en écriture.
+func (s *Store) buildIDIndex() map[string]string {
+	entries, err := os.ReadDir(s.ProdDir())
 	if err != nil {
-		return nil, err
+		return map[string]string{}
 	}
-	for _, e := range list {
-		if e.ID == id {
-			return e, nil
+	idx := make(map[string]string, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || (!strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".json")) {
+			continue
 		}
+		path := filepath.Join(s.ProdDir(), name)
+		env, err := readEnvelope(path)
+		if err != nil || env.ID == "" {
+			continue
+		}
+		idx[env.ID] = path
 	}
-	return nil, ErrNotFound
+	return idx
 }
 
 // ReadRevision reads a revision by proxy id and revision id.
@@ -288,6 +347,11 @@ func (s *Store) DeleteProdByID(id string) error {
 	if lastErr != nil {
 		return lastErr
 	}
+	s.idMu.Lock()
+	if s.idIndex != nil {
+		delete(s.idIndex, id)
+	}
+	s.idMu.Unlock()
 	if err1 != nil && errors.Is(err1, ErrNotFound) {
 		return ErrNotFound
 	}

@@ -154,6 +154,10 @@ func applyHTTPVersion(t *http.Transport, ver string) {
 	}
 }
 
+// maxSNITransports borne la map bySNI pour éviter la fuite mémoire en multi-tenant.
+// Au-delà du cap, le transport est construit correctement mais non mis en cache.
+const maxSNITransports = 512
+
 // hostSNITransport force le SNI TLS = Host HTTP (vhost), pas le hostname de l'URL.
 type hostSNITransport struct {
 	base  *http.Transport
@@ -195,7 +199,9 @@ func (t *hostSNITransport) transportForSNI(sni string) *http.Transport {
 	}
 	cfg.ServerName = sni
 	tr.TLSClientConfig = cfg
-	t.bySNI[sni] = tr
+	if len(t.bySNI) < maxSNITransports {
+		t.bySNI[sni] = tr
+	}
 	return tr
 }
 
@@ -318,19 +324,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shadow mirror : cloner le body sur la goroutine requête avant le miroir (revue P1 #9).
-	if h.route.Shadow != nil && h.route.Shadow.Backend != "" {
-		var bodyBytes []byte
-		if r.Body != nil {
-			bodyBytes, _ = io.ReadAll(r.Body)
-			_ = r.Body.Close()
-			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			r.ContentLength = int64(len(bodyBytes))
-			r.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-			}
-		}
-		go h.fireShadow(r.Method, r.URL.RequestURI(), r.Host, r.Header.Clone(), append([]byte(nil), bodyBytes...))
+	// Shadow mirror : le body est pipé en parallèle vers le backend primaire et le miroir.
+	// Un pipe évite de bloquer la goroutine requête sur io.ReadAll avant que le primaire commence.
+	// GetBody est mis à nil : les retries ne peuvent pas rejouer le body (trade-off acceptable
+	// pour une feature de test/observation).
+	if h.route.Shadow != nil && h.route.Shadow.Backend != "" && r.Body != nil {
+		var shadowBuf bytes.Buffer
+		pr, pw := io.Pipe()
+		origBody := r.Body
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = io.Copy(io.MultiWriter(pw, &shadowBuf), origBody)
+			_ = origBody.Close()
+			pw.Close()
+		}()
+		r.Body = io.NopCloser(pr)
+		r.GetBody = nil
+		method, uri, host, hdr := r.Method, r.URL.RequestURI(), r.Host, r.Header.Clone()
+		defer func() {
+			_, _ = io.Copy(io.Discard, pr) // purge si le primaire n'a pas lu le body en entier
+			<-done
+			go h.fireShadow(method, uri, host, hdr, shadowBuf.Bytes())
+		}()
 	}
 
 	// Routage conditionnel : si une condition correspond, court-circuit vers le backend dédié
