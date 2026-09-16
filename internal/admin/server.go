@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,6 +162,9 @@ func (s *Server) Start(ctx context.Context) error {
 	})
 
 	backupSched := backup.New(s.db, s.log)
+	if s.cfg.Storage.BasePath != "" {
+		backupSched.SetSnapDir(filepath.Join(s.cfg.Storage.BasePath, "backups"))
+	}
 	proxiesH := &api.ProxiesHandler{DB: s.db, Log: s.log, Pusher: manager, Versioner: backupSched}
 	backupH := &api.BackupHandler{DB: s.db, Log: s.log, Scheduler: backupSched, Pusher: manager}
 	tokensH := &api.TokensHandler{
@@ -201,6 +205,10 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 		mgr := acme.New(s.db, s.log, manager, provider, s.cfg.ACME.Email)
 		mgr.DirectoryURL = s.cfg.ACME.DirectoryURL
+		if s.cfg.Storage.BasePath != "" {
+			mgr.SetCertDir(filepath.Join(s.cfg.Storage.BasePath, "certs"))
+		}
+		mgr.LoadCertsFromDisk(ctx)
 		acmeMgr = mgr
 	}
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}

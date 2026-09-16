@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -85,10 +87,11 @@ type Snapshot struct {
 
 // Scheduler orchestre les sauvegardes planifiées.
 type Scheduler struct {
-	db   *sql.DB
-	log  *slog.Logger
-	mu   sync.Mutex
-	wake chan struct{}
+	db      *sql.DB
+	log     *slog.Logger
+	mu      sync.Mutex
+	wake    chan struct{}
+	snapDir string // répertoire de persistance des snapshots sur disque
 }
 
 // New crée un Scheduler.
@@ -98,6 +101,11 @@ func New(db *sql.DB, log *slog.Logger) *Scheduler {
 		log:  log,
 		wake: make(chan struct{}, 1),
 	}
+}
+
+// SetSnapDir configure le répertoire de persistance des snapshots sur disque.
+func (s *Scheduler) SetSnapDir(dir string) {
+	s.snapDir = dir
 }
 
 // Start lance la boucle de planification en arrière-plan.
@@ -507,8 +515,32 @@ func (s *Scheduler) TakeSnapshot(name string, scheduleID string, retention int) 
 		s.pruneSchedule(scheduleID, retention)
 	}
 
+	s.writeSnapFile(id, name, data)
 	s.log.Info("backup: snapshot créé", "id", id, "name", name, "bytes", len(data), "schedule_id", scheduleID)
 	return nil
+}
+
+// writeSnapFile persiste le snapshot chiffré dans snapDir/<id>.snap.
+func (s *Scheduler) writeSnapFile(id, name string, data []byte) {
+	if s.snapDir == "" {
+		return
+	}
+	if err := os.MkdirAll(s.snapDir, 0o700); err != nil {
+		s.log.Warn("backup: création snapDir", "err", err)
+		return
+	}
+	// Fichier : <timestamp>_<name-sanitized>_<id>.snap
+	ts := time.Now().UTC().Format("20060102T150405Z")
+	safe := strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, name)
+	fname := ts + "_" + safe + "_" + id + ".snap"
+	if err := os.WriteFile(filepath.Join(s.snapDir, fname), data, 0o600); err != nil {
+		s.log.Warn("backup: écriture snapshot disque", "id", id, "err", err)
+	}
 }
 
 func (s *Scheduler) pruneSchedule(scheduleID string, keep int) {
@@ -525,11 +557,12 @@ func (s *Scheduler) pruneSchedule(scheduleID string, keep int) {
 }
 
 // ListSnapshots retourne la liste des snapshots (sans les données).
+// Si la DB est vide, lit les fichiers .snap depuis snapDir.
 func (s *Scheduler) ListSnapshots() []Snapshot {
 	rows, err := s.db.Query(
 		`SELECT id, name, COALESCE(schedule_id,''), size, created_at FROM backup_snapshots ORDER BY created_at DESC`)
 	if err != nil {
-		return nil
+		return s.listSnapshotsFromDisk()
 	}
 	defer rows.Close()
 	var out []Snapshot
@@ -545,40 +578,127 @@ func (s *Scheduler) ListSnapshots() []Snapshot {
 		}
 		out = append(out, snap)
 	}
+	if len(out) == 0 {
+		if disk := s.listSnapshotsFromDisk(); len(disk) > 0 {
+			return disk
+		}
+	}
 	if out == nil {
 		out = []Snapshot{}
 	}
 	return out
 }
 
+// listSnapshotsFromDisk lit les fichiers .snap présents dans snapDir.
+func (s *Scheduler) listSnapshotsFromDisk() []Snapshot {
+	if s.snapDir == "" {
+		return []Snapshot{}
+	}
+	entries, err := os.ReadDir(s.snapDir)
+	if err != nil {
+		return []Snapshot{}
+	}
+	var out []Snapshot
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".snap") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		// Format : <ts>_<name>_<id>.snap
+		parts := strings.SplitN(strings.TrimSuffix(e.Name(), ".snap"), "_", 3)
+		id := e.Name()
+		name := e.Name()
+		var createdAt time.Time
+		if len(parts) == 3 {
+			id = parts[2]
+			name = strings.ReplaceAll(parts[1], "_", " ")
+			createdAt, _ = time.Parse("20060102T150405Z", parts[0])
+		}
+		out = append(out, Snapshot{
+			ID:        id,
+			Name:      name,
+			SizeBytes: info.Size(),
+			CreatedAt: createdAt,
+		})
+	}
+	return out
+}
+
 // GetSnapshotData retourne le JSON brut d'un snapshot (déchiffré si besoin).
+// Cherche dans la DB d'abord, puis dans snapDir.
 func (s *Scheduler) GetSnapshotData(id string) ([]byte, string, error) {
 	var data, name string
 	err := s.db.QueryRow(`SELECT data, name FROM backup_snapshots WHERE id=?`, id).Scan(&data, &name)
-	if err == sql.ErrNoRows {
-		return nil, "", fmt.Errorf("snapshot introuvable")
+	if err == nil {
+		plain, err := openSnapshot([]byte(data))
+		if err != nil {
+			return nil, "", err
+		}
+		return plain, name, nil
 	}
-	if err != nil {
-		return nil, "", err
+	// Fallback : chercher dans snapDir
+	if s.snapDir != "" {
+		entries, _ := os.ReadDir(s.snapDir)
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), id+".snap") {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(s.snapDir, e.Name()))
+			if err != nil {
+				return nil, "", err
+			}
+			plain, err := openSnapshot(raw)
+			if err != nil {
+				return nil, "", err
+			}
+			parts := strings.SplitN(strings.TrimSuffix(e.Name(), ".snap"), "_", 3)
+			snapName := e.Name()
+			if len(parts) == 3 {
+				snapName = strings.ReplaceAll(parts[1], "_", " ")
+			}
+			return plain, snapName, nil
+		}
 	}
-	plain, err := openSnapshot([]byte(data))
-	if err != nil {
-		return nil, "", err
-	}
-	return plain, name, nil
+	return nil, "", fmt.Errorf("snapshot introuvable")
 }
 
-// DeleteSnapshot supprime un snapshot.
+// DeleteSnapshot supprime un snapshot (DB + fichier disque).
 func (s *Scheduler) DeleteSnapshot(id string) error {
 	res, err := s.db.Exec(`DELETE FROM backup_snapshots WHERE id=?`, id)
-	if err != nil {
-		return err
+	if err == nil {
+		n, _ := res.RowsAffected()
+		if n > 0 {
+			s.deleteSnapFile(id)
+			return nil
+		}
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("snapshot introuvable")
+	// Chercher dans snapDir si absent de la DB
+	if s.snapDir != "" {
+		entries, _ := os.ReadDir(s.snapDir)
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), id+".snap") {
+				_ = os.Remove(filepath.Join(s.snapDir, e.Name()))
+				return nil
+			}
+		}
 	}
-	return nil
+	return fmt.Errorf("snapshot introuvable")
+}
+
+func (s *Scheduler) deleteSnapFile(id string) {
+	if s.snapDir == "" {
+		return
+	}
+	entries, _ := os.ReadDir(s.snapDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), id+".snap") {
+			_ = os.Remove(filepath.Join(s.snapDir, e.Name()))
+			return
+		}
+	}
 }
 
 // ── Proxy history ─────────────────────────────────────────────────────────────

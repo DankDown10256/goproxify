@@ -15,6 +15,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,6 +37,7 @@ type Manager struct {
 	pusher   CertPusher
 	provider DNSProvider
 	email    string
+	certDir  string // répertoire de persistance des PEM sur disque (fallback DB)
 	// DirectoryURL vide → Let's Encrypt production.
 	DirectoryURL string
 }
@@ -42,6 +45,12 @@ type Manager struct {
 // New crée un Manager ACME.
 func New(db *sql.DB, log *slog.Logger, pusher CertPusher, provider DNSProvider, email string) *Manager {
 	return &Manager{db: db, log: log, pusher: pusher, provider: provider, email: email}
+}
+
+// SetCertDir configure le répertoire de persistance des certificats sur disque.
+// Doit être appelé avant Start.
+func (m *Manager) SetCertDir(dir string) {
+	m.certDir = dir
 }
 
 // Start lance la goroutine de renouvellement automatique.
@@ -289,12 +298,84 @@ func (m *Manager) saveCertMeta(domain, issuer string, expiresAt time.Time, certP
 	if err != nil {
 		return err
 	}
-	// Uniquement le domaine dont le nom ACME correspond (ne pas marquer apex + wildcard d'un seul coup).
 	_, _ = m.db.Exec(
 		`UPDATE domains SET cert_expires_at=?, updated_at=CURRENT_TIMESTAMP WHERE domain=?`,
 		expiresAt, domain,
 	)
+	m.writeCertFiles(domain, certPEM, keyPEM)
 	return nil
+}
+
+// writeCertFiles persiste certPEM et keyPEM dans certDir/<domain>.{crt,key}.
+func (m *Manager) writeCertFiles(domain string, certPEM, keyPEM []byte) {
+	if m.certDir == "" {
+		return
+	}
+	if err := os.MkdirAll(m.certDir, 0o700); err != nil {
+		m.log.Warn("acme: création certDir", "err", err)
+		return
+	}
+	safe := strings.ReplaceAll(domain, "*", "_")
+	if err := os.WriteFile(filepath.Join(m.certDir, safe+".crt"), certPEM, 0o600); err != nil {
+		m.log.Warn("acme: écriture cert disque", "domain", domain, "err", err)
+	}
+	if err := os.WriteFile(filepath.Join(m.certDir, safe+".key"), keyPEM, 0o600); err != nil {
+		m.log.Warn("acme: écriture clé disque", "domain", domain, "err", err)
+	}
+}
+
+// LoadCertsFromDisk charge les certificats depuis certDir et les insère dans la DB
+// si celle-ci est vide. Appeler au démarrage après SetCertDir.
+func (m *Manager) LoadCertsFromDisk(ctx context.Context) {
+	if m.certDir == "" {
+		return
+	}
+	var count int
+	m.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM certs`).Scan(&count) //nolint:errcheck
+	if count > 0 {
+		return
+	}
+	entries, err := os.ReadDir(m.certDir)
+	if err != nil {
+		return
+	}
+	restored := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".crt") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".crt")
+		domain := strings.ReplaceAll(base, "_", "*")
+		certPEM, err := os.ReadFile(filepath.Join(m.certDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		keyPEM, err := os.ReadFile(filepath.Join(m.certDir, base+".key"))
+		if err != nil {
+			continue
+		}
+		block, _ := pem.Decode(certPEM)
+		if block == nil {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		if err := m.saveCertMeta(domain, "letsencrypt", leaf.NotAfter, certPEM, keyPEM); err != nil {
+			m.log.Warn("acme: restauration cert depuis disque", "domain", domain, "err", err)
+			continue
+		}
+		if m.pusher != nil {
+			for _, n := range coretls.PushNames(domain, certPEM) {
+				m.pusher.PushCert(ctx, n, certPEM, keyPEM)
+			}
+		}
+		restored++
+	}
+	if restored > 0 {
+		m.log.Info("acme: certificats restaurés depuis disque", "count", restored)
+	}
 }
 
 // --- Helpers PEM ------------------------------------------------------------
