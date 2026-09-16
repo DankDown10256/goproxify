@@ -318,10 +318,15 @@ func (s *Server) Start(ctx context.Context) error {
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
 	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater}
-	teamsH := &api.TeamsHandler{DB: s.db, Log: s.log}
+	syncArch := func() {
+		if archStore != nil {
+			go archStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
+		}
+	}
+	teamsH := &api.TeamsHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 	discoveredH := &api.DiscoveredContainersHandler{DB: s.db, Log: s.log}
 	backendsHealthH := &api.BackendsHealthHandler{DB: s.db, Log: s.log}
-	domainsH := &api.DomainsHandler{DB: s.db, Log: s.log, Pusher: manager}
+	domainsH := &api.DomainsHandler{DB: s.db, Log: s.log, Pusher: manager, OnChange: syncArch}
 	agentsH := &api.AgentsHandler{
 		Log:   s.log,
 		Store: agentStore,

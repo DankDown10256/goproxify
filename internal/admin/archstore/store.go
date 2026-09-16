@@ -45,10 +45,24 @@ type NodeEntry struct {
 	Scopes      []ScopeEntry `yaml:"scopes,omitempty"`
 }
 
+// DomainEntry décrit un domaine géré (TLS, ACME, délégation inter-Core).
+type DomainEntry struct {
+	ID                string `yaml:"id"`
+	Domain            string `yaml:"domain"`
+	CoreID            string `yaml:"core_id"`
+	DNSProvider       string `yaml:"dns_provider"`
+	DNSCredentials    string `yaml:"dns_credentials,omitempty"` // chiffré côté DB, répliqué tel quel
+	CertMethod        string `yaml:"cert_method"`
+	DelegatedToCoreID string `yaml:"delegated_to_core_id,omitempty"`
+	DelegatedEndpoint string `yaml:"delegated_endpoint,omitempty"`
+	DelegationMode    string `yaml:"delegation_mode,omitempty"`
+}
+
 // Architecture est la racine du fichier YAML.
 type Architecture struct {
-	SchemaVersion int         `yaml:"schema_version"`
-	Nodes         []NodeEntry `yaml:"nodes"`
+	SchemaVersion int           `yaml:"schema_version"`
+	Nodes         []NodeEntry   `yaml:"nodes"`
+	Domains       []DomainEntry `yaml:"domains,omitempty"`
 }
 
 // Store lit et écrit architecture.yaml de façon atomique.
@@ -220,6 +234,25 @@ func (s *Store) LoadIntoDB(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	// domains : restaurer uniquement si table vide.
+	s.mu.RLock()
+	arch, _ := s.readLocked()
+	s.mu.RUnlock()
+	if arch != nil {
+		var domCount int
+		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM domains`).Scan(&domCount)
+		if domCount == 0 {
+			for _, d := range arch.Domains {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO domains(id, domain, core_id, dns_provider, dns_credentials,
+					  cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode)
+					 VALUES(?,?,?,?,?,?,?,?,?)`,
+					d.ID, d.Domain, d.CoreID, d.DNSProvider, d.DNSCredentials,
+					d.CertMethod, d.DelegatedToCoreID, d.DelegatedEndpoint, d.DelegationMode)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -286,9 +319,26 @@ func (s *Store) SyncFromDB(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	// Domaines (TLS, ACME, délégations).
+	var domains []DomainEntry
+	drows, err := db.QueryContext(ctx,
+		`SELECT id, domain, core_id, dns_provider, COALESCE(dns_credentials,'{}'),
+		        cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode
+		 FROM domains ORDER BY domain`)
+	if err == nil {
+		defer drows.Close()
+		for drows.Next() {
+			var d DomainEntry
+			if drows.Scan(&d.ID, &d.Domain, &d.CoreID, &d.DNSProvider, &d.DNSCredentials,
+				&d.CertMethod, &d.DelegatedToCoreID, &d.DelegatedEndpoint, &d.DelegationMode) == nil {
+				domains = append(domains, d)
+			}
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.writeLocked(&Architecture{SchemaVersion: schemaVersion, Nodes: nodes})
+	return s.writeLocked(&Architecture{SchemaVersion: schemaVersion, Nodes: nodes, Domains: domains})
 }
 
 // --- helpers internes ---
@@ -337,6 +387,7 @@ func (s *Store) writeLocked(arch *Architecture) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("archstore: close: %w", err)
 	}
+	_ = os.Chmod(tmpName, 0o600)
 	if err := os.Rename(tmpName, s.path); err != nil {
 		return fmt.Errorf("archstore: rename: %w", err)
 	}

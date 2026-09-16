@@ -85,6 +85,7 @@ func (m *Manager) SetArchStore(s *archstore.Store) {
 
 type coreTokenDisk struct {
 	ID           string `json:"id"`
+	Role         string `json:"role"` // "core" | "agent" ; vide = "core" (compat ancien format)
 	Token        string `json:"token"`  // sealed
 	TokenHash    string `json:"token_hash"`
 	RBACRole     string `json:"rbac_role"`
@@ -161,15 +162,16 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 	return nil
 }
 
-// saveCoreTokensToDisk persiste les tokens Core actifs dans node_tokens.json.
+// saveCoreTokensToDisk persiste les tokens Core et Agent actifs dans node_tokens.json.
 func (m *Manager) saveCoreTokensToDisk(ctx context.Context) {
 	if m.dataDir == "" {
 		return
 	}
 	rows, err := m.db.QueryContext(ctx,
-		`SELECT id, token, token_hash, COALESCE(rbac_role,'admin'), node_name, node_endpoint
+		`SELECT id, role, token, token_hash, COALESCE(rbac_role,'admin'),
+		        COALESCE(node_name,''), COALESCE(node_endpoint,'')
 		 FROM tokens
-		 WHERE role='core' AND revoked=0 AND node_endpoint != ''
+		 WHERE revoked=0 AND role IN ('core','agent')
 		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
 	if err != nil {
 		return
@@ -178,7 +180,7 @@ func (m *Manager) saveCoreTokensToDisk(ctx context.Context) {
 	var list []coreTokenDisk
 	for rows.Next() {
 		var t coreTokenDisk
-		if err := rows.Scan(&t.ID, &t.Token, &t.TokenHash, &t.RBACRole, &t.NodeName, &t.NodeEndpoint); err != nil {
+		if err := rows.Scan(&t.ID, &t.Role, &t.Token, &t.TokenHash, &t.RBACRole, &t.NodeName, &t.NodeEndpoint); err != nil {
 			continue
 		}
 		list = append(list, t)
@@ -203,19 +205,26 @@ func (m *Manager) restoreCoreTokensFromDisk(ctx context.Context) {
 	}
 	n := 0
 	for _, t := range list {
-		if t.ID == "" || t.NodeName == "" || t.NodeEndpoint == "" {
+		if t.ID == "" || t.NodeName == "" {
 			continue
+		}
+		role := t.Role
+		if role == "" {
+			role = "core" // compat ancien format
+		}
+		if role == "core" && t.NodeEndpoint == "" {
+			continue // Core sans endpoint n'est pas connecté
 		}
 		_, err := m.db.ExecContext(ctx,
 			`INSERT OR IGNORE INTO tokens (id, token, token_hash, role, rbac_role, node_name, node_endpoint)
-			 VALUES (?, ?, ?, 'core', ?, ?, ?)`,
-			t.ID, t.Token, t.TokenHash, t.RBACRole, t.NodeName, t.NodeEndpoint)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			t.ID, t.Token, t.TokenHash, role, t.RBACRole, t.NodeName, t.NodeEndpoint)
 		if err == nil {
 			n++
 		}
 	}
 	if n > 0 {
-		m.log.Info("corews: tokens Core restaurés depuis disque", "count", n)
+		m.log.Info("corews: tokens nœuds restaurés depuis disque", "count", n)
 	}
 }
 

@@ -32,10 +32,17 @@ type DomainRoutePusher interface {
 }
 
 type DomainsHandler struct {
-	DB      *sql.DB
-	Log     *slog.Logger
-	Manager DomainCertObtainer
-	Pusher  DomainRoutePusher
+	DB       *sql.DB
+	Log      *slog.Logger
+	Manager  DomainCertObtainer
+	Pusher   DomainRoutePusher
+	OnChange func()
+}
+
+func (h *DomainsHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 // domainRow : core_id = Core d'entrée (routage / délégation / ACME UI).
@@ -316,6 +323,7 @@ func (h *DomainsHandler) create(w http.ResponseWriter, r *http.Request) {
 	ensured := h.ensureDomainScopesForCores(r.Context(), req.Domain, resolvedCoreID, resolvedDelegatedToCoreID)
 	h.resyncAfterScopeEnsure(ensured, req.DelegatedToCoreID != "")
 
+	h.notifyChange()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -369,7 +377,7 @@ func (h *DomainsHandler) update(w http.ResponseWriter, r *http.Request, id strin
 	ensured := h.ensureDomainScopesForCores(r.Context(), req.Domain, resolvedCoreID, resolvedDelegatedToCoreID)
 	// Toujours resync routes/délégations après update domaine (comportement historique).
 	h.resyncAfterScopeEnsure(ensured, true)
-
+	h.notifyChange()
 	jsonOK(w, map[string]any{"scopes_ensured": ensured})
 }
 
@@ -390,6 +398,7 @@ func (h *DomainsHandler) delete(w http.ResponseWriter, r *http.Request, id strin
 			h.Pusher.PushDelegations(context.Background())
 		}()
 	}
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 

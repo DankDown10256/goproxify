@@ -16,12 +16,21 @@ import (
 
 const usersFilename = "users.yaml"
 
+// UserScopeEntry est un scope RBAC direct sur un utilisateur.
+type UserScopeEntry struct {
+	ID         string `yaml:"id"`
+	ScopeType  string `yaml:"scope_type"`
+	ScopeValue string `yaml:"scope_value"`
+	AccessMode string `yaml:"access_mode"`
+}
+
 // UserEntry décrit un compte admin (hash bcrypt — aucun secret en clair).
 type UserEntry struct {
-	ID           string `yaml:"id"`
-	Email        string `yaml:"email"`
-	PasswordHash string `yaml:"password_hash"` // bcrypt, non réversible
-	Role         string `yaml:"role"`
+	ID           string           `yaml:"id"`
+	Email        string           `yaml:"email"`
+	PasswordHash string           `yaml:"password_hash"` // bcrypt, non réversible
+	Role         string           `yaml:"role"`
+	Scopes       []UserScopeEntry `yaml:"scopes,omitempty"`
 }
 
 // PATEntry décrit un token API utilisateur (hash SHA-256 — non réversible).
@@ -35,11 +44,28 @@ type PATEntry struct {
 	ExpiresAt   string   `yaml:"expires_at,omitempty"` // RFC3339
 }
 
+// TeamScopeEntry est un scope RBAC attaché à une équipe.
+type TeamScopeEntry struct {
+	ID         string `yaml:"id"`
+	ScopeType  string `yaml:"scope_type"`
+	ScopeValue string `yaml:"scope_value"`
+	AccessMode string `yaml:"access_mode"`
+}
+
+// TeamEntry décrit une équipe et ses membres/scopes.
+type TeamEntry struct {
+	ID      string           `yaml:"id"`
+	Name    string           `yaml:"name"`
+	Members []string         `yaml:"members,omitempty"` // user IDs
+	Scopes  []TeamScopeEntry `yaml:"scopes,omitempty"`
+}
+
 // UsersArchive est la racine de users.yaml.
 type UsersArchive struct {
-	SchemaVersion int        `yaml:"schema_version"`
+	SchemaVersion int         `yaml:"schema_version"`
 	Users         []UserEntry `yaml:"users"`
 	PATs          []PATEntry  `yaml:"pats"`
+	Teams         []TeamEntry `yaml:"teams,omitempty"`
 }
 
 // UserStore lit et écrit users.yaml.
@@ -80,6 +106,11 @@ func (s *UserStore) LoadIntoDB(ctx context.Context, db *sql.DB) error {
 			db.ExecContext(ctx, //nolint:errcheck
 				`INSERT OR IGNORE INTO users(id, email, password_hash, role) VALUES(?,?,?,?)`,
 				u.ID, u.Email, u.PasswordHash, u.Role)
+			for _, sc := range u.Scopes {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO user_scopes(id, user_id, scope_type, scope_value, access_mode) VALUES(?,?,?,?,?)`,
+					sc.ID, u.ID, sc.ScopeType, sc.ScopeValue, sc.AccessMode)
+			}
 		}
 	}
 
@@ -95,6 +126,24 @@ func (s *UserStore) LoadIntoDB(ctx context.Context, db *sql.DB) error {
 				db.ExecContext(ctx, //nolint:errcheck
 					`INSERT OR IGNORE INTO user_api_token_scopes(token_id, scope) VALUES(?,?)`,
 					p.ID, sc)
+			}
+		}
+	}
+
+	var teamCount int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM teams`).Scan(&teamCount)
+	if teamCount == 0 {
+		for _, te := range archive.Teams {
+			db.ExecContext(ctx, //nolint:errcheck
+				`INSERT OR IGNORE INTO teams(id, name) VALUES(?,?)`, te.ID, te.Name)
+			for _, uid := range te.Members {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO team_members(team_id, user_id) VALUES(?,?)`, te.ID, uid)
+			}
+			for _, sc := range te.Scopes {
+				db.ExecContext(ctx, //nolint:errcheck
+					`INSERT OR IGNORE INTO team_scopes(id, team_id, scope_type, scope_value, access_mode) VALUES(?,?,?,?,?)`,
+					sc.ID, te.ID, sc.ScopeType, sc.ScopeValue, sc.AccessMode)
 			}
 		}
 	}
@@ -118,13 +167,32 @@ func (s *UserStore) buildFromDB(ctx context.Context, db *sql.DB) (*UsersArchive,
 		return nil, fmt.Errorf("archstore/users: query users: %w", err)
 	}
 	defer urows.Close()
+	userIdx := map[string]int{}
 	for urows.Next() {
 		var u UserEntry
 		if urows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role) == nil {
+			userIdx[u.ID] = len(archive.Users)
 			archive.Users = append(archive.Users, u)
 		}
 	}
 	urows.Close()
+
+	// user_scopes — attachés à chaque UserEntry
+	usrows, err := db.QueryContext(ctx,
+		`SELECT id, user_id, scope_type, scope_value, access_mode FROM user_scopes ORDER BY user_id`)
+	if err == nil {
+		defer usrows.Close()
+		for usrows.Next() {
+			var sc UserScopeEntry
+			var uid string
+			if usrows.Scan(&sc.ID, &uid, &sc.ScopeType, &sc.ScopeValue, &sc.AccessMode) == nil {
+				if idx, ok := userIdx[uid]; ok {
+					archive.Users[idx].Scopes = append(archive.Users[idx].Scopes, sc)
+				}
+			}
+		}
+		usrows.Close()
+	}
 
 	prows, err := db.QueryContext(ctx,
 		`SELECT id, user_id, label, token_hash, token_prefix,
@@ -158,6 +226,49 @@ func (s *UserStore) buildFromDB(ctx context.Context, db *sql.DB) (*UsersArchive,
 					archive.PATs[idx].Scopes = append(archive.PATs[idx].Scopes, sc)
 				}
 			}
+		}
+	}
+
+	// Teams + members + scopes
+	trows, err := db.QueryContext(ctx, `SELECT id, name FROM teams ORDER BY name`)
+	if err == nil {
+		defer trows.Close()
+		teamIdx := map[string]int{}
+		for trows.Next() {
+			var te TeamEntry
+			if trows.Scan(&te.ID, &te.Name) == nil {
+				teamIdx[te.ID] = len(archive.Teams)
+				archive.Teams = append(archive.Teams, te)
+			}
+		}
+		trows.Close()
+
+		mrows, _ := db.QueryContext(ctx, `SELECT team_id, user_id FROM team_members ORDER BY team_id`)
+		if mrows != nil {
+			for mrows.Next() {
+				var tid, uid string
+				if mrows.Scan(&tid, &uid) == nil {
+					if idx, ok := teamIdx[tid]; ok {
+						archive.Teams[idx].Members = append(archive.Teams[idx].Members, uid)
+					}
+				}
+			}
+			mrows.Close()
+		}
+
+		tsrows, _ := db.QueryContext(ctx,
+			`SELECT id, team_id, scope_type, scope_value, access_mode FROM team_scopes ORDER BY team_id`)
+		if tsrows != nil {
+			for tsrows.Next() {
+				var sc TeamScopeEntry
+				var tid string
+				if tsrows.Scan(&sc.ID, &tid, &sc.ScopeType, &sc.ScopeValue, &sc.AccessMode) == nil {
+					if idx, ok := teamIdx[tid]; ok {
+						archive.Teams[idx].Scopes = append(archive.Teams[idx].Scopes, sc)
+					}
+				}
+			}
+			tsrows.Close()
 		}
 	}
 

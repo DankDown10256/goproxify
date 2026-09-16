@@ -20,8 +20,15 @@ import (
 // Toutes les opérations d'écriture sont réservées aux administrateurs globaux
 // (le middleware RequireAdmin est appliqué dans server.go).
 type TeamsHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB       *sql.DB
+	Log      *slog.Logger
+	OnChange func()
+}
+
+func (h *TeamsHandler) notifyChange() {
+	if h.OnChange != nil {
+		go h.OnChange()
+	}
 }
 
 func (h *TeamsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +123,7 @@ func (h *TeamsHandler) createTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "create", "team:"+t.ID, t.Name)
+	h.notifyChange()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(t)
@@ -157,6 +165,7 @@ func (h *TeamsHandler) updateTeam(w http.ResponseWriter, r *http.Request, id str
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "update", "team:"+id, req.Name)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -176,6 +185,7 @@ func (h *TeamsHandler) deleteTeam(w http.ResponseWriter, r *http.Request, id str
 	h.DB.ExecContext(r.Context(), `DELETE FROM team_scopes WHERE team_id=?`, id)  //nolint:errcheck
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "delete", "team:"+id, "")
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -229,6 +239,7 @@ func (h *TeamsHandler) addMember(w http.ResponseWriter, r *http.Request, teamID 
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "add_member", "team:"+teamID, req.UserID)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -246,6 +257,7 @@ func (h *TeamsHandler) removeMember(w http.ResponseWriter, r *http.Request, team
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "remove_member", "team:"+teamID, userID)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -308,6 +320,7 @@ func (h *TeamsHandler) addScope(w http.ResponseWriter, r *http.Request, teamID s
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "add_scope", "team:"+teamID, req.ScopeType+":"+req.Value+":"+mode)
+	h.notifyChange()
 	s := scopeRow{ID: id, ScopeType: req.ScopeType, Value: req.Value, AccessMode: mode}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -328,5 +341,6 @@ func (h *TeamsHandler) removeScope(w http.ResponseWriter, r *http.Request, teamI
 	}
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "remove_scope", "team:"+teamID, scopeID)
+	h.notifyChange()
 	w.WriteHeader(http.StatusNoContent)
 }
