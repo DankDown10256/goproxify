@@ -1973,6 +1973,11 @@ agent:
         <h3 data-i18n="doc.contrib.title">Contributing</h3>
         <p data-i18n="doc.contrib.body">PR workflow, tests, DCO sign-off, coding conventions.</p>
       </a>
+      <a href="#" id="docs-volumes" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Docker</div>
+        <h3 data-i18n="doc.volumes.title">Docker volumes</h3>
+        <p data-i18n="doc.volumes.body">What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.</p>
+      </a>
     </div>
 
     <div class="hero-buttons fade-in" style="justify-content:center;margin-top:0">
@@ -2070,6 +2075,7 @@ agent:
       'doc.config.title': 'Config schema', 'doc.config.body': 'JSON Schema for proxy YAML files — for editor autocomplete and validation.',
       'doc.roadmap.title': 'Public roadmap', 'doc.roadmap.body': 'Upcoming milestones and planned features.',
       'doc.contrib.title': 'Contributing', 'doc.contrib.body': 'PR workflow, tests, DCO sign-off, coding conventions.',
+      'doc.volumes.title': 'Docker volumes', 'doc.volumes.body': 'What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.',
       'doc.github': 'View on GitHub →',
       'f1.sub': 'Gateway', 'f1.title': 'The traffic gateways',
       'f1.body': 'Gateways are the public front door. They welcome visitors on your https://… addresses and send each one to the right site in your fleet — quietly, and at scale.',
@@ -2204,6 +2210,7 @@ agent:
       'doc.config.title': 'Schéma de configuration', 'doc.config.body': "JSON Schema pour les fichiers YAML proxy — autocomplétion et validation dans l\'éditeur.",
       'doc.roadmap.title': 'Roadmap publique', 'doc.roadmap.body': 'Jalons à venir et fonctionnalités planifiées.',
       'doc.contrib.title': 'Contribuer', 'doc.contrib.body': 'Workflow PR, tests, DCO, conventions de code.',
+      'doc.volumes.title': 'Volumes Docker', 'doc.volumes.body': 'Ce que chaque volume persiste : base Admin, configs proxies Core, tokens Agent, base GeoIP.',
       'doc.github': 'Voir sur GitHub →',
       'f1.sub': 'Passerelle', 'f1.title': 'Les passerelles de trafic',
       'f1.body': "Les passerelles sont la porte d'entrée publique. Elles accueillent les visiteurs sur vos adresses https://… et envoient chacun vers le bon site de la flotte — discrètement, et à grande échelle.",
@@ -2338,6 +2345,7 @@ agent:
       'doc.config.title': 'Esquema de configuración', 'doc.config.body': 'JSON Schema para archivos YAML proxy — autocompletado y validación en el editor.',
       'doc.roadmap.title': 'Hoja de ruta pública', 'doc.roadmap.body': 'Próximos hitos y funcionalidades planificadas.',
       'doc.contrib.title': 'Contribuir', 'doc.contrib.body': 'Flujo de PR, tests, DCO, convenciones de código.',
+      'doc.volumes.title': 'Volúmenes Docker', 'doc.volumes.body': 'Qué persiste cada volumen: base Admin, configs proxies Core, tokens Agent, base GeoIP.',
       'doc.github': 'Ver en GitHub →',
       'f1.sub': 'Pasarela', 'f1.title': 'Las pasarelas de tráfico',
       'f1.body': 'Las pasarelas son la puerta pública. Reciben a los visitantes en tus direcciones https://… y envían a cada uno al sitio correcto de la flota — en silencio y a escala.',
@@ -2472,6 +2480,7 @@ agent:
       'doc.config.title': 'Konfigurationsschema', 'doc.config.body': 'JSON-Schema für Proxy-YAML-Dateien — Editor-Autovervollständigung und Validierung.',
       'doc.roadmap.title': 'Öffentliche Roadmap', 'doc.roadmap.body': 'Bevorstehende Meilensteine und geplante Funktionen.',
       'doc.contrib.title': 'Beitragen', 'doc.contrib.body': 'PR-Workflow, Tests, DCO-Signoff, Codierungskonventionen.',
+      'doc.volumes.title': 'Docker-Volumes', 'doc.volumes.body': 'Was jedes Volume persistiert: Admin-Datenbank, Core-Proxy-Configs, Agent-Tokens, GeoIP-Datenbank.',
       'doc.github': 'Auf GitHub ansehen →',
       'f1.sub': 'Gateway', 'f1.title': 'Die Traffic-Gateways',
       'f1.body': 'Gateways sind die öffentliche Haustür. Sie empfangen Besucher auf Ihren https://…-Adressen und senden jeden zur richtigen Site in der Flotte — ruhig und skalierbar.',
@@ -2647,6 +2656,7 @@ agent:
       'docs-metrics':      base + 'docs/metrics.md',
       'docs-roadmap':      base + 'suivi/roadmap-public.md',
       'docs-contributing': base + 'CONTRIBUTING.md',
+      'docs-volumes':      base + 'docs/volumes.md',
     };
     Object.keys(docMap).forEach(function(id) {
       var el = document.getElementById(id);
