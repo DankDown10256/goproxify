@@ -68,6 +68,8 @@ function _archHostFromEndpoint(ep) {
 function _archSvcFromExisting(role, node, cfg) {
   const name = (node.display_name || node.node_name || node.name || role).trim();
   const nodeName = (node.node_name || node.name || '').trim();
+  // UUID stable du nœud live (absent pour les nœuds purement déclarés)
+  const nodeId = (!node.id || String(node.id).startsWith('cfg:') || String(node.id).startsWith('dn_')) ? '' : (node.id || '');
   const runtimes = node.container_runtimes || [];
   const hasDocker = runtimes.some(r => String(r).toLowerCase().includes('docker'));
   const hasPodman = runtimes.some(r => String(r).toLowerCase().includes('podman'));
@@ -101,6 +103,7 @@ function _archSvcFromExisting(role, node, cfg) {
     existing: true,
     status: node.status || 'declared',
     nodeName,
+    nodeId,
     delegationsOut: [],
     delegationsIn: [],
   };
@@ -457,6 +460,7 @@ async function _archSaveTopology() {
   const saved = [];
   for (const { svc, host } of allSvcs) {
     const cfg = { internet_exposed: !!host.internet, reachable_host: svc.reachable || '' };
+    if (svc.nodeId) cfg.node_id = svc.nodeId; // UUID stable du nœud live
     if (svc.type === 'core') {
       cfg.portal        = !!svc.access;
       cfg.cluster       = _archInHA(svc.id);

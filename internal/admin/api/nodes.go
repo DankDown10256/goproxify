@@ -146,7 +146,8 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 	result := make([]nodeRow, 0)
 
 	// Nœuds Core depuis la DB Admin (heartbeat Core→Admin)
-	liveNames := map[string]bool{} // pour dédupliquer avec declared_nodes
+	liveNames := map[string]bool{} // pour dédupliquer avec declared_nodes (par node_name)
+	liveIDs   := map[string]bool{} // par UUID (pour declared nodes qui stockent node_id)
 	if role == "" || role == "core" {
 		q := `SELECT ` + nodeSelectCols + ` FROM nodes WHERE role='core' ORDER BY node_name`
 		rows, err := h.DB.QueryContext(r.Context(), q)
@@ -161,6 +162,9 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				liveNames[n.NodeName] = true
+				if n.ID != "" {
+					liveIDs[n.ID] = true
+				}
 				result = append(result, n)
 			}
 		}
@@ -218,17 +222,20 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 			if role != "" && role != drole {
 				continue
 			}
-			if liveNames[name] {
+			// Déduplication : par node_name OU par UUID (node_id dans config)
+			var cfgMap map[string]any
+			if cfg != "" {
+				json.Unmarshal([]byte(cfg), &cfgMap) //nolint:errcheck
+			}
+			nodeIDInCfg, _ := cfgMap["node_id"].(string)
+			if liveNames[name] || (nodeIDInCfg != "" && liveIDs[nodeIDInCfg]) {
 				continue // déjà représenté par un nœud live
 			}
 			// Extraire target_core du config JSON (pour la topologie)
 			var targetCore string
-			if cfg != "" {
-				var cfgMap map[string]any
-				if json.Unmarshal([]byte(cfg), &cfgMap) == nil {
-					if tc, ok := cfgMap["target_core"].(string); ok {
-						targetCore = tc
-					}
+			if cfgMap != nil {
+				if tc, ok := cfgMap["target_core"].(string); ok {
+					targetCore = tc
 				}
 			}
 			now := time.Now()
