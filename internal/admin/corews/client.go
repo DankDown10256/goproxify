@@ -16,10 +16,19 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	coreWS "github.com/vincamok/goproxify/internal/core/ws"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
+
+var wsReconnectsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "goproxify",
+	Subsystem: "controlplane",
+	Name:      "ws_reconnects_total",
+	Help:      "Reconnexions WebSocket Admin→Core (vue Admin).",
+}, []string{"core_id"})
 
 const (
 	reconnectBase = 1 * time.Second
@@ -118,6 +127,7 @@ func (c *Client) nextSeq() int64 {
 // connectLoop maintient la connexion WS avec backoff exponentiel.
 func (c *Client) connectLoop() {
 	backoff := reconnectBase
+	attempt := 0
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -127,7 +137,10 @@ func (c *Client) connectLoop() {
 
 		if err := c.connect(); err != nil {
 			c.log.Warn("corews: connexion échouée", "err", err, "retry", backoff)
+		} else if attempt > 0 {
+			wsReconnectsTotal.WithLabelValues(c.coreID).Inc()
 		}
+		attempt++
 
 		// Attendre avant de réessayer
 		select {

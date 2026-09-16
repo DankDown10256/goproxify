@@ -27,6 +27,7 @@ import (
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
 	"github.com/vincamok/goproxify/internal/core/middleware"
 	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/proxy"
 	"github.com/vincamok/goproxify/internal/core/proxypipeline"
 	"github.com/vincamok/goproxify/internal/core/proxystore"
@@ -619,12 +620,43 @@ func (l *sniListener) Accept() (net.Conn, error) {
 			continue
 		}
 		// Connexion normale : wrapper en TLS pour que http.Server gère HTTP/2 via ALPN.
-		return tls.Server(peeked, l.tlsCfg), nil
+		return &tlsMetricsConn{Conn: tls.Server(peeked, l.tlsCfg), sni: sni}, nil
 	}
 }
 
 func (l *sniListener) Close() error   { return l.inner.Close() }
 func (l *sniListener) Addr() net.Addr { return l.inner.Addr() }
+
+// tlsMetricsConn instrumente le handshake TLS (durée + connexions actives).
+type tlsMetricsConn struct {
+	*tls.Conn
+	sni       string
+	handshook bool
+}
+
+func (c *tlsMetricsConn) Read(b []byte) (int, error) {
+	if !c.handshook {
+		c.handshook = true
+		host := c.sni
+		metrics.TLS.ActiveConns.WithLabelValues(host).Inc()
+		start := time.Now()
+		if err := c.Conn.Handshake(); err != nil {
+			metrics.TLS.ActiveConns.WithLabelValues(host).Dec()
+			return 0, err
+		}
+		metrics.TLS.HandshakeDuration.WithLabelValues(host).Observe(time.Since(start).Seconds())
+	}
+	n, err := c.Conn.Read(b)
+	return n, err
+}
+
+func (c *tlsMetricsConn) Close() error {
+	if c.handshook {
+		metrics.TLS.ActiveConns.WithLabelValues(c.sni).Dec()
+		c.handshook = false
+	}
+	return c.Conn.Close()
+}
 
 func (l *sniListener) doPassthrough(client net.Conn, route *router.Route) {
 	defer client.Close()

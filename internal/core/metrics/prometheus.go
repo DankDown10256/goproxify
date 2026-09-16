@@ -140,6 +140,98 @@ var Routing = struct {
 // latencyBuckets couvre de 1 ms à 30 s avec une résolution fine sur le bas de gamme.
 var latencyBuckets = []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}
 
+// sizeBuckets couvre de 100 B à 100 MB pour les tailles de payload.
+var sizeBuckets = []float64{100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000}
+
+// TLS expose les métriques de handshake TLS côté serveur.
+var TLS = struct {
+	HandshakeDuration *prometheus.HistogramVec
+	ActiveConns       *prometheus.GaugeVec
+}{
+	HandshakeDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "tls",
+		Name:      "handshake_seconds",
+		Help:      "Durée du handshake TLS côté serveur.",
+		Buckets:   []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1},
+	}, []string{"host"}),
+
+	ActiveConns: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "tls",
+		Name:      "active_connections",
+		Help:      "Connexions TLS actives (acceptées, handshake en cours ou établies).",
+	}, []string{"host"}),
+}
+
+// Auth expose les métriques de tentatives d'authentification par provider.
+var Auth = struct {
+	AttemptsTotal *prometheus.CounterVec
+}{
+	AttemptsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "auth",
+		Name:      "attempts_total",
+		Help:      "Tentatives d'authentification par provider (JWT, OIDC, SAML).",
+	}, []string{"host", "provider", "result"}),
+}
+
+// Config expose les métriques de rechargement de configuration.
+var Config = struct {
+	ReloadTotal    *prometheus.CounterVec
+	ReloadDuration prometheus.Histogram
+}{
+	ReloadTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "config",
+		Name:      "reload_total",
+		Help:      "Rechargements de configuration (routes, certs, règles).",
+	}, []string{"type", "result"}),
+
+	ReloadDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "config",
+		Name:      "reload_duration_seconds",
+		Help:      "Durée du rechargement de configuration.",
+		Buckets:   []float64{.001, .005, .01, .05, .1, .5, 1, 5},
+	}),
+}
+
+// RateLimit expose l'état courant des buckets de rate limiting.
+var RateLimit = struct {
+	TokensCurrent *prometheus.GaugeVec
+}{
+	TokensCurrent: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "ratelimit",
+		Name:      "tokens_current",
+		Help:      "Tokens disponibles dans le bucket de rate limiting par IP.",
+	}, []string{"host", "ip"}),
+}
+
+// Traffic expose les métriques de taille de payload.
+var Traffic = struct {
+	RequestSizeBytes  *prometheus.HistogramVec
+	ResponseSizeBytes *prometheus.HistogramVec
+}{
+	RequestSizeBytes: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "traffic",
+		Name:      "request_size_bytes",
+		Help:      "Taille des corps de requêtes HTTP.",
+		Buckets:   sizeBuckets,
+	}, []string{"host"}),
+
+	ResponseSizeBytes: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "traffic",
+		Name:      "response_size_bytes",
+		Help:      "Taille des corps de réponses HTTP.",
+		Buckets:   sizeBuckets,
+	}, []string{"host"}),
+}
+
+
 // Backend expose les métriques Prometheus par backend upstream.
 var Backend = struct {
 	RequestsTotal *prometheus.CounterVec

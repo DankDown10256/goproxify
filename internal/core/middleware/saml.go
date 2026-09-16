@@ -19,6 +19,7 @@ import (
 
 	"github.com/crewjam/saml"
 	"github.com/crewjam/saml/samlsp"
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -86,6 +87,7 @@ func (h *samlHandler) handleACS(w http.ResponseWriter, r *http.Request) {
 	}
 	assertion, err := h.sp.ServiceProvider.ParseResponse(r, nil)
 	if err != nil {
+		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "failure").Inc()
 		http.Error(w, "SAML: assertion invalide — "+err.Error(), http.StatusForbidden)
 		return
 	}
@@ -93,9 +95,11 @@ func (h *samlHandler) handleACS(w http.ResponseWriter, r *http.Request) {
 	user, email, groups := samlExtractAttrs(assertion, h.cfg)
 
 	if len(h.cfg.AllowedGroups) > 0 && !ldapInAllowedGroup(h.cfg.AllowedGroups, groups) {
+		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "failure").Inc()
 		http.Error(w, "SAML: groupe non autorisé", http.StatusForbidden)
 		return
 	}
+	metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "success").Inc()
 
 	maxAge := h.cfg.SessionMaxAge
 	if maxAge <= 0 {

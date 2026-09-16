@@ -38,15 +38,18 @@ func JWTValidation(cfg *router.JWTConfig) func(http.Handler) http.Handler {
 			raw := extractBearerToken(r, cfg.HeaderName)
 			if raw == "" {
 				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "jwt", "missing_token").Inc()
+				metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "jwt", "failure").Inc()
 				http.Error(w, `{"error":"missing token"}`, http.StatusUnauthorized)
 				return
 			}
 			claims, err := validateJWT(raw, cache, cfg.Issuer, cfg.Audience)
 			if err != nil {
 				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "jwt", "invalid_token").Inc()
+				metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "jwt", "failure").Inc()
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
+			metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "jwt", "success").Inc()
 			if cfg.ClaimsHeader != "" {
 				claimsJSON, _ := json.Marshal(claims)
 				r.Header.Set(cfg.ClaimsHeader, string(claimsJSON))

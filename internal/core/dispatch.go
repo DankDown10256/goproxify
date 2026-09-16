@@ -156,9 +156,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	metrics.Core.RequestDuration.WithLabelValues(host).Observe(time.Since(start).Seconds())
 	if rw.bytes > 0 {
 		metrics.Core.BytesOut.Add(float64(rw.bytes))
+		metrics.Traffic.ResponseSizeBytes.WithLabelValues(host).Observe(float64(rw.bytes))
 	}
 	if r.ContentLength > 0 {
 		metrics.Core.BytesIn.Add(float64(r.ContentLength))
+		metrics.Traffic.RequestSizeBytes.WithLabelValues(host).Observe(float64(r.ContentLength))
 	}
 
 	if s.threatEngine != nil {

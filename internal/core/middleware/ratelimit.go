@@ -24,6 +24,11 @@ type rateLimiter struct {
 }
 
 func (r *rateLimiter) allow() bool {
+	ok, _ := r.allowWithTokens()
+	return ok
+}
+
+func (r *rateLimiter) allowWithTokens() (bool, float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
@@ -33,9 +38,9 @@ func (r *rateLimiter) allow() bool {
 	r.tokens = min(r.maxTokens, r.tokens+elapsed*r.refillRate)
 	if r.tokens >= 1 {
 		r.tokens--
-		return true
+		return true, r.tokens
 	}
-	return false
+	return false, r.tokens
 }
 
 func (r *rateLimiter) applyConfig(cfg *router.RateLimitConfig) {
@@ -75,7 +80,9 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
 			rl := rlStore.get(ip, cfg)
-			if !rl.allow() {
+			allowed, tokens := rl.allowWithTokens()
+			metrics.RateLimit.TokensCurrent.WithLabelValues(r.Host, ip).Set(tokens)
+			if !allowed {
 				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ratelimit", "rate_exceeded").Inc()
 				w.Header().Set("Retry-After", "1")
 				w.Header().Set("X-RateLimit-Limit", formatRPS(cfg.RequestsPerSecond))

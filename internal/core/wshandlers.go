@@ -5,6 +5,7 @@ package core
 
 import (
 	"encoding/json"
+	"time"
 
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
@@ -25,16 +26,21 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 	case corews.TypePushRoutes:
 		var routes []*router.Route
 		if err := json.Unmarshal(msg.Payload, &routes); err != nil {
+			metrics.Config.ReloadTotal.WithLabelValues("routes", "error").Inc()
 			return err
 		}
+		reloadStart := time.Now()
 		// Un push vide (mode fichiers) ne doit pas effacer proxies/*.json ni les agents.
 		routes = s.mergePushPreservingFileProxies(routes)
 		if err := s.table.Replace(routes); err != nil {
+			metrics.Config.ReloadTotal.WithLabelValues("routes", "error").Inc()
 			return err
 		}
 		s.ensurePortalPublicRoute()
 		purged := s.purgeRoutesShadowedByPassthrough()
 		metrics.Core.RouteCount.Set(float64(s.table.Len()))
+		metrics.Config.ReloadTotal.WithLabelValues("routes", "success").Inc()
+		metrics.Config.ReloadDuration.Observe(time.Since(reloadStart).Seconds())
 		s.saveCache()
 		s.log.Info("ws/admin: routes mises à jour", "count", len(routes), "purged_conflicts", purged)
 
@@ -56,13 +62,18 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 			KeyPEM  []byte `json:"key_pem"`
 		}
 		if err := json.Unmarshal(msg.Payload, &cert); err != nil {
+			metrics.Config.ReloadTotal.WithLabelValues("cert", "error").Inc()
 			return err
 		}
+		reloadCertStart := time.Now()
 		if err := s.certStore.StorePEM(cert.Name, cert.CertPEM, cert.KeyPEM); err != nil {
+			metrics.Config.ReloadTotal.WithLabelValues("cert", "error").Inc()
 			return err
 		}
 		metrics.Core.CertCount.Set(float64(s.certStore.Len()))
 		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
+		metrics.Config.ReloadTotal.WithLabelValues("cert", "success").Inc()
+		metrics.Config.ReloadDuration.Observe(time.Since(reloadCertStart).Seconds())
 		s.saveCache()
 		s.log.Info("ws/admin: certificat poussé", "name", cert.Name)
 
@@ -159,6 +170,7 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		s.log.Info("ws/admin: templates Access mis à jour", "count", len(tpls))
 
 	case corews.TypeFullSync:
+		reloadFullStart := time.Now()
 		// full_sync contient routes + certs + snippets + providers dans un seul payload
 		var fsync struct {
 			Routes    []*router.Route        `json:"routes"`
@@ -193,6 +205,8 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		if fsync.Bans != nil {
 			s.applyBans(fsync.Bans)
 		}
+		metrics.Config.ReloadTotal.WithLabelValues("full_sync", "success").Inc()
+		metrics.Config.ReloadDuration.Observe(time.Since(reloadFullStart).Seconds())
 		s.saveCache()
 		s.log.Info("ws/admin: full_sync appliqué",
 			"routes", len(fsync.Routes),
