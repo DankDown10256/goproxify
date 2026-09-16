@@ -607,6 +607,14 @@ func (s *Server) startHTTPS() error {
 		ReadTimeout:       r,
 		WriteTimeout:      w,
 		IdleTimeout:       idle,
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			if state == http.StateClosed || state == http.StateHijacked {
+				if tc, ok := conn.(*tls.Conn); ok {
+					sni := tc.ConnectionState().ServerName
+					metrics.TLS.ActiveConns.WithLabelValues(sni).Dec()
+				}
+			}
+		},
 	}
 	go func() {
 		if err := s.httpsSrv.Serve(sniLn); err != nil && err != http.ErrServerClosed && err != io.EOF {
@@ -646,43 +654,29 @@ func (l *sniListener) Accept() (net.Conn, error) {
 			go l.doPassthrough(peeked, route)
 			continue
 		}
-		// Connexion normale : wrapper en TLS pour que http.Server gère HTTP/2 via ALPN.
-		return &tlsMetricsConn{Conn: tls.Server(peeked, l.tlsCfg), sni: sni}, nil
+		// Retourner *tls.Conn directement : http.Server fait une type assertion sur
+		// *tls.Conn pour router les connexions h2 via TLSNextProto. Un wrapper custom
+		// ferait échouer cette assertion et forcerait toutes les connexions en HTTP/1.1,
+		// provoquant ERR_HTTP2_PROTOCOL_ERROR quand le client a négocié h2 via ALPN.
+		tlsConn := tls.Server(peeked, l.tlsCfg)
+		go l.measureHandshake(tlsConn, sni)
+		return tlsConn, nil
 	}
 }
 
 func (l *sniListener) Close() error   { return l.inner.Close() }
 func (l *sniListener) Addr() net.Addr { return l.inner.Addr() }
 
-// tlsMetricsConn instrumente le handshake TLS (durée + connexions actives).
-type tlsMetricsConn struct {
-	*tls.Conn
-	sni       string
-	handshook bool
-}
-
-func (c *tlsMetricsConn) Read(b []byte) (int, error) {
-	if !c.handshook {
-		c.handshook = true
-		host := c.sni
-		metrics.TLS.ActiveConns.WithLabelValues(host).Inc()
-		start := time.Now()
-		if err := c.Conn.Handshake(); err != nil {
-			metrics.TLS.ActiveConns.WithLabelValues(host).Dec()
-			return 0, err
-		}
-		metrics.TLS.HandshakeDuration.WithLabelValues(host).Observe(time.Since(start).Seconds())
+// measureHandshake enregistre la durée du handshake TLS et les connexions actives.
+// tls.Conn.Handshake() est idempotent : l'appel concurrent avec celui de http.Server est sans danger.
+// Le Dec() des connexions actives est géré par le ConnState hook du http.Server (voir startHTTPS).
+func (l *sniListener) measureHandshake(c *tls.Conn, sni string) {
+	start := time.Now()
+	if err := c.Handshake(); err != nil {
+		return
 	}
-	n, err := c.Conn.Read(b)
-	return n, err
-}
-
-func (c *tlsMetricsConn) Close() error {
-	if c.handshook {
-		metrics.TLS.ActiveConns.WithLabelValues(c.sni).Dec()
-		c.handshook = false
-	}
-	return c.Conn.Close()
+	metrics.TLS.ActiveConns.WithLabelValues(sni).Inc()
+	metrics.TLS.HandshakeDuration.WithLabelValues(sni).Observe(time.Since(start).Seconds())
 }
 
 func (l *sniListener) doPassthrough(client net.Conn, route *router.Route) {
