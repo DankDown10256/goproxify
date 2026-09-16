@@ -33,6 +33,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		NodeName string `json:"node_name"`
 		Role     string `json:"role"`
 		Version  string `json:"version"`
+		TokenID  string `json:"token_id"` // UUID stable depuis core.json (depuis v0.3.84+)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "corps JSON invalide", http.StatusBadRequest)
@@ -60,7 +61,30 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Reconnexion : token actif déjà en DB (nœud précédemment accepté) → retour immédiat.
+	// Reconnexion par token_id stable (cores avec core.json v0.3.84+).
+	// Si le node_name a changé (renommage), on met à jour la DB et on retourne le token existant.
+	if req.TokenID != "" {
+		var existingToken, existingName string
+		_ = s.db.QueryRowContext(r.Context(),
+			`SELECT token, node_name FROM tokens WHERE id=? AND revoked=0 LIMIT 1`,
+			req.TokenID,
+		).Scan(&existingToken, &existingName)
+		if existingToken != "" {
+			if existingName != nodeName {
+				_, _ = s.db.ExecContext(r.Context(),
+					`UPDATE tokens SET node_name=? WHERE id=?`, nodeName, req.TokenID)
+				s.log.Info("pair: node renommé via token_id", "old", existingName, "new", nodeName, "id", req.TokenID)
+			}
+			if plain, err := auth.OpenNodeToken(existingToken); err == nil {
+				existingToken = plain
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "token": existingToken})
+			return
+		}
+	}
+
+	// Reconnexion par node_name (cores sans token_id ou anciens cores).
 	var existing string
 	_ = s.db.QueryRowContext(r.Context(),
 		`SELECT token FROM tokens WHERE role=? AND node_name=? AND revoked=0 LIMIT 1`,
@@ -82,7 +106,11 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	// Agents déclarés via wizard architecture (auto_accept) : même traitement.
 	if configuredSecret != "" && (role == "core" || role == "agent" || api.NodeAutoAccept(s.db, nodeName)) {
 		tok := auth.GenerateToken(role, nodeName)
-		tokenID := uuid.New().String()
+		// Utilise le token_id fourni par le Core si disponible, sinon génère un UUID.
+		tokenID := req.TokenID
+		if tokenID == "" {
+			tokenID = uuid.New().String()
+		}
 		stored, hash := auth.PrepareNodeTokenForStore(tok)
 		if _, err := s.db.ExecContext(r.Context(),
 			`INSERT INTO tokens (id, token, token_hash, role, rbac_role, node_name) VALUES (?, ?, ?, ?, 'admin', ?)`,
@@ -97,7 +125,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 			`UPDATE pending_nodes SET status='accepted', token=? WHERE node_name=? AND role=? AND status='pending'`,
 			tok, nodeName, role,
 		)
-		s.log.Info("pair: nœud auto-accepté", "role", role, "node", nodeName)
+		s.log.Info("pair: nœud auto-accepté", "role", role, "node", nodeName, "token_id", tokenID)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "token": tok})
 		return

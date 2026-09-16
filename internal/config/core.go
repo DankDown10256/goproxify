@@ -10,6 +10,7 @@ type CoreConfig struct {
 	Identity struct {
 		NodeName string `mapstructure:"node_name"` // Identifiant unique du node dans le cluster
 		Role     string `mapstructure:"role"`      // data-plane
+		TokenID  string `mapstructure:"token_id"`  // UUID stable généré au premier boot — identifiant persistant
 	} `mapstructure:"identity"`
 
 	ControlPlane struct {

@@ -84,10 +84,16 @@ func BootstrapCore(path string) error {
 	basePath := envOr("GPX_STORAGE_BASE_PATH", "/etc/goproxify")
 	logLevel := envOr("GPX_ENGINE_LOG_LEVEL", "info")
 
+	tokenID, err := randomHex(16) // 16 bytes = 32 hex chars, UUID-like
+	if err != nil {
+		return fmt.Errorf("bootstrap core: génération token_id: %w", err)
+	}
+
 	cfg := map[string]any{
 		"identity": map[string]any{
 			"node_name": nodeName,
 			"role":      "data-plane",
+			"token_id":  tokenID,
 		},
 		"network": map[string]any{
 			"http_port":         envIntOr("GPX_NETWORK_HTTP_PORT", 80),
