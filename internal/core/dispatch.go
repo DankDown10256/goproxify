@@ -162,6 +162,18 @@ func (s *Server) invalidateDispatchCache() {
 	s.dispatchGen.Add(1)
 }
 
+// invalidateRouteCache supprime uniquement les entrées du cache dispatch appartenant
+// à la route donnée, sans invalider les autres routes.
+func (s *Server) invalidateRouteCache(routeID string) {
+	prefix := routeID + "\x00"
+	s.dispatchHandlers.Range(func(k, _ any) bool {
+		if key, ok := k.(string); ok && strings.HasPrefix(key, prefix) {
+			s.dispatchHandlers.Delete(key)
+		}
+		return true
+	})
+}
+
 func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handler {
 	gen := s.dispatchGen.Load()
 	key := route.ID + "\x00" + locPath

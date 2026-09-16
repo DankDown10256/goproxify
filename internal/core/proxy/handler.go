@@ -31,14 +31,15 @@ import (
 
 // Handler est le reverse proxy HTTP pour une route donnée.
 type Handler struct {
-	route        *router.Route
-	balancer     Balancer
-	health       *BackendHealth
-	peers        *PeerRegistry
-	log          *slog.Logger
-	transport    http.RoundTripper
-	conditionRes []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
-	rpByBackend  sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
+	route         *router.Route
+	balancer      Balancer
+	health        *BackendHealth
+	peers         *PeerRegistry
+	log           *slog.Logger
+	transport     http.RoundTripper
+	conditionRes  []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
+	subFilterRes  []*regexp.Regexp // parallèle à route.SubFilters ; nil si pas regex
+	rpByBackend   sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
 }
 
 type proxyAttemptKey struct{}
@@ -60,7 +61,26 @@ func NewHandler(route *router.Route, health *BackendHealth, metrics metricsScore
 		log:          log,
 		transport:    buildTransport(route),
 		conditionRes: compileConditionRegexes(route),
+		subFilterRes: compileSubFilterRegexes(route),
 	}
+}
+
+func compileSubFilterRegexes(route *router.Route) []*regexp.Regexp {
+	if route == nil || len(route.SubFilters) == 0 {
+		return nil
+	}
+	out := make([]*regexp.Regexp, len(route.SubFilters))
+	for i, f := range route.SubFilters {
+		if !f.Regex || f.From == "" {
+			continue
+		}
+		re, err := regexp.Compile(f.From)
+		if err != nil {
+			continue
+		}
+		out[i] = re
+	}
+	return out
 }
 
 func compileConditionRegexes(route *router.Route) []*regexp.Regexp {
@@ -380,7 +400,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				wait = h.route.Retry.MaxWait
 			}
 			if wait > 0 {
-				time.Sleep(wait)
+				select {
+				case <-time.After(wait):
+				case <-r.Context().Done():
+					return
+				}
 			}
 		}
 	}
@@ -535,6 +559,7 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 	}
 	urlScheme, urlHost := target.Scheme, target.Host
 	preserveHost := h.route.PreserveHost
+	subFilterRes := h.subFilterRes
 	transport := h.transportFor(b)
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -565,7 +590,7 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 				rewriteSetCookieHeaders(resp, h.route.CookieDomains, h.route.CookiePaths)
 			}
 			if len(h.route.SubFilters) > 0 {
-				if err := applySubFilters(resp, h.route.SubFilters); err != nil {
+				if err := applySubFilters(resp, h.route.SubFilters, subFilterRes); err != nil {
 					return err
 				}
 			}
@@ -707,7 +732,8 @@ func scheme(r *http.Request) string {
 // applySubFilters remplace des chaînes ou regex dans le body texte d'une réponse.
 // Décompresse gzip si nécessaire, puis supprime Content-Encoding et met à jour Content-Length.
 // Ne traite que les réponses dont le Content-Type commence par "text/" ou "application/json".
-func applySubFilters(resp *http.Response, filters []router.SubFilter) error {
+// res contient les regexes pré-compilées (parallèles à filters) ; nil signifie "pas regex".
+func applySubFilters(resp *http.Response, filters []router.SubFilter, res []*regexp.Regexp) error {
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "text/") && !strings.HasPrefix(ct, "application/json") {
 		return nil
@@ -730,10 +756,13 @@ func applySubFilters(resp *http.Response, filters []router.SubFilter) error {
 		return nil
 	}
 	result := string(raw)
-	for _, f := range filters {
+	for i, f := range filters {
 		if f.Regex {
-			re, err := regexp.Compile(f.From)
-			if err != nil {
+			var re *regexp.Regexp
+			if i < len(res) {
+				re = res[i]
+			}
+			if re == nil {
 				continue
 			}
 			result = re.ReplaceAllString(result, f.To)
