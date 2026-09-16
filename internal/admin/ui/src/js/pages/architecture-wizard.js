@@ -485,9 +485,12 @@ async function _archSaveTopology() {
       }
     }
 
+    // Pour les nœuds live, utiliser node_name comme clé d'upsert (pas le display_name)
+    // pour éviter de créer un doublon si display_name ≠ node_name.
+    const declName = svc.nodeName || svc.name;
     const result = await api('POST', '/declared-nodes', {
       role: svc.type,
-      name: svc.name,
+      name: declName,
       region: host.region || '',
       environment: '',
       config: cfg,
@@ -496,7 +499,7 @@ async function _archSaveTopology() {
   }
 
   // Supprimer les declared-nodes DB qui ne sont plus sur le canvas
-  const canvasKeys = new Set(allSvcs.map(({ svc }) => svc.type + ':' + svc.name));
+  const canvasKeys = new Set(allSvcs.map(({ svc }) => svc.type + ':' + (svc.nodeName || svc.name)));
   for (const n of prevDeclared) {
     if (n.id && !n.id.startsWith('cfg:') && !canvasKeys.has(n.role + ':' + n.name)) {
       await api('DELETE', '/declared-nodes/' + n.id).catch(() => {});
@@ -505,11 +508,12 @@ async function _archSaveTopology() {
 
   // Synchroniser la config ACME vers l'Admin depuis les paramètres des services Core.
   // L'email ACME est configuré sur le Core dans le wizard, mais persiste côté Admin.
-  const acmeCoreSvc = allSvcs.find(({ svc }) => svc.type === 'core' && svc.acme && svc.acmeEmail);
+  // On se base sur acmeEmail seul (svc.acme peut être false si aucun domaine dns n'est encore créé).
+  const acmeCoreSvc = allSvcs.find(({ svc }) => svc.type === 'core' && svc.acmeEmail);
   if (acmeCoreSvc) {
     const c = acmeCoreSvc.svc;
     await api('PUT', '/settings/acme', {
-      enabled: true,
+      enabled: !!c.acme,
       email: c.acmeEmail,
       dns_type: c.dnsProvider !== 'none' ? (c.dnsProvider || '') : '',
     }).catch(() => {});
