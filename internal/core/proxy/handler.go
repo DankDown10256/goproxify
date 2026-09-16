@@ -33,14 +33,15 @@ import (
 
 // Handler est le reverse proxy HTTP pour une route donnée.
 type Handler struct {
-	route        *router.Route
-	balancer     Balancer
-	health       *BackendHealth
-	peers        *PeerRegistry
-	log          *slog.Logger
-	transport    http.RoundTripper
-	conditionRes []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
-	rpByBackend  sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
+	route         *router.Route
+	balancer      Balancer
+	health        *BackendHealth
+	peers         *PeerRegistry
+	log           *slog.Logger
+	transport     http.RoundTripper
+	conditionRes  []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
+	subFilterRes  []*regexp.Regexp // parallèle à route.SubFilters ; nil si pas regex
+	rpByBackend   sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
 }
 
 type proxyAttemptKey struct{}
@@ -63,7 +64,26 @@ func NewHandler(route *router.Route, health *BackendHealth, metrics metricsScore
 		log:          log,
 		transport:    buildTransport(route),
 		conditionRes: compileConditionRegexes(route),
+		subFilterRes: compileSubFilterRegexes(route),
 	}
+}
+
+func compileSubFilterRegexes(route *router.Route) []*regexp.Regexp {
+	if route == nil || len(route.SubFilters) == 0 {
+		return nil
+	}
+	out := make([]*regexp.Regexp, len(route.SubFilters))
+	for i, f := range route.SubFilters {
+		if !f.Regex || f.From == "" {
+			continue
+		}
+		re, err := regexp.Compile(f.From)
+		if err != nil {
+			continue
+		}
+		out[i] = re
+	}
+	return out
 }
 
 func compileConditionRegexes(route *router.Route) []*regexp.Regexp {
@@ -137,6 +157,10 @@ func applyHTTPVersion(t *http.Transport, ver string) {
 	}
 }
 
+// maxSNITransports borne la map bySNI pour éviter la fuite mémoire en multi-tenant.
+// Au-delà du cap, le transport est construit correctement mais non mis en cache.
+const maxSNITransports = 512
+
 // hostSNITransport force le SNI TLS = Host HTTP (vhost), pas le hostname de l'URL.
 type hostSNITransport struct {
 	base  *http.Transport
@@ -178,7 +202,9 @@ func (t *hostSNITransport) transportForSNI(sni string) *http.Transport {
 	}
 	cfg.ServerName = sni
 	tr.TLSClientConfig = cfg
-	t.bySNI[sni] = tr
+	if len(t.bySNI) < maxSNITransports {
+		t.bySNI[sni] = tr
+	}
 	return tr
 }
 
@@ -301,20 +327,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Shadow mirror : cloner le body sur la goroutine requête avant le miroir (revue P1 #9).
-	if h.route.Shadow != nil && h.route.Shadow.Backend != "" {
-		var bodyBytes []byte
-		if r.Body != nil {
-			bodyBytes, _ = io.ReadAll(r.Body)
-			_ = r.Body.Close()
-			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			r.ContentLength = int64(len(bodyBytes))
-			r.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-			}
-		}
+	// Shadow mirror : le body est pipé en parallèle vers le backend primaire et le miroir.
+	// Un pipe évite de bloquer la goroutine requête sur io.ReadAll avant que le primaire commence.
+	// GetBody est mis à nil : les retries ne peuvent pas rejouer le body (trade-off acceptable
+	// pour une feature de test/observation).
+	if h.route.Shadow != nil && h.route.Shadow.Backend != "" && r.Body != nil {
 		metrics.Routing.ShadowTotal.WithLabelValues(h.route.Host).Inc()
-		go h.fireShadow(r.Method, r.URL.RequestURI(), r.Host, r.Header.Clone(), append([]byte(nil), bodyBytes...))
+		var shadowBuf bytes.Buffer
+		pr, pw := io.Pipe()
+		origBody := r.Body
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = io.Copy(io.MultiWriter(pw, &shadowBuf), origBody)
+			_ = origBody.Close()
+			pw.Close()
+		}()
+		r.Body = io.NopCloser(pr)
+		r.GetBody = nil
+		method, uri, host, hdr := r.Method, r.URL.RequestURI(), r.Host, r.Header.Clone()
+		defer func() {
+			_, _ = io.Copy(io.Discard, pr) // purge si le primaire n'a pas lu le body en entier
+			<-done
+			go h.fireShadow(method, uri, host, hdr, shadowBuf.Bytes())
+		}()
 	}
 
 	// Routage conditionnel : si une condition correspond, court-circuit vers le backend dédié
@@ -388,7 +424,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				wait = h.route.Retry.MaxWait
 			}
 			if wait > 0 {
-				time.Sleep(wait)
+				select {
+				case <-time.After(wait):
+				case <-r.Context().Done():
+					return
+				}
 			}
 		}
 	}
@@ -585,6 +625,7 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 	}
 	urlScheme, urlHost := target.Scheme, target.Host
 	preserveHost := h.route.PreserveHost
+	subFilterRes := h.subFilterRes
 	transport := h.transportFor(b)
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -620,7 +661,7 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 				rewriteSetCookieHeaders(resp, h.route.CookieDomains, h.route.CookiePaths)
 			}
 			if len(h.route.SubFilters) > 0 {
-				if err := applySubFilters(resp, h.route.SubFilters); err != nil {
+				if err := applySubFilters(resp, h.route.SubFilters, subFilterRes); err != nil {
 					return err
 				}
 			}
@@ -762,7 +803,8 @@ func scheme(r *http.Request) string {
 // applySubFilters remplace des chaînes ou regex dans le body texte d'une réponse.
 // Décompresse gzip si nécessaire, puis supprime Content-Encoding et met à jour Content-Length.
 // Ne traite que les réponses dont le Content-Type commence par "text/" ou "application/json".
-func applySubFilters(resp *http.Response, filters []router.SubFilter) error {
+// res contient les regexes pré-compilées (parallèles à filters) ; nil signifie "pas regex".
+func applySubFilters(resp *http.Response, filters []router.SubFilter, res []*regexp.Regexp) error {
 	ct := resp.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "text/") && !strings.HasPrefix(ct, "application/json") {
 		return nil
@@ -785,10 +827,13 @@ func applySubFilters(resp *http.Response, filters []router.SubFilter) error {
 		return nil
 	}
 	result := string(raw)
-	for _, f := range filters {
+	for i, f := range filters {
 		if f.Regex {
-			re, err := regexp.Compile(f.From)
-			if err != nil {
+			var re *regexp.Regexp
+			if i < len(res) {
+				re = res[i]
+			}
+			if re == nil {
 				continue
 			}
 			result = re.ReplaceAllString(result, f.To)

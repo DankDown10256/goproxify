@@ -72,7 +72,7 @@ func (s *Server) ApplyFileProxy(env *proxystore.Envelope) error {
 	}
 	if !env.Enabled {
 		s.table.Delete(env.ID)
-		s.invalidateDispatchCache()
+		s.invalidateRouteCache(env.ID)
 		return nil
 	}
 	route, err := proxypipeline.ParseRoute(env)
@@ -80,7 +80,7 @@ func (s *Server) ApplyFileProxy(env *proxystore.Envelope) error {
 		return err
 	}
 	s.table.Upsert(route)
-	s.invalidateDispatchCache()
+	s.invalidateRouteCache(env.ID)
 	return nil
 }
 

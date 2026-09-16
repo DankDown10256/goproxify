@@ -183,7 +183,7 @@ func (s *Server) handleDeleteFileProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.table.Delete(id)
-	s.invalidateDispatchCache()
+	s.invalidateRouteCache(id)
 	metrics.Core.RouteCount.Set(float64(s.table.Len()))
 	s.saveCache()
 	w.WriteHeader(http.StatusNoContent)
