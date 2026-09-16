@@ -221,11 +221,31 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.cfg.ACME.DNS.Type == "" {
 		s.cfg.ACME.DNS.Type = os.Getenv("GPX_ACME_DNS_TYPE")
 	}
-	var acmeMgr *acme.Manager
-	if s.cfg.ACME.Enabled && s.cfg.ACME.Email != "" {
+	// Fallback DB : si env/config n'ont pas fourni la config ACME, on lit la DB.
+	// La DB permet de configurer ACME depuis l'UI sans variables d'env.
+	if !s.cfg.ACME.Enabled || s.cfg.ACME.Email == "" {
+		if dbCfg := acme.LoadConfig(s.db); dbCfg.Enabled && dbCfg.Email != "" {
+			if !s.cfg.ACME.Enabled {
+				s.cfg.ACME.Enabled = dbCfg.Enabled
+			}
+			if s.cfg.ACME.Email == "" {
+				s.cfg.ACME.Email = dbCfg.Email
+			}
+			if s.cfg.ACME.DirectoryURL == "" {
+				s.cfg.ACME.DirectoryURL = dbCfg.DirectoryURL
+			}
+			if s.cfg.ACME.DNS.Type == "" {
+				s.cfg.ACME.DNS.Type = dbCfg.DNSType
+			}
+		}
+	}
+	buildACMEManager := func(email, directoryURL, dnsType string) *acme.Manager {
+		if !s.cfg.ACME.Enabled && email == "" {
+			return nil
+		}
 		var provider acme.DNSProvider
-		if s.cfg.ACME.DNS.Type != "" {
-			provCfg := acme.ProviderConfigFromEnv(s.cfg.ACME.DNS.Type)
+		if dnsType != "" {
+			provCfg := acme.ProviderConfigFromEnv(dnsType)
 			if len(s.cfg.ACME.DNS.Params) > 0 {
 				provCfg.Params = s.cfg.ACME.DNS.Params
 			}
@@ -235,13 +255,17 @@ func (s *Server) Start(ctx context.Context) error {
 				provider = p
 			}
 		}
-		mgr := acme.New(s.db, s.log, manager, provider, s.cfg.ACME.Email)
-		mgr.DirectoryURL = s.cfg.ACME.DirectoryURL
+		mgr := acme.New(s.db, s.log, manager, provider, email)
+		mgr.DirectoryURL = directoryURL
 		if s.cfg.Storage.BasePath != "" {
 			mgr.SetCertDir(filepath.Join(s.cfg.Storage.BasePath, "certs"))
 		}
 		mgr.LoadCertsFromDisk(ctx)
-		acmeMgr = mgr
+		return mgr
+	}
+	var acmeMgr *acme.Manager
+	if s.cfg.ACME.Enabled && s.cfg.ACME.Email != "" {
+		acmeMgr = buildACMEManager(s.cfg.ACME.Email, s.cfg.ACME.DirectoryURL, s.cfg.ACME.DNS.Type)
 	}
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}
 	nodesH := &api.NodesHandler{DB: s.db, Log: s.log}
@@ -351,6 +375,19 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	if acmeMgr != nil {
 		domainsH.Manager = acmeMgr
+	}
+	acmeSettingsH := &api.ACMESettingsHandler{
+		DB:  s.db,
+		Log: s.log,
+		OnUpdate: func(cfg acme.DBConfig) {
+			newMgr := buildACMEManager(cfg.Email, cfg.DirectoryURL, cfg.DNSType)
+			certsH.Manager = newMgr
+			domainsH.Manager = newMgr
+			if newMgr != nil {
+				newMgr.Start(ctx)
+				s.log.Info("acme: manager réinitialisé", "email", cfg.Email)
+			}
+		},
 	}
 
 	geoResolver := &analytics.GeoResolver{DB: s.db, Log: s.log}
@@ -544,6 +581,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/settings/mfa/", adminOnly(mfaSettingsH))
 	mux.Handle("/api/v1/settings/smtp", adminOnly(&api.SMTPSettingsHandler{DB: s.db, Log: s.log}))
 	mux.Handle("/api/v1/settings/smtp/", adminOnly(&api.SMTPSettingsHandler{DB: s.db, Log: s.log}))
+	mux.Handle("/api/v1/settings/acme", adminOnly(acmeSettingsH))
 
 	// MCP server — PAT utilisateur uniquement (pas de JWT session)
 	mcpH := &mcp.Handler{
