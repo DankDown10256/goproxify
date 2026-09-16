@@ -21,10 +21,14 @@ type Config struct {
 	GlobalRPS   float64 `json:"global_rps,omitempty"`
 	GlobalBurst int     `json:"global_burst,omitempty"` // 0 = 2×GlobalRPS
 
-	// Détection rate — requêtes par seconde au-delà desquelles l'IP est bannie.
+	// Détection rate — requêtes par seconde au-delà desquelles l'IP déclenche un signal.
 	RateLimit float64 `json:"rate_limit,omitempty"` // req/s, 0 = désactivé
 	// Fenêtre glissante pour le rate limit.
 	RateWindow Duration `json:"rate_window,omitempty"`
+	// RateBanThreshold : nombre de déclenchements du signal "rate" dans RateBanWindow
+	// avant ban automatique. 0 ou 1 = ban au premier dépassement.
+	RateBanThreshold int      `json:"rate_ban_threshold,omitempty"`
+	RateBanWindow    Duration `json:"rate_ban_window,omitempty"` // défaut = RateWindow
 
 	// Erreurs 4xx : nombre d'erreurs dans la fenêtre avant ban.
 	ErrorThreshold int      `json:"error_threshold,omitempty"`
@@ -101,6 +105,9 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 func (c *Config) defaults() {
 	if c.RateWindow.Duration == 0 {
 		c.RateWindow.Duration = time.Second
+	}
+	if c.RateBanWindow.Duration == 0 {
+		c.RateBanWindow.Duration = c.RateWindow.Duration
 	}
 	if c.ErrorWindow.Duration == 0 {
 		c.ErrorWindow.Duration = 10 * time.Second

@@ -274,10 +274,41 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	)
 
 	if triggered && !isDetect {
+		// Ban automatique si le signal "rate" est dans les déclencheurs et que
+		// le seuil de déclenchements est atteint.
+		e.maybeRateBan(ip, topReason, cfg)
 		return true, "threat: " + topReason
 	}
 	// detect ou score insuffisant : signale sans bloquer
 	return false, "threat: " + topReason
+}
+
+// maybeRateBan déclenche un ban automatique si le signal "rate" a été déclenché
+// assez de fois (RateBanThreshold) dans la fenêtre RateBanWindow.
+func (e *Engine) maybeRateBan(ip, topReason string, cfg Config) {
+	if e.banFn == nil || cfg.RateLimit <= 0 {
+		return
+	}
+	// Seulement si le signal principal est "rate" ou si "rate" est parmi les signaux actifs.
+	// On ne ban pas sur un signal rate isolé sous le seuil de score global.
+	threshold := cfg.RateBanThreshold
+	if threshold <= 0 {
+		threshold = 1
+	}
+	window := cfg.RateBanWindow.Duration
+	if window <= 0 {
+		window = cfg.RateWindow.Duration
+	}
+
+	if !e.counters.rateTriggerExceeded(ip, threshold, window) {
+		return
+	}
+	e.counters.resetRateTrigger(ip)
+	expires := time.Now().Add(cfg.BanDuration.Duration)
+	e.log.Warn("sentinel: ban automatique rate", "ip", ip, "threshold", threshold, "window", window)
+	threatSignalsTotal.WithLabelValues("rate_ban").Inc()
+	threatBansTotal.WithLabelValues("rate").Inc()
+	e.banFn(ip, "threat: rate excessif", expires)
 }
 
 // RecordStatus doit être appelé après chaque réponse pour alimenter les compteurs 4xx.
