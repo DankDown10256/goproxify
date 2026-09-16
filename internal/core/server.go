@@ -473,6 +473,8 @@ func (s *Server) loadFromAdminOrCache(ctx context.Context) error {
 			"bans", s.banStore.Len(),
 		)
 	}
+	// Certs disque = fallback si le cache AES-GCM était absent ou corrompu.
+	s.loadCertsFromDisk()
 	// Fichiers proxies/*.json = source de vérité des proxies manuels (après cache).
 	s.loadProductionProxies()
 	return nil

@@ -4,8 +4,10 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/vincamok/goproxify/internal/core/proxypipeline"
 	"github.com/vincamok/goproxify/internal/core/proxystore"
@@ -32,7 +34,7 @@ func (s *Server) initProxyStore() {
 			"err", err, "root", root)
 		return
 	}
-	if err := os.MkdirAll(filepath.Join(root, "certs"), 0o700); err != nil {
+	if err := os.MkdirAll(s.certsDir(), 0o700); err != nil {
 		s.log.Warn("core: impossible de créer certs/", "err", err)
 	}
 	s.log.Info("proxystore: dossiers prêts",
@@ -66,6 +68,76 @@ func (s *Server) loadProductionProxies() {
 	}
 	s.log.Info("proxystore: proxies production chargés en mémoire",
 		"files", len(list), "applied", applied, "dir", s.proxyStore.ProdDir())
+}
+
+// certsDir retourne le répertoire de persistance des certificats TLS du Core.
+func (s *Server) certsDir() string {
+	return filepath.Join(dataRoot(), "certs")
+}
+
+// certSafeName convertit un nom de domaine (éventuellement wildcard) en nom de fichier sûr.
+func certSafeName(name string) string {
+	return strings.ReplaceAll(name, "*", "_")
+}
+
+// writeCertToDisk persiste certPEM et keyPEM dans certs/<name>.{crt,key}.
+func (s *Server) writeCertToDisk(name string, certPEM, keyPEM []byte) {
+	dir := s.certsDir()
+	safe := certSafeName(name)
+	if err := os.WriteFile(filepath.Join(dir, safe+".crt"), certPEM, 0o600); err != nil {
+		s.log.Warn("core: écriture cert disque", "name", name, "err", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, safe+".key"), keyPEM, 0o600); err != nil {
+		s.log.Warn("core: écriture clé disque", "name", name, "err", err)
+	}
+}
+
+// deleteCertFromDisk supprime les fichiers disque pour le certificat donné.
+func (s *Server) deleteCertFromDisk(name string) {
+	dir := s.certsDir()
+	safe := certSafeName(name)
+	for _, ext := range []string{".crt", ".key"} {
+		if err := os.Remove(filepath.Join(dir, safe+ext)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			s.log.Warn("core: suppression cert disque", "name", name, "err", err)
+		}
+	}
+}
+
+// loadCertsFromDisk charge les certificats depuis certs/ si le certStore est vide.
+// Utilisé au démarrage comme fallback si le cache AES-GCM est absent ou corrompu.
+func (s *Server) loadCertsFromDisk() {
+	if s.certStore.Len() > 0 {
+		return
+	}
+	dir := s.certsDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	restored := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".crt") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".crt")
+		name := strings.ReplaceAll(base, "_", "*")
+		certPEM, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		keyPEM, err := os.ReadFile(filepath.Join(dir, base+".key"))
+		if err != nil {
+			continue
+		}
+		if err := s.certStore.StorePEM(name, certPEM, keyPEM); err != nil {
+			s.log.Warn("core: cert disque invalide", "name", name, "err", err)
+			continue
+		}
+		restored++
+	}
+	if restored > 0 {
+		s.log.Info("core: certificats restaurés depuis le disque", "count", restored, "dir", dir)
+	}
 }
 
 // ApplyFileProxy upserts a production envelope into the live routing table.

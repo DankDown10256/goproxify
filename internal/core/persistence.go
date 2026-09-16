@@ -160,6 +160,7 @@ func (s *Server) applyClusterCommand(entry raft.LogEntry) {
 			s.log.Warn("cluster: store cert", "err", err)
 			return
 		}
+		s.writeCertToDisk(payload.Name, payload.CertPEM, payload.KeyPEM)
 		metrics.Core.CertCount.Set(float64(s.certStore.Len()))
 		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 		s.log.Info("cluster: certificat appliqué", "name", payload.Name)

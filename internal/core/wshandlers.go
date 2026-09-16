@@ -70,6 +70,7 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 			metrics.Config.ReloadTotal.WithLabelValues("cert", "error").Inc()
 			return err
 		}
+		s.writeCertToDisk(cert.Name, cert.CertPEM, cert.KeyPEM)
 		metrics.Core.CertCount.Set(float64(s.certStore.Len()))
 		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 		metrics.Config.ReloadTotal.WithLabelValues("cert", "success").Inc()

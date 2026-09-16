@@ -269,6 +269,7 @@ func (s *Server) handlePushCerts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
+	s.writeCertToDisk(payload.Name, payload.CertPEM, payload.KeyPEM)
 	metrics.Core.CertCount.Set(float64(s.certStore.Len()))
 	metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 	s.saveCache()
