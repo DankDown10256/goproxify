@@ -1958,6 +1958,11 @@ agent:
         <h3 data-i18n="doc.config.title">Config schema</h3>
         <p data-i18n="doc.config.body">JSON Schema for proxy YAML files — for editor autocomplete and validation.</p>
       </a>
+      <a href="#" id="docs-metrics" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Prometheus</div>
+        <h3 data-i18n="doc.metrics.title">Metrics reference</h3>
+        <p data-i18n="doc.metrics.body">All <code style="font-size:.8em;background:var(--bg-surface);border:1px solid var(--border);padding:1px 5px;border-radius:3px">gpx_*</code> metrics: labels, buckets, PromQL examples and recommended alerts.</p>
+      </a>
       <a href="#" id="docs-roadmap" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">Roadmap</div>
         <h3 data-i18n="doc.roadmap.title">Public roadmap</h3>
@@ -2052,6 +2057,7 @@ agent:
       'sec.docs': 'Documentation',
       'sec.docs.sub': 'Guides, API contract, MCP server and version tracking — all in the repo.',
       'doc.title': 'GoProxify — The reverse proxy that guides every visitor to the right app',
+      'doc.metrics.title': 'Metrics reference', 'doc.metrics.body': 'All gpx_* metrics: labels, buckets, PromQL examples and recommended alerts.',
       'doc.api.title': 'API specifications', 'doc.api.body': 'Endpoints, JWT / PAT auth, pairing tokens.',
       'doc.mcp.title': 'Tools & AI clients', 'doc.mcp.body': 'Claude Desktop, Cursor — plug in a gpx_pat_*.',
       'doc.arch.title': 'How it works', 'doc.arch.body': 'Admin, gateways, Agent and Portainer — a clear picture of the layout.',
@@ -2185,6 +2191,7 @@ agent:
       'sec.docs': 'Documentation',
       'sec.docs.sub': 'Guides, contrat API, serveur MCP et suivi des versions — le tout dans le dépôt.',
       'doc.title': 'GoProxify — Le reverse proxy qui guide chaque visiteur vers la bonne application',
+      'doc.metrics.title': 'Référence des métriques', 'doc.metrics.body': 'Toutes les métriques gpx_* : labels, buckets, exemples PromQL et alertes recommandées.',
       'doc.api.title': 'Spécifications API', 'doc.api.body': "Endpoints, auth JWT / PAT, tokens d'appairage.",
       'doc.mcp.title': 'Outils & clients IA', 'doc.mcp.body': 'Claude Desktop, Cursor — branchez un gpx_pat_*.',
       'doc.arch.title': 'Comment ça marche', 'doc.arch.body': 'Admin, passerelles, Agent et Portainer — une vue claire de la configuration.',
@@ -2318,6 +2325,7 @@ agent:
       'sec.docs': 'Documentación',
       'sec.docs.sub': 'Guías, contrato API, servidor MCP y seguimiento de versiones — todo en el repositorio.',
       'doc.title': 'GoProxify — El reverse proxy que guía a cada visitante hacia la aplicación correcta',
+      'doc.metrics.title': 'Referencia de métricas', 'doc.metrics.body': 'Todas las métricas gpx_*: labels, buckets, ejemplos PromQL y alertas recomendadas.',
       'doc.api.title': 'Especificaciones API', 'doc.api.body': 'Endpoints, auth JWT / PAT, tokens de emparejamiento.',
       'doc.mcp.title': 'Herramientas y clientes IA', 'doc.mcp.body': 'Claude Desktop, Cursor — conecta un gpx_pat_*.',
       'doc.arch.title': 'Cómo funciona', 'doc.arch.body': 'Admin, pasarelas, Agent y Portainer — una vista clara de la configuración.',
@@ -2451,6 +2459,7 @@ agent:
       'sec.docs': 'Dokumentation',
       'sec.docs.sub': 'Guides, API-Vertrag, MCP-Server und Versionsverfolgung — alles im Repo.',
       'doc.title': 'GoProxify — Der Reverse-Proxy, der jeden Besucher zur richtigen App führt',
+      'doc.metrics.title': 'Metriken-Referenz', 'doc.metrics.body': 'Alle gpx_*-Metriken: Labels, Buckets, PromQL-Beispiele und empfohlene Alerts.',
       'doc.api.title': 'API-Spezifikationen', 'doc.api.body': 'Endpoints, JWT-/PAT-Auth, Pairing-Tokens.',
       'doc.mcp.title': 'Tools & KI-Clients', 'doc.mcp.body': 'Claude Desktop, Cursor — gpx_pat_* anbinden.',
       'doc.arch.title': "So funktioniert's", 'doc.arch.body': 'Admin, Gateways, Agent und Portainer — ein klares Bild des Aufbaus.',
@@ -2635,6 +2644,7 @@ agent:
       'docs-cli':          base + 'docs/cli.md',
       'docs-labels':       base + 'docs/labels.md',
       'docs-config':       base + 'docs/config_schema.json',
+      'docs-metrics':      base + 'docs/metrics.md',
       'docs-roadmap':      base + 'suivi/roadmap-public.md',
       'docs-contributing': base + 'CONTRIBUTING.md',
     };
