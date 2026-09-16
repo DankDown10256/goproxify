@@ -417,8 +417,12 @@ function _archLoad() {
           const key = s.nodeName || s.name;
           const info = infoByCoreName.get(key) || infoByCoreName.get(s.name);
           s.domains = info ? info.domainList.join(', ') : '';
-          s.acme = info ? info.hasAcme : false;
-          s.dnsProvider = (info && info.hasAcme) ? info.dnsProvider : 'none';
+          // N'activer ACME depuis les domaines que dans le sens positif :
+          // si un domaine dns existe → forcer true ; sinon laisser la valeur du declared config.
+          if (info && info.hasAcme) {
+            s.acme = true;
+            if (info.dnsProvider && info.dnsProvider !== 'none') s.dnsProvider = info.dnsProvider;
+          }
           s.delegationsOut = delegOut.get(key) || delegOut.get(s.name) || [];
           s.delegationsIn  = delegIn.get(key)  || delegIn.get(s.name)  || [];
         }
