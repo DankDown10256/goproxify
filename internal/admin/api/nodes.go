@@ -173,8 +173,24 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 	// Nœuds Agent : agrégés depuis chaque Core via GET /internal/v1/nodes
 	if role == "" || role == "agent" {
 		agentNodes := h.fetchAgentNodesFromCores(r.Context())
-		for _, n := range agentNodes {
-			liveNames[n.NodeName] = true
+		// Enrichir les agents live avec leur declared config (portainer_url, etc.)
+		// pour que la modal "Configurer l'agent" pré-remplisse depuis le wizard.
+		declCfgByName := map[string]json.RawMessage{}
+		if drows, err := h.DB.QueryContext(r.Context(),
+			`SELECT name, config FROM declared_nodes WHERE role='agent'`); err == nil {
+			defer drows.Close()
+			for drows.Next() {
+				var name, cfg string
+				if drows.Scan(&name, &cfg) == nil && cfg != "" {
+					declCfgByName[name] = json.RawMessage(cfg)
+				}
+			}
+		}
+		for i := range agentNodes {
+			liveNames[agentNodes[i].NodeName] = true
+			if dc, ok := declCfgByName[agentNodes[i].NodeName]; ok {
+				agentNodes[i].DeclaredConfig = dc
+			}
 		}
 		result = append(result, agentNodes...)
 	}

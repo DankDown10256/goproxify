@@ -651,9 +651,15 @@ async function agentConfigure(nodeName, node) {
      </label>`;
 
   // Fallback: si pas de heartbeat, utiliser la config déclarée (wizard)
+  // Le declared config stocke des champs plats (portainer_url, portainer_key) contrairement
+  // à _agent_config qui utilise un objet imbriqué {portainer: {url, api_key, enabled}}.
   const fallback = (node && node._declared_config) || {};
-  const d = (node && node._agent_config && node._agent_config.docker) || fallback.docker || {};
-  const p = (node && node._agent_config && node._agent_config.portainer) || fallback.portainer || {};
+  const d = (node && node._agent_config && node._agent_config.docker) || {};
+  const p = (node && node._agent_config && node._agent_config.portainer) || {
+    enabled: !!fallback.portainer,
+    url: fallback.portainer_url || '',
+    api_key: fallback.portainer_key || '',
+  };
   const cp = (node && node._agent_config && node._agent_config.control_plane) || {};
 
   // Sélecteur "Core cible" — liste des Cores connus
