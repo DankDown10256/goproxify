@@ -443,6 +443,69 @@ function closeArchWizard() {
   navigate('infrastructure');
 }
 
+async function _archSaveTopology() {
+  const allSvcs = _arch.hosts.flatMap(h =>
+    (h.services || [])
+      .filter(s => s.type === 'core' || s.type === 'agent')
+      .map(s => ({ svc: s, host: h }))
+  );
+  if (!allSvcs.length) { toast(t('arch.save_nothing') || 'Aucun nœud à enregistrer', 'warning'); return; }
+
+  // Nœuds présents avant la sauvegarde (pour détecter les suppressions / renommages)
+  const prevDeclared = [...(_arch.declaredNodes || [])];
+
+  const saved = [];
+  for (const { svc, host } of allSvcs) {
+    const cfg = {
+      internet_exposed: !!host.internet,
+      reachable_host: svc.reachable || '',
+      docker: svc.type === 'agent' ? !!svc.docker : undefined,
+      podman: svc.type === 'agent' ? !!svc.podman : undefined,
+      k8s: svc.type === 'agent' ? !!svc.k8s : undefined,
+      portainer: svc.type === 'agent' ? !!svc.portainer : undefined,
+      portainer_url: svc.type === 'agent' ? (svc.portainerUrl || '') : undefined,
+      portal: svc.type === 'core' ? !!svc.access : undefined,
+      cluster: svc.type === 'core' ? _archInHA(svc.id) : undefined,
+      cluster_group: svc.type === 'core' ? (() => { const g = _archGroupOfSvc(svc.id); return g ? g.id : ''; })() : undefined,
+    };
+    // Nettoyer les clés undefined
+    Object.keys(cfg).forEach(k => cfg[k] === undefined && delete cfg[k]);
+
+    // Si renommage, supprimer l'ancienne entrée
+    const prevName = svc._prevCoreName || svc._prevAgentName;
+    if (prevName && prevName !== svc.name) {
+      const old = prevDeclared.find(n => n.role === svc.type && n.name === prevName);
+      if (old && old.id && !old.id.startsWith('cfg:')) {
+        await api('DELETE', '/declared-nodes/' + old.id).catch(() => {});
+      }
+    }
+
+    const result = await api('POST', '/declared-nodes', {
+      role: svc.type,
+      name: svc.name,
+      region: host.region || '',
+      environment: '',
+      config: cfg,
+    }).catch(() => null);
+    if (result) saved.push(result);
+  }
+
+  // Supprimer les declared-nodes DB qui ne sont plus sur le canvas
+  const canvasKeys = new Set(allSvcs.map(({ svc }) => svc.type + ':' + svc.name));
+  for (const n of prevDeclared) {
+    if (n.id && !n.id.startsWith('cfg:') && !canvasKeys.has(n.role + ':' + n.name)) {
+      await api('DELETE', '/declared-nodes/' + n.id).catch(() => {});
+    }
+  }
+
+  // Recharge declaredNodes pour refléter l'état persisté
+  const fresh = await api('GET', '/declared-nodes').catch(() => null);
+  if (fresh) { _arch.declaredNodes = fresh; _wiz.declaredNodes = fresh; }
+
+  toast(t('common.saved') || 'Enregistré', 'success');
+  _archRender();
+}
+
 pages.architecture = function() {
   if (!_arch.hosts.length && !_arch.loading) {
     _arch.loading = true;
@@ -623,6 +686,7 @@ function _archCanvasHTML() {
           ? ''
           : `<button class="btn btn-ghost" onclick="closeArchWizard()">${t('common.cancel') || 'Annuler'}</button>`
         }
+        <button class="btn btn-ghost" onclick="_archSaveTopology()" ${err ? 'disabled' : ''}>${t('arch.save_topology') || 'Enregistrer'}</button>
         <button class="btn btn-primary" onclick="_archGoHandoff()" ${err ? 'disabled' : ''}>${t('arch.continue')}</button>
       </div>
     </div>
