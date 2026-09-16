@@ -541,14 +541,36 @@ func (s *Server) applySnapshot(snap *corecache.Snapshot) {
 
 // --- Serveurs HTTP -------------------------------------------------------
 
+// serverTimeouts retourne les timeouts HTTP depuis la config, avec les defaults si non configurés.
+func (s *Server) serverTimeouts() (readHeader, read, write, idle time.Duration) {
+	t := s.cfg.Timeouts
+	readHeader = durationOrDefault(t.ReadHeaderSeconds, 10)
+	read = durationOrDefault(t.ReadSeconds, 30)
+	write = durationOrDefault(t.WriteSeconds, 60)
+	idle = durationOrDefault(t.IdleSeconds, 120)
+	return
+}
+
+func durationOrDefault(seconds, defaultSeconds int) time.Duration {
+	if seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return time.Duration(defaultSeconds) * time.Second
+}
+
 func (s *Server) startHTTP() error {
 	if s.cfg.Network.HTTPPort == 0 {
 		s.cfg.Network.HTTPPort = 80
 	}
 	addr := fmt.Sprintf("%s:%d", s.cfg.Network.BindAddress, s.cfg.Network.HTTPPort)
+	rh, r, w, idle := s.serverTimeouts()
 	s.httpSrv = &http.Server{
-		Addr:    addr,
-		Handler: tracing.Middleware(requestIDMiddleware(s.accessLog.Middleware(s.httpMux()))),
+		Addr:              addr,
+		Handler:           tracing.Middleware(requestIDMiddleware(s.accessLog.Middleware(s.httpMux()))),
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       r,
+		WriteTimeout:      w,
+		IdleTimeout:       idle,
 	}
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -577,9 +599,14 @@ func (s *Server) startHTTPS() error {
 
 	sniLn := &sniListener{inner: ln, table: s.table, log: s.log.Logger(), tlsCfg: tlsCfg}
 
+	rh, r, w, idle := s.serverTimeouts()
 	s.httpsSrv = &http.Server{
-		Handler:   tracing.Middleware(requestIDMiddleware(s.accessLog.Middleware(s.httpMux()))),
-		TLSConfig: tlsCfg,
+		Handler:           tracing.Middleware(requestIDMiddleware(s.accessLog.Middleware(s.httpMux()))),
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       r,
+		WriteTimeout:      w,
+		IdleTimeout:       idle,
 	}
 	go func() {
 		if err := s.httpsSrv.Serve(sniLn); err != nil && err != http.ErrServerClosed && err != io.EOF {

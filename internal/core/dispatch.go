@@ -99,6 +99,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		host = h
 	}
 
+	// Limite globale de req/s (protection DDoS volumétrique) — avant toute résolution.
+	if s.threatEngine != nil && !s.threatEngine.CheckGlobal() {
+		w.Header().Set("Retry-After", "1")
+		serveDefaultError(w, r, http.StatusServiceUnavailable)
+		return
+	}
+
 	// Vérification globale des profils IP (deny lists) avant le routage.
 	// Utilise CF-Connecting-IP / X-Forwarded-For si disponible (Cloudflare, reverse proxy).
 	remoteIP := corelog.RealIP(r)

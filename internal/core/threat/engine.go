@@ -55,6 +55,36 @@ func scoreForReason(reason string) int {
 	}
 }
 
+// globalBucket est un token bucket unique pour la limite globale de req/s.
+type globalBucket struct {
+	mu       sync.Mutex
+	tokens   float64
+	max      float64
+	rate     float64 // tokens/s
+	lastFill time.Time
+}
+
+func (b *globalBucket) allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	if !b.lastFill.IsZero() {
+		elapsed := now.Sub(b.lastFill).Seconds()
+		b.tokens += elapsed * b.rate
+		if b.tokens > b.max {
+			b.tokens = b.max
+		}
+	} else {
+		b.tokens = b.max
+	}
+	b.lastFill = now
+	if b.tokens >= 1 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
 // Engine est le moteur de détection. Un seul par Core, démarré via Start().
 type Engine struct {
 	mu  sync.RWMutex
@@ -64,6 +94,8 @@ type Engine struct {
 	counters *counterStore
 	wl       *whitelist
 	custom   *customLists // entrées inline compilées
+
+	globalBkt *globalBucket // limiteur global DDoS (nil = désactivé)
 
 	banFn BanCallback
 	log   *slog.Logger
@@ -102,15 +134,43 @@ func (e *Engine) Stop() {
 // UpdateConfig remplace la config à chaud.
 func (e *Engine) UpdateConfig(cfg Config) {
 	cfg.defaults()
+
+	var bkt *globalBucket
+	if cfg.GlobalRPS > 0 {
+		burst := float64(cfg.GlobalBurst)
+		if burst <= 0 {
+			burst = cfg.GlobalRPS * 2
+		}
+		bkt = &globalBucket{rate: cfg.GlobalRPS, max: burst}
+	}
+
 	e.mu.Lock()
 	e.cfg = cfg
 	e.wl = buildWhitelist(cfg.Whitelist)
 	e.custom = buildCustomLists(cfg.CustomLists)
+	e.globalBkt = bkt
 	e.mu.Unlock()
 
 	if cfg.Enabled {
 		e.lists.loadFromDisk(cfg.Lists)
 	}
+}
+
+// CheckGlobal retourne false si la requête dépasse la limite globale de req/s.
+// Doit être appelé en tête de dispatch, avant toute résolution de route.
+func (e *Engine) CheckGlobal() bool {
+	e.mu.RLock()
+	bkt := e.globalBkt
+	e.mu.RUnlock()
+
+	if bkt == nil {
+		return true
+	}
+	if bkt.allow() {
+		return true
+	}
+	threatGlobalRateLimitTotal.Inc()
+	return false
 }
 
 // Enabled retourne vrai si le moteur est actif.
@@ -214,10 +274,41 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	)
 
 	if triggered && !isDetect {
+		// Ban automatique si le signal "rate" est dans les déclencheurs et que
+		// le seuil de déclenchements est atteint.
+		e.maybeRateBan(ip, topReason, cfg)
 		return true, "threat: " + topReason
 	}
 	// detect ou score insuffisant : signale sans bloquer
 	return false, "threat: " + topReason
+}
+
+// maybeRateBan déclenche un ban automatique si le signal "rate" a été déclenché
+// assez de fois (RateBanThreshold) dans la fenêtre RateBanWindow.
+func (e *Engine) maybeRateBan(ip, topReason string, cfg Config) {
+	if e.banFn == nil || cfg.RateLimit <= 0 {
+		return
+	}
+	// Seulement si le signal principal est "rate" ou si "rate" est parmi les signaux actifs.
+	// On ne ban pas sur un signal rate isolé sous le seuil de score global.
+	threshold := cfg.RateBanThreshold
+	if threshold <= 0 {
+		threshold = 1
+	}
+	window := cfg.RateBanWindow.Duration
+	if window <= 0 {
+		window = cfg.RateWindow.Duration
+	}
+
+	if !e.counters.rateTriggerExceeded(ip, threshold, window) {
+		return
+	}
+	e.counters.resetRateTrigger(ip)
+	expires := time.Now().Add(cfg.BanDuration.Duration)
+	e.log.Warn("sentinel: ban automatique rate", "ip", ip, "threshold", threshold, "window", window)
+	threatSignalsTotal.WithLabelValues("rate_ban").Inc()
+	threatBansTotal.WithLabelValues("rate").Inc()
+	e.banFn(ip, "threat: rate excessif", expires)
 }
 
 // RecordStatus doit être appelé après chaque réponse pour alimenter les compteurs 4xx.

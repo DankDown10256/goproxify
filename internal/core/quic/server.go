@@ -7,7 +7,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"github.com/vincamok/goproxify/internal/config"
 	coretls "github.com/vincamok/goproxify/internal/core/tls"
@@ -35,9 +37,10 @@ func (q *QUICServer) Start(cfg *config.CoreConfig, handler http.Handler, certSto
 	}
 
 	q.srv = &http3.Server{
-		Addr:      addr,
-		Handler:   altSvcHandler,
-		TLSConfig: tlsCfg,
+		Addr:       addr,
+		Handler:    altSvcHandler,
+		TLSConfig:  tlsCfg,
+		QUICConfig: quicConfig(cfg),
 	}
 
 	go func() {
@@ -46,6 +49,25 @@ func (q *QUICServer) Start(cfg *config.CoreConfig, handler http.Handler, certSto
 		}
 	}()
 	return nil
+}
+
+// quicConfig construit la configuration QUIC à partir des timeouts CoreConfig.
+// HandshakeIdleTimeout ≈ ReadHeaderTimeout, MaxIdleTimeout ≈ IdleTimeout.
+func quicConfig(cfg *config.CoreConfig) *quic.Config {
+	handshake := durationOrDefault(cfg.Timeouts.ReadHeaderSeconds, 10)
+	idle := durationOrDefault(cfg.Timeouts.IdleSeconds, 120)
+	return &quic.Config{
+		HandshakeIdleTimeout: handshake,
+		MaxIdleTimeout:       idle,
+		MaxIncomingStreams:    1024,
+	}
+}
+
+func durationOrDefault(seconds, defaultSeconds int) time.Duration {
+	if seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return time.Duration(defaultSeconds) * time.Second
 }
 
 // Stop arrête proprement le serveur HTTP/3.

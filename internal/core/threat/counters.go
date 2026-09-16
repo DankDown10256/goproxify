@@ -8,18 +8,20 @@ import (
 	"time"
 )
 
-// counterStore gère les compteurs par IP en mémoire (rate + erreurs 4xx).
+// counterStore gère les compteurs par IP en mémoire (rate + erreurs 4xx + déclenchements rate).
 type counterStore struct {
-	mu      sync.Mutex
-	rate    map[string]*rateCounter
-	errors  map[string]*eventWindow
-	lastGC  time.Time
+	mu          sync.Mutex
+	rate        map[string]*rateCounter
+	errors      map[string]*eventWindow
+	rateTrigger map[string]*eventWindow // déclenchements signal "rate" par IP
+	lastGC      time.Time
 }
 
 func newCounterStore() *counterStore {
 	return &counterStore{
-		rate:   make(map[string]*rateCounter),
-		errors: make(map[string]*eventWindow),
+		rate:        make(map[string]*rateCounter),
+		errors:      make(map[string]*eventWindow),
+		rateTrigger: make(map[string]*eventWindow),
 	}
 }
 
@@ -58,6 +60,27 @@ func (s *counterStore) resetErrors(ip string) {
 	s.mu.Unlock()
 }
 
+// rateTriggerExceeded enregistre un déclenchement du signal "rate" pour l'IP
+// et retourne true si le nombre de déclenchements dans la fenêtre atteint le seuil.
+func (s *counterStore) rateTriggerExceeded(ip string, threshold int, window time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ew, ok := s.rateTrigger[ip]
+	if !ok {
+		ew = &eventWindow{window: window}
+		s.rateTrigger[ip] = ew
+	}
+	ew.record()
+	return ew.count() >= threshold
+}
+
+func (s *counterStore) resetRateTrigger(ip string) {
+	s.mu.Lock()
+	delete(s.rateTrigger, ip)
+	s.mu.Unlock()
+}
+
 // gcLocked nettoie les entrées inactives (appelé avec le lock).
 func (s *counterStore) gcLocked() {
 	now := time.Now()
@@ -73,6 +96,11 @@ func (s *counterStore) gcLocked() {
 	for ip, ew := range s.errors {
 		if now.Sub(ew.lastSeen) > 10*time.Minute {
 			delete(s.errors, ip)
+		}
+	}
+	for ip, ew := range s.rateTrigger {
+		if now.Sub(ew.lastSeen) > 10*time.Minute {
+			delete(s.rateTrigger, ip)
 		}
 	}
 }

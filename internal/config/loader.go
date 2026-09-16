@@ -47,6 +47,10 @@ func Load[T AdminConfig | CoreConfig | AgentConfig | LandingConfig](configPath s
 	v.SetDefault("geoip.auto_download", true)
 	v.SetDefault("geoip.db_path", "/etc/goproxify/geoip/GeoLite2-Country.mmdb")
 	v.SetDefault("geoip.db_url", "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb")
+	v.SetDefault("timeouts.read_header_seconds", 10)
+	v.SetDefault("timeouts.read_seconds", 30)
+	v.SetDefault("timeouts.write_seconds", 60)
+	v.SetDefault("timeouts.idle_seconds", 120)
 
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("lecture config %q : %w", configPath, err)
