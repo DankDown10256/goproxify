@@ -456,20 +456,25 @@ async function _archSaveTopology() {
 
   const saved = [];
   for (const { svc, host } of allSvcs) {
-    const cfg = {
-      internet_exposed: !!host.internet,
-      reachable_host: svc.reachable || '',
-      docker: svc.type === 'agent' ? !!svc.docker : undefined,
-      podman: svc.type === 'agent' ? !!svc.podman : undefined,
-      k8s: svc.type === 'agent' ? !!svc.k8s : undefined,
-      portainer: svc.type === 'agent' ? !!svc.portainer : undefined,
-      portainer_url: svc.type === 'agent' ? (svc.portainerUrl || '') : undefined,
-      portal: svc.type === 'core' ? !!svc.access : undefined,
-      cluster: svc.type === 'core' ? _archInHA(svc.id) : undefined,
-      cluster_group: svc.type === 'core' ? (() => { const g = _archGroupOfSvc(svc.id); return g ? g.id : ''; })() : undefined,
-    };
-    // Nettoyer les clés undefined
-    Object.keys(cfg).forEach(k => cfg[k] === undefined && delete cfg[k]);
+    const cfg = { internet_exposed: !!host.internet, reachable_host: svc.reachable || '' };
+    if (svc.type === 'core') {
+      cfg.portal        = !!svc.access;
+      cfg.cluster       = _archInHA(svc.id);
+      cfg.cluster_group = (() => { const g = _archGroupOfSvc(svc.id); return g ? g.id : ''; })();
+      cfg.domains       = svc.domains || '';
+      cfg.acme          = !!svc.acme;
+      cfg.acme_email    = svc.acmeEmail || '';
+      cfg.dns_provider  = svc.dnsProvider || 'none';
+    }
+    if (svc.type === 'agent') {
+      cfg.docker         = !!svc.docker;
+      cfg.podman         = !!svc.podman;
+      cfg.k8s            = !!svc.k8s;
+      cfg.portainer      = !!svc.portainer;
+      cfg.portainer_url  = svc.portainerUrl || '';
+      cfg.portainer_key  = svc.portainerKey || '';
+      cfg.placement      = svc.placement || '';
+    }
 
     // Si renommage, supprimer l'ancienne entrée
     const prevName = svc._prevCoreName || svc._prevAgentName;
