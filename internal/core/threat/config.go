@@ -15,6 +15,12 @@ type Config struct {
 	// ScoreThreshold : score cumulatif avant action (0 = premier signal).
 	ScoreThreshold int `json:"score_threshold,omitempty"`
 
+	// GlobalRPS : limite de req/s sur l'ensemble du serveur (toutes IPs confondues).
+	// Dépasser ce seuil retourne 503 immédiatement, avant toute résolution de route.
+	// 0 = désactivé.
+	GlobalRPS   float64 `json:"global_rps,omitempty"`
+	GlobalBurst int     `json:"global_burst,omitempty"` // 0 = 2×GlobalRPS
+
 	// Détection rate — requêtes par seconde au-delà desquelles l'IP est bannie.
 	RateLimit float64 `json:"rate_limit,omitempty"` // req/s, 0 = désactivé
 	// Fenêtre glissante pour le rate limit.

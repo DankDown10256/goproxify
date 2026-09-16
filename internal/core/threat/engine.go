@@ -55,6 +55,36 @@ func scoreForReason(reason string) int {
 	}
 }
 
+// globalBucket est un token bucket unique pour la limite globale de req/s.
+type globalBucket struct {
+	mu       sync.Mutex
+	tokens   float64
+	max      float64
+	rate     float64 // tokens/s
+	lastFill time.Time
+}
+
+func (b *globalBucket) allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	if !b.lastFill.IsZero() {
+		elapsed := now.Sub(b.lastFill).Seconds()
+		b.tokens += elapsed * b.rate
+		if b.tokens > b.max {
+			b.tokens = b.max
+		}
+	} else {
+		b.tokens = b.max
+	}
+	b.lastFill = now
+	if b.tokens >= 1 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
 // Engine est le moteur de détection. Un seul par Core, démarré via Start().
 type Engine struct {
 	mu  sync.RWMutex
@@ -64,6 +94,8 @@ type Engine struct {
 	counters *counterStore
 	wl       *whitelist
 	custom   *customLists // entrées inline compilées
+
+	globalBkt *globalBucket // limiteur global DDoS (nil = désactivé)
 
 	banFn BanCallback
 	log   *slog.Logger
@@ -102,15 +134,43 @@ func (e *Engine) Stop() {
 // UpdateConfig remplace la config à chaud.
 func (e *Engine) UpdateConfig(cfg Config) {
 	cfg.defaults()
+
+	var bkt *globalBucket
+	if cfg.GlobalRPS > 0 {
+		burst := float64(cfg.GlobalBurst)
+		if burst <= 0 {
+			burst = cfg.GlobalRPS * 2
+		}
+		bkt = &globalBucket{rate: cfg.GlobalRPS, max: burst}
+	}
+
 	e.mu.Lock()
 	e.cfg = cfg
 	e.wl = buildWhitelist(cfg.Whitelist)
 	e.custom = buildCustomLists(cfg.CustomLists)
+	e.globalBkt = bkt
 	e.mu.Unlock()
 
 	if cfg.Enabled {
 		e.lists.loadFromDisk(cfg.Lists)
 	}
+}
+
+// CheckGlobal retourne false si la requête dépasse la limite globale de req/s.
+// Doit être appelé en tête de dispatch, avant toute résolution de route.
+func (e *Engine) CheckGlobal() bool {
+	e.mu.RLock()
+	bkt := e.globalBkt
+	e.mu.RUnlock()
+
+	if bkt == nil {
+		return true
+	}
+	if bkt.allow() {
+		return true
+	}
+	threatGlobalRateLimitTotal.Inc()
+	return false
 }
 
 // Enabled retourne vrai si le moteur est actif.
