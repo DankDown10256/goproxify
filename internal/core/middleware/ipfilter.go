@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -22,10 +23,12 @@ func IPFilter(cfg *router.IPFilterConfig) func(http.Handler) http.Handler {
 			ip := net.ParseIP(clientIP(r))
 			matched := matchAny(ip, nets)
 			if cfg.Mode == "allow" && !matched {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ipfilter", "not_in_allowlist").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
 			if cfg.Mode == "deny" && matched {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ipfilter", "in_denylist").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}

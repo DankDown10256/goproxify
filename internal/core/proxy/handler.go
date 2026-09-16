@@ -312,6 +312,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
 			}
 		}
+		metrics.Routing.ShadowTotal.WithLabelValues(h.route.Host).Inc()
 		go h.fireShadow(r.Method, r.URL.RequestURI(), r.Host, r.Header.Clone(), append([]byte(nil), bodyBytes...))
 	}
 
@@ -324,6 +325,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Canary : basculement header/cookie ou par pourcentage
 	if h.route.Canary != nil && h.route.Canary.Backend != "" {
 		if h.isCanary(r) {
+			metrics.Routing.CanaryTotal.WithLabelValues(h.route.Host).Inc()
 			h.doURL(w, r, h.route.Canary.Backend, 0)
 			return
 		}

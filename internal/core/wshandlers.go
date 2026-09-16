@@ -61,6 +61,8 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		if err := s.certStore.StorePEM(cert.Name, cert.CertPEM, cert.KeyPEM); err != nil {
 			return err
 		}
+		metrics.Core.CertCount.Set(float64(s.certStore.Len()))
+		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 		s.saveCache()
 		s.log.Info("ws/admin: certificat poussé", "name", cert.Name)
 

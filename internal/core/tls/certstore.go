@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // CachedCert conserve un certificat et sa clé privée sous forme PEM.
@@ -150,6 +151,25 @@ func DNSNamesFromPEM(certPEM []byte) []string {
 		break // feuille uniquement
 	}
 	return names
+}
+
+// CertExpiries retourne la date d'expiration de chaque certificat stocké.
+// Utilisé pour mettre à jour les métriques Prometheus sans importer le package metrics ici.
+func (s *CertStore) CertExpiries() map[string]time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]time.Time, len(s.certs))
+	for name, cert := range s.certs {
+		if len(cert.Certificate) == 0 {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			continue
+		}
+		out[name] = leaf.NotAfter
+	}
+	return out
 }
 
 // PushNames retourne les clés sous lesquelles stocker/pousser un certificat.

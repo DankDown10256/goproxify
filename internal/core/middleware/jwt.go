@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -36,11 +37,13 @@ func JWTValidation(cfg *router.JWTConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw := extractBearerToken(r, cfg.HeaderName)
 			if raw == "" {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "jwt", "missing_token").Inc()
 				http.Error(w, `{"error":"missing token"}`, http.StatusUnauthorized)
 				return
 			}
 			claims, err := validateJWT(raw, cache, cfg.Issuer, cfg.Audience)
 			if err != nil {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "jwt", "invalid_token").Inc()
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}

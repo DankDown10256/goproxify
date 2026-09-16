@@ -267,6 +267,7 @@ func (s *Server) handlePushCerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	metrics.Core.CertCount.Set(float64(s.certStore.Len()))
+	metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 	s.saveCache()
 	s.log.Info("certificat mis à jour", "name", payload.Name)
 	w.WriteHeader(http.StatusNoContent)

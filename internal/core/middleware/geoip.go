@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
+	"github.com/vincamok/goproxify/internal/core/metrics"
 )
 
 type geoRecord struct {
@@ -84,6 +85,7 @@ func GeoIP(dbPath string, mode string, countries []string) func(http.Handler) ht
 			}
 
 			if blocked {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "geoip", country).Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}

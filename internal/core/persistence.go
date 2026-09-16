@@ -161,6 +161,7 @@ func (s *Server) applyClusterCommand(entry raft.LogEntry) {
 			return
 		}
 		metrics.Core.CertCount.Set(float64(s.certStore.Len()))
+		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
 		s.log.Info("cluster: certificat appliqué", "name", payload.Name)
 	}
 }

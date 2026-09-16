@@ -4,9 +4,24 @@
 package metrics
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+// UpdateCertExpiries met à jour la gauge gpx_tls_cert_expiry_seconds pour toutes les entrées.
+// Appeler après chaque StorePEM/Delete sur le CertStore.
+func UpdateCertExpiries(expiries map[string]time.Time) {
+	now := time.Now()
+	for domain, notAfter := range expiries {
+		secs := notAfter.Sub(now).Seconds()
+		if secs < 0 {
+			secs = 0
+		}
+		CertExpirySeconds.WithLabelValues(domain).Set(secs)
+	}
+}
 
 // Métriques plan de contrôle WebSocket (noms roadmap : goproxify_ws_*).
 var (
@@ -80,6 +95,46 @@ var Core = struct {
 		Name:      "certs_total",
 		Help:      "Nombre de certificats TLS en mémoire.",
 	}),
+}
+
+// CertExpirySeconds expose la durée avant expiration de chaque certificat TLS.
+var CertExpirySeconds = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: "gpx",
+	Subsystem: "tls",
+	Name:      "cert_expiry_seconds",
+	Help:      "Secondes avant expiration du certificat TLS (0 = expiré).",
+}, []string{"domain"})
+
+// Pipeline expose les métriques de blocage par étape du pipeline de sécurité.
+var Pipeline = struct {
+	BlockedTotal *prometheus.CounterVec
+}{
+	BlockedTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "pipeline",
+		Name:      "blocked_total",
+		Help:      "Requêtes bloquées par le pipeline de sécurité.",
+	}, []string{"host", "stage", "reason"}),
+}
+
+// Routing expose les métriques canary et shadow.
+var Routing = struct {
+	CanaryTotal *prometheus.CounterVec
+	ShadowTotal *prometheus.CounterVec
+}{
+	CanaryTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "routing",
+		Name:      "canary_requests_total",
+		Help:      "Requêtes routées vers le backend canary.",
+	}, []string{"host"}),
+
+	ShadowTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "routing",
+		Name:      "shadow_requests_total",
+		Help:      "Requêtes dupliquées vers le backend shadow mirror.",
+	}, []string{"host"}),
 }
 
 // Backend expose les métriques Prometheus par backend upstream.

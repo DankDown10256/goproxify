@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -75,6 +76,7 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 			ip := clientIP(r)
 			rl := rlStore.get(ip, cfg)
 			if !rl.allow() {
+				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ratelimit", "rate_exceeded").Inc()
 				w.Header().Set("Retry-After", "1")
 				w.Header().Set("X-RateLimit-Limit", formatRPS(cfg.RequestsPerSecond))
 				http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)

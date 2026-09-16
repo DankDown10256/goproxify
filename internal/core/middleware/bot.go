@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -65,6 +66,7 @@ func BotProtection(cfg *router.BotConfig) func(http.Handler) http.Handler {
 					"monitor", monitor,
 				)
 				if !monitor {
+					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "bot", "ua_blacklist").Inc()
 					http.Error(w, "403 Forbidden", http.StatusForbidden)
 					return
 				}
@@ -73,6 +75,7 @@ func BotProtection(cfg *router.BotConfig) func(http.Handler) http.Handler {
 			// 2. JS Challenge
 			if jsChallenge {
 				if !hasChallengeProof(r, secret) {
+					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "bot", "js_challenge").Inc()
 					serveChallengeJS(w, r, secret)
 					return
 				}
