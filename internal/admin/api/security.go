@@ -186,7 +186,7 @@ func (h *SecurityHandler) listBans(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, domain, reason, source, expires_at, created_at FROM security_bans`+where+` ORDER BY created_at DESC LIMIT 200`,
+		`SELECT id, ip, domain, reason, source, expires_at, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) FROM security_bans`+where+` ORDER BY created_at DESC LIMIT 200`,
 		args...)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -208,7 +208,7 @@ func (h *SecurityHandler) listBans(w http.ResponseWriter, r *http.Request) {
 			s := exp.String
 			b.ExpiresAt = &s
 		}
-		b.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		b.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		out = append(out, b)
 	}
 	if out == nil {
@@ -317,7 +317,7 @@ func (h *SecurityHandler) listBanHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, domain, action, reason, source, ban_id, created_at FROM security_ban_history WHERE ip=? ORDER BY created_at DESC LIMIT 100`,
+		`SELECT id, ip, domain, action, reason, source, ban_id, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) FROM security_ban_history WHERE ip=? ORDER BY created_at DESC LIMIT 100`,
 		ip)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -331,7 +331,7 @@ func (h *SecurityHandler) listBanHistory(w http.ResponseWriter, r *http.Request)
 		if err := rows.Scan(&ev.ID, &ev.IP, &ev.Domain, &ev.Action, &ev.Reason, &ev.Source, &ev.BanID, &createdAt); err != nil {
 			continue
 		}
-		ev.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		ev.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		out = append(out, ev)
 	}
 	if out == nil {
@@ -349,7 +349,7 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, scenario, origin, type, duration, created_at FROM security_threats ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, ip, scenario, origin, type, duration, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) FROM security_threats ORDER BY created_at DESC LIMIT ?`,
 		limit)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -363,7 +363,7 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&t.ID, &t.IP, &t.Scenario, &t.Origin, &t.Type, &t.Duration, &createdAt); err != nil {
 			continue
 		}
-		t.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
+		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		out = append(out, t)
 	}
 	if out == nil {
