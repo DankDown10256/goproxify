@@ -7,6 +7,51 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — WAF : 6 nouveaux jeux de règles OWASP CRS-4
+
+- **Java / Log4Shell (944xxx)** : détection JNDI injection (`${jndi:ldap://...}`), Spring EL (`#{Runtime.exec()}`), gadgets de désérialisation Java
+- **Remote File Inclusion (931xxx)** : URLs distantes dans les paramètres, wrappers PHP (`php://filter`, `phar://`, `data://`)
+- **NodeJS / Prototype Pollution (934xxx)** : injection `__proto__`, `constructor.prototype`, modules Node (`require()`, `child_process`)
+- **HTTP Request Smuggling (920xxx)** : coexistence TE+CL, chunked encoding obfusqué
+- **Fichiers sensibles / Restricted Files (930xxx)** : accès à `.env`, `.git/`, `wp-config.php`, dumps SQL, fichiers de debug (`phpinfo.php`, `composer.json`…)
+- **Fuite de données en réponse (951xxx)** : erreurs SQL dans les réponses, stack traces PHP/Java, clés AWS (`AKIA…`)
+
+**Nouveau — Inspection des réponses** : le moteur WAF peut désormais analyser les corps de réponse (règles `TargetResponse`). En mode `block`, une réponse contenant une fuite est bloquée avant transmission au client. En mode `detect`, la fuite est loguée sans bloquer.
+
+**UI Admin** : le tableau des jeux de règles WAF (page Core > WAF) affiche les 13 catégories (anciennement 7). La désactivation par catégorie couvre les nouveaux IDs.
+
+---
+
+## [0.3.1] — 2026-09-17
+
+### Ajouté — Sécurité : Sentinel, WAF, anti-DDoS
+
+**Sentinel — ban immédiat sur signal comportemental**
+- `Check()` appelle désormais `banFn` immédiatement dès qu'un signal non-rate (`path`, `ip`, `ua`, `custom_*`) dépasse le seuil. Avant ce fix, une IP pouvait scanner indéfiniment : chaque requête était rejetée individuellement mais l'IP n'était jamais bannie en base.
+
+**Sentinel — paramètres exposés dans l'UI**
+- Formulaire Sentinel : fenêtre rate (`rate_window`), seuil ban auto rate (`rate_ban_threshold` + `rate_ban_window`), limite globale anti-DDoS (`global_rps` + `global_burst`)
+
+**Anti-DDoS — timeouts serveur HTTP/QUIC configurables**
+- Paramètres `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` configurables depuis l'Admin (section Sécurité > Paramètres serveur)
+- Propagation via WS (`TypePushServerConfig`) et push HTTP legacy
+- Avertissement UI : redémarrage requis pour que les timeouts prennent effet
+
+**Vulnscan — autorisation optionnelle des backends IP privées**
+- Toggle admin dans le panel Scanner CVE : autorise le scan de backends sur des IPs privées (SSRF opt-in, désactivé par défaut)
+- Configurable via UI ou variable d'environnement `GPX_VULNSCAN_ALLOW_PRIVATE`
+- API `GET/PUT /security/vulnscan/config` exposée
+
+**Indicateurs d'état des moteurs de sécurité**
+- Vue d'ensemble Sécurité : badges d'état pour chaque moteur (WAF, Sentinel, CrowdSec, Fail2Ban, GeoIP)
+
+**Bans — accès rapide Prism depuis la table**
+- Bouton « Prism » dans la table des bans actifs : ouvre Prism filtré sur l'IP bannie
+
+### Corrigé
+
+- `fix(security)` : dates `created_at` affichées en `01/01/0001` — normalisées via `strftime` SQLite
+
 ---
 
 ## [0.3.0] — 2026-09-12

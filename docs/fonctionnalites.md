@@ -63,8 +63,8 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 | Headers de sécurité HTTP | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
 | CORS | Origines, méthodes et en-têtes configurables |
 | Masquage du fingerprint serveur | Suppression des en-têtes révélateurs (`Server`, `X-Powered-By`) |
-| WAF | Moteur natif Go : scoring anomalie par requête, inspection JSON/form-data, règles custom hot-reload, detect/block mode, métriques `goproxify_waf_*` |
-| Sentinel | Détection comportementale stateful par IP : fenêtre glissante, scoring, detect mode, listes custom allowlist/denylist, propagation config Admin→Cores |
+| WAF | Moteur natif Go : scoring anomalie, inspection requête (JSON/form/URI/headers/cookies) **et réponse**, 13 jeux de règles OWASP CRS-4 (SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Fichiers sensibles, Fuites de données), règles custom hot-reload, detect/block mode, métriques `goproxify_waf_*` |
+| Sentinel | Détection comportementale stateful par IP : fenêtre glissante, scoring, ban immédiat sur signal déclenché, paramètres anti-DDoS globaux (GlobalRPS/burst, rate window, rate ban threshold), detect mode, listes custom allowlist/denylist, propagation config Admin→Cores |
 | Fail2Ban natif Go | Bannissement automatique après N échecs, sans dépendance externe |
 | CrowdSec | Bouncer LAPI stream → bans poussés au Core (403), compatible Docker |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
@@ -78,6 +78,7 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 - **Circuit Breaker** : isolation automatique des backends défaillants
 - **Retry policy** avec backoff exponentiel configurable
 - **Sticky sessions** par cookie
+- **Timeouts serveur configurables** : `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurables depuis l'Admin (Sécurité > Paramètres serveur) et propagés aux Cores via WebSocket
 
 ### Observabilité
 
@@ -189,7 +190,7 @@ Modèle inspiré d'Alertmanager : chaque règle définit indépendamment son sco
 - Node Core/Agent hors ligne
 - Certificat expirant dans < N jours
 - CVE détectée sur un backend
-  - Le scanner HTTP refuse par défaut les cibles privées (RFC1918/ULA), localhost et metadata cloud (anti-SSRF). Pour scanner des backends Docker/LAN : `GPX_VULNSCAN_ALLOW_PRIVATE=true` sur l’Admin.
+  - Le scanner HTTP refuse par défaut les cibles privées (RFC1918/ULA), localhost et metadata cloud (anti-SSRF). Pour scanner des backends Docker/LAN : `GPX_VULNSCAN_ALLOW_PRIVATE=true` sur l’Admin, ou via le toggle dans l’UI Admin (Sécurité > Scanner CVE, accès administrateurs uniquement).
 - Nouveau ban Fail2Ban (seuil : N bans/heure)
 - Décision CrowdSec critique
 - Modification de configuration sensible
