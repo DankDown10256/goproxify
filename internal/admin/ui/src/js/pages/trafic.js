@@ -1367,8 +1367,8 @@ window.openTrafficFlowModal = function(kind, ref) {
       <div class="tf-card">
         <div class="tf-card-head">
           <span class="tf-card-title">${esc(n.title)}</span>
-          <span class="tf-test-badge" aria-live="polite"></span>
           <span class="tf-card-idx">${String(i + 1).padStart(2, '0')}</span>
+          <span class="tf-test-badge" aria-live="polite"></span>
         </div>
         <p class="tf-card-desc">${esc(n.desc)}</p>
         ${n.meta ? `<div class="tf-card-meta">${n.meta}</div>` : ''}
