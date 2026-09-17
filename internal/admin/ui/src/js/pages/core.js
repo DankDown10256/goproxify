@@ -31,13 +31,19 @@ pages['core-waf'] = async function() {
     const excluded = new Set(Array.isArray(wafPrimary.exclude_categories) ? wafPrimary.exclude_categories : []);
     // Compat : exclude_ids → catégories
     const CAT_IDS = {
-      sqli: [942100, 942110, 942120],
-      xss: [941100, 941110, 941120],
-      traversal: [930100, 930110],
-      rce: [932100, 932110],
-      php: [933100],
-      ssrf: [934100],
-      scanner: [913100],
+      sqli:       [942100, 942110, 942120],
+      xss:        [941100, 941110, 941120],
+      traversal:  [930100, 930110],
+      rce:        [932100, 932110],
+      php:        [933100],
+      ssrf:       [934100],
+      scanner:    [913100],
+      java:       [944100, 944110, 944120],
+      rfi:        [931100, 931110],
+      nodejs:     [934200, 934210],
+      smuggling:  [920200, 920210],
+      restricted: [930200, 930210, 930220],
+      leakage:    [951100, 951110, 951120, 951130],
     };
     if (Array.isArray(wafPrimary.exclude_ids) && wafPrimary.exclude_ids.length) {
       const idSet = new Set(wafPrimary.exclude_ids);
@@ -47,13 +53,19 @@ pages['core-waf'] = async function() {
     }
 
     const RULES = [
-      { id: 'sqli',     name: 'SQL Injection',        category: 'OWASP CRS-4', ids: '942100–942999' },
-      { id: 'xss',      name: 'Cross-Site Scripting',  category: 'OWASP CRS-4', ids: '941100–941999' },
-      { id: 'traversal',name: 'Path Traversal / LFI',  category: 'OWASP CRS-4', ids: '930100–930999' },
-      { id: 'rce',      name: 'Command Injection',     category: 'OWASP CRS-4', ids: '932100–932999' },
-      { id: 'php',      name: 'PHP Injection',          category: 'OWASP CRS-4', ids: '933100–933999' },
-      { id: 'ssrf',     name: 'SSRF',                  category: 'OWASP CRS-4', ids: '934100–934999' },
-      { id: 'scanner',  name: 'Scanner Detection',     category: 'OWASP CRS-4', ids: '913100–913999' },
+      { id: 'sqli',       name: 'SQL Injection',              category: 'OWASP CRS-4', ids: '942100–942999' },
+      { id: 'xss',        name: 'Cross-Site Scripting',       category: 'OWASP CRS-4', ids: '941100–941999' },
+      { id: 'traversal',  name: 'Path Traversal / LFI',       category: 'OWASP CRS-4', ids: '930100–930199' },
+      { id: 'rce',        name: 'Command Injection',          category: 'OWASP CRS-4', ids: '932100–932999' },
+      { id: 'php',        name: 'PHP Injection',              category: 'OWASP CRS-4', ids: '933100–933999' },
+      { id: 'ssrf',       name: 'SSRF',                       category: 'OWASP CRS-4', ids: '934100–934199' },
+      { id: 'scanner',    name: 'Scanner Detection',          category: 'OWASP CRS-4', ids: '913100–913999' },
+      { id: 'java',       name: 'Java / Log4Shell',           category: 'OWASP CRS-4', ids: '944100–944999' },
+      { id: 'rfi',        name: 'Remote File Inclusion',      category: 'OWASP CRS-4', ids: '931100–931999' },
+      { id: 'nodejs',     name: 'NodeJS / Prototype Pollution',category: 'OWASP CRS-4', ids: '934200–934999' },
+      { id: 'smuggling',  name: 'HTTP Request Smuggling',     category: 'OWASP CRS-4', ids: '920200–920999' },
+      { id: 'restricted', name: 'Restricted / Sensitive Files',category: 'OWASP CRS-4', ids: '930200–930999' },
+      { id: 'leakage',    name: 'Response Data Leakage',      category: 'OWASP CRS-4', ids: '951100–951999' },
     ];
 
     content.innerHTML = `
