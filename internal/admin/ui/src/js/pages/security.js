@@ -1018,6 +1018,7 @@ function bansTableRows(list) {
       <td style="font-size:11px">${b.expires_at ? fmtDate(b.expires_at) : t('common.permanent')}</td>
       <td style="font-size:11px;color:var(--text3)">${b.created_at ? fmtDate(b.created_at) : '—'}</td>
       <td style="display:flex;gap:4px;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="openPrismForBanIP('${esc(b.ip)}')" title="Voir dans Prism" aria-label="Voir dans Prism"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="showBanHistory('${esc(b.ip)}')" title="${esc(t('security.ban_history'))}" aria-label="${esc(t('security.ban_history'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></button>
         ${b.expires_at ? `<button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="makeBanPermanent('${esc(String(b.id))}','${esc(b.ip)}')" title="${esc(t('security.ban_make_permanent'))}" aria-label="${esc(t('security.ban_make_permanent'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>` : ''}
         <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="deleteBan('${esc(String(b.id))}','${esc(b.ip)}')" title="${esc(t('security.unban'))}" aria-label="${esc(t('security.unban'))}" style="color:var(--red)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/><path d="M12 16v2"/></svg></button>
@@ -1697,6 +1698,25 @@ window.makeBanPermanent = async function(id, ip) {
     toast(t('security.ban_make_permanent_success'), 'success');
     reloadCurrentSecurityPage();
   } catch(e) { toast(e.message, 'error'); }
+};
+
+window.openPrismForBanIP = function(ip) {
+  window._prismIpInit = ip;
+  if (state.selectedCore) {
+    navigate('core-prism');
+    return;
+  }
+  const cores = window._coreNodes || [];
+  if (cores.length === 1) {
+    selectCore(cores[0], 'core-prism');
+    return;
+  }
+  if (cores.length > 1) {
+    toast('Sélectionnez un Core pour ouvrir Prism', 'info');
+    navigate('infrastructure');
+    return;
+  }
+  toast(t('logs.prism_need_core'), 'error');
 };
 
 window.showBanHistory = async function(ip) {
