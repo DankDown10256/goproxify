@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/coreproxy"
+	"github.com/vincamok/goproxify/internal/ssrf"
 )
 
 // BackendResult résume le scan d'un backend.
@@ -294,8 +295,17 @@ func (s *Scanner) loadBackends() []string {
 	return urls
 }
 
+func (s *Scanner) allowPrivate() bool {
+	if ssrf.AllowPrivateEnv("GPX_VULNSCAN_ALLOW_PRIVATE") {
+		return true
+	}
+	var v string
+	s.db.QueryRow(`SELECT value FROM settings WHERE key='vulnscan_allow_private'`).Scan(&v) //nolint:errcheck
+	return v == "1" || v == "true"
+}
+
 func (s *Scanner) probeServer(url string) (tokens []string, errMsg string) {
-	if err := validateProbeURL(url); err != nil {
+	if err := validateProbeURLOpts(url, s.allowPrivate()); err != nil {
 		return nil, err.Error()
 	}
 	req, err := http.NewRequest(http.MethodHead, url, nil)

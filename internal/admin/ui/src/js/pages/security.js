@@ -333,14 +333,16 @@ async function renderSecurityVulns(ctx) {
       return;
     }
 
-    const [cvesRaw, vsStateRaw] = await Promise.all([
+    const [cvesRaw, vsStateRaw, vsConfigRaw] = await Promise.all([
       api('GET', '/security/cves'),
       api('GET', '/security/vulnscan').catch(() => null),
+      isAdmin ? api('GET', '/security/vulnscan/config').catch(() => null) : Promise.resolve(null),
     ]);
     const cves = filterSecCVEs(cvesRaw || [], coreCtx);
     const vsState = filterVulnscanState(vsStateRaw, coreCtx);
     window._secCoreCtx = coreCtx;
     window._secMode = mode;
+    window._vsConfig = vsConfigRaw || {};
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
@@ -354,7 +356,7 @@ async function renderSecurityVulns(ctx) {
           <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>${t('security.scanner_title')}</span>
           ${isAdmin ? `<button id="vulnscan-btn" class="btn btn-primary btn-sm" onclick="triggerVulnscan()" ${vsState?.running?'disabled':''}>${t('security.scan_now')}</button>` : ''}
         </div>
-        <div class="card-body" id="vulnscan-body">${vulnscanPanel(vsState)}</div>
+        <div class="card-body" id="vulnscan-body">${vulnscanPanel(vsState, window._vsConfig, isAdmin)}</div>
       </div>`;
     window._secCVEs = cves;
     if (vsState?.running) startVulnscanPoll();
@@ -1413,7 +1415,7 @@ function vulnscanStatusColor(status) {
   })[status] || 'var(--text2)';
 }
 
-function vulnscanPanel(st) {
+function vulnscanPanel(st, cfg, isAdmin) {
   if (!st) return '<p style="color:var(--text2)">' + t('common.not_available') + '</p>';
   const lastScan = st.last_scan && st.last_scan !== '0001-01-01T00:00:00Z' ? fmtDate(st.last_scan) : t('common.never');
   const finished = st.finished_at && st.finished_at !== '0001-01-01T00:00:00Z' ? fmtDate(st.finished_at) : null;
@@ -1466,12 +1468,25 @@ function vulnscanPanel(st) {
       </table></div>
     </div>` : (st.running || total ? '' : '<p style="color:var(--text2);font-size:13px;margin:12px 0 0">' + t('security.vulnscan.no_backends') + '</p>');
 
+  const allowPrivate = !!(cfg && cfg.allow_private);
+  const configBlock = isAdmin ? `
+    <div style="margin-top:14px;padding:10px 12px;background:var(--surface2,var(--surface));border-radius:6px;border:1px solid var(--border)">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="vulnscan-allow-private" ${allowPrivate ? 'checked' : ''} onchange="saveVulnscanConfig()" style="width:15px;height:15px;cursor:pointer">
+        <span>
+          <b>${t('security.vulnscan.allow_private')}</b>
+          <span style="display:block;font-size:11px;color:var(--text2);margin-top:1px">${t('security.vulnscan.allow_private_help')}</span>
+        </span>
+      </label>
+    </div>` : '';
+
   return `<div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">${statusBadge}</div>
     ${progressBlock}
     ${summary}
     ${st.last_error ? `<div style="margin-top:10px;color:var(--red);font-size:12px">${esc(st.last_error)}</div>` : ''}
     ${resultsBlock}
+    ${configBlock}
   </div>`;
 }
 
@@ -1578,6 +1593,19 @@ window.ipsSelectLocal = function(provider) {
     panel.innerHTML = `<div class="ips-config-panel"><div class="ips-config-panel-head"><span class="ips-config-panel-name">${svgShield}${t('security.crowdsec')}</span></div>${crowdSecPanel(csCfg)}</div>`;
   } else {
     panel.innerHTML = `<div class="ips-config-panel"><button class="btn btn-primary btn-sm" onclick="selectIPSProvider('native')">${t('common.save')}</button></div>`;
+  }
+};
+
+window.saveVulnscanConfig = async function() {
+  const cb = document.getElementById('vulnscan-allow-private');
+  if (!cb) return;
+  try {
+    await api('PUT', '/security/vulnscan/config', { allow_private: cb.checked });
+    window._vsConfig = { ...(window._vsConfig || {}), allow_private: cb.checked };
+    toast(t('security.vulnscan.config_saved'), 'success');
+  } catch(err) {
+    toast(err.message, 'error');
+    cb.checked = !cb.checked;
   }
 };
 

@@ -79,6 +79,10 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPut && sub == "fail2ban":
 		h.putF2BConfig(w, r)
 	// VulnScan
+	case r.Method == http.MethodGet && sub == "vulnscan" && id == "config":
+		h.getVulnscanConfig(w, r)
+	case r.Method == http.MethodPut && sub == "vulnscan" && id == "config":
+		h.putVulnscanConfig(w, r)
 	case r.Method == http.MethodGet && sub == "vulnscan":
 		h.getVulnscanState(w, r)
 	case r.Method == http.MethodPost && sub == "vulnscan":
@@ -585,6 +589,34 @@ func (h *SecurityHandler) triggerVulnscan(w http.ResponseWriter, r *http.Request
 	}
 	h.VulnScan.RunNow(ctx)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *SecurityHandler) getVulnscanConfig(w http.ResponseWriter, r *http.Request) {
+	var v string
+	h.DB.QueryRowContext(r.Context(), `SELECT value FROM settings WHERE key='vulnscan_allow_private'`).Scan(&v) //nolint:errcheck
+	jsonOK(w, map[string]bool{"allow_private": v == "1" || v == "true"})
+}
+
+func (h *SecurityHandler) putVulnscanConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AllowPrivate bool `json:"allow_private"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.json")
+		return
+	}
+	val := "false"
+	if body.AllowPrivate {
+		val = "true"
+	}
+	_, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO settings (key, value) VALUES ('vulnscan_allow_private', ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`, val)
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── CrowdSec ──────────────────────────────────────────────────────────────────
