@@ -20,6 +20,21 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 **UI Admin** : le tableau des jeux de règles WAF (page Core > WAF) affiche les 13 catégories (anciennement 7). La désactivation par catégorie couvre les nouveaux IDs.
 
+### Ajouté — Diagnostic trafic
+
+- **Test du chemin de trafic à la demande** (`feat(trafic)`) : exécution étape par étape du chemin d'une requête depuis l'Admin pour diagnostiquer les configurations de routage
+
+### Corrigé
+
+- `fix(auth)` : garde `checkNeedOnboarding` contre le script non chargé — évite une erreur JS au démarrage si le module d'onboarding est absent
+- `fix(bans)` : historique de ban — entrées manquantes pour les re-bans et source affichée en brut corrigées
+
+### Documentation
+
+- `docs/security.md` créé : documentation complète des moteurs de sécurité (WAF 13 règles, Sentinel, bans, GeoIP, timeouts, scanner CVE, métriques Prometheus)
+- Landing page : carte « Moteurs de sécurité » ajoutée dans la section Documentation ; bullets WAF/Sentinel mis à jour (EN/FR/ES/DE)
+- `README.md` et `suivi/roadmap-public.md` mis à jour pour refléter la v0.3
+
 ---
 
 ## [0.3.1] — 2026-09-17
