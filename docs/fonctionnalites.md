@@ -63,8 +63,8 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 | Headers de sécurité HTTP | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
 | CORS | Origines, méthodes et en-têtes configurables |
 | Masquage du fingerprint serveur | Suppression des en-têtes révélateurs (`Server`, `X-Powered-By`) |
-| WAF | Moteur natif Go : scoring anomalie, inspection requête (JSON/form/URI/headers/cookies) **et réponse**, 13 jeux de règles OWASP CRS-4 (SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Fichiers sensibles, Fuites de données), règles custom hot-reload, detect/block mode, métriques `goproxify_waf_*` |
-| Sentinel | Détection comportementale stateful par IP : fenêtre glissante, scoring, ban immédiat sur signal déclenché, paramètres anti-DDoS globaux (GlobalRPS/burst, rate window, rate ban threshold), detect mode, listes custom allowlist/denylist, propagation config Admin→Cores |
+| WAF | Moteur natif Go, 13 jeux de règles OWASP CRS-4, inspection requête **et réponse**, detect/block mode, règles custom hot-reload — voir [docs/security.md](security.md#waf-web-application-firewall) |
+| Sentinel | Détection comportementale par IP : fenêtre glissante, ban immédiat sur signal, anti-DDoS global RPS — voir [docs/security.md](security.md#sentinel-moteur-de-détection-comportementale) |
 | Fail2Ban natif Go | Bannissement automatique après N échecs, sans dépendance externe |
 | CrowdSec | Bouncer LAPI stream → bans poussés au Core (403), compatible Docker |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
@@ -250,66 +250,17 @@ Formats supportés : nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels,
 
 > Référence complète : [docs/labels.md](labels.md)
 
+Exemples essentiels :
+
 ```yaml
-# Proxy
 goproxify.enable: "true"
-goproxify.type: "http"              # http | tcp | udp
-goproxify.host: "app.example.fr, www.app.example.fr"
-# optionnel : préfixe d’URL (monté sur l’app, strip-prefix)
-# goproxify.host: "app.example.fr, app.example.fr/admin"
+goproxify.host: "app.example.fr"
 goproxify.port: "3000"
 goproxify.tls: "true"
-
-# Sécurité (appliquée sur la route docker-host)
-goproxify.rate_limit: "100/s"                    # ou "100/s:50" (burst)
-goproxify.ip_filter: "allow:10.0.0.0/8,192.168.0.0/16"
-goproxify.cors: "true"                           # ou origins CSV
-goproxify.geo_ip: "allow:FR,DE"                  # ou deny:CN,RU
-goproxify.snippets: "waf-default,headers-secure" # IDs snippets Admin
-goproxify.auth_provider: "authentik-prod"        # ID fournisseur auth Admin
-
-# WAF
-goproxify.waf: "block"                           # true|block|detect — active le WAF
-goproxify.waf.anomaly_threshold: "10"            # score cumulatif avant blocage (défaut: 5)
-goproxify.waf.max_body_mb: "10"                  # taille max du corps de requête en Mo
-goproxify.waf.exclude_ids: "942100,941100"       # IDs de règles OWASP à désactiver (CSV)
-goproxify.waf.behavior: "true"                   # active l'analyse comportementale par IP
-goproxify.waf.behavior.window: "60"              # fenêtre d'observation en secondes (défaut: 60)
-goproxify.waf.behavior.threshold: "8"            # score comportemental avant blocage (défaut: 8)
-goproxify.waf.trusted_proxies: "10.0.0.0/8"     # CIDRs dont X-Forwarded-For est accepté (CSV)
-
-# Protection bot
-goproxify.bot: "true"                            # active la détection de bots
-goproxify.bot.mode: "block"                      # block | monitor | log | challenge (JS challenge)
-
-# Sentinel — whitelist par route
-# Le Sentinel est un moteur global de détection de menaces (avant routage).
-# Ces labels exemptent certaines IPs/CIDRs pour ce conteneur uniquement.
-goproxify.sentinel.whitelist: "192.168.1.5,10.0.0.0/8"  # CSV d'IPs/CIDRs statiques
-goproxify.sentinel.whitelist.self: "true"                 # exempte l'IP du conteneur lui-même (DHCP-safe)
-goproxify.sentinel.whitelist.network: "true"              # exempte le sous-réseau Docker du conteneur (CIDR auto-détecté)
-
-# Mises à jour d'images
-goproxify.update.auto: "true"
-goproxify.update.schedule: "0 3 * * *"
-goproxify.update.prune: "true"
-goproxify.update.rollback_timeout: "60s"
-
-# Log forwarding
-goproxify.logs: "true"
-
-# Auto-scaling
-goproxify.scale.min: "1"
-goproxify.scale.max: "5"
-goproxify.scale.cpu_threshold: "80"
-goproxify.scale.cooldown: "120s"
-
-# Canary (reçoit un pourcentage du trafic)
+goproxify.waf: "block"
+goproxify.sentinel.whitelist: "10.0.0.0/8"
 goproxify.canary: "true"
-goproxify.canary.weight: "10"       # % du trafic (défaut: 10)
-
-# Shadow Mirror (copie silencieuse du trafic)
-goproxify.shadow: "true"
+goproxify.canary.weight: "10"
 ```
 
 ### Auto-scaling horizontal
@@ -527,6 +478,6 @@ Configuration : fichiers JSON dans `config/` (`admin.json`, `core.json`, `agent.
 | Discovery | Docker Engine API via socket Unix (`/var/run/docker.sock`) |
 | Métriques | Prometheus (`/metrics`), OpenTelemetry |
 | Auth | JWT ECDSA P-256, bcrypt mots de passe, HMAC-SHA256 plan de contrôle WS, JOIN_TOKEN lifecycle, PAT `gpx_pat_*` (API + MCP) |
-| Sécurité applicative | Fail2Ban natif Go, CrowdSec bouncer LAPI, WAF ModSecurity/OWASP CRS-4 |
+| Sécurité applicative | Fail2Ban natif Go, CrowdSec bouncer LAPI, WAF natif Go (OWASP CRS-4, 13 règles) |
 | Intégrations LLM | Serveur MCP JSON-RPC 2.0 + SSE (`/mcp`, auth PAT) |
 | Déploiement | Binaire unique · Docker Compose · systemd (hardening) · `setcap cap_net_bind_service` |

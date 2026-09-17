@@ -49,3 +49,5 @@ publics sont publiés via les GitHub Security Advisories du dépôt.
 - **WAF** : label `goproxify.waf=detect|block` ou snippet par route (off par défaut).
 - **Images** : pin SemVer (`GOPROXIFY_*_TAG`). Sur GHCR public : tags SemVer + `:preview`
   (pas de `:latest` en préversion). Éviter de s’appuyer sur un tag flottant en prod.
+
+Pour la référence complète des moteurs de sécurité (WAF, Sentinel, bans, GeoIP, timeouts), voir [docs/security.md](docs/security.md).
