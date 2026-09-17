@@ -458,11 +458,17 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	if p.ExpiresAt != "" {
 		expiresAt = p.ExpiresAt
 	}
-	m.db.Exec( //nolint:errcheck
+	banID := "threat-" + p.IP
+	res, _ := m.db.Exec(
 		`INSERT OR IGNORE INTO security_bans (id, ip, domain, reason, source, expires_at)
 		 VALUES (?, ?, '', ?, 'threat', ?)`,
-		"threat-"+p.IP, p.IP, p.Reason, expiresAt,
+		banID, p.IP, p.Reason, expiresAt,
 	)
+	if rows, _ := res.RowsAffected(); rows > 0 {
+		m.db.Exec( //nolint:errcheck
+			`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
+			p.IP, "", p.Reason, "threat", banID)
+	}
 }
 
 func (m *Manager) handlePortalAudit(raw json.RawMessage) {

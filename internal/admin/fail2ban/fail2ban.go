@@ -161,14 +161,16 @@ func (e *Engine) scan() {
 		if banDur > 0 {
 			expiresAt = time.Now().Add(time.Duration(banDur) * time.Second).UTC().Format(time.RFC3339)
 		}
+		banID := uuid.New().String()
+		reason := fmt.Sprintf("Fail2Ban : %d erreurs en %ds", count, window)
 		res, err := e.db.Exec(
 			`INSERT OR IGNORE INTO security_bans (id, ip, domain, reason, source, expires_at) VALUES (?,?,?,?,?,?)`,
-			uuid.New().String(), rawIP, "",
-			fmt.Sprintf("Fail2Ban : %d erreurs en %ds", count, window),
-			"fail2ban", expiresAt)
+			banID, rawIP, "", reason, "fail2ban", expiresAt)
 		if err == nil {
 			if rows, _ := res.RowsAffected(); rows > 0 {
-				reason := fmt.Sprintf("Fail2Ban : %d erreurs en %ds", count, window)
+				e.db.Exec( //nolint:errcheck
+					`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
+					rawIP, "", reason, "fail2ban", banID)
 				e.log.Info("fail2ban: IP bannie automatiquement", "ip", rawIP, "errors", count)
 				if e.OnBan != nil {
 					e.OnBan(rawIP, reason)

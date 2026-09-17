@@ -137,10 +137,15 @@ func (s *Server) handleInternalThreats(w http.ResponseWriter, r *http.Request) {
 					expires = time.Now().Add(parsed).UTC().Format(time.RFC3339)
 				}
 			}
-			if _, err := s.db.Exec(
+			if res, err := s.db.Exec(
 				`INSERT OR REPLACE INTO security_bans (id, ip, domain, reason, source, expires_at) VALUES (?,?,?,?,?,?)`,
 				id, t.IP, "", reason, "crowdsec", expires,
 			); err == nil {
+				if rows, _ := res.RowsAffected(); rows > 0 {
+					s.db.Exec( //nolint:errcheck
+						`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
+						t.IP, "", reason, "crowdsec", id)
+				}
 				changed = true
 			}
 		}
