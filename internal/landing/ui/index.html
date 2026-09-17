@@ -1054,9 +1054,9 @@
         <h3 data-i18n="f5.title">Protect what you publish</h3>
         <p data-i18n="f5.body">Putting sites on the internet invites bots and abuse. GoProxify includes a WAF, the Sentinel behavioural engine, CrowdSec integration, GeoIP filtering, and SSO — all configured from the Admin.</p>
         <ul class="feature-points">
-          <li data-i18n="f5.p1">WAF with anomaly scoring, JSON inspection and hot-reload rules</li>
-          <li data-i18n="f5.p2">Sentinel — behavioural detection per IP (sliding window, whitelist, detect mode)</li>
-          <li data-i18n="f5.p3">Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)</li>
+          <li data-i18n="f5.p1">WAF — 13 OWASP CRS-4 rule sets, anomaly scoring, response body inspection, hot-reload</li>
+          <li data-i18n="f5.p2">Sentinel — immediate ban on signal, anti-DDoS global RPS, behavioural per-IP window</li>
+          <li data-i18n="f5.p3">Rate limit, GeoIP, CrowdSec, CVE scanner, configurable HTTP/QUIC timeouts, SSO</li>
         </ul>
       </div>
 
@@ -1938,6 +1938,11 @@ agent:
         <h3 data-i18n="doc.faq.title">Frequently asked questions</h3>
         <p data-i18n="doc.faq.body">First start, password reset, Docker labels, delegation edge cases.</p>
       </a>
+      <a href="#" id="docs-security" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Security</div>
+        <h3 data-i18n="doc.security.title">Security engines</h3>
+        <p data-i18n="doc.security.body">WAF (13 CRS-4 rule sets, response inspection), Sentinel, bans, GeoIP, timeouts and CVE scanner.</p>
+      </a>
     </div>
 
     <!-- Reference -->
@@ -2076,6 +2081,7 @@ agent:
       'doc.roadmap.title': 'Public roadmap', 'doc.roadmap.body': 'Upcoming milestones and planned features.',
       'doc.contrib.title': 'Contributing', 'doc.contrib.body': 'PR workflow, tests, DCO sign-off, coding conventions.',
       'doc.volumes.title': 'Docker volumes', 'doc.volumes.body': 'What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.',
+      'doc.security.title': 'Security engines', 'doc.security.body': 'WAF (13 CRS-4 rule sets, response inspection), Sentinel, bans, GeoIP, timeouts and CVE scanner.',
       'doc.github': 'View on GitHub →',
       'f1.sub': 'Gateway', 'f1.title': 'The traffic gateways',
       'f1.body': 'Gateways are the public front door. They welcome visitors on your https://… addresses and send each one to the right site in your fleet — quietly, and at scale.',
@@ -2138,9 +2144,9 @@ agent:
       'f4.p1': 'Sites keep answering even if the Admin is briefly offline',
       'f4.p2': 'A second gateway covers for the first',
       'f4.p3': 'Failing apps are bypassed so visitors still reach a healthy copy',
-      'f5.p1': 'WAF with anomaly scoring, JSON inspection and hot-reload rules',
-      'f5.p2': 'Sentinel — behavioural detection per IP (sliding window, detect mode)',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
+      'f5.p1': 'WAF — 13 OWASP CRS-4 rule sets, anomaly scoring, response body inspection, hot-reload',
+      'f5.p2': 'Sentinel — immediate ban on signal, anti-DDoS global RPS, behavioural per-IP window',
+      'f5.p3': 'Rate limit, GeoIP, CrowdSec, CVE scanner, configurable HTTP/QUIC timeouts, SSO',
       'f6.p1': 'Live views of traffic across your published sites',
       'f6.p2': 'Clear access logs you can actually read',
       'f6.p3': 'Alerts on several channels when something goes wrong',
@@ -2211,6 +2217,7 @@ agent:
       'doc.roadmap.title': 'Roadmap publique', 'doc.roadmap.body': 'Jalons à venir et fonctionnalités planifiées.',
       'doc.contrib.title': 'Contribuer', 'doc.contrib.body': 'Workflow PR, tests, DCO, conventions de code.',
       'doc.volumes.title': 'Volumes Docker', 'doc.volumes.body': 'Ce que chaque volume persiste : base Admin, configs proxies Core, tokens Agent, base GeoIP.',
+      'doc.security.title': 'Moteurs de sécurité', 'doc.security.body': 'WAF (13 jeux de règles CRS-4, inspection réponse), Sentinel, bans, GeoIP, timeouts et scanner CVE.',
       'doc.github': 'Voir sur GitHub →',
       'f1.sub': 'Passerelle', 'f1.title': 'Les passerelles de trafic',
       'f1.body': "Les passerelles sont la porte d'entrée publique. Elles accueillent les visiteurs sur vos adresses https://… et envoient chacun vers le bon site de la flotte — discrètement, et à grande échelle.",
@@ -2273,9 +2280,9 @@ agent:
       'f4.p1': "Les sites répondent même si l'Admin est brièvement hors ligne",
       'f4.p2': 'Une seconde passerelle couvre la première',
       'f4.p3': 'Les apps en panne sont contournées pour joindre une copie saine',
-      'f5.p1': 'WAF avec scoring anomalie, inspection JSON et règles hot-reload',
-      'f5.p2': 'Sentinel — détection comportementale par IP (fenêtre glissante, detect mode)',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
+      'f5.p1': 'WAF — 13 jeux de règles OWASP CRS-4, scoring anomalie, inspection corps de réponse, hot-reload',
+      'f5.p2': 'Sentinel — ban immédiat sur signal, RPS global anti-DDoS, fenêtre comportementale par IP',
+      'f5.p3': 'Rate limit, GeoIP, CrowdSec, scanner CVE, timeouts HTTP/QUIC configurables, SSO',
       'f6.p1': 'Vues en direct du trafic sur vos sites publiés',
       'f6.p2': "Journaux d'accès clairs et lisibles",
       'f6.p3': 'Alertes sur plusieurs canaux quand quelque chose cloche',
@@ -2346,6 +2353,7 @@ agent:
       'doc.roadmap.title': 'Hoja de ruta pública', 'doc.roadmap.body': 'Próximos hitos y funcionalidades planificadas.',
       'doc.contrib.title': 'Contribuir', 'doc.contrib.body': 'Flujo de PR, tests, DCO, convenciones de código.',
       'doc.volumes.title': 'Volúmenes Docker', 'doc.volumes.body': 'Qué persiste cada volumen: base Admin, configs proxies Core, tokens Agent, base GeoIP.',
+      'doc.security.title': 'Motores de seguridad', 'doc.security.body': 'WAF (13 conjuntos CRS-4, inspección de respuesta), Sentinel, bans, GeoIP, timeouts y escáner CVE.',
       'doc.github': 'Ver en GitHub →',
       'f1.sub': 'Pasarela', 'f1.title': 'Las pasarelas de tráfico',
       'f1.body': 'Las pasarelas son la puerta pública. Reciben a los visitantes en tus direcciones https://… y envían a cada uno al sitio correcto de la flota — en silencio y a escala.',
@@ -2408,9 +2416,9 @@ agent:
       'f4.p1': 'Los sitios siguen respondiendo si el Admin está offline un momento',
       'f4.p2': 'Una segunda pasarela cubre a la primera',
       'f4.p3': 'Las apps fallidas se omiten para llegar a una copia sana',
-      'f5.p1': 'WAF con puntuación de anomalías, inspección JSON y reglas hot-reload',
-      'f5.p2': 'Sentinel — detección conductual por IP (ventana deslizante, modo detect)',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
+      'f5.p1': 'WAF — 13 conjuntos de reglas OWASP CRS-4, puntuación de anomalías, inspección de respuesta, hot-reload',
+      'f5.p2': 'Sentinel — ban inmediato por señal, RPS global anti-DDoS, ventana conductual por IP',
+      'f5.p3': 'Rate limit, GeoIP, CrowdSec, escáner CVE, timeouts HTTP/QUIC configurables, SSO',
       'f6.p1': 'Vistas en vivo del tráfico en tus sitios publicados',
       'f6.p2': 'Registros de acceso claros y legibles',
       'f6.p3': 'Alertas en varios canales cuando algo va mal',
@@ -2481,6 +2489,7 @@ agent:
       'doc.roadmap.title': 'Öffentliche Roadmap', 'doc.roadmap.body': 'Bevorstehende Meilensteine und geplante Funktionen.',
       'doc.contrib.title': 'Beitragen', 'doc.contrib.body': 'PR-Workflow, Tests, DCO-Signoff, Codierungskonventionen.',
       'doc.volumes.title': 'Docker-Volumes', 'doc.volumes.body': 'Was jedes Volume persistiert: Admin-Datenbank, Core-Proxy-Configs, Agent-Tokens, GeoIP-Datenbank.',
+      'doc.security.title': 'Sicherheits-Engines', 'doc.security.body': 'WAF (13 CRS-4-Regelwerke, Antwort-Inspektion), Sentinel, Sperren, GeoIP, Timeouts und CVE-Scanner.',
       'doc.github': 'Auf GitHub ansehen →',
       'f1.sub': 'Gateway', 'f1.title': 'Die Traffic-Gateways',
       'f1.body': 'Gateways sind die öffentliche Haustür. Sie empfangen Besucher auf Ihren https://…-Adressen und senden jeden zur richtigen Site in der Flotte — ruhig und skalierbar.',
@@ -2543,9 +2552,9 @@ agent:
       'f4.p1': 'Sites antworten weiter, auch wenn das Admin kurz offline ist',
       'f4.p2': 'Ein zweites Gateway deckt das erste ab',
       'f4.p3': 'Ausfallende Apps werden umgangen, damit Besucher eine gesunde Kopie erreichen',
-      'f5.p1': 'WAF mit Anomalie-Scoring, JSON-Inspektion und Hot-Reload-Regeln',
-      'f5.p2': 'Sentinel — Verhaltensanalyse pro IP (gleitendes Fenster, Detect-Modus)',
-      'f5.p3': 'Rate-Limit, GeoIP, CrowdSec, SSO (OIDC / SAML / LDAP)',
+      'f5.p1': 'WAF — 13 OWASP CRS-4 Regelwerke, Anomalie-Scoring, Antwort-Inspektion, Hot-Reload',
+      'f5.p2': 'Sentinel — Sofortsperre bei Signal, globaler Anti-DDoS-RPS, Verhaltensanalyse pro IP',
+      'f5.p3': 'Rate-Limit, GeoIP, CrowdSec, CVE-Scanner, konfigurierbare HTTP/QUIC-Timeouts, SSO',
       'f6.p1': 'Live-Ansichten des Traffics auf Ihren veröffentlichten Sites',
       'f6.p2': 'Klare, lesbare Access-Logs',
       'f6.p3': 'Alerts auf mehreren Kanälen, wenn etwas schiefläuft',

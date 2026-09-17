@@ -6,11 +6,14 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
 ### v0.3 — Sécurité avancée et observabilité _(septembre 2026)_
 
-- **WAF avancé** : scoring anomalie, inspection JSON/form, règles custom hot-reload, métriques
-- **Sentinel** : moteur de détection comportementale stateful par IP (fenêtre glissante, detect mode, listes custom)
+- **WAF avancé** : scoring anomalie, inspection requête (JSON/form/URI/headers/cookies) **et réponse** (CRS 951xxx), 13 jeux de règles OWASP CRS-4, règles custom hot-reload, métriques `gpx_waf_*`
+- **WAF — nouveaux jeux de règles** : Java/Log4Shell (944xxx), RFI (931xxx), NodeJS/Prototype Pollution (934xxx), HTTP Request Smuggling (920xxx), Fichiers sensibles (930xxx), Fuites de données en réponse (951xxx)
+- **Sentinel** : moteur de détection comportementale stateful par IP — fenêtre glissante, ban immédiat sur signal, paramètres anti-DDoS configurables depuis l’UI (GlobalRPS, rate_window, rate_ban_threshold), detect mode, listes custom allowlist/denylist
+- **Timeouts serveur HTTP/QUIC** : ReadHeader, Read, Write, Idle configurables depuis l’Admin et propagés aux Cores
+- **Scanner CVE** : toggle UI pour autoriser les backends IP privées (opt-in, anti-SSRF par défaut)
 - **Politiques d’accès centralisées** : vue unifiée IP/GeoIP/Bot par proxy dans l’Admin
 - **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
-- **Prism** : taux d’erreurs et IPs bannies par pays
+- **Prism** : taux d’erreurs et IPs bannies par pays ; bouton accès rapide depuis la table des bans
 
 ### v0.2 — Architecture distribuée _(juillet – août 2026)_
 

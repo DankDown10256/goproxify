@@ -192,7 +192,7 @@ Référence complète → **[docs/cli.md](docs/cli.md)**
 - **Cache local chiffré AES-256-GCM** — démarre et route sans Admin disponible
 - Rechargement de configuration à chaud, zéro interruption de connexion
 - Load balancing (Round Robin, Weighted, adaptatif CPU/mem/IO + failover + gateway inter-Cores), Circuit Breaker, Retry
-- Rate limiting, filtrage IP/CIDR, Géo-IP, WAF OWASP CRS-4, headers de sécurité HTTP
+- Rate limiting, filtrage IP/CIDR, Géo-IP, **WAF OWASP CRS-4** (13 jeux de règles : SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Fichiers sensibles, Fuites de réponse), headers de sécurité HTTP
 - Authentification Basic, Forward Auth, JWT par route
 - Access log JSON asynchrone, métriques Prometheus, tracing OpenTelemetry
 - **GoProxify Access** — portail opérateur sur le Core : terminal web + `ssh` UUID vers VMs/`sshd` et conteneurs Docker (`docker exec` via Agent) ; coffre login SSH + secrets ; 2FA ; sessions TTL
@@ -275,7 +275,7 @@ Voir `.env.example` pour la liste complète.
 | Configuration | Variables d'environnement `GPX_*` + JSON optionnel |
 | Discovery | Docker Engine API via socket Unix (lecture seule) |
 | Métriques | Prometheus `/metrics`, OpenTelemetry (OTLP) |
-| Sécurité | WAF OWASP CRS-4, Rate limiting, Géo-IP, JWT ECDSA P-256, HMAC-SHA256 WS |
+| Sécurité | WAF OWASP CRS-4 (13 jeux de règles, inspection requête + réponse), Sentinel comportemental, Rate limiting, Géo-IP, JWT ECDSA P-256, HMAC-SHA256 WS |
 | Déploiement | Binaire unique · Docker Compose · systemd |
 
 ---
@@ -297,7 +297,8 @@ Voir `.env.example` pour la liste complète.
 | [Roadmap publique](suivi/roadmap-public.md) | Jalons haut niveau |
 | [Contributing](CONTRIBUTING.md) | PR, tests, DCO |
 | [Code of Conduct](CODE_OF_CONDUCT.md) | Contributor Covenant |
-| [Sécurité](SECURITY.md) | Signalement des vulnérabilités |
+| [Sécurité](docs/security.md) | WAF, Sentinel, bans, timeouts, vulnscan — référence complète des moteurs de sécurité |
+| [Signalement de vulnérabilités](SECURITY.md) | Responsible disclosure |
 | [Licence](LICENSE) | Apache License 2.0 |
 | [NOTICE](NOTICE) | Copyright et notices tierces |
 | [Avertissement](DISCLAIMER.md) | Préversion, sans garantie ni responsabilité d’usage |
