@@ -481,18 +481,18 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			}
 			if len(respMatches) > 0 && block {
 				// La réponse n'a pas encore été envoyée : on peut encore bloquer.
-				if !rc.headerWritten {
-					http.Error(w, "403 Forbidden", http.StatusForbidden)
-				}
+				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				if behaviorEnabled {
 					e.postRecord(host, ip, r, wafScore+respMatches[0].AnomalyScore, rc.status, behaviorWindowSec, behaviorThreshold, block)
 				}
 				return
 			}
 			// Aucune fuite ou mode detect : transmettre la réponse bufferisée.
-			if !rc.headerWritten {
-				w.WriteHeader(rc.status)
+			status := rc.status
+			if status == 0 {
+				status = http.StatusOK
 			}
+			w.WriteHeader(status)
 			_, _ = w.Write(rc.buf.Bytes())
 
 			if behaviorEnabled {
@@ -572,7 +572,6 @@ type responseCapture struct {
 func (rc *responseCapture) WriteHeader(code int) {
 	rc.status = code
 	rc.headerWritten = true
-	rc.ResponseWriter.WriteHeader(code)
 }
 
 func (rc *responseCapture) Write(b []byte) (int, error) {
@@ -588,7 +587,7 @@ func (rc *responseCapture) Write(b []byte) (int, error) {
 			rc.buf.Write(b[:remaining])
 		}
 	}
-	return rc.ResponseWriter.Write(b)
+	return len(b), nil
 }
 
 func (rc *responseCapture) Flush() {
