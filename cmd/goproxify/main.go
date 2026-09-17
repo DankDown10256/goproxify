@@ -273,7 +273,7 @@ func runCore() {
 	}
 
 	errorpages.CoreVersion = VersionCore
-	srv, err := core.New(cfg)
+	srv, err := core.New(cfg, cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "initialisation core : %v\n", err)
 		os.Exit(1)

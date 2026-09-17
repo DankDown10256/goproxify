@@ -1488,6 +1488,22 @@ func (m *Manager) loadThreatConfig(ctx context.Context, coreID string) json.RawM
 	return json.RawMessage(val)
 }
 
+// PushServerConfig envoie les timeouts HTTP/QUIC à tous les Cores via WS.
+func (m *Manager) PushServerConfig(ctx context.Context, cfg any) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushServerConfig, json.RawMessage(body)); err != nil {
+				m.log.Warn("corews: push server config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
 // PushThreatConfig envoie la config du Sentinel à tous les Cores via WS.
 func (m *Manager) PushThreatConfig(ctx context.Context, cfg any) {
 	body, err := json.Marshal(cfg)

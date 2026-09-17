@@ -283,7 +283,8 @@ async function renderSecurityBans(ctx) {
     fetches.push(api('GET', '/security/crowdsec').catch(() => null));
     fetches.push(api('GET', `/security/ips-provider${coreQ}`).catch(() => null));
     fetches.push(api('GET', `/security/threat-config${coreQ}`).catch(() => null));
-    const [bansRaw, threats, f2bCfg, csCfg, ipsProvider, threatCfg] = await Promise.all(fetches);
+    fetches.push(api('GET', `/security/server-config${coreQ}`).catch(() => null));
+    const [bansRaw, threats, f2bCfg, csCfg, ipsProvider, threatCfg, serverCfg] = await Promise.all(fetches);
     const bans = filterSecBans(bansRaw || [], coreCtx);
 
     window._secBans = bans;
@@ -294,11 +295,13 @@ async function renderSecurityBans(ctx) {
     window._csCfg = csCfg || {};
     window._ipsProvider = ipsProvider?.provider || 'native';
     window._threatCfg = threatCfg || {};
+    window._serverCfg = serverCfg || {};
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
       ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
       ${!isAdmin ? threatEngineBanner(threatCfg || {}) : ''}
+      ${!isAdmin ? serverTimeoutsBanner(serverCfg || {}) : ''}
       <div class="sec-bans-list-stack">
         <div class="card blueprint">
           <div class="card-header">
@@ -794,6 +797,58 @@ window.saveThreatConfig = async function(e) {
     await api('PUT', `/security/threat-config${window._secCoreQ || ''}`, cfg);
     window._threatCfg = cfg;
     toast(t('security.threat.saved'), 'success');
+  } catch(err) { toast(err.message, 'error'); }
+};
+
+// ── Timeouts HTTP/QUIC ────────────────────────────────────────────────────────
+
+function serverTimeoutsBanner(cfg) {
+  return `<div class="card blueprint" style="margin-bottom:12px">
+    <div class="card-header">
+      <span class="card-title">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Timeouts HTTP / QUIC
+      </span>
+    </div>
+    <div style="padding:12px 16px">
+      <div style="margin-bottom:10px;padding:8px 10px;background:var(--warning-bg,#fff8e1);border-radius:6px;font-size:12px;color:var(--warning-text,#7a5c00)">
+        ⚠️ Ces valeurs sont sauvegardées dans <code>core.json</code> — un <strong>redémarrage du Core</strong> est nécessaire pour les appliquer.
+      </div>
+      <form onsubmit="saveServerConfig(event)" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin:0">
+          <label class="field-label">ReadHeader (s) <span style="font-weight:400;color:var(--text3)">anti-Slowloris</span></label>
+          <input id="srv-read-header" type="number" class="input" style="width:110px" value="${cfg.read_header_seconds||10}" min="1" placeholder="10">
+        </div>
+        <div class="field" style="margin:0">
+          <label class="field-label">Read (s)</label>
+          <input id="srv-read" type="number" class="input" style="width:110px" value="${cfg.read_seconds||30}" min="1" placeholder="30">
+        </div>
+        <div class="field" style="margin:0">
+          <label class="field-label">Write (s)</label>
+          <input id="srv-write" type="number" class="input" style="width:110px" value="${cfg.write_seconds||60}" min="1" placeholder="60">
+        </div>
+        <div class="field" style="margin:0">
+          <label class="field-label">Idle (s)</label>
+          <input id="srv-idle" type="number" class="input" style="width:110px" value="${cfg.idle_seconds||120}" min="1" placeholder="120">
+        </div>
+        <button class="btn btn-primary btn-sm" type="submit" style="margin-bottom:1px">Sauvegarder</button>
+      </form>
+    </div>
+  </div>`;
+}
+
+window.saveServerConfig = async function(e) {
+  if (e) e.preventDefault();
+  const cfg = {
+    read_header_seconds: parseInt(document.getElementById('srv-read-header')?.value || '10', 10) || 10,
+    read_seconds:        parseInt(document.getElementById('srv-read')?.value        || '30', 10) || 30,
+    write_seconds:       parseInt(document.getElementById('srv-write')?.value       || '60', 10) || 60,
+    idle_seconds:        parseInt(document.getElementById('srv-idle')?.value        || '120', 10) || 120,
+  };
+  try {
+    await api('PUT', `/security/server-config${window._secCoreQ || ''}`, cfg);
+    window._serverCfg = cfg;
+    toast('Timeouts sauvegardés — redémarrez le Core pour les appliquer', 'success');
   } catch(err) { toast(err.message, 'error'); }
 };
 

@@ -348,6 +348,11 @@ func (s *Server) Start(ctx context.Context) error {
 				go manager.PushThreatConfig(context.Background(), cfg)
 			}
 		},
+		OnServerConfigChange: func(cfg any) {
+			if manager != nil {
+				go manager.PushServerConfig(context.Background(), cfg)
+			}
+		},
 	}
 	importH := &api.ImportHandler{DB: s.db, Log: s.log}
 	prismH := &api.PrismHandler{DB: s.db}

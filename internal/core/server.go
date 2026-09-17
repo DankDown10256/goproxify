@@ -46,6 +46,7 @@ import (
 // Server est le Data Plane — reverse proxy HTTP/TLS/TCP/UDP.
 type Server struct {
 	cfg       *config.CoreConfig
+	cfgPath   string // chemin de core.json — utilisé pour persister les timeouts
 	log       *corelog.DynamicLogger
 	accessLog *corelog.AccessLogger
 
@@ -101,7 +102,7 @@ type Server struct {
 
 
 // New initialise le Core à partir de la configuration.
-func New(cfg *config.CoreConfig) (*Server, error) {
+func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 	cfg.Identity.NodeName = nodeident.Resolve("core")
 
 	log := corelog.New(cfg.Engine.LogLevel, cfg.Engine.LogFormat, cfg.Engine.SystemLogPath)
@@ -125,8 +126,13 @@ func New(cfg *config.CoreConfig) (*Server, error) {
 		tracingShutdown = func(context.Context) error { return nil }
 	}
 
+	var path string
+	if len(cfgPath) > 0 {
+		path = cfgPath[0]
+	}
 	s := &Server{
 		cfg:             cfg,
+		cfgPath:         path,
 		log:             log,
 		accessLog:       accessLog,
 		table:           &router.Table{},

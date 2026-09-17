@@ -5,6 +5,7 @@ package core
 
 import (
 	"encoding/json"
+	"os"
 	"time"
 
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
@@ -136,6 +137,35 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 			s.threatEngine.UpdateConfig(cfg)
 		}
 		s.log.Info(threat.Name+": config mise à jour", "enabled", cfg.Enabled)
+
+	case corews.TypePushServerConfig:
+		var body struct {
+			ReadHeaderSeconds int `json:"read_header_seconds"`
+			ReadSeconds       int `json:"read_seconds"`
+			WriteSeconds      int `json:"write_seconds"`
+			IdleSeconds       int `json:"idle_seconds"`
+		}
+		if err := json.Unmarshal(msg.Payload, &body); err != nil {
+			return err
+		}
+		if body.ReadHeaderSeconds > 0 {
+			s.cfg.Timeouts.ReadHeaderSeconds = body.ReadHeaderSeconds
+		}
+		if body.ReadSeconds > 0 {
+			s.cfg.Timeouts.ReadSeconds = body.ReadSeconds
+		}
+		if body.WriteSeconds > 0 {
+			s.cfg.Timeouts.WriteSeconds = body.WriteSeconds
+		}
+		if body.IdleSeconds > 0 {
+			s.cfg.Timeouts.IdleSeconds = body.IdleSeconds
+		}
+		if s.cfgPath != "" {
+			if data, err := json.MarshalIndent(s.cfg, "", "  "); err == nil {
+				_ = os.WriteFile(s.cfgPath, data, 0o640)
+			}
+		}
+		s.log.Info("ws/admin: server-config mis à jour (redémarrage requis)")
 
 	case corews.TypePushSettings:
 		var payload pushedSettings

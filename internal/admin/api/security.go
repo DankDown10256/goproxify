@@ -34,6 +34,8 @@ type SecurityHandler struct {
 	OnBansChange func()
 	// OnThreatConfigChange envoie la config du moteur de détection aux Cores.
 	OnThreatConfigChange func(cfg any)
+	// OnServerConfigChange envoie les timeouts HTTP/QUIC aux Cores (redémarrage requis).
+	OnServerConfigChange func(cfg any)
 }
 
 func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +98,11 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getThreatConfig(w, r)
 	case r.Method == http.MethodPut && sub == "threat-config":
 		h.putThreatConfig(w, r)
+	// Timeouts HTTP/QUIC (statiques — redémarrage Core requis)
+	case r.Method == http.MethodGet && sub == "server-config":
+		h.getServerConfig(w, r)
+	case r.Method == http.MethodPut && sub == "server-config":
+		h.putServerConfig(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -704,6 +711,49 @@ func (h *SecurityHandler) putThreatConfig(w http.ResponseWriter, r *http.Request
 	}
 	if h.OnThreatConfigChange != nil {
 		h.OnThreatConfigChange(cfg)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Server Config (timeouts HTTP/QUIC) ───────────────────────────────────────
+
+func serverConfigKey(coreID string) string {
+	if coreID == "" {
+		return "server_config"
+	}
+	return "server_config:" + coreID
+}
+
+func (h *SecurityHandler) getServerConfig(w http.ResponseWriter, r *http.Request) {
+	coreID := r.URL.Query().Get("core")
+	row := h.DB.QueryRowContext(r.Context(),
+		`SELECT value FROM settings WHERE key=?`, serverConfigKey(coreID))
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		jsonOK(w, map[string]any{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(raw)) //nolint:errcheck
+}
+
+func (h *SecurityHandler) putServerConfig(w http.ResponseWriter, r *http.Request) {
+	coreID := r.URL.Query().Get("core")
+	var cfg json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.json")
+		return
+	}
+	_, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		serverConfigKey(coreID), string(cfg))
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	if h.OnServerConfigChange != nil {
+		h.OnServerConfigChange(cfg)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

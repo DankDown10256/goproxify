@@ -596,6 +596,20 @@ func (p *Pusher) PushThreatConfig(ctx context.Context, cfg any) {
 	}
 }
 
+// PushServerConfig envoie les timeouts HTTP/QUIC à tous les Cores.
+// Le Core écrit les valeurs dans core.json — un redémarrage est nécessaire pour les appliquer.
+func (p *Pusher) PushServerConfig(ctx context.Context, cfg any) {
+	cores, err := p.activeCores(ctx)
+	if err != nil {
+		p.log.Error("corepush: lecture des Cores pour server-config", "err", err)
+		return
+	}
+	body, _ := json.Marshal(cfg)
+	for _, c := range cores {
+		go p.post(ctx, c, "/internal/v1/server-config", body, "server-config")
+	}
+}
+
 func (p *Pusher) PushBans(ctx context.Context) {
 	cores, err := p.activeCores(ctx)
 	if err != nil {
