@@ -126,7 +126,7 @@ services:
     build:
       context: .
       dockerfile: services/core/Dockerfile
-    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/core:${GOPROXIFY_CORE_TAG:-0.3.90}
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/core:${GOPROXIFY_CORE_TAG:-0.3.91}
     container_name: goproxify-core
     restart: unless-stopped
     command: ["core"]

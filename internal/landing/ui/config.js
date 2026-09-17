@@ -1,7 +1,7 @@
 const SITE_CONFIG = {
   domain: "goproxify.dev",
   version: "0.2.167",
-  versions: { admin: "0.2.167", core: "0.3.90", agent: "0.3.49" },
+  versions: { admin: "0.2.167", core: "0.3.91", agent: "0.3.49" },
   goVersion: "1.25",
   status: "preview",
   githubUrl: "https://github.com/Vincamok/goproxify",
