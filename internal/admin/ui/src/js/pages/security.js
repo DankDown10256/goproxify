@@ -645,8 +645,20 @@ function threatEngineBanner(cfg) {
 
         <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
           <div class="field" style="margin:0">
-            <label class="field-label">${t('security.threat.rate_limit')}</label>
+            <label class="field-label">${t('security.threat.rate_limit')} <span style="font-weight:400;color:var(--text3)">(req/s par IP, 0 = désactivé)</span></label>
             <input id="threat-rate" type="number" class="input" value="${cfg.rate_limit||0}" min="0" step="0.5" placeholder="0 = désactivé">
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">Fenêtre rate <span style="font-weight:400;color:var(--text3)">(ex: 1s)</span></label>
+            <input id="threat-rate-window" class="input" value="${cfg.rate_window||'1s'}" placeholder="1s">
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">Ban auto rate — seuil <span style="font-weight:400;color:var(--text3)">(déclenchements avant ban, 1 = immédiat)</span></label>
+            <input id="threat-rate-ban-threshold" type="number" class="input" value="${cfg.rate_ban_threshold||1}" min="1" placeholder="1">
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">Ban auto rate — fenêtre <span style="font-weight:400;color:var(--text3)">(ex: 10s)</span></label>
+            <input id="threat-rate-ban-window" class="input" value="${cfg.rate_ban_window||''}" placeholder="= fenêtre rate">
           </div>
           <div class="field" style="margin:0">
             <label class="field-label">${t('security.threat.error_threshold')}</label>
@@ -663,6 +675,20 @@ function threatEngineBanner(cfg) {
           <div class="field" style="margin:0">
             <label class="field-label">${t('security.threat.refresh')}</label>
             <input id="threat-refresh" class="input" value="${lists.refresh_interval||'6h'}" placeholder="6h">
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">Limite globale (anti-DDoS volumétrique)</div>
+          <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
+            <div class="field" style="margin:0">
+              <label class="field-label">Global req/s max <span style="font-weight:400;color:var(--text3)">(toutes IPs, 0 = désactivé)</span></label>
+              <input id="threat-global-rps" type="number" class="input" value="${cfg.global_rps||0}" min="0" step="10" placeholder="0 = désactivé">
+            </div>
+            <div class="field" style="margin:0">
+              <label class="field-label">Global burst <span style="font-weight:400;color:var(--text3)">(0 = 2×global req/s)</span></label>
+              <input id="threat-global-burst" type="number" class="input" value="${cfg.global_burst||0}" min="0" step="10" placeholder="0 = 2×RPS">
+            </div>
           </div>
         </div>
 
@@ -738,6 +764,11 @@ window.saveThreatConfig = async function(e) {
     mode: document.getElementById('threat-mode')?.value || 'block',
     score_threshold: parseInt(document.getElementById('threat-score')?.value || '0', 10) || 0,
     rate_limit: parseFloat(document.getElementById('threat-rate')?.value || '0') || 0,
+    rate_window: document.getElementById('threat-rate-window')?.value || '1s',
+    rate_ban_threshold: parseInt(document.getElementById('threat-rate-ban-threshold')?.value || '1', 10) || 1,
+    rate_ban_window: document.getElementById('threat-rate-ban-window')?.value || '',
+    global_rps: parseFloat(document.getElementById('threat-global-rps')?.value || '0') || 0,
+    global_burst: parseInt(document.getElementById('threat-global-burst')?.value || '0', 10) || 0,
     error_threshold: parseInt(document.getElementById('threat-errs')?.value || '20', 10),
     error_window: document.getElementById('threat-ewin')?.value || '10s',
     ban_duration: document.getElementById('threat-dur')?.value || '24h',
