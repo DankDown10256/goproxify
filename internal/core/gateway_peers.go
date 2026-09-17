@@ -26,7 +26,7 @@ func (s *Server) handlePushGatewayPeers(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Ne pas s'enregistrer soi-même comme peer
+	// Don't register ourselves as peer (self-registration)
 	self := strings.TrimSpace(s.cfg.Identity.NodeName)
 	filtered := peers[:0]
 	for _, p := range peers {

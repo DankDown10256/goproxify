@@ -46,6 +46,7 @@ func (s *EmailSender) Send(_ context.Context, msg Message) error {
 	}
 	client, err := smtp.NewClient(conn, s.Host)
 	if err != nil {
+		conn.Close()
 		return fmt.Errorf("email: SMTP client: %w", err)
 	}
 	defer client.Close()

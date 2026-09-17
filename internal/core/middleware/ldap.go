@@ -228,9 +228,11 @@ func ldapDial(cfg *router.LDAPConfig) (*ldap.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ldap: connexion : %w", err)
 	}
-	// STARTTLS optionnel si demandé
-	if cfg.TLSSkipVerify {
-		_ = conn.StartTLS(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec
+	// Optionnal STARTTLS if asked
+	tlsCfg := &tls.Config{InsecureSkipVerify: cfg.TLSSkipVerify} //nolint:gosec
+	if err := conn.StartTLS(tlsCfg); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("ldap: STARTTLS : %w", err)
 	}
 	return conn, nil
 }
