@@ -920,6 +920,38 @@ textarea.input { resize: vertical; min-height: 80px; }
 .tf-ico { width: 18px; height: 18px; display: block; }
 .tf-ov-icon .tf-ico { width: 16px; height: 16px; }
 
+/* ── Traffic-path test badges ─────────────────────────────── */
+.tf-test-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  transition: background .2s, color .2s;
+}
+.tf-test-badge svg { width: 11px; height: 11px; }
+.tf-test-badge.ok      { background: color-mix(in srgb,#22c55e 18%,transparent); color: #22c55e; }
+.tf-test-badge.warning { background: color-mix(in srgb,#f59e0b 18%,transparent); color: #f59e0b; }
+.tf-test-badge.error   { background: color-mix(in srgb,#ef4444 18%,transparent); color: #ef4444; }
+.tf-test-badge.skip    { background: color-mix(in srgb,#94a3b8 18%,transparent); color: #94a3b8; }
+.tf-test-badge.loading { background: transparent; color: var(--text3); }
+
+@keyframes tf-spin { to { transform: rotate(360deg); } }
+.tf-test-spin {
+  display: inline-block; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: tf-spin .7s linear infinite;
+}
+
+.tf-test-results {
+  display: flex; flex-direction: column; gap: 3px; margin-top: 8px;
+}
+.tf-result-line {
+  font-size: 11.5px; color: var(--text2); line-height: 1.35;
+  display: flex; align-items: baseline; gap: 4px;
+}
+.tf-result-ok      { color: var(--text2); }
+.tf-result-warning { color: color-mix(in srgb,#f59e0b 90%,var(--text)); }
+.tf-result-error   { color: var(--red); }
+.tf-result-skip    { color: var(--text3); font-style: italic; }
+
 .tf-note {
   display: flex; gap: 12px; align-items: flex-start;
   padding: 12px 14px;

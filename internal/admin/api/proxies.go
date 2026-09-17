@@ -48,10 +48,30 @@ func (h *ProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extrait l'éventuel {id} après /api/v1/proxies/
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/proxies")
 	path = strings.TrimPrefix(path, "/")
-	id := strings.Split(path, "/")[0]
+	parts := strings.SplitN(path, "/", 2)
+	id := parts[0]
+	sub := ""
+	if len(parts) == 2 {
+		sub = parts[1]
+	}
 
 	if id == "migrate-to-core" {
 		(&MigrateProxiesHandler{DB: h.DB, Log: h.Log}).ServeHTTP(w, r)
+		return
+	}
+
+	if id != "" && sub == "path-test" {
+		p, err := h.loadProxy(r, id)
+		if err == sql.ErrNoRows {
+			writeErr(w, r, http.StatusNotFound, "api.err.proxy_not_found")
+			return
+		}
+		if err != nil {
+			h.Log.Error("proxies: path-test load", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
+		(&ProxyPathTestHandler{DB: h.DB}).handle(w, r, p)
 		return
 	}
 

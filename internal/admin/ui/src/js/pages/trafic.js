@@ -1359,7 +1359,7 @@ window.openTrafficFlowModal = function(kind, ref) {
   `).join('');
 
   const timeline = nodes.map((n, i) => `
-    <div class="tf-node tone-${n.tone}">
+    <div class="tf-node tone-${n.tone}" data-step="${esc(n.id)}">
       <div class="tf-rail">
         <div class="tf-badge">${n.icon}</div>
         ${i < nodes.length - 1 ? '<div class="tf-rail-line" aria-hidden="true"></div>' : ''}
@@ -1367,6 +1367,7 @@ window.openTrafficFlowModal = function(kind, ref) {
       <div class="tf-card">
         <div class="tf-card-head">
           <span class="tf-card-title">${esc(n.title)}</span>
+          <span class="tf-test-badge" aria-live="polite"></span>
           <span class="tf-card-idx">${String(i + 1).padStart(2, '0')}</span>
         </div>
         <p class="tf-card-desc">${esc(n.desc)}</p>
@@ -1387,6 +1388,10 @@ window.openTrafficFlowModal = function(kind, ref) {
     : '';
 
   const typeCls = info.isStream ? 'neutral' : (info.tlsEnabled ? 'secure' : 'plain');
+
+  // proxyId for the path-test API (only available for kind==='proxy')
+  const testProxyId = kind === 'proxy' ? ref : null;
+
   const body = `
     <div class="tf-modal">
       <p class="tf-intro">${t('trafic.flow_hint')}</p>
@@ -1399,7 +1404,11 @@ window.openTrafficFlowModal = function(kind, ref) {
         ${info.coreName ? `<div class="tf-hero-core">${esc(info.coreName)}</div>` : ''}
       </div>
       <div class="tf-overview" role="img" aria-label="${esc(t('trafic.flow_title'))}">${overview}</div>
-      <div class="tf-timeline">${timeline}</div>
+      <div id="tf-test-bar" style="display:flex;align-items:center;gap:10px;margin:14px 0 6px;flex-wrap:wrap;">
+        ${testProxyId ? `<button id="tf-test-btn" class="btn btn-secondary btn-sm" onclick="runTrafficPathTest(${JSON.stringify(testProxyId)})">${t('trafic.flow_test_run')}</button>` : ''}
+        <span id="tf-test-status" style="font-size:12px;color:var(--text3)"></span>
+      </div>
+      <div class="tf-timeline" id="tf-timeline">${timeline}</div>
       ${discoveryNote}
     </div>`;
 
@@ -1409,6 +1418,97 @@ window.openTrafficFlowModal = function(kind, ref) {
     `<button class="btn btn-primary" onclick="closeModal()">${t('common.close')}</button>`,
     true
   );
+};
+
+window.runTrafficPathTest = async function(proxyId) {
+  const btn = document.getElementById('tf-test-btn');
+  const statusEl = document.getElementById('tf-test-status');
+  const timelineEl = document.getElementById('tf-timeline');
+  if (!btn || !timelineEl) return;
+
+  btn.disabled = true;
+  btn.textContent = t('trafic.flow_test_running');
+  if (statusEl) statusEl.textContent = '';
+
+  // Reset all node badges to "loading" spinner
+  timelineEl.querySelectorAll('.tf-test-badge').forEach(el => {
+    el.innerHTML = `<span class="tf-test-spin" aria-hidden="true"></span>`;
+    el.className = 'tf-test-badge loading';
+  });
+
+  let result = null;
+  try {
+    result = await api('POST', `/proxies/${encodeURIComponent(proxyId)}/path-test`);
+  } catch(e) {
+    if (statusEl) statusEl.textContent = e?.message || 'Erreur lors du test.';
+    if (btn) { btn.disabled = false; btn.textContent = t('trafic.flow_test_retry'); }
+    // Reset badges to neutral
+    timelineEl.querySelectorAll('.tf-test-badge').forEach(el => {
+      el.innerHTML = ''; el.className = 'tf-test-badge';
+    });
+    return;
+  }
+
+  const steps = result?.steps || [];
+  const stepMap = {};
+  steps.forEach(s => {
+    if (!stepMap[s.step]) stepMap[s.step] = [];
+    stepMap[s.step].push(s);
+  });
+
+  const statusIcon = (st) => {
+    if (st === 'ok')      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    if (st === 'warning') return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>`;
+    if (st === 'error')   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+  };
+
+  // Apply results to each tf-node by its data-step attribute
+  timelineEl.querySelectorAll('.tf-node').forEach(nodeEl => {
+    const stepId = nodeEl.dataset.step;
+    const badge = nodeEl.querySelector('.tf-test-badge');
+    const desc = nodeEl.querySelector('.tf-card-desc');
+    const meta = nodeEl.querySelector('.tf-card-meta');
+    if (!badge || !stepId) return;
+
+    const matches = stepMap[stepId];
+    if (!matches || matches.length === 0) {
+      badge.innerHTML = ''; badge.className = 'tf-test-badge';
+      return;
+    }
+
+    // Aggregate: error > warning > skip > ok
+    const aggStatus = matches.reduce((worst, s) => {
+      const rank = { error: 3, warning: 2, ok: 1, skip: 0 };
+      return (rank[s.status] || 0) > (rank[worst] || 0) ? s.status : worst;
+    }, 'ok');
+
+    badge.innerHTML = statusIcon(aggStatus);
+    badge.className = `tf-test-badge ${aggStatus}`;
+    badge.title = matches.map(s => s.message).join('\n');
+
+    // Inject result messages into the card
+    const msgs = matches.map(s => {
+      const latency = s.latency_ms >= 0 ? ` <span style="color:var(--text3);font-size:10px">(${s.latency_ms}ms)</span>` : '';
+      return `<span class="tf-result-line tf-result-${esc(s.status)}">${esc(s.message)}${latency}</span>`;
+    }).join('');
+    const existing = nodeEl.querySelector('.tf-test-results');
+    if (existing) existing.remove();
+    const resDiv = document.createElement('div');
+    resDiv.className = 'tf-test-results';
+    resDiv.innerHTML = msgs;
+    if (meta) meta.after(resDiv); else if (desc) desc.after(resDiv);
+  });
+
+  const hasError = steps.some(s => s.status === 'error');
+  const hasWarn  = steps.some(s => s.status === 'warning');
+  if (statusEl) {
+    if (hasError)     statusEl.textContent = t('trafic.flow_test_error');
+    else if (hasWarn) statusEl.textContent = t('trafic.flow_test_warning');
+    else              statusEl.textContent = t('trafic.flow_test_ok');
+    statusEl.style.color = hasError ? 'var(--red)' : hasWarn ? 'var(--yellow,#f59e0b)' : 'var(--green)';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = t('trafic.flow_test_retry'); }
 };
 
 // ── Historique des versions d'un proxy ────────────────────────────────────
