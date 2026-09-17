@@ -37,7 +37,7 @@ func NewClient(baseURL, token string) *Client {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Portainer self-signed certs
 	}
 	return &Client{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		http:    &http.Client{Timeout: 15 * time.Second, Transport: transport},
 	}
