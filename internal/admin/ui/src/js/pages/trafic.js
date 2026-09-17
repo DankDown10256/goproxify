@@ -1405,7 +1405,7 @@ window.openTrafficFlowModal = function(kind, ref) {
       </div>
       <div class="tf-overview" role="img" aria-label="${esc(t('trafic.flow_title'))}">${overview}</div>
       <div id="tf-test-bar" style="display:flex;align-items:center;gap:10px;margin:14px 0 6px;flex-wrap:wrap;">
-        ${testProxyId ? `<button id="tf-test-btn" class="btn btn-secondary btn-sm" onclick="runTrafficPathTest(${JSON.stringify(testProxyId)})">${t('trafic.flow_test_run')}</button>` : ''}
+        ${testProxyId ? `<button id="tf-test-btn" class="btn btn-secondary btn-sm" onclick="runTrafficPathTest('${testProxyId}')">${t('trafic.flow_test_run')}</button>` : ''}
         <span id="tf-test-status" style="font-size:12px;color:var(--text3)"></span>
       </div>
       <div class="tf-timeline" id="tf-timeline">${timeline}</div>
