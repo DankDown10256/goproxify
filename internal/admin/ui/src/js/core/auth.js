@@ -231,7 +231,7 @@ function showApp() {
 async function afterLogin() {
   showApp();
   startTopbarClock();
-  if (await checkNeedOnboarding()) {
+  if (typeof checkNeedOnboarding === 'function' && await checkNeedOnboarding()) {
     onb.step = 0; onb.mode = null; onb.infra = null; onb.token = null;
     onb.withAgent = false; onb.withLanding = false; onb.dnsProvider = 'none';
     onb.backupData = null; onb.backupSummary = null; onb.configProxies = null;
