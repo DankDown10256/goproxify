@@ -64,11 +64,12 @@ func defaultAnomalyScore(s Severity) int {
 type Target int
 
 const (
-	TargetURI     Target = iota + 1
-	TargetArgs             // query string values
-	TargetBody             // request body
-	TargetHeaders          // tous les headers
-	TargetCookies          // valeurs des cookies
+	TargetURI      Target = iota + 1
+	TargetArgs              // query string values
+	TargetBody              // request body
+	TargetHeaders           // tous les headers
+	TargetCookies           // valeurs des cookies
+	TargetResponse          // corps de la réponse (CRS 951xxx)
 )
 
 // DefaultRules retourne l'ensemble des règles OWASP CRS-4 simplifiées.
@@ -187,6 +188,130 @@ func DefaultRules() []Rule {
 			Targets: []Target{TargetHeaders},
 			Message: "Scanner de sécurité détecté",
 		},
+
+		// --- Java Injection / Log4Shell (CRS 944xxx) ---
+		{
+			ID: 944100, Category: "java", Severity: SevCritical,
+			AnomalyScore: 5,
+			Pattern: mustCompile(`(?i)\$\{[\s]*(?:j(?:ndi|ava)|lower|upper|:(?::-)?(?:ldap|rmi|dns|corba|iiop|http|nis|nds))[:\s\$\{]`),
+			Targets: []Target{TargetArgs, TargetBody, TargetHeaders, TargetURI},
+			Message: "Log4Shell / JNDI Injection détectée",
+		},
+		{
+			ID: 944110, Category: "java", Severity: SevCritical,
+			AnomalyScore: 5,
+			Pattern: mustCompile(`(?i)(?:Runtime\.exec|ProcessBuilder|getRuntime\(\)\.exec|Class\.forName[\s]*\(|java\.lang\.(?:Runtime|ProcessBuilder)|org\.springframework\.(?:el|expression)|#\{[^}]*(?:Runtime|exec|ProcessBuilder))`),
+			Targets: []Target{TargetArgs, TargetBody},
+			Message: "Java RCE / Spring EL Injection détectée",
+		},
+		{
+			ID: 944120, Category: "java", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)(?:rO0ABQ|H4sIAAAA|aced0005|yv66vg|PD94bWwg|TVqQAAM)[\w+/=]{16,}`),
+			Targets: []Target{TargetArgs, TargetBody},
+			Message: "Java Deserialization gadget détecté",
+		},
+
+		// --- Remote File Inclusion (CRS 931xxx) ---
+		{
+			ID: 931100, Category: "rfi", Severity: SevCritical,
+			AnomalyScore: 5,
+			Pattern: mustCompile(`(?i)(?:https?|ftp)://[\w\-\.]+\.[\w]{2,}(?:/[\w\-./?%&=]*)?['">\s]`),
+			Targets: []Target{TargetArgs, TargetBody},
+			Message: "Remote File Inclusion détectée",
+		},
+		{
+			ID: 931110, Category: "rfi", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)(?:php://(?:filter|input|data|expect)|data://[\w,;]+;base64,|zip://|phar://)`),
+			Targets: []Target{TargetArgs, TargetBody, TargetURI},
+			Message: "RFI via PHP wrappers détectée",
+		},
+
+		// --- NodeJS Injection (CRS 934xxx supplement) ---
+		{
+			ID: 934200, Category: "nodejs", Severity: SevCritical,
+			AnomalyScore: 5,
+			Pattern: mustCompile(`(?i)(?:__proto__|constructor\.prototype|Object\.assign[\s]*\([\s]*(?:Object\.prototype|__proto__))`),
+			Targets: []Target{TargetArgs, TargetBody},
+			Message: "Prototype Pollution / NodeJS Injection détectée",
+		},
+		{
+			ID: 934210, Category: "nodejs", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile("(?i)(?:child_process|require[\\s]*\\(['\"](?:fs|child_process|os|path|net|http|https)['\"]\\)|process\\.(?:env|exit|mainModule)|global\\.(?:process|require))"),
+			Targets: []Target{TargetArgs, TargetBody},
+			Message: "NodeJS module injection détecté",
+		},
+
+		// --- HTTP Request Smuggling (CRS 920xxx supplement) ---
+		{
+			ID: 920200, Category: "smuggling", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)transfer-encoding[\s]*:[\s]*(?:chunked|identity)[\s\S]{0,50}content-length[\s]*:`),
+			Targets: []Target{TargetHeaders},
+			Message: "HTTP Request Smuggling (TE+CL) détecté",
+		},
+		{
+			ID: 920210, Category: "smuggling", Severity: SevMedium,
+			AnomalyScore: 3,
+			Pattern: mustCompile(`(?i)transfer-encoding[\s]*:[\s]*(?:[^\r\n]*,[\s]*chunked|chunked[\s]*,)`),
+			Targets: []Target{TargetHeaders},
+			Message: "HTTP Request Smuggling (TE obfusqué) détecté",
+		},
+
+		// --- Restricted / Sensitive Files (CRS 930xxx supplement) ---
+		{
+			ID: 930200, Category: "restricted", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)(?:^|/)(?:\.git/|\.env(?:\.(?:local|prod|dev|test|example))?$|\.htaccess$|\.htpasswd$|wp-config\.php$|configuration\.php$|config\.php$|settings\.php$|database\.php$|db\.php$)`),
+			Targets: []Target{TargetURI},
+			Message: "Accès à un fichier de configuration sensible",
+		},
+		{
+			ID: 930210, Category: "restricted", Severity: SevMedium,
+			AnomalyScore: 3,
+			Pattern: mustCompile(`(?i)(?:^|/)(?:backup|dump|sql|restore|db_|database)[^/]*\.(?:sql|gz|tar|zip|bak|dump|bz2)(?:\?|$|#)`),
+			Targets: []Target{TargetURI},
+			Message: "Accès à un fichier de sauvegarde potentiel",
+		},
+		{
+			ID: 930220, Category: "restricted", Severity: SevMedium,
+			AnomalyScore: 3,
+			Pattern: mustCompile(`(?i)(?:^|/)(?:phpinfo\.php|info\.php|test\.php|debug\.php|adminer\.php|phpmyadmin|\.DS_Store$|Thumbs\.db$|web\.config$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|Dockerfile$)`),
+			Targets: []Target{TargetURI},
+			Message: "Accès à un fichier de debug / meta potentiellement sensible",
+		},
+
+		// --- Data Leakage in Responses (CRS 951xxx) ---
+		{
+			ID: 951100, Category: "leakage", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)(?:ORA-\d{5}:|mysql_(?:fetch|query|connect|num_rows)|pg_(?:query|connect)|SQLSTATE\[|Uncaught (?:PDOException|mysqli_sql_exception)|You have an error in your SQL syntax)`),
+			Targets: []Target{TargetResponse},
+			Message: "Fuite d'erreur SQL dans la réponse",
+		},
+		{
+			ID: 951110, Category: "leakage", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?i)(?:Fatal error:|Warning:|Notice:|Parse error:)[\s]+(?:in|on line)[\s]+(?:/[\w./]+\.php|\w+\.php)`),
+			Targets: []Target{TargetResponse},
+			Message: "Fuite de stack trace PHP dans la réponse",
+		},
+		{
+			ID: 951120, Category: "leakage", Severity: SevHigh,
+			AnomalyScore: 4,
+			Pattern: mustCompile(`(?:AKIA|ASIA|AROA|AGPA|AIDA|ANPA|ANVA|AKIA)[A-Z0-9]{16}`),
+			Targets: []Target{TargetResponse},
+			Message: "Fuite de clé AWS dans la réponse",
+		},
+		{
+			ID: 951130, Category: "leakage", Severity: SevMedium,
+			AnomalyScore: 3,
+			Pattern: mustCompile(`(?i)(?:at [\w.$]+\([\w./]+\.(?:java|kt|scala):\d+\)|Exception in thread|java\.(?:lang|io|net|util)\.\w+Exception)`),
+			Targets: []Target{TargetResponse},
+			Message: "Fuite de stack trace Java dans la réponse",
+		},
 	}
 }
 
@@ -250,6 +375,8 @@ func parseTargets(names []string) []Target {
 			out = append(out, TargetHeaders)
 		case "cookies":
 			out = append(out, TargetCookies)
+		case "response":
+			out = append(out, TargetResponse)
 		}
 	}
 	return out

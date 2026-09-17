@@ -4,6 +4,7 @@
 package waf
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -280,6 +281,54 @@ func (e *Engine) Inspect(r *http.Request, maxBodyMB int, excludeIDs ...int) []Ma
 	return matches
 }
 
+// InspectResponse analyse un corps de réponse (règles TargetResponse uniquement).
+func (e *Engine) InspectResponse(body string, excludeIDs ...int) []Match {
+	e.mu.RLock()
+	rules := e.rules
+	baseExclude := e.exclude
+	e.mu.RUnlock()
+
+	exclude := baseExclude
+	if len(excludeIDs) > 0 {
+		exclude = make(map[int]bool, len(baseExclude)+len(excludeIDs))
+		for id := range baseExclude {
+			exclude[id] = true
+		}
+		for _, id := range excludeIDs {
+			exclude[id] = true
+		}
+	}
+
+	var matches []Match
+	for _, rule := range rules {
+		if exclude[rule.ID] {
+			continue
+		}
+		for _, target := range rule.Targets {
+			if target != TargetResponse {
+				continue
+			}
+			if loc := rule.Pattern.FindStringIndex(body); loc != nil {
+				excerpt := body[loc[0]:loc[1]]
+				if len(excerpt) > 64 {
+					excerpt = excerpt[:64] + "..."
+				}
+				matches = append(matches, Match{
+					RuleID:       rule.ID,
+					Category:     rule.Category,
+					Severity:     rule.Severity,
+					AnomalyScore: rule.AnomalyScore,
+					Message:      rule.Message,
+					Target:       "response",
+					Value:        excerpt,
+				})
+				break
+			}
+		}
+	}
+	return matches
+}
+
 // behaviorStoreForHost retourne le store comportemental pour un host donné.
 // La fenêtre est fixée au premier appel et reste constante.
 func (e *Engine) behaviorStoreForHost(host string, windowSec int) *behavior.Store {
@@ -331,13 +380,15 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		trustedNets = parseTrustedProxies(cfg.TrustedProxies)
 	}
 
+	// Vérifier si des règles TargetResponse existent pour décider de bufferiser les réponses.
+	hasResponseRules := e.hasResponseRules()
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		ip := realIP(r, trustedNets)
 		wafRequestsTotal.WithLabelValues(host).Inc()
 
 		// ── Étape 1 : vérification comportementale PRÉ-requête ────────────
-		// Bloque immédiatement si le profil IP dépasse déjà le seuil.
 		if behaviorEnabled {
 			bStore := e.behaviorStoreForHost(host, behaviorWindowSec)
 			preScore, _ := bStore.Score(ip)
@@ -351,16 +402,14 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			}
 		}
 
-		// ── Étape 2 : inspection WAF stateless ───────────────────────────
+		// ── Étape 2 : inspection WAF requête ─────────────────────────────
 		matches := e.Inspect(r, maxBody, excludeIDs...)
 
-		// Score WAF de la requête courante (pour alimentation du store comportemental).
 		wafScore := 0
 		for _, m := range matches {
 			wafScore += m.AnomalyScore
 		}
 
-		// Décision WAF stateless : scoring anomalie ou premier match.
 		triggered := false
 		if len(matches) > 0 {
 			if anomalyThreshold > 0 {
@@ -370,7 +419,6 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			}
 		}
 
-		// Injecter les matches dans le contexte pour l'access log.
 		if len(matches) > 0 {
 			ctx := context.WithValue(r.Context(), contextKey{}, matches)
 			r = r.WithContext(ctx)
@@ -401,11 +449,58 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
-			top := matches[0]
-			w.Header().Set("X-WAF-Match", top.Category)
+			w.Header().Set("X-WAF-Match", matches[0].Category)
 		}
 
-		// ── Étape 3 : service de la requête + enregistrement comportemental
+		// ── Étape 3 : service de la requête ──────────────────────────────
+		// Si des règles de réponse existent, bufferiser pour inspection.
+		if hasResponseRules {
+			rc := &responseCapture{
+				ResponseWriter: w,
+				buf:            &bytes.Buffer{},
+				status:         http.StatusOK,
+				maxBodyMB:      maxBody,
+			}
+			next.ServeHTTP(rc, r)
+
+			respMatches := e.InspectResponse(rc.buf.String(), excludeIDs...)
+			for _, m := range respMatches {
+				action := "detect"
+				if block {
+					action = "block"
+				}
+				wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
+				e.log.Warn("waf: fuite dans la réponse",
+					"rule_id", m.RuleID,
+					"category", m.Category,
+					"severity", m.Severity.String(),
+					"message", m.Message,
+					"ip", ip,
+					"uri", r.URL.RequestURI(),
+				)
+			}
+			if len(respMatches) > 0 && block {
+				// La réponse n'a pas encore été envoyée : on peut encore bloquer.
+				if !rc.headerWritten {
+					http.Error(w, "403 Forbidden", http.StatusForbidden)
+				}
+				if behaviorEnabled {
+					e.postRecord(host, ip, r, wafScore+respMatches[0].AnomalyScore, rc.status, behaviorWindowSec, behaviorThreshold, block)
+				}
+				return
+			}
+			// Aucune fuite ou mode detect : transmettre la réponse bufferisée.
+			if !rc.headerWritten {
+				w.WriteHeader(rc.status)
+			}
+			_, _ = w.Write(rc.buf.Bytes())
+
+			if behaviorEnabled {
+				e.postRecord(host, ip, r, wafScore, rc.status, behaviorWindowSec, behaviorThreshold, block)
+			}
+			return
+		}
+
 		if behaviorEnabled {
 			rw := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(rw, r)
@@ -447,6 +542,58 @@ func (e *Engine) postRecord(host, ip string, r *http.Request, wafScore, status, 
 			expires := time.Now().Add(24 * time.Hour)
 			banFn(ip, "waf: comportement suspect", expires)
 		}
+	}
+}
+
+// hasResponseRules indique si au moins une règle cible TargetResponse.
+func (e *Engine) hasResponseRules() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	for _, r := range e.rules {
+		for _, t := range r.Targets {
+			if t == TargetResponse {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// responseCapture bufferise le corps de la réponse pour inspection WAF.
+// La réponse n'est PAS transmise automatiquement : l'appelant décide.
+type responseCapture struct {
+	http.ResponseWriter
+	buf           *bytes.Buffer
+	status        int
+	headerWritten bool
+	maxBodyMB     int
+}
+
+func (rc *responseCapture) WriteHeader(code int) {
+	rc.status = code
+	rc.headerWritten = true
+	rc.ResponseWriter.WriteHeader(code)
+}
+
+func (rc *responseCapture) Write(b []byte) (int, error) {
+	if rc.status == 0 {
+		rc.status = http.StatusOK
+	}
+	limit := int64(rc.maxBodyMB) * 1024 * 1024
+	if int64(rc.buf.Len()) < limit {
+		remaining := limit - int64(rc.buf.Len())
+		if int64(len(b)) <= remaining {
+			rc.buf.Write(b)
+		} else {
+			rc.buf.Write(b[:remaining])
+		}
+	}
+	return rc.ResponseWriter.Write(b)
+}
+
+func (rc *responseCapture) Flush() {
+	if f, ok := rc.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
@@ -634,6 +781,8 @@ func targetName(t Target) string {
 		return "headers"
 	case TargetCookies:
 		return "cookies"
+	case TargetResponse:
+		return "response"
 	}
 	return "unknown"
 }
