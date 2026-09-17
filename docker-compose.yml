@@ -40,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: services/admin/Dockerfile
-    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/admin:${GOPROXIFY_ADMIN_TAG:-0.2.162}
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/admin:${GOPROXIFY_ADMIN_TAG:-0.2.163}
     container_name: goproxify-admin
     restart: unless-stopped
     command: ["admin"]
