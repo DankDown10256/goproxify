@@ -1713,7 +1713,7 @@ window.showBanHistory = async function(ip) {
     ? events.map(e => `<tr>
         <td style="font-size:11px;color:var(--text3)">${fmtDate(e.created_at)}</td>
         <td>${actionTag(e.action)}</td>
-        <td style="font-size:12px;color:var(--text2)">${esc(e.source||'—')}</td>
+        <td style="font-size:12px;color:var(--text2)">${esc(_secSourceLabel(e.source))}</td>
         <td style="font-size:12px">${esc(e.reason||'—')}</td>
       </tr>`).join('')
     : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">${t('security.ban_history_empty')}</td></tr>`;
