@@ -61,17 +61,13 @@ func (h *ProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if id != "" && sub == "path-test" {
-		p, err := h.loadProxy(r, id)
-		if err == sql.ErrNoRows {
+		env, err := h.fetchProd(r.Context(), id)
+		if err != nil {
 			writeErr(w, r, http.StatusNotFound, "api.err.proxy_not_found")
 			return
 		}
-		if err != nil {
-			h.Log.Error("proxies: path-test load", "err", err)
-			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
-			return
-		}
-		(&ProxyPathTestHandler{DB: h.DB}).handle(w, r, p)
+		row := envelopeToRow(env)
+		(&ProxyPathTestHandler{DB: h.DB}).handle(w, r, &row)
 		return
 	}
 
