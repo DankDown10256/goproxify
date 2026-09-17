@@ -274,9 +274,17 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	)
 
 	if triggered && !isDetect {
-		// Ban automatique si le signal "rate" est dans les déclencheurs et que
-		// le seuil de déclenchements est atteint.
-		e.maybeRateBan(ip, topReason, cfg)
+		if topReason != "rate" {
+			// Signal non-rate (path, ip, ua, custom_*) : bannir immédiatement.
+			if e.banFn != nil {
+				expires := time.Now().Add(cfg.BanDuration.Duration)
+				threatBansTotal.WithLabelValues(topReason).Inc()
+				e.banFn(ip, "threat: "+topReason, expires)
+			}
+		} else {
+			// Signal rate : ban conditionnel après N déclenchements.
+			e.maybeRateBan(ip, topReason, cfg)
+		}
 		return true, "threat: " + topReason
 	}
 	// detect ou score insuffisant : signale sans bloquer
