@@ -885,7 +885,7 @@
       <span class="dot"></span>
       <span data-i18n="hero.badge">Open Source · Preview</span>
       · <span id="hero-go-version">Go 1.25</span>
-      <span class="hero-version" id="hero-version">v0.2.180</span>
+      <span class="hero-version" id="hero-version">v0.3.91</span>
     </div>
 
     <h1 class="hero-title fade-in">GoProxify</h1>
@@ -1019,7 +1019,7 @@
         <h3 data-i18n="f3.title">Your container fleet, connected</h3>
         <p data-i18n="f3.body">The Agent watches your containers (via Portainer or Docker) and tells the gateways what is running. When you start, stop or move an app, public routes stay in sync.</p>
         <ul class="feature-points">
-          <li data-i18n="f3.p1">Discover new containers as they appear</li>
+          <li data-i18n="f3.p1">Discover new containers and Kubernetes services as they appear</li>
           <li data-i18n="f3.p2">Stay linked to Portainer to manage the whole fleet</li>
           <li data-i18n="f3.p3">Update routes automatically when apps change</li>
         </ul>
@@ -1037,7 +1037,7 @@
         <p data-i18n="f4.body">Your sites should not go dark because one machine hiccups. Gateways remember their settings, a spare gateway can take over, and unhealthy apps are skipped.</p>
         <ul class="feature-points">
           <li data-i18n="f4.p1">Sites keep answering even if the Admin is briefly offline</li>
-          <li data-i18n="f4.p2">A second gateway covers for the first</li>
+          <li data-i18n="f4.p2">A second gateway covers for the first — configurable health checks, circuit breaker, retry</li>
           <li data-i18n="f4.p3">Failing apps are bypassed so visitors still reach a healthy copy</li>
         </ul>
       </div>
@@ -1056,7 +1056,7 @@
         <ul class="feature-points">
           <li data-i18n="f5.p1">WAF — 13 OWASP CRS-4 rule sets, anomaly scoring, response body inspection, hot-reload</li>
           <li data-i18n="f5.p2">Sentinel — immediate ban on signal, anti-DDoS global RPS, behavioural per-IP window</li>
-          <li data-i18n="f5.p3">Rate limit, GeoIP, CrowdSec, CVE scanner, configurable HTTP/QUIC timeouts, SSO</li>
+          <li data-i18n="f5.p3">Rate limit (per IP or per authenticated user), GeoIP, CrowdSec, CVE scanner, SSO</li>
         </ul>
       </div>
 
@@ -1813,6 +1813,16 @@ agent:
           <tr>
             <td>
               <div class="tech-name">
+                <span class="stack-dot" style="background:#6366f1"></span>
+                mTLS L4 tunnel
+              </div>
+            </td>
+            <td class="tech-desc">Core↔Core encrypted L4 channel — pool of peers, automatic failover, CONNECT-like protocol over TLS 1.3</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tech-name">
                 <span class="stack-dot" style="background:#818cf8"></span>
                 Cache AES-256-GCM
               </div>
@@ -1968,6 +1978,11 @@ agent:
         <h3 data-i18n="doc.metrics.title">Metrics reference</h3>
         <p data-i18n="doc.metrics.body">All <code style="font-size:.8em;background:var(--bg-surface);border:1px solid var(--border);padding:1px 5px;border-radius:3px">gpx_*</code> metrics: labels, buckets, PromQL examples and recommended alerts.</p>
       </a>
+      <a href="#" id="docs-changelog" class="feature-card" style="text-decoration:none;color:inherit">
+        <div class="feature-subtitle">Changelog</div>
+        <h3 data-i18n="doc.changelog.title">Changelog</h3>
+        <p data-i18n="doc.changelog.body">All notable changes by version — new features, improvements, fixes.</p>
+      </a>
       <a href="#" id="docs-roadmap" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">Roadmap</div>
         <h3 data-i18n="doc.roadmap.title">Public roadmap</h3>
@@ -2078,6 +2093,7 @@ agent:
       'doc.cli.title': 'CLI reference', 'doc.cli.body': 'All commands: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Docker labels', 'doc.labels.body': 'Complete goproxify.* label reference — routing, WAF, Sentinel, canary, shadow.',
       'doc.config.title': 'Config schema', 'doc.config.body': 'JSON Schema for proxy YAML files — for editor autocomplete and validation.',
+      'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'All notable changes by version — new features, improvements, fixes.',
       'doc.roadmap.title': 'Public roadmap', 'doc.roadmap.body': 'Upcoming milestones and planned features.',
       'doc.contrib.title': 'Contributing', 'doc.contrib.body': 'PR workflow, tests, DCO sign-off, coding conventions.',
       'doc.volumes.title': 'Docker volumes', 'doc.volumes.body': 'What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.',
@@ -2138,15 +2154,15 @@ agent:
       'f2.p1': 'Create and edit which address opens which site',
       'f2.p2': 'Manage domains and certificates from one place',
       'f2.p3': 'Design your layout with the architecture assistant',
-      'f3.p1': 'Discover new containers as they appear',
+      'f3.p1': 'Discover new containers and Kubernetes services as they appear',
       'f3.p2': 'Stay linked to Portainer to manage the whole fleet',
       'f3.p3': 'Update routes automatically when apps change',
       'f4.p1': 'Sites keep answering even if the Admin is briefly offline',
-      'f4.p2': 'A second gateway covers for the first',
+      'f4.p2': 'A second gateway covers for the first — configurable health checks, circuit breaker, retry',
       'f4.p3': 'Failing apps are bypassed so visitors still reach a healthy copy',
       'f5.p1': 'WAF — 13 OWASP CRS-4 rule sets, anomaly scoring, response body inspection, hot-reload',
       'f5.p2': 'Sentinel — immediate ban on signal, anti-DDoS global RPS, behavioural per-IP window',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, CVE scanner, configurable HTTP/QUIC timeouts, SSO',
+      'f5.p3': 'Rate limit (per IP or per authenticated user), GeoIP, CrowdSec, CVE scanner, SSO',
       'f6.p1': 'Live views of traffic across your published sites',
       'f6.p2': 'Clear access logs you can actually read',
       'f6.p3': 'Alerts on several channels when something goes wrong',
@@ -2214,6 +2230,7 @@ agent:
       'doc.cli.title': 'Référence CLI', 'doc.cli.body': 'Toutes les commandes : proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Référence complète des labels goproxify.* — routage, WAF, Sentinel, canary, shadow.',
       'doc.config.title': 'Schéma de configuration', 'doc.config.body': "JSON Schema pour les fichiers YAML proxy — autocomplétion et validation dans l\'éditeur.",
+      'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Toutes les modifications notables par version — nouvelles fonctionnalités, améliorations, correctifs.',
       'doc.roadmap.title': 'Roadmap publique', 'doc.roadmap.body': 'Jalons à venir et fonctionnalités planifiées.',
       'doc.contrib.title': 'Contribuer', 'doc.contrib.body': 'Workflow PR, tests, DCO, conventions de code.',
       'doc.volumes.title': 'Volumes Docker', 'doc.volumes.body': 'Ce que chaque volume persiste : base Admin, configs proxies Core, tokens Agent, base GeoIP.',
@@ -2274,15 +2291,15 @@ agent:
       'f2.p1': 'Créer et modifier quelle adresse ouvre quel site',
       'f2.p2': 'Gérer domaines et certificats depuis un seul endroit',
       'f2.p3': "Concevoir votre layout avec l'assistant d'architecture",
-      'f3.p1': "Découvrir les nouveaux conteneurs dès qu'ils apparaissent",
+      'f3.p1': "Découvrir les nouveaux conteneurs et services Kubernetes dès qu'ils apparaissent",
       'f3.p2': 'Rester branché sur Portainer pour piloter toute la flotte',
       'f3.p3': 'Mettre à jour les routes automatiquement quand les apps changent',
       'f4.p1': "Les sites répondent même si l'Admin est brièvement hors ligne",
-      'f4.p2': 'Une seconde passerelle couvre la première',
+      'f4.p2': 'Une seconde passerelle couvre la première — health checks configurables, circuit breaker, retry',
       'f4.p3': 'Les apps en panne sont contournées pour joindre une copie saine',
       'f5.p1': 'WAF — 13 jeux de règles OWASP CRS-4, scoring anomalie, inspection corps de réponse, hot-reload',
       'f5.p2': 'Sentinel — ban immédiat sur signal, RPS global anti-DDoS, fenêtre comportementale par IP',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, scanner CVE, timeouts HTTP/QUIC configurables, SSO',
+      'f5.p3': 'Rate limit (par IP ou par utilisateur authentifié), GeoIP, CrowdSec, scanner CVE, SSO',
       'f6.p1': 'Vues en direct du trafic sur vos sites publiés',
       'f6.p2': "Journaux d'accès clairs et lisibles",
       'f6.p3': 'Alertes sur plusieurs canaux quand quelque chose cloche',
@@ -2350,6 +2367,7 @@ agent:
       'doc.cli.title': 'Referencia CLI', 'doc.cli.body': 'Todos los comandos: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Referencia completa de labels goproxify.* — enrutamiento, WAF, Sentinel, canary, shadow.',
       'doc.config.title': 'Esquema de configuración', 'doc.config.body': 'JSON Schema para archivos YAML proxy — autocompletado y validación en el editor.',
+      'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Todos los cambios notables por versión — nuevas funcionalidades, mejoras, correcciones.',
       'doc.roadmap.title': 'Hoja de ruta pública', 'doc.roadmap.body': 'Próximos hitos y funcionalidades planificadas.',
       'doc.contrib.title': 'Contribuir', 'doc.contrib.body': 'Flujo de PR, tests, DCO, convenciones de código.',
       'doc.volumes.title': 'Volúmenes Docker', 'doc.volumes.body': 'Qué persiste cada volumen: base Admin, configs proxies Core, tokens Agent, base GeoIP.',
@@ -2410,15 +2428,15 @@ agent:
       'f2.p1': 'Crear y editar qué dirección abre qué sitio',
       'f2.p2': 'Gestionar dominios y certificados en un solo lugar',
       'f2.p3': 'Diseñar tu layout con el asistente de arquitectura',
-      'f3.p1': 'Descubrir contenedores nuevos en cuanto aparecen',
+      'f3.p1': 'Descubrir contenedores nuevos y servicios Kubernetes en cuanto aparecen',
       'f3.p2': 'Seguir conectado a Portainer para gestionar toda la flota',
       'f3.p3': 'Actualizar rutas automáticamente cuando las apps cambian',
       'f4.p1': 'Los sitios siguen respondiendo si el Admin está offline un momento',
-      'f4.p2': 'Una segunda pasarela cubre a la primera',
+      'f4.p2': 'Una segunda pasarela cubre a la primera — health checks configurables, circuit breaker, reintentos',
       'f4.p3': 'Las apps fallidas se omiten para llegar a una copia sana',
       'f5.p1': 'WAF — 13 conjuntos de reglas OWASP CRS-4, puntuación de anomalías, inspección de respuesta, hot-reload',
       'f5.p2': 'Sentinel — ban inmediato por señal, RPS global anti-DDoS, ventana conductual por IP',
-      'f5.p3': 'Rate limit, GeoIP, CrowdSec, escáner CVE, timeouts HTTP/QUIC configurables, SSO',
+      'f5.p3': 'Rate limit (por IP o por usuario autenticado), GeoIP, CrowdSec, escáner CVE, SSO',
       'f6.p1': 'Vistas en vivo del tráfico en tus sitios publicados',
       'f6.p2': 'Registros de acceso claros y legibles',
       'f6.p3': 'Alertas en varios canales cuando algo va mal',
@@ -2486,6 +2504,7 @@ agent:
       'doc.cli.title': 'CLI-Referenz', 'doc.cli.body': 'Alle Befehle: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Docker-Labels', 'doc.labels.body': 'Vollständige goproxify.*-Label-Referenz — Routing, WAF, Sentinel, Canary, Shadow.',
       'doc.config.title': 'Konfigurationsschema', 'doc.config.body': 'JSON-Schema für Proxy-YAML-Dateien — Editor-Autovervollständigung und Validierung.',
+      'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Alle wichtigen Änderungen nach Version — neue Funktionen, Verbesserungen, Korrekturen.',
       'doc.roadmap.title': 'Öffentliche Roadmap', 'doc.roadmap.body': 'Bevorstehende Meilensteine und geplante Funktionen.',
       'doc.contrib.title': 'Beitragen', 'doc.contrib.body': 'PR-Workflow, Tests, DCO-Signoff, Codierungskonventionen.',
       'doc.volumes.title': 'Docker-Volumes', 'doc.volumes.body': 'Was jedes Volume persistiert: Admin-Datenbank, Core-Proxy-Configs, Agent-Tokens, GeoIP-Datenbank.',
@@ -2546,15 +2565,15 @@ agent:
       'f2.p1': 'Anlegen und ändern, welche Adresse welche Site öffnet',
       'f2.p2': 'Domains und Zertifikate an einem Ort verwalten',
       'f2.p3': 'Ihr Layout mit dem Architektur-Assistenten entwerfen',
-      'f3.p1': 'Neue Container entdecken, sobald sie erscheinen',
+      'f3.p1': 'Neue Container und Kubernetes-Dienste entdecken, sobald sie erscheinen',
       'f3.p2': 'Mit Portainer verbunden bleiben, um die ganze Flotte zu steuern',
       'f3.p3': 'Routen automatisch aktualisieren, wenn Apps wechseln',
       'f4.p1': 'Sites antworten weiter, auch wenn das Admin kurz offline ist',
-      'f4.p2': 'Ein zweites Gateway deckt das erste ab',
+      'f4.p2': 'Ein zweites Gateway deckt das erste ab — konfigurierbare Health Checks, Circuit Breaker, Retry',
       'f4.p3': 'Ausfallende Apps werden umgangen, damit Besucher eine gesunde Kopie erreichen',
       'f5.p1': 'WAF — 13 OWASP CRS-4 Regelwerke, Anomalie-Scoring, Antwort-Inspektion, Hot-Reload',
       'f5.p2': 'Sentinel — Sofortsperre bei Signal, globaler Anti-DDoS-RPS, Verhaltensanalyse pro IP',
-      'f5.p3': 'Rate-Limit, GeoIP, CrowdSec, CVE-Scanner, konfigurierbare HTTP/QUIC-Timeouts, SSO',
+      'f5.p3': 'Rate-Limit (pro IP oder authentifiziertem Nutzer), GeoIP, CrowdSec, CVE-Scanner, SSO',
       'f6.p1': 'Live-Ansichten des Traffics auf Ihren veröffentlichten Sites',
       'f6.p2': 'Klare, lesbare Access-Logs',
       'f6.p3': 'Alerts auf mehreren Kanälen, wenn etwas schiefläuft',
