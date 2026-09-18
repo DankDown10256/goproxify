@@ -53,19 +53,19 @@ pages['core-waf'] = async function() {
     }
 
     const RULES = [
-      { id: 'sqli',       name: 'SQL Injection',              category: 'OWASP CRS-4', ids: '942100–942999' },
-      { id: 'xss',        name: 'Cross-Site Scripting',       category: 'OWASP CRS-4', ids: '941100–941999' },
-      { id: 'traversal',  name: 'Path Traversal / LFI',       category: 'OWASP CRS-4', ids: '930100–930199' },
-      { id: 'rce',        name: 'Command Injection',          category: 'OWASP CRS-4', ids: '932100–932999' },
-      { id: 'php',        name: 'PHP Injection',              category: 'OWASP CRS-4', ids: '933100–933999' },
-      { id: 'ssrf',       name: 'SSRF',                       category: 'OWASP CRS-4', ids: '934100–934199' },
-      { id: 'scanner',    name: 'Scanner Detection',          category: 'OWASP CRS-4', ids: '913100–913999' },
-      { id: 'java',       name: 'Java / Log4Shell',           category: 'OWASP CRS-4', ids: '944100–944999' },
-      { id: 'rfi',        name: 'Remote File Inclusion',      category: 'OWASP CRS-4', ids: '931100–931999' },
-      { id: 'nodejs',     name: 'NodeJS / Prototype Pollution',category: 'OWASP CRS-4', ids: '934200–934999' },
-      { id: 'smuggling',  name: 'HTTP Request Smuggling',     category: 'OWASP CRS-4', ids: '920200–920999' },
-      { id: 'restricted', name: 'Restricted / Sensitive Files',category: 'OWASP CRS-4', ids: '930200–930999' },
-      { id: 'leakage',    name: 'Response Data Leakage',      category: 'OWASP CRS-4', ids: '951100–951999' },
+      { id: 'sqli',       name: 'SQL Injection',               category: 'OWASP CRS-4', ids: '942100–942999', desc: "Détecte ' OR 1=1, UNION SELECT, --, xp_cmdshell, blind SQLi temporelle et encodages SQL alternatifs." },
+      { id: 'xss',        name: 'Cross-Site Scripting',        category: 'OWASP CRS-4', ids: '941100–941999', desc: "Détecte <script>, handlers d'événements (onerror=), javascript:, et leurs variantes encodées (HTML entities, URL, Unicode)." },
+      { id: 'traversal',  name: 'Path Traversal / LFI',        category: 'OWASP CRS-4', ids: '930100–930199', desc: 'Détecte ../../etc/passwd, null-byte injection (%00) et traversées de répertoire dans les paramètres de chemin.' },
+      { id: 'rce',        name: 'Command Injection',           category: 'OWASP CRS-4', ids: '932100–932999', desc: "Détecte les tentatives d'exécution système : ; cat /etc/passwd, backticks, $(cmd), exec(). Couvre Unix et Windows." },
+      { id: 'php',        name: 'PHP Injection',               category: 'OWASP CRS-4', ids: '933100–933999', desc: 'Détecte php://, eval(), désérialisation PHP et wrappers dangereux comme php://input ou phar://.' },
+      { id: 'ssrf',       name: 'SSRF',                        category: 'OWASP CRS-4', ids: '934100–934199', desc: 'Détecte les tentatives de redirection vers des ressources internes (169.254.x.x, localhost, métadonnées cloud).' },
+      { id: 'scanner',    name: 'Scanner Detection',           category: 'OWASP CRS-4', ids: '913100–913999', desc: 'Reconnaît les signatures de Nikto, Nessus, sqlmap, Burp Suite via leurs User-Agents et patterns de requête caractéristiques.' },
+      { id: 'java',       name: 'Java / Log4Shell',            category: 'OWASP CRS-4', ids: '944100–944999', desc: 'Détecte Log4Shell (${jndi:), désérialisation Java (gadget chains), expressions EL/OGNL. Couvre les CVE critiques depuis 2017.' },
+      { id: 'rfi',        name: 'Remote File Inclusion',       category: 'OWASP CRS-4', ids: '931100–931999', desc: "Détecte ?page=http://evil.com/shell.php et inclusions d'URLs externes dans des paramètres contrôlant des chemins de fichiers." },
+      { id: 'nodejs',     name: 'NodeJS / Prototype Pollution', category: 'OWASP CRS-4', ids: '934200–934999', desc: 'Détecte la pollution de prototype (__proto__, constructor.prototype), injections dans child_process et template injection Node.' },
+      { id: 'smuggling',  name: 'HTTP Request Smuggling',      category: 'OWASP CRS-4', ids: '920200–920999', desc: 'Bloque HTTP Request Smuggling, Response Splitting et header injection. Critique sur les architectures proxy/reverse-proxy.' },
+      { id: 'restricted', name: 'Restricted / Sensitive Files', category: 'OWASP CRS-4', ids: '930200–930999', desc: "Bloque l'accès aux fichiers sensibles : .env, .git/, wp-config.php, /etc/passwd, clés SSH et fichiers de configuration." },
+      { id: 'leakage',    name: 'Response Data Leakage',       category: 'OWASP CRS-4', ids: '951100–951999', desc: "Détecte les messages d'erreur SQL, stack traces Java/PHP et erreurs IIS dans les réponses sortantes pour éviter la fuite d'informations." },
     ];
 
     content.innerHTML = `
@@ -96,8 +96,11 @@ pages['core-waf'] = async function() {
               ${RULES.map(r => {
                 const active = !excluded.has(r.id);
                 return `<tr>
-                <td>${esc(r.name)}</td>
-                <td style="opacity:0.7;">${esc(r.category)}</td>
+                <td>
+                  <div style="font-weight:500;">${esc(r.name)}</div>
+                  ${r.desc ? `<div style="font-size:11.5px;opacity:0.55;margin-top:2px;line-height:1.45;max-width:380px;">${esc(r.desc)}</div>` : ''}
+                </td>
+                <td style="opacity:0.7;white-space:nowrap;">${esc(r.category)}</td>
                 <td style="font-family:monospace;font-size:12px;opacity:0.65;">${esc(r.ids)}</td>
                 <td><span class="tag ${active?'tag-green':'tag-neutral'}" id="waf-status-${r.id}">${active?t('corepage.status.active'):t('trafic.inactive')}</span></td>
                 <td style="text-align:right;"><button class="btn btn-ghost" onclick="toggleWafRule('${r.id}')">${active?t('corepage.action.disable'):t('common.enable')}</button></td>
