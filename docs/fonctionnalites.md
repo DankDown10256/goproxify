@@ -59,7 +59,7 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 |---|---|
 | Filtrage IP/CIDR | Profils intégrés : Cloudflare, Tor, Bogons, plages personnalisées |
 | Géo-IP | Autorisation ou blocage par pays (MaxMind GeoLite2 ; auto-download au démarrage) |
-| Rate limiting | Token bucket par IP, seuils configurables (`rps`/`burst`) |
+| Rate limiting | Token bucket par IP ou utilisateur authentifié — champ `key_by` : `ip` (défaut), `jwt_sub`, `jwt_email`, `jwt_claim:<nom>` |
 | Headers de sécurité HTTP | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
 | CORS | Origines, méthodes et en-têtes configurables |
 | Masquage du fingerprint serveur | Suppression des en-têtes révélateurs (`Server`, `X-Powered-By`) |
@@ -70,12 +70,45 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
 | JWT validation | JWKS (prévue) |
 
+### Pipeline de transformation de requête
+
+Chaque route peut déclarer un bloc `RequestTransform` (UI Admin → proxy → onglet **Transform**) :
+
+| Champ | Description |
+|---|---|
+| `rewrite_from` / `rewrite_to` | Réécriture de préfixe URL (ex : `/api/v1` → `/v1`) |
+| `add_request_headers` | En-têtes à injecter dans la requête upstream |
+| `remove_request_headers` | En-têtes à supprimer de la requête upstream |
+| `add_response_headers` | En-têtes à injecter dans la réponse cliente |
+| `remove_response_headers` | En-têtes à supprimer de la réponse cliente |
+
+Le middleware s'applique en premier dans la chaîne, avant le WAF et le routage upstream. Hot-reload sans redémarrage du Core.
+
+### Tunnel L4 mTLS Core↔Core
+
+Le package `internal/core/tunnel` fournit un canal TCP chiffré persistant entre deux Cores (trafic L4 inter-datacenter, relay de backends inaccessibles depuis le Core d'entrée).
+
+**Architecture :**
+```
+Core A (client)          Core B (serveur)
+   │                          │
+   ├─ mTLS TLS 1.3 ──────────▶│:9443
+   │   CONNECT-like :          │
+   │   "host:port\n"  ──────▶  │ dial TCP target
+   │   ◀── "OK\n"              │ pipe bidirectionnel
+   │   [flux L4]     ◁────────▶│
+```
+
+- **Manager** (côté client) : pool de pairs `PeerConfig{Name, Addr, CACert, CertPEM, KeyPEM}`, reconnexion automatique, failover vers les autres pairs enregistrés
+- **Serve** (côté serveur) : listener mTLS `RequireAndVerifyClientCert`, TLS 1.3 min, protocole CONNECT-like sur une ligne ASCII
+- Utilisation : `Manager.Dial(peerName, targetAddr)` retourne un `net.Conn` prêt à l'emploi pour le proxy ou l'accès L4
+
 ### Résilience
 
 - **Load balancing** : Round Robin, Weighted, **Adaptatif** (CPU×0.5 + mem×0.3 + IO disque×0.2 via métriques Agent WS)
-- **Health checks actifs** sur les backends
+- **Health checks actifs configurables** : `HealthCheckConfig` par route — `path`, `interval`, `timeout`, `healthy_threshold`, `unhealthy_threshold` ; `StartChecksFromRoutes` remplace l'appel global à intervalle fixe
 - **Failover** : quarantaine courte + essai du backend suivant sur échec dial/proxy
-- **Circuit Breaker** : isolation automatique des backends défaillants
+- **Circuit Breaker** : thread-safe (mutex), `RecordSuccess`/`RecordFailure` appelés depuis le handler après chaque tentative ; isolation automatique des backends défaillants
 - **Retry policy** avec backoff exponentiel configurable
 - **Sticky sessions** par cookie
 - **Timeouts serveur configurables** : `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurables depuis l'Admin (Sécurité > Paramètres serveur) et propagés aux Cores via WebSocket
@@ -261,6 +294,26 @@ goproxify.waf: "block"
 goproxify.sentinel.whitelist: "10.0.0.0/8"
 goproxify.canary: "true"
 goproxify.canary.weight: "10"
+```
+
+### Découverte Kubernetes
+
+Symétriquement au mode Docker, l'Agent peut découvrir les ressources Kubernetes annotées :
+
+- Scrute les ressources `Ingress` et `Service` portant les annotations `goproxify.*`
+- Même sémantique d'annotations que les labels Docker (`goproxify.enable`, `goproxify.host`, `goproxify.port`, etc.)
+- Proxies créés en lecture seule dans l'UI (source `k8s`)
+- Nécessite un `ServiceAccount` avec accès `get/watch/list` sur `ingresses` et `services`
+- Compatible avec les déploiements Kubernetes multi-namespaces ; namespace ciblé configurable dans `agent.json`
+
+```json
+{
+  "kubernetes": {
+    "enabled": true,
+    "kubeconfig": "/etc/goproxify/kubeconfig",
+    "namespaces": ["production", "staging"]
+  }
+}
 ```
 
 ### Auto-scaling horizontal

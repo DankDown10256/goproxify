@@ -202,6 +202,41 @@ Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux C
 
 ---
 
+## Dashboard Sentinel — répartition géographique des bans
+
+L'endpoint `GET /api/v1/security/bans/countries` retourne le nombre de bans actifs par pays, en croisant la table `security_bans` avec le cache GeoIP. Utilisé par la vue **Prism → Heatmap bans** et le widget **Accès rapide** de la table des bans.
+
+**Réponse exemple :**
+```json
+[
+  { "cc": "CN", "name": "China", "cnt": 142 },
+  { "cc": "RU", "name": "Russia", "cnt": 87 },
+  { "cc": "XX", "name": "Unknown", "cnt": 14 }
+]
+```
+
+`cc: "XX"` regroupe les IPs sans entrée GeoIP. Les bans expirés sont exclus.
+
+---
+
+## Webhooks sur événements de sécurité
+
+Deux déclencheurs sont disponibles dans les règles d'alerte (Admin → **Alerting → Règles**) :
+
+| Déclencheur | Événement |
+|-------------|-----------|
+| `sentinel_ban` | Nouvelle IP bannie par le Sentinel (automatique ou signal comportemental) |
+| `backend_down` | Un backend passe de `healthy` à `unhealthy` (callback `OnDown` du health-check) |
+
+Le payload du webhook `backend_down` contient :
+```json
+{ "url": "http://10.0.0.5:3000", "node_name": "core-eu-west" }
+```
+
+Ces événements peuvent être routés vers n'importe quel canal d'alerte (email, Slack webhook, ntfy, Jira…) via les règles d'alerte standard.
+
+---
+
 ## Scanner CVE
 
 Analyse les backends HTTP configurés à la recherche de vulnérabilités connues (CVEs). Disponible dans l'Admin (Sécurité > Scanner CVE).

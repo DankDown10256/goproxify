@@ -469,6 +469,47 @@ Crée un ban IP natif (**permanent** si `expires_at` omis) et pousse les bans au
 
 ---
 
+### `ban_ip`
+
+Banne une IP directement depuis le MCP (insère dans `security_bans`, pousse aux Cores).
+
+| Paramètre    | Type   | Requis | Description                               |
+|--------------|--------|--------|-------------------------------------------|
+| `ip`         | string | ✓      | Adresse IP à bannir                       |
+| `reason`     | string | —      | Motif du ban                              |
+| `expires_at` | string | —      | Expiration RFC3339 ; omis = permanent     |
+
+**Scope :** `audit:read`  
+**Réponse :** `{ "banned": "<ip>", "expires_at": "…" }`
+
+---
+
+### `unban_ip`
+
+Lève le ban d'une IP (supprime de `security_bans`, pousse la mise à jour aux Cores).
+
+| Paramètre | Type   | Requis | Description         |
+|-----------|--------|--------|---------------------|
+| `ip`      | string | ✓      | Adresse IP à débannir |
+
+**Scope :** `audit:read`  
+**Réponse :** `{ "unbanned": "<ip>" }`
+
+---
+
+### `rotate_cert`
+
+Force le renouvellement ACME d'un domaine en vidant la date d'expiration en base (le prochain cycle d'auto-renouvellement émettra un nouveau certificat) et pousse les routes aux Cores.
+
+| Paramètre | Type   | Requis | Description                              |
+|-----------|--------|--------|------------------------------------------|
+| `domain`  | string | ✓      | Domaine cible (ex : `app.example.fr`)    |
+
+**Scope :** `proxies:write`  
+**Réponse :** `{ "scheduled": "<domain>" }`
+
+---
+
 ### `list_security_threats`
 
 Décisions CrowdSec synchronisées (`security_threats`).

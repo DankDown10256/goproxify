@@ -103,9 +103,9 @@ Valeurs de `reason` selon la `stage` :
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_ratelimit_tokens_current` | Gauge | `host`, `ip` | Tokens disponibles dans le bucket par IP |
+| `gpx_ratelimit_tokens_current` | Gauge | `host`, `key` | Tokens disponibles dans le bucket par clé |
 
-Permet de détecter les IPs proches de l'épuisement de leur quota.
+Le label `key` est l'IP cliente par défaut. Si `key_by` est configuré sur la route (`jwt_sub`, `jwt_email`, `jwt_claim:<nom>`), il contient la valeur du claim JWT — utile pour détecter les utilisateurs proches de l'épuisement de leur quota.
 
 ---
 
