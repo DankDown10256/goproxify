@@ -1720,32 +1720,65 @@ window.openPrismForBanIP = function(ip) {
 };
 
 window.showBanHistory = async function(ip) {
-  let events = [];
-  try {
-    events = await api('GET', `/security/bans/history?ip=${encodeURIComponent(ip)}`);
-  } catch(e) { toast(e.message, 'error'); return; }
+  // Récupère la timeline unifiée et le profil WAF en parallèle
+  const [events, wafProfile] = await Promise.all([
+    api('GET', `/security/ip-timeline?ip=${encodeURIComponent(ip)}`).catch(() => []),
+    (async () => {
+      const coreId = state.selectedCore || window._selectedCoreId;
+      if (!coreId) return null;
+      try {
+        const profiles = await coreProxy(coreId, 'GET', '/internal/v1/waf/behavior/profiles');
+        return (profiles || {})[ip] || null;
+      } catch { return null; }
+    })(),
+  ]);
 
-  const actionTag = (a) => a === 'unbanned'
-    ? `<span class="tag tag-neutral">${a}</span>`
-    : `<span class="tag tag-red">${a}</span>`;
+  const kindCfg = {
+    ban:    { color: 'var(--red)',    icon: '🔒', label: 'Ban' },
+    unban:  { color: 'var(--text3)', icon: '🔓', label: 'Débannissement' },
+    threat: { color: 'var(--orange)', icon: '⚠️', label: 'Détection' },
+  };
 
-  const rows = events.length
-    ? events.map(e => `<tr>
-        <td style="font-size:11px;color:var(--text3)">${fmtDate(e.created_at)}</td>
-        <td>${actionTag(e.action)}</td>
-        <td style="font-size:12px;color:var(--text2)">${esc(_secSourceLabel(e.source))}</td>
-        <td style="font-size:12px">${esc(e.reason||'—')}</td>
-      </tr>`).join('')
-    : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">${t('security.ban_history_empty')}</td></tr>`;
+  const timelineRows = events.length
+    ? events.map(e => {
+        const cfg = kindCfg[e.kind] || kindCfg.threat;
+        return `<tr>
+          <td style="font-size:11px;color:var(--text3);white-space:nowrap">${fmtDate(e.created_at)}</td>
+          <td style="white-space:nowrap">
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:${cfg.color}">
+              ${cfg.icon} ${cfg.label}
+            </span>
+          </td>
+          <td style="font-size:12px;color:var(--text2)">${esc(_secSourceLabel(e.source))}</td>
+          <td style="font-size:12px">${esc(e.reason||'—')}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px">${t('security.ban_history_empty')}</td></tr>`;
+
+  let wafHtml = '';
+  if (wafProfile) {
+    const scoreColor = wafProfile.score >= 8 ? 'var(--red)' : wafProfile.score >= 4 ? 'var(--orange)' : 'var(--text2)';
+    const signals = (wafProfile.signals || []).map(s =>
+      `<span style="display:inline-block;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 7px;font-size:11px;margin:2px">${esc(s.name)} <span style="color:var(--orange)">+${s.score}</span></span>`
+    ).join('');
+    wafHtml = `
+      <div style="margin-top:16px;padding:12px 16px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.06em">Profil WAF Sentinel</span>
+          <span style="background:${scoreColor};color:#fff;font-size:12px;font-weight:700;padding:1px 8px;border-radius:4px">Score ${wafProfile.score}</span>
+        </div>
+        <div>${signals || '<span style="font-size:12px;color:var(--text3)">Aucun signal actif</span>'}</div>
+      </div>`;
+  }
 
   modal(
-    t('security.ban_history_title', { ip }),
+    `Sécurité · <span style="font-family:monospace">${esc(ip)}</span>`,
     `<div class="table-wrap"><table><thead><tr>
       <th>${t('common.date')}</th>
-      <th>${t('security.col.action')}</th>
+      <th>Événement</th>
       <th>${t('security.col.source')}</th>
       <th>${t('security.col.reason')}</th>
-    </tr></thead><tbody>${rows}</tbody></table></div>`,
+    </tr></thead><tbody>${timelineRows}</tbody></table></div>${wafHtml}`,
     '',
     true
   );

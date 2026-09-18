@@ -73,6 +73,8 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.headers(w, r)
 	case r.Method == http.MethodGet && sub == "timeline":
 		h.timeline(w, r)
+	case r.Method == http.MethodGet && sub == "ip-timeline":
+		h.ipTimeline(w, r)
 	// Fail2Ban
 	case r.Method == http.MethodGet && sub == "fail2ban":
 		h.getF2BConfig(w, r)
@@ -338,6 +340,76 @@ func (h *SecurityHandler) listBanHistory(w http.ResponseWriter, r *http.Request)
 		out = []security.BanEvent{}
 	}
 	jsonOK(w, out)
+}
+
+// ── Timeline IP ───────────────────────────────────────────────────────────────
+
+func (h *SecurityHandler) ipTimeline(w http.ResponseWriter, r *http.Request) {
+	ip := r.URL.Query().Get("ip")
+	if ip == "" {
+		http.Error(w, "ip requis", http.StatusBadRequest)
+		return
+	}
+
+	type Event struct {
+		Kind      string    `json:"kind"` // "ban" | "unban" | "threat"
+		Source    string    `json:"source"`
+		Reason    string    `json:"reason"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	var events []Event
+
+	// Bans / débans
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT action, reason, source, strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
+		 FROM security_ban_history WHERE ip=? ORDER BY created_at DESC LIMIT 200`, ip)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ev Event
+			var ts string
+			if rows.Scan(&ev.Kind, &ev.Reason, &ev.Source, &ts) == nil {
+				ev.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+				if ev.Kind == "unbanned" {
+					ev.Kind = "unban"
+				} else {
+					ev.Kind = "ban"
+				}
+				events = append(events, ev)
+			}
+		}
+	}
+
+	// Décisions CrowdSec / Sentinel (threats)
+	rows2, err := h.DB.QueryContext(r.Context(),
+		`SELECT scenario, origin, strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
+		 FROM security_threats WHERE ip=? ORDER BY created_at DESC LIMIT 200`, ip)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var scenario, origin, ts string
+			if rows2.Scan(&scenario, &origin, &ts) == nil {
+				ev := Event{Kind: "threat", Source: origin, Reason: scenario}
+				ev.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+				events = append(events, ev)
+			}
+		}
+	}
+
+	// Tri global par date décroissante
+	for i := 0; i < len(events)-1; i++ {
+		for j := i + 1; j < len(events); j++ {
+			if events[j].CreatedAt.After(events[i].CreatedAt) {
+				events[i], events[j] = events[j], events[i]
+			}
+		}
+	}
+
+	if events == nil {
+		events = []Event{}
+	}
+	jsonOK(w, events)
 }
 
 // ── Threats ───────────────────────────────────────────────────────────────────
