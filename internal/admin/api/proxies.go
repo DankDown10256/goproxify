@@ -60,6 +60,11 @@ func (h *ProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if id == "path-test" && sub == "" {
+		(&ProxyPathTestHandler{DB: h.DB}).handleInline(w, r)
+		return
+	}
+
 	if id != "" && sub == "path-test" {
 		env, err := h.fetchProd(r.Context(), id)
 		if err != nil {

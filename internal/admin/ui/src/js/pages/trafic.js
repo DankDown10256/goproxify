@@ -1389,8 +1389,15 @@ window.openTrafficFlowModal = function(kind, ref) {
 
   const typeCls = info.isStream ? 'neutral' : (info.tlsEnabled ? 'secure' : 'plain');
 
-  // proxyId for the path-test API (only available for kind==='proxy')
+  // Pour le test de chemin : proxy → ID, conteneur → config inline
   const testProxyId = kind === 'proxy' ? ref : null;
+  const testInlineConfig = kind === 'container' ? {
+    host: info.host,
+    type: info.type,
+    backends: info.backends,
+    tls_enabled: info.tlsEnabled,
+    tls_passthrough: info.tlsPassthrough,
+  } : null;
 
   const body = `
     <div class="tf-modal">
@@ -1405,7 +1412,7 @@ window.openTrafficFlowModal = function(kind, ref) {
       </div>
       <div class="tf-overview" role="img" aria-label="${esc(t('trafic.flow_title'))}">${overview}</div>
       <div id="tf-test-bar" style="display:flex;align-items:center;gap:10px;margin:14px 0 6px;flex-wrap:wrap;">
-        ${testProxyId ? `<button id="tf-test-btn" class="btn btn-secondary btn-sm" onclick="runTrafficPathTest('${testProxyId}')">${t('trafic.flow_test_run')}</button>` : ''}
+        ${(testProxyId || testInlineConfig) ? `<button id="tf-test-btn" class="btn btn-secondary btn-sm" onclick="runTrafficPathTest()" data-proxy-id="${testProxyId ? esc(testProxyId) : ''}" data-inline="${testInlineConfig ? esc(JSON.stringify(testInlineConfig)) : ''}">${t('trafic.flow_test_run')}</button>` : ''}
         <span id="tf-test-status" style="font-size:12px;color:var(--text3)"></span>
       </div>
       <div class="tf-timeline" id="tf-timeline">${timeline}</div>
@@ -1420,11 +1427,15 @@ window.openTrafficFlowModal = function(kind, ref) {
   );
 };
 
-window.runTrafficPathTest = async function(proxyId) {
+window.runTrafficPathTest = async function() {
   const btn = document.getElementById('tf-test-btn');
   const statusEl = document.getElementById('tf-test-status');
   const timelineEl = document.getElementById('tf-timeline');
   if (!btn || !timelineEl) return;
+
+  const proxyId = btn.dataset.proxyId || '';
+  const inlineRaw = btn.dataset.inline || '';
+  const inlineConfig = inlineRaw ? tryJSON(inlineRaw) : null;
 
   btn.disabled = true;
   btn.textContent = t('trafic.flow_test_running');
@@ -1438,7 +1449,11 @@ window.runTrafficPathTest = async function(proxyId) {
 
   let result = null;
   try {
-    result = await api('POST', `/proxies/${encodeURIComponent(proxyId)}/path-test`);
+    if (inlineConfig) {
+      result = await api('POST', '/proxies/path-test', inlineConfig);
+    } else {
+      result = await api('POST', `/proxies/${encodeURIComponent(proxyId)}/path-test`);
+    }
   } catch(e) {
     if (statusEl) statusEl.textContent = e?.message || 'Erreur lors du test.';
     if (btn) { btn.disabled = false; btn.textContent = t('trafic.flow_test_retry'); }

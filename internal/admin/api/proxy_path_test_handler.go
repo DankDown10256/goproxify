@@ -38,10 +38,10 @@ var pathTestHTTPClient = &http.Client{
 	},
 }
 
-// ProxyPathTestHandler handles POST /api/v1/proxies/{id}/path-test.
-// It loads proxy config from DB (or the provided row) and runs per-step checks.
+// ProxyPathTestHandler handles POST /api/v1/proxies/{id}/path-test
+// and POST /api/v1/proxies/path-test (inline config body).
 type ProxyPathTestHandler struct {
-	DB  *sql.DB
+	DB *sql.DB
 }
 
 func (h *ProxyPathTestHandler) handle(w http.ResponseWriter, r *http.Request, p *proxyRow) {
@@ -49,7 +49,6 @@ func (h *ProxyPathTestHandler) handle(w http.ResponseWriter, r *http.Request, p 
 		writeErr(w, r, http.StatusMethodNotAllowed, "api.err.method")
 		return
 	}
-
 	var cfg map[string]any
 	_ = json.Unmarshal(p.Config, &cfg)
 
@@ -65,10 +64,71 @@ func (h *ProxyPathTestHandler) handle(w http.ResponseWriter, r *http.Request, p 
 			proxyType = "http"
 		}
 	}
-	isStream := proxyType == "tcp" || proxyType == "udp" || proxyType == "both"
 	tlsEnabled := boolVal(cfg, "tls_enabled") || proxyType == "https"
 	tlsPassthrough := boolVal(cfg, "tls_passthrough")
+	backends := extractBackends(cfg)
 
+	jsonOK(w, pathTestResult{Steps: runPathTest(r.Context(), host, proxyType, p.Enabled, tlsEnabled, tlsPassthrough, backends)})
+}
+
+// handleInline accepts a JSON body directly (no proxy ID) — used for discovered containers.
+func (h *ProxyPathTestHandler) handleInline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, r, http.StatusMethodNotAllowed, "api.err.method")
+		return
+	}
+	var body struct {
+		Host           string   `json:"host"`
+		Type           string   `json:"type"`
+		Backends       []string `json:"backends"`
+		TLSEnabled     bool     `json:"tls_enabled"`
+		TLSPassthrough bool     `json:"tls_passthrough"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.json_body")
+		return
+	}
+	proxyType := strings.ToLower(body.Type)
+	if proxyType == "" {
+		proxyType = "http"
+	}
+	jsonOK(w, pathTestResult{Steps: runPathTest(r.Context(), body.Host, proxyType, true, body.TLSEnabled, body.TLSPassthrough, body.Backends)})
+}
+
+func runPathTest(ctx context.Context, host, proxyType string, enabled, tlsEnabled, tlsPassthrough bool, backends []string) []pathTestStep {
+	isStream := proxyType == "tcp" || proxyType == "udp" || proxyType == "both"
+	steps := make([]pathTestStep, 0, 6)
+
+	if !isStream && host != "" && host != "—" {
+		steps = append(steps, testDNS(ctx, host))
+	} else if isStream {
+		steps = append(steps, pathTestStep{
+			Step: "dns", Status: "skip",
+			Message: "TCP/UDP stream — pas de résolution DNS requise.", LatencyMS: -1,
+		})
+	}
+
+	steps = append(steps, testCoreEnabled(enabled))
+
+	if !isStream {
+		steps = append(steps, testTLS(ctx, host, tlsEnabled, tlsPassthrough))
+	}
+
+	steps = append(steps, testRoute(host, backends))
+
+	for i, b := range backends {
+		steps = append(steps, testBackend(ctx, b, i))
+	}
+	if len(backends) == 0 {
+		steps = append(steps, pathTestStep{
+			Step: "backend", Status: "warning",
+			Message: "Aucun backend configuré.", LatencyMS: -1,
+		})
+	}
+	return steps
+}
+
+func extractBackends(cfg map[string]any) []string {
 	var backends []string
 	if raw, ok := cfg["backends"]; ok {
 		if arr, ok := raw.([]any); ok {
@@ -84,43 +144,7 @@ func (h *ProxyPathTestHandler) handle(w http.ResponseWriter, r *http.Request, p 
 			}
 		}
 	}
-
-	ctx := r.Context()
-	steps := make([]pathTestStep, 0, 6)
-
-	// ── Step: DNS ──────────────────────────────────────────────────────────────
-	if !isStream && host != "" && host != "—" {
-		steps = append(steps, testDNS(ctx, host))
-	} else if isStream {
-		steps = append(steps, pathTestStep{
-			Step: "dns", Status: "skip",
-			Message: "TCP/UDP stream — pas de résolution DNS requise.", LatencyMS: -1,
-		})
-	}
-
-	// ── Step: Core (proxy enabled?) ────────────────────────────────────────────
-	steps = append(steps, testCoreEnabled(p.Enabled))
-
-	// ── Step: TLS ─────────────────────────────────────────────────────────────
-	if !isStream {
-		steps = append(steps, testTLS(ctx, host, tlsEnabled, tlsPassthrough))
-	}
-
-	// ── Step: Route (config sanity) ───────────────────────────────────────────
-	steps = append(steps, testRoute(host, backends))
-
-	// ── Step: Backends ────────────────────────────────────────────────────────
-	for i, b := range backends {
-		steps = append(steps, testBackend(ctx, b, i))
-	}
-	if len(backends) == 0 {
-		steps = append(steps, pathTestStep{
-			Step: "backend", Status: "warning",
-			Message: "Aucun backend configuré.", LatencyMS: -1,
-		})
-	}
-
-	jsonOK(w, pathTestResult{Steps: steps})
+	return backends
 }
 
 func testDNS(ctx context.Context, host string) pathTestStep {
