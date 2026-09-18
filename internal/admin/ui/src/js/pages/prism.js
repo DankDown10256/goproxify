@@ -295,13 +295,13 @@ async function renderPrismPage() {
     return `
       ${kpisHtml(kpis)}
       <div class="prism-grid">
-        <div class="prism-panel prism-grid-wide">${timelineHtml(timeline)}</div>
+        <div class="prism-panel prism-col-2">${timelineHtml(timeline)}</div>
         <div class="prism-panel">${statusHtml(status)}</div>
-        <div class="prism-panel" id="px-agents">${spin}</div>
         <div class="prism-panel prism-grid-wide" id="prism-geo-panel" style="min-height:80px">${spin}</div>
         <div class="prism-panel" id="px-refs">${spin}</div>
-        <div class="prism-panel prism-grid-wide" id="px-paths">${spin}</div>
-        <div class="prism-panel prism-grid-wide" id="px-ips">${spin}</div>
+        <div class="prism-panel prism-col-2" id="px-paths">${spin}</div>
+        <div class="prism-panel prism-col-2" id="px-ips">${spin}</div>
+        <div class="prism-panel" id="px-agents">${spin}</div>
         <div class="prism-panel prism-grid-wide" id="px-berrs">${spin}</div>
       </div>`;
   }
@@ -443,47 +443,45 @@ async function renderPrismPage() {
           <option value="">Tous les Cores</option>
           ${coreOpts}
         </select>`;
-    const icoCompare = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>`;
-    const icoLive = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+    const icoCompare = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>`;
+    const icoLive = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+    const quickBtns = [['1h',3600000],['6h',21600000],['24h',86400000],['7j',604800000]].map(([lbl,ms])=>
+      `<button type="button" class="btn btn-secondary btn-sm" data-prism="quick" data-ms="${ms}"${liveMode ? ' disabled' : ''}>${lbl}</button>`
+    ).join('');
     return `
       <div class="prism-filters">
-        ${coreSelect}
-        <select id="prism-proxy" class="form-input" style="max-width:180px" data-prism="proxy">
-          <option value="">Tous les proxies</option>
-          ${proxyOpts}
-        </select>
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;flex-wrap:wrap">
-          <span style="color:var(--text3)">De</span>
-          <input type="datetime-local" id="prism-from" class="form-input" style="max-width:175px" value="${esc(selFrom)}" data-prism="from"${liveMode ? ' disabled' : ''}>
-          <span style="color:var(--text3)">à</span>
-          <input type="datetime-local" id="prism-to" class="form-input" style="max-width:175px" value="${esc(selTo)}" data-prism="to"${liveMode ? ' disabled' : ''}>
+        <div class="prism-fg">
+          ${coreSelect}
+          <select id="prism-proxy" class="form-input" style="max-width:160px" data-prism="proxy">
+            <option value="">Tous les proxies</option>
+            ${proxyOpts}
+          </select>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${[['1h',3600000],['6h',21600000],['24h',86400000],['7j',604800000]].map(([lbl,ms])=>
-            `<button type="button" class="btn btn-secondary btn-sm" data-prism="quick" data-ms="${ms}"${liveMode ? ' disabled' : ''}>${lbl}</button>`
-          ).join('')}
+        <div class="prism-fg-sep"></div>
+        <div class="prism-fg">
+          <span class="prism-fg-label">De</span>
+          <input type="datetime-local" id="prism-from" class="form-input" style="max-width:168px" value="${esc(selFrom)}" data-prism="from"${liveMode ? ' disabled' : ''}>
+          <span class="prism-fg-label">à</span>
+          <input type="datetime-local" id="prism-to" class="form-input" style="max-width:168px" value="${esc(selTo)}" data-prism="to"${liveMode ? ' disabled' : ''}>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="prism-refresh-btn" data-prism="refresh">Actualiser</button>
-        <div class="prism-filters-actions">
-          <span id="prism-live-indicator" class="prism-live-indicator" style="display:${liveMode ? 'inline-flex' : 'none'}">
+        <div class="prism-fg-sep"></div>
+        <div class="prism-fg" style="gap:4px">${quickBtns}</div>
+        <div class="prism-fg prism-fg-end" style="gap:4px">
+          <button type="button" class="btn btn-primary btn-sm" id="prism-refresh-btn" data-prism="refresh">Actualiser</button>
+          <span id="prism-live-indicator" class="prism-live-indicator" style="display:${liveMode ? 'inline-flex' : 'none'};margin:0 4px">
             <span class="logs-live-dot"></span>Live
           </span>
           <button type="button" class="btn btn-ghost btn-icon btn-sm${compareOpen ? ' is-active' : ''}" id="prism-compare-btn" data-prism="compare" title="${compareOpen ? t('prism.hide_compare') : t('prism.compare')}" aria-pressed="${compareOpen ? 'true' : 'false'}">${icoCompare}</button>
           <button type="button" class="btn btn-ghost btn-icon btn-sm${liveMode ? ' is-active' : ''}" id="prism-live-btn" data-prism="live" title="${liveMode ? t('prism.stop_live') : t('prism.live')}" aria-pressed="${liveMode ? 'true' : 'false'}">${icoLive}</button>
+          <div class="prism-fg-sep" style="height:18px;align-self:auto;margin:0 4px"></div>
+          <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text3)" data-prism="export" data-fmt="csv">CSV</button>
+          <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text3)" data-prism="export" data-fmt="json">JSON</button>
         </div>
       </div>`;
   }
 
   function toolbarHtml() {
-    return `
-      <div class="prism-toolbar">
-        <div class="prism-toolbar-group prism-toolbar-exports">
-          <span class="prism-toolbar-label">${t('prism.export')}</span>
-          <button type="button" class="btn btn-secondary btn-sm" data-prism="export" data-fmt="csv">CSV</button>
-          <button type="button" class="btn btn-secondary btn-sm" data-prism="export" data-fmt="json">JSON</button>
-          <button type="button" class="btn btn-secondary btn-sm" data-prism="export" data-fmt="html">HTML</button>
-        </div>
-      </div>`;
+    return '';
   }
 
   function kpisHtml(k) {
@@ -498,28 +496,28 @@ async function renderPrismPage() {
     const errRate = Number(k.error_rate) || 0;
     const avgLat = Number(k.avg_latency_ms) || 0;
     const botShare = Number(k.bot_share) || 0;
-    const icoReq = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
-    const icoBw  = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
-    const icoErr = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
-    const icoIp  = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>`;
-    const icoLat = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
-    const icoBot = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>`;
-    const card = (color, icon, label, val, foot) => `
-      <div class="prism-kpi" style="--prism-kc:${color}">
-        <div class="prism-kpi-head">
-          <span class="prism-kpi-label">${label}</span>
+    const icoReq = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+    const icoBw  = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+    const icoErr = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+    const icoIp  = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>`;
+    const icoLat = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+    const icoBot = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>`;
+    const card = (icon, label, val, foot) => `
+      <div class="prism-kpi">
+        <div class="prism-kpi-top">
           <span class="prism-kpi-ico">${icon}</span>
+          <span class="prism-kpi-label">${label}</span>
         </div>
         <div class="prism-kpi-val">${val}</div>
         <div class="prism-kpi-foot">${foot}</div>
       </div>`;
     return `<div class="prism-kpis">
-      ${card('var(--accent)', icoReq, t('prism.requests'), fmtNum(k.requests), delta(k.requests_delta, false))}
-      ${card('var(--blue)', icoBw, t('prism.bandwidth'), fmtBytes(k.bandwidth), delta(k.bandwidth_delta, false))}
-      ${card('var(--red)', icoErr, t('prism.error_rate'), errRate.toFixed(1) + '%', delta(k.error_rate_delta, true))}
-      ${card('var(--cyan)', icoIp, t('prism.unique_ips'), `<span id="prism-kpi-unique-ips">${uniqueVal}</span>`, '')}
-      ${card('var(--yellow)', icoLat, t('prism.latency'), avgLat.toFixed(0) + ' ms', '')}
-      ${card('var(--purple)', icoBot, t('prism.bot_share'), botShare.toFixed(1) + '%', '')}
+      ${card(icoReq, t('prism.requests'), fmtNum(k.requests), delta(k.requests_delta, false))}
+      ${card(icoBw, t('prism.bandwidth'), fmtBytes(k.bandwidth), delta(k.bandwidth_delta, false))}
+      ${card(icoErr, t('prism.error_rate'), errRate.toFixed(1) + '%', delta(k.error_rate_delta, true))}
+      ${card(icoIp, t('prism.unique_ips'), `<span id="prism-kpi-unique-ips">${uniqueVal}</span>`, '')}
+      ${card(icoLat, t('prism.latency'), avgLat.toFixed(0) + ' ms', '')}
+      ${card(icoBot, t('prism.bot_share'), botShare.toFixed(1) + '%', '')}
     </div>`;
   }
 
