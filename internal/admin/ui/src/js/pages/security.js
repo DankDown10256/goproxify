@@ -1738,26 +1738,17 @@ window.showBanHistory = async function(ip) {
       </tr>`).join('')
     : `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">${t('security.ban_history_empty')}</td></tr>`;
 
-  const modalId = 'ban-history-modal-' + Date.now();
-  const modal = document.createElement('div');
-  modal.id = modalId;
-  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5)';
-  modal.innerHTML = `<div style="background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:20px;min-width:540px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-shrink:0">
-      <strong>${t('security.ban_history_title', { ip })}</strong>
-      <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('${modalId}').remove()">✕</button>
-    </div>
-    <div style="overflow:auto;flex:1">
-      <table style="width:100%"><thead><tr>
-        <th style="font-size:11px">${t('common.date')}</th>
-        <th style="font-size:11px">${t('security.col.action')}</th>
-        <th style="font-size:11px">${t('security.col.source')}</th>
-        <th style="font-size:11px">${t('security.col.reason')}</th>
-      </tr></thead><tbody>${rows}</tbody></table>
-    </div>
-  </div>`;
-  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-  document.body.appendChild(modal);
+  modal(
+    t('security.ban_history_title', { ip }),
+    `<div class="table-wrap"><table><thead><tr>
+      <th>${t('common.date')}</th>
+      <th>${t('security.col.action')}</th>
+      <th>${t('security.col.source')}</th>
+      <th>${t('security.col.reason')}</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>`,
+    '',
+    true
+  );
 };
 
 // ── WAF Profils comportementaux ──────────────────────────────────────────────
