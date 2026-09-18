@@ -524,16 +524,28 @@ async function renderPrismPage() {
   function timelineHtml(pts) {
     const bucketLabel = liveMode ? 'minute' : 'heure';
     if (!pts || pts.length === 0) return `<div class="prism-panel-title">${t('prism.requests_per', { bucket: bucketLabel })}</div><p style="color:var(--text3);font-size:13px">${liveMode ? t('prism.wait_traffic') : t('prism.no_period')}</p>`;
-    const max = Math.max(...pts.map(p => p.requests), 1);
-    const W = 600, H = 150, padX = 38, padY = 8, padB = 22;
-    const toX = i => padX + (pts.length > 1 ? (i / (pts.length - 1)) * (W - padX - 8) : (W - padX - 8));
-    const toY = v => padY + (1 - v / max) * (H - padY - 4);
 
-    const gridLines = [0.25, 0.5, 0.75, 1].map(f => {
-      const v = Math.round(max * f);
+    const rawMax = Math.max(...pts.map(p => p.requests), 1);
+    const niceMax = (() => {
+      const mag = Math.pow(10, Math.floor(Math.log10(rawMax)));
+      const steps = [1, 2, 2.5, 5, 10];
+      for (const s of steps) { const v = s * mag; if (v >= rawMax) return v; }
+      return rawMax;
+    })();
+
+    const W = 600, H = 156, padX = 46, padY = 10, padB = 28;
+    const chartW = W - padX - 6;
+    const chartH = H - padY;
+    const toX = i => padX + (pts.length > 1 ? (i / (pts.length - 1)) * chartW : chartW);
+    const toY = v => padY + (1 - v / niceMax) * chartH;
+
+    const gridVals = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(niceMax * f));
+    const gridLines = gridVals.map(v => {
       const y = toY(v).toFixed(1);
-      return `<line x1="${padX}" y1="${y}" x2="${W - 8}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
-        <text x="${padX - 5}" y="${parseFloat(y) + 3}" text-anchor="end" font-size="8" fill="var(--text3)">${fmtNum(v)}</text>`;
+      const label = v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(v);
+      const isCero = v === 0;
+      return `<line x1="${padX}" y1="${y}" x2="${W - 6}" y2="${y}" stroke="var(--border)" stroke-width="${isCero ? 1.5 : 1}" stroke-opacity="${isCero ? .6 : .5}"/>
+        <text x="${padX - 7}" y="${parseFloat(y) + 3.5}" text-anchor="end" font-size="10" fill="var(--text3)" font-family="system-ui,sans-serif">${label}</text>`;
     }).join('');
 
     function bezier(data, field) {
@@ -542,49 +554,57 @@ async function renderPrismPage() {
       for (let i = 0; i < data.length - 1; i++) {
         const x1 = toX(i), y1 = toY(data[i][field]);
         const x2 = toX(i + 1), y2 = toY(data[i + 1][field]);
-        const cp = (x2 - x1) * 0.4;
+        const cp = (x2 - x1) * 0.35;
         d += ` C${(x1 + cp).toFixed(1)},${y1.toFixed(1)} ${(x2 - cp).toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
       }
       return d;
     }
 
+    const baseline = toY(0).toFixed(1);
     const reqLine = bezier(pts, 'requests');
     const errLine = pts.length > 1 ? bezier(pts, 'errors') : '';
-    const area = reqLine + ` L${toX(pts.length - 1).toFixed(1)},${H} L${padX},${H} Z`;
+    const area = reqLine + ` L${toX(pts.length - 1).toFixed(1)},${baseline} L${padX},${baseline} Z`;
 
-    const step = Math.ceil(pts.length / 8);
-    const xLabels = pts.filter((_, i) => i % step === 0 || i === pts.length - 1).map(p => {
-      const i = pts.indexOf(p);
-      const label = p.bucket.includes('T') ? p.bucket.split('T')[1].slice(0, 5) : p.bucket.slice(5);
-      return `<text x="${toX(i).toFixed(1)}" y="${H + padB - 6}" text-anchor="middle" font-size="9" fill="var(--text3)">${esc(label)}</text>`;
-    });
+    const step = Math.ceil(pts.length / 7);
+    const xLabels = pts.reduce((acc, p, i) => {
+      if (i % step === 0 || i === pts.length - 1) {
+        const label = p.bucket.includes('T') ? p.bucket.split('T')[1].slice(0, 5) : p.bucket.slice(5);
+        acc.push(`<text x="${toX(i).toFixed(1)}" y="${H + padB - 8}" text-anchor="middle" font-size="10" fill="var(--text3)" font-family="system-ui,sans-serif">${esc(label)}</text>`);
+      }
+      return acc;
+    }, []);
 
     const dots = pts.map((p, i) => {
       const x = toX(i).toFixed(1), y = toY(p.requests).toFixed(1);
-      return `<circle cx="${x}" cy="${y}" r="5" fill="var(--accent)" fill-opacity="0.01" stroke="transparent" stroke-width="14" style="cursor:pointer"
+      return `<circle cx="${x}" cy="${y}" r="4" fill="var(--accent)" fill-opacity="0" stroke="transparent" stroke-width="16" style="cursor:pointer"
         data-prism="bucket" data-bucket="${esc(p.bucket)}" title="${esc(p.bucket)} — ${p.requests} req"/>`;
     }).join('');
 
+    const uid = 'pg' + Math.random().toString(36).slice(2, 7);
     return `
       <div class="prism-panel-title">${t('prism.requests_per', { bucket: bucketLabel })} <span style="font-weight:400;color:var(--text3);font-size:11px">· ${t('prism.click_zoom')}</span></div>
-      <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}" preserveAspectRatio="none">
+      <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}">
         <defs>
-          <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="var(--accent)" stop-opacity=".3"/>
-            <stop offset="65%" stop-color="var(--accent)" stop-opacity=".06"/>
+          <linearGradient id="${uid}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="var(--accent)" stop-opacity=".28"/>
+            <stop offset="50%"  stop-color="var(--accent)" stop-opacity=".10"/>
+            <stop offset="85%"  stop-color="var(--accent)" stop-opacity=".03"/>
             <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
           </linearGradient>
+          <clipPath id="${uid}c"><rect x="${padX}" y="${padY}" width="${chartW}" height="${chartH}"/></clipPath>
         </defs>
         ${gridLines}
-        <path d="${area}" fill="url(#pg)"/>
-        <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>` : ''}
+        <g clip-path="url(#${uid}c)">
+          <path d="${area}" fill="url(#${uid})"/>
+          <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="6,3" stroke-linecap="round"/>` : ''}
+        </g>
         ${dots}
         ${xLabels.join('')}
       </svg>
-      <div style="display:flex;gap:18px;font-size:11px;color:var(--text3);margin-top:4px">
-        <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent);border-radius:2px;vertical-align:middle;margin-right:4px"></span>Requêtes</span>
-        <span><span style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--red);vertical-align:middle;margin-right:4px"></span>${t('prism.errors')}</span>
+      <div style="display:flex;gap:20px;font-size:11px;color:var(--text3);margin-top:6px">
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:2px;background:var(--accent);border-radius:2px;display:inline-block"></span>Requêtes</span>
+        ${errLine ? `<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:2px dashed var(--red);display:inline-block"></span>${t('prism.errors')}</span>` : ''}
       </div>`;
   }
 
