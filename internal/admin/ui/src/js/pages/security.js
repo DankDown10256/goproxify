@@ -415,10 +415,11 @@ async function renderSentinelDashboard({ mode }) {
   const coreQ = coreCtx ? `?core=${encodeURIComponent(coreCtx.coreID)}` : '';
   content.innerHTML = `<div style="padding:20px 0"><div class="spinner"></div></div>`;
   try {
-    const [bansRaw, threats, threatCfg] = await Promise.all([
+    const [bansRaw, threats, threatCfg, bansByCountry] = await Promise.all([
       api('GET', `/security/bans?active=true${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
       api('GET', `/security/threats?limit=500${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
       api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', `/security/bans/countries${coreQ}`).catch(() => []),
     ]);
     const bans = filterSecBans(bansRaw || [], coreCtx);
     const threatList = threats || [];
@@ -477,6 +478,20 @@ async function renderSentinelDashboard({ mode }) {
         </div>
       </div>
 
+      <div class="card blueprint" style="margin-bottom:20px" id="sentinel-map-card">
+        <div class="card-header"><span class="card-title">&#x1f30d; ${t('security.sentinel_bans_countries')||'Bans par pays'}</span></div>
+        <div style="padding:12px 16px 8px">
+          <div id="sentinel-map-wrap" style="position:relative;user-select:none">
+            <div id="sentinel-map-tooltip" style="display:none;position:absolute;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;pointer-events:none;z-index:10;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>
+          </div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)">
+            <span>${t('security.map_legend_none')||'0'}</span>
+            <div style="display:flex;gap:2px">${[0.1,0.25,0.45,0.65,0.85,1].map(o=>`<div style="width:16px;height:8px;border-radius:2px;background:rgba(239,68,68,${o})"></div>`).join('')}</div>
+            <span>${t('security.map_legend_max')||'max'}</span>
+          </div>
+        </div>
+      </div>
+
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header"><span class="card-title">&#x1f4c5; ${t('security.sentinel_bans_timeline')||'Bans (24 dernières heures)'}</span></div>
         <div style="padding:16px">
@@ -515,6 +530,57 @@ async function renderSentinelDashboard({ mode }) {
       <div style="text-align:right">
         <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('bans', mode)}')">${t('security.view_all_bans')||'Voir tous les bans'} &rarr;</button>
       </div>`;
+
+    // ── Heatmap géographique ──────────────────────────────────────────────
+    const countries = Array.isArray(bansByCountry) ? bansByCountry : [];
+    const maxCnt = countries.reduce((m, r) => Math.max(m, r.cnt || 0), 1);
+    const countryMap = {};
+    for (const r of countries) countryMap[r.cc] = r;
+
+    const mapWrap = document.getElementById('sentinel-map-wrap');
+    if (mapWrap) {
+      fetch('/world.svg')
+        .then(r => r.text())
+        .then(svgText => {
+          mapWrap.insertAdjacentHTML('afterbegin', svgText);
+          const svg = mapWrap.querySelector('svg');
+          if (!svg) return;
+          svg.style.cssText = 'width:100%;height:auto;display:block';
+          const tooltip = document.getElementById('sentinel-map-tooltip');
+          svg.querySelectorAll('path[id]').forEach(path => {
+            const cc = path.getAttribute('id');
+            const row = countryMap[cc];
+            const opacity = row ? Math.max(0.12, row.cnt / maxCnt) : 0;
+            path.style.fill = row ? `rgba(239,68,68,${opacity.toFixed(2)})` : 'var(--bg-surface,#f1f3f5)';
+            path.style.stroke = 'var(--border)';
+            path.style.strokeWidth = '0.5';
+            path.style.cursor = row ? 'pointer' : 'default';
+            path.style.transition = 'fill .15s';
+            if (row) {
+              path.addEventListener('mouseenter', e => {
+                path.style.fill = 'rgba(239,68,68,1)';
+                tooltip.style.display = 'block';
+                tooltip.innerHTML = `<strong>${esc(row.name || cc)}</strong> &mdash; ${row.cnt} ban${row.cnt > 1 ? 's' : ''}`;
+              });
+              path.addEventListener('mousemove', e => {
+                const rect = mapWrap.getBoundingClientRect();
+                tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
+                tooltip.style.top  = (e.clientY - rect.top  - 32) + 'px';
+              });
+              path.addEventListener('mouseleave', () => {
+                path.style.fill = `rgba(239,68,68,${opacity.toFixed(2)})`;
+                tooltip.style.display = 'none';
+              });
+              path.addEventListener('click', () => {
+                navigate(securityPageId('bans', mode) + '?country=' + encodeURIComponent(cc));
+              });
+            }
+          });
+        })
+        .catch(() => {
+          mapWrap.innerHTML = `<p style="color:var(--text2);font-size:13px;padding:8px">${t('security.map_unavailable')||'Carte non disponible'}</p>`;
+        });
+    }
   } catch(e) { toast(e.message,'error'); }
 }
 
