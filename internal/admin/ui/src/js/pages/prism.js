@@ -533,7 +533,7 @@ async function renderPrismPage() {
       return rawMax;
     })();
 
-    const W = 600, H = 156, padX = 46, padY = 10, padB = 28;
+    const W = 900, H = 150, padX = 52, padY = 10, padB = 30;
     const chartW = W - padX - 6;
     const chartH = H - padY;
     const toX = i => padX + (pts.length > 1 ? (i / (pts.length - 1)) * chartW : chartW);
@@ -583,7 +583,7 @@ async function renderPrismPage() {
     const uid = 'pg' + Math.random().toString(36).slice(2, 7);
     return `
       <div class="prism-panel-title">${t('prism.requests_per', { bucket: bucketLabel })} <span style="font-weight:400;color:var(--text3);font-size:11px">· ${t('prism.click_zoom')}</span></div>
-      <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}">
+      <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}" preserveAspectRatio="none">
         <defs>
           <linearGradient id="${uid}" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%"   stop-color="var(--accent)" stop-opacity=".28"/>
