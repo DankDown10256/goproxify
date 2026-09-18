@@ -141,7 +141,7 @@ func TestServeHTTPFailsOpenWhenAllUnhealthy(t *testing.T) {
 
 	health := NewBackendHealth(slog.Default())
 	health.mu.Lock()
-	health.healthy[srv.URL] = false
+	health.getOrCreateLocked(srv.URL).healthy = false
 	health.mu.Unlock()
 
 	h := NewHandler(route, health, NewAgentMetricsStore(), NewPeerRegistry(), slog.Default())

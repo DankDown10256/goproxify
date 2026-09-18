@@ -15,83 +15,135 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/core/router"
 )
+
+// probeConfig regroupe les paramètres d'une sonde par URL.
+type probeConfig struct {
+	path               string
+	interval           time.Duration
+	timeout            time.Duration
+	healthyThreshold   int
+	unhealthyThreshold int
+}
+
+func defaultProbeConfig() probeConfig {
+	return probeConfig{
+		path:               "/health",
+		interval:           30 * time.Second,
+		timeout:            5 * time.Second,
+		healthyThreshold:   1,
+		unhealthyThreshold: 1,
+	}
+}
+
+func probeConfigFrom(cfg *router.HealthCheckConfig) probeConfig {
+	p := defaultProbeConfig()
+	if cfg == nil {
+		return p
+	}
+	if cfg.Path != "" {
+		p.path = cfg.Path
+	}
+	if cfg.Interval > 0 {
+		p.interval = cfg.Interval
+	}
+	if cfg.Timeout > 0 {
+		p.timeout = cfg.Timeout
+	}
+	if cfg.HealthyThreshold > 0 {
+		p.healthyThreshold = cfg.HealthyThreshold
+	}
+	if cfg.UnhealthyThreshold > 0 {
+		p.unhealthyThreshold = cfg.UnhealthyThreshold
+	}
+	return p
+}
+
+// backendState suit l'état de santé d'un backend avec compteurs de seuil.
+type backendState struct {
+	healthy    bool
+	downUntil  time.Time
+	streak     int  // succès consécutifs (>0) ou échecs consécutifs (<0)
+	cfg        probeConfig
+}
 
 // BackendHealth suit l'état de santé d'un backend par URL.
 type BackendHealth struct {
-	mu        sync.RWMutex
-	healthy   map[string]bool
-	downUntil map[string]time.Time // quarantine courte après échec de dial/proxy
-	watched   map[string]struct{}  // URLs avec un goroutine de check actif
-	log       *slog.Logger
+	mu      sync.RWMutex
+	states  map[string]*backendState
+	watched map[string]struct{} // URLs avec un goroutine de check actif
+	log     *slog.Logger
 }
 
 func NewBackendHealth(log *slog.Logger) *BackendHealth {
 	return &BackendHealth{
-		healthy:   make(map[string]bool),
-		downUntil: make(map[string]time.Time),
-		watched:   make(map[string]struct{}),
-		log:       log,
+		states:  make(map[string]*backendState),
+		watched: make(map[string]struct{}),
+		log:     log,
 	}
 }
 
 // IsHealthy retourne true si le backend est considéré en bonne santé.
 // Un backend inconnu est considéré sain par défaut.
-func (h *BackendHealth) IsHealthy(url string) bool {
+func (h *BackendHealth) IsHealthy(u string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if until, ok := h.downUntil[url]; ok {
-		if time.Now().Before(until) {
-			return false
-		}
+	st, ok := h.states[u]
+	if !ok {
+		return true
 	}
-	v, ok := h.healthy[url]
-	return !ok || v
+	if time.Now().Before(st.downUntil) {
+		return false
+	}
+	return st.healthy
 }
 
 // MarkDown place le backend en quarantaine temporaire (failover immédiat).
-func (h *BackendHealth) MarkDown(url string, ttl time.Duration) {
-	if h == nil || url == "" {
+func (h *BackendHealth) MarkDown(u string, ttl time.Duration) {
+	if h == nil || u == "" {
 		return
 	}
 	if ttl <= 0 {
 		ttl = 15 * time.Second
 	}
 	h.mu.Lock()
-	h.downUntil[url] = time.Now().Add(ttl)
+	st := h.getOrCreateLocked(u)
+	st.downUntil = time.Now().Add(ttl)
 	h.mu.Unlock()
 	if h.log != nil {
-		h.log.Info("backend quarantine", "url", url, "ttl", ttl.String())
+		h.log.Info("backend quarantine", "url", u, "ttl", ttl.String())
 	}
 }
 
 // MarkUp lève la quarantaine après un succès.
-func (h *BackendHealth) MarkUp(url string) {
-	if h == nil || url == "" {
+func (h *BackendHealth) MarkUp(u string) {
+	if h == nil || u == "" {
 		return
 	}
 	h.mu.Lock()
-	delete(h.downUntil, url)
-	h.healthy[url] = true
+	st := h.getOrCreateLocked(u)
+	st.downUntil = time.Time{}
+	st.healthy = true
 	h.mu.Unlock()
 }
 
 // Status retourne "up", "down" ou "unknown" pour une URL backend.
-// unknown = jamais observé (considéré sain au runtime via IsHealthy).
-func (h *BackendHealth) Status(url string) string {
-	if h == nil || url == "" {
+func (h *BackendHealth) Status(u string) string {
+	if h == nil || u == "" {
 		return "unknown"
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if until, ok := h.downUntil[url]; ok && time.Now().Before(until) {
-		return "down"
-	}
-	v, ok := h.healthy[url]
+	st, ok := h.states[u]
 	if !ok {
 		return "unknown"
 	}
-	if v {
+	if time.Now().Before(st.downUntil) {
+		return "down"
+	}
+	if st.healthy {
 		return "up"
 	}
 	return "down"
@@ -106,41 +158,34 @@ func (h *BackendHealth) Snapshot() map[string]string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	now := time.Now()
-	seen := make(map[string]struct{}, len(h.healthy)+len(h.downUntil))
-	for url := range h.healthy {
-		seen[url] = struct{}{}
-	}
-	for url := range h.downUntil {
-		seen[url] = struct{}{}
-	}
-	for url := range seen {
-		if until, ok := h.downUntil[url]; ok && now.Before(until) {
-			out[url] = "down"
+	for u, st := range h.states {
+		if now.Before(st.downUntil) {
+			out[u] = "down"
 			continue
 		}
-		if v, ok := h.healthy[url]; ok {
-			if v {
-				out[url] = "up"
-			} else {
-				out[url] = "down"
-			}
+		if st.healthy {
+			out[u] = "up"
 		} else {
-			out[url] = "unknown"
+			out[u] = "down"
 		}
 	}
 	return out
 }
 
+func (h *BackendHealth) getOrCreateLocked(u string) *backendState {
+	if st, ok := h.states[u]; ok {
+		return st
+	}
+	st := &backendState{healthy: true, cfg: defaultProbeConfig()}
+	h.states[u] = st
+	return st
+}
+
 // quarantineDuration retourne la durée de quarantaine adaptée au type d'erreur.
-// Retourne 0 pour les erreurs transitoires (keep-alive expiré, ECONNRESET, EOF) :
-// le backend n'est pas en panne et une quarantaine cross-requête bloquerait les
-// requêtes concurrentes du navigateur (favicon, redirect post-logout…).
-// Retourne 15s pour les vraies pannes (ECONNREFUSED).
 func quarantineDuration(err error) time.Duration {
 	if err == nil {
 		return 15 * time.Second
 	}
-	// Déballer *url.Error et *net.OpError
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err
@@ -163,9 +208,59 @@ func quarantineDuration(err error) time.Duration {
 	return 15 * time.Second
 }
 
-// StartChecks lance les health checks actifs pour les URLs qui n'ont pas encore
-// de goroutine dédiée. Idempotent : appeler plusieurs fois est sans effet.
+// StartChecks lance les health checks actifs avec la config par défaut.
+// Idempotent : les URLs déjà surveillées ne lancent pas de nouvelle goroutine.
 func (h *BackendHealth) StartChecks(urls []string, interval time.Duration) {
+	cfg := defaultProbeConfig()
+	if interval > 0 {
+		cfg.interval = interval
+	}
+	h.startChecksWithConfig(urls, cfg)
+}
+
+// StartChecksFromRoutes lance les health checks en utilisant la HealthCheckConfig de chaque route.
+func (h *BackendHealth) StartChecksFromRoutes(routes []*router.Route) {
+	// Construire une map url → meilleure config connue.
+	// Si plusieurs routes partagent un même backend, on prend la première config non-nil.
+	cfgByURL := make(map[string]probeConfig)
+	for _, r := range routes {
+		if r == nil || r.Type == router.RouteUDP {
+			continue
+		}
+		pc := probeConfigFrom(r.HealthCheck)
+		for _, b := range r.Backends {
+			if b.URL == "" {
+				continue
+			}
+			if _, seen := cfgByURL[b.URL]; !seen {
+				cfgByURL[b.URL] = pc
+			}
+		}
+	}
+	h.mu.Lock()
+	var toStart []struct {
+		url string
+		cfg probeConfig
+	}
+	for u, pc := range cfgByURL {
+		if _, ok := h.watched[u]; !ok {
+			h.watched[u] = struct{}{}
+			// Stocker la config dans l'état
+			st := h.getOrCreateLocked(u)
+			st.cfg = pc
+			toStart = append(toStart, struct {
+				url string
+				cfg probeConfig
+			}{u, pc})
+		}
+	}
+	h.mu.Unlock()
+	for _, item := range toStart {
+		go h.loop(item.url, item.cfg)
+	}
+}
+
+func (h *BackendHealth) startChecksWithConfig(urls []string, cfg probeConfig) {
 	h.mu.Lock()
 	var toStart []string
 	for _, u := range urls {
@@ -174,39 +269,54 @@ func (h *BackendHealth) StartChecks(urls []string, interval time.Duration) {
 		}
 		if _, ok := h.watched[u]; !ok {
 			h.watched[u] = struct{}{}
+			st := h.getOrCreateLocked(u)
+			st.cfg = cfg
 			toStart = append(toStart, u)
 		}
 	}
 	h.mu.Unlock()
 	for _, u := range toStart {
-		go h.loop(u, interval)
+		go h.loop(u, cfg)
 	}
 }
 
-func (h *BackendHealth) loop(target string, interval time.Duration) {
+func (h *BackendHealth) loop(target string, cfg probeConfig) {
 	for {
-		ok := probe(target)
+		ok := probeWithConfig(target, cfg)
 		h.mu.Lock()
-		prev, known := h.healthy[target]
-		h.healthy[target] = ok
+		st := h.getOrCreateLocked(target)
+		prevHealthy := st.healthy
 		if ok {
-			delete(h.downUntil, target)
+			if st.streak < 0 {
+				st.streak = 0
+			}
+			st.streak++
+			if st.streak >= cfg.healthyThreshold {
+				st.healthy = true
+				st.downUntil = time.Time{}
+			}
+		} else {
+			if st.streak > 0 {
+				st.streak = 0
+			}
+			st.streak--
+			if -st.streak >= cfg.unhealthyThreshold {
+				st.healthy = false
+			}
 		}
+		changed := prevHealthy != st.healthy
 		h.mu.Unlock()
-		if (!known || prev != ok) && h.log != nil {
+		if changed && h.log != nil {
 			h.log.Info("backend health change", "url", target, "healthy", ok)
 		}
-		time.Sleep(interval)
+		time.Sleep(cfg.interval)
 	}
 }
 
-const probeTimeout = 5 * time.Second
-
 // probeClient ne vérifie pas le certificat backend : la sonde teste la vivacité,
-// pas l'authenticité. Un backend HTTPS auto-signé (route TLSSkipVerify) resterait
-// sinon marqué down alors que le proxy lui parle sans problème.
+// pas l'authenticité.
 var probeClient = &http.Client{
-	Timeout: probeTimeout,
+	Timeout: 5 * time.Second,
 	Transport: &http.Transport{
 		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		DisableKeepAlives: true,
@@ -214,24 +324,32 @@ var probeClient = &http.Client{
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
-// probe teste la vivacité d'un backend.
-//
-// Le endpoint /health est une convention, pas un contrat : la majorité des
-// backends ne l'implémentent pas. Toute réponse HTTP complète prouve donc que le
-// backend sert du trafic — seuls 502/503/504, par lesquels un backend signale
-// explicitement son indisponibilité, comptent comme down. Un /health absent
-// (404) ou une route catch-all qui répond 500 ne doit pas le sortir du pool.
-//
-// Les backends L4 (« host:port » sans schéma) et ceux qui ne répondent pas en
-// HTTP sont testés par un dial TCP : le port accepte des connexions ou non.
-func probe(target string) bool {
+const probeTimeout = 5 * time.Second
+
+// probeWithConfig teste la vivacité d'un backend avec une config personnalisée.
+func probeWithConfig(target string, cfg probeConfig) bool {
 	u, err := url.Parse(target)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return tcpReachable(target)
+		return tcpReachable(target, cfg.timeout)
 	}
-	resp, err := probeClient.Get(strings.TrimSuffix(target, "/") + "/health")
+	client := probeClient
+	if cfg.timeout != probeTimeout {
+		client = &http.Client{
+			Timeout: cfg.timeout,
+			Transport: &http.Transport{
+				TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+				DisableKeepAlives: true,
+			},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+	}
+	path := cfg.path
+	if path == "" {
+		path = "/health"
+	}
+	resp, err := client.Get(strings.TrimSuffix(target, "/") + path)
 	if err != nil {
-		return tcpReachable(hostPort(u))
+		return tcpReachable(hostPort(u), cfg.timeout)
 	}
 	io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10)) //nolint:errcheck
 	resp.Body.Close()
@@ -242,11 +360,19 @@ func probe(target string) bool {
 	return true
 }
 
-func tcpReachable(addr string) bool {
+// probe est l'API de compatibilité utilisée dans les tests.
+func probe(target string) bool {
+	return probeWithConfig(target, defaultProbeConfig())
+}
+
+func tcpReachable(addr string, timeout time.Duration) bool {
 	if addr == "" {
 		return false
 	}
-	conn, err := net.DialTimeout("tcp", addr, probeTimeout)
+	if timeout <= 0 {
+		timeout = probeTimeout
+	}
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return false
 	}

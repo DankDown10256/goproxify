@@ -6,6 +6,7 @@ package middleware
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,10 +79,10 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := clientIP(r)
-			rl := rlStore.get(ip, cfg)
+			key := rateLimitKey(r, cfg)
+			rl := rlStore.get(key, cfg)
 			allowed, tokens := rl.allowWithTokens()
-			metrics.RateLimit.TokensCurrent.WithLabelValues(r.Host, ip).Set(tokens)
+			metrics.RateLimit.TokensCurrent.WithLabelValues(r.Host, key).Set(tokens)
 			if !allowed {
 				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ratelimit", "rate_exceeded").Inc()
 				w.Header().Set("Retry-After", "1")
@@ -92,6 +93,42 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// rateLimitKey dérive la clé de rate-limit selon cfg.KeyBy.
+// "ip" ou vide → adresse IP (comportement historique).
+// "jwt_sub", "jwt_email" → claim JWT correspondant.
+// "jwt_claim:<nom>" → claim JWT arbitraire.
+// Si le claim est absent ou le token manquant, repli sur l'IP.
+func rateLimitKey(r *http.Request, cfg *router.RateLimitConfig) string {
+	ip := clientIP(r)
+	if cfg.KeyBy == "" || cfg.KeyBy == "ip" {
+		return ip
+	}
+	claims := GetJWTClaims(r.Context())
+	if claims == nil {
+		return ip
+	}
+	claimName := ""
+	switch cfg.KeyBy {
+	case "jwt_sub":
+		claimName = "sub"
+	case "jwt_email":
+		claimName = "email"
+	default:
+		if after, ok := strings.CutPrefix(cfg.KeyBy, "jwt_claim:"); ok {
+			claimName = after
+		}
+	}
+	if claimName == "" {
+		return ip
+	}
+	if v, ok := claims[claimName]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return ip
 }
 
 func (s *rateLimitStore) get(ip string, cfg *router.RateLimitConfig) *rateLimiter {

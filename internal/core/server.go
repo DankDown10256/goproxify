@@ -503,33 +503,12 @@ func collectSentinelWhitelists(routes []*router.Route) []string {
 	return out
 }
 
-// backendURLsFromRoutes extrait toutes les URLs backends uniques d'un ensemble de routes.
-// Les routes UDP sont exclues : un dial TCP sur un port UDP échoue systématiquement,
-// ce qui rendrait tous les streams UDP "down" alors qu'ils fonctionnent.
-func backendURLsFromRoutes(routes []*router.Route) []string {
-	seen := make(map[string]struct{})
-	var out []string
-	for _, r := range routes {
-		if r.Type == router.RouteUDP {
-			continue
-		}
-		for _, b := range r.Backends {
-			if b.URL != "" {
-				if _, ok := seen[b.URL]; !ok {
-					seen[b.URL] = struct{}{}
-					out = append(out, b.URL)
-				}
-			}
-		}
-	}
-	return out
-}
 
 // applySnapshot charge toutes les ressources d'un snapshot en mémoire.
 func (s *Server) applySnapshot(snap *corecache.Snapshot) {
 	if snap.Routes != nil {
 		s.table.Replace(snap.Routes) //nolint:errcheck
-		s.health.StartChecks(backendURLsFromRoutes(snap.Routes), 30*time.Second)
+		s.health.StartChecksFromRoutes(snap.Routes)
 		if s.threatEngine != nil {
 			s.threatEngine.MergeRouteWhitelists(collectSentinelWhitelists(snap.Routes))
 		}

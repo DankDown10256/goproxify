@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"io"
 	"net/http"
+	"regexp"
 	"testing"
 
 	"github.com/vincamok/goproxify/internal/core/router"
@@ -42,7 +43,7 @@ func readBody(r *http.Response) string {
 func TestApplySubFilters_Simple(t *testing.T) {
 	r := resp("text/html", "<a href='http://backend:8080/path'>link</a>")
 	filters := []router.SubFilter{{From: "http://backend:8080", To: "https://app.example.fr"}}
-	if err := applySubFilters(r, filters); err != nil {
+	if err := applySubFilters(r, filters, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := readBody(r)
@@ -55,7 +56,8 @@ func TestApplySubFilters_Simple(t *testing.T) {
 func TestApplySubFilters_Regex(t *testing.T) {
 	r := resp("text/html", "src=\"http://old.com/img/logo.png\"")
 	filters := []router.SubFilter{{From: `http://old\.com(/[^"]+)`, To: "https://new.com$1", Regex: true}}
-	if err := applySubFilters(r, filters); err != nil {
+	re := regexp.MustCompile(filters[0].From)
+	if err := applySubFilters(r, filters, []*regexp.Regexp{re}); err != nil {
 		t.Fatal(err)
 	}
 	got := readBody(r)
@@ -68,7 +70,7 @@ func TestApplySubFilters_Regex(t *testing.T) {
 func TestApplySubFilters_Gzip(t *testing.T) {
 	r := respGzip("text/html", "hello world")
 	filters := []router.SubFilter{{From: "world", To: "GoProxify"}}
-	if err := applySubFilters(r, filters); err != nil {
+	if err := applySubFilters(r, filters, nil); err != nil {
 		t.Fatal(err)
 	}
 	if r.Header.Get("Content-Encoding") != "" {
@@ -83,7 +85,7 @@ func TestApplySubFilters_Gzip(t *testing.T) {
 func TestApplySubFilters_SkipsBinary(t *testing.T) {
 	r := resp("image/png", "binary data")
 	filters := []router.SubFilter{{From: "binary", To: "replaced"}}
-	if err := applySubFilters(r, filters); err != nil {
+	if err := applySubFilters(r, filters, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := readBody(r)
@@ -98,7 +100,7 @@ func TestApplySubFilters_MultipleRules(t *testing.T) {
 		{From: "http://a.com", To: "https://a.example.fr"},
 		{From: "http://b.com", To: "https://b.example.fr"},
 	}
-	if err := applySubFilters(r, filters); err != nil {
+	if err := applySubFilters(r, filters, nil); err != nil {
 		t.Fatal(err)
 	}
 	got := readBody(r)

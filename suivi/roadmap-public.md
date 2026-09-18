@@ -35,12 +35,21 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [ ] Polish UX Access et docs opérateur
 - [ ] SBOM attaché à chaque Release
 
-## Idées (non engagées)
+### Résilience backend (v0.4)
 
-- Intégrations discovery supplémentaires
-- Améliorations HA portail
-- Dashboard Sentinel / alerting comportemental
-- Contributions communauté (issues / Discussions)
+- [ ] **Health-check actif configurable** : path personnalisé, intervalle, timeout et seuils healthy/unhealthy par route — l'intervalle hardcodé à 30 s est remplacé par une config YAML/UI par proxy
+- [ ] **Retry + circuit-breaker câblés** : `CBConfig` (threshold / timeout) existant rendu thread-safe et branché au handler — `RecordSuccess`/`RecordFailure` déclenchés à chaque tentative ; retry exponentiel déjà opérationnel
+- [ ] **Rate-limiting par utilisateur authentifié** : champ `key_by` dans `RateLimitConfig` (`ip` par défaut, ou `jwt_sub` / `jwt_email` / `jwt_claim:<nom>`) pour limiter par identité JWT plutôt que par adresse IP
+
+### Fonctionnalités à venir
+
+- [ ] **Dashboard Sentinel** : timeline des bans, heatmap par pays, courbe RPS vs seuil
+- [ ] **Webhooks sur événements** : notification externe (Slack, n8n, Zapier) sur ban, certificat expirant, backend down, taux d'erreurs soutenu
+- [ ] **Discovery Kubernetes** : Agent qui lit les `Ingress`/`Service` avec annotations `goproxify.*`, symétrique du mode Docker existant
+- [ ] **Pipeline de transformation de requête** : modifier headers, réécrire URL, injecter `X-Request-Id` — règles YAML hot-reload
+- [ ] **Tunnel L4 mTLS Core↔Core** : remplace le relay actuel pour les déploiements multi-site, fail-over automatique entre tunnels
+- [ ] **MCP server étendu** : lecture logs d'accès, ban/unban Sentinel, rotation certs depuis le MCP server existant
+- [ ] **SBOM + attestation cosign** : SBOM attaché à chaque Release + signature cosign des images GHCR
 
 Proposer des idées via
 [Discussions](https://github.com/Vincamok/goproxify/discussions) ou une issue

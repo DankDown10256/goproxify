@@ -29,7 +29,7 @@ func TestAdaptivePicksLowestScore(t *testing.T) {
 			{URL: "http://10.0.0.2:80"},
 		},
 	}
-	b := NewBalancer(route, fakeScorer{"10.0.0.1": 80, "10.0.0.2": 20})
+	b, _ := NewBalancer(route, fakeScorer{"10.0.0.1": 80, "10.0.0.2": 20})
 	got := b.Next(nil)
 	if got == nil || got.URL != "http://10.0.0.2:80" {
 		t.Fatalf("got %#v, want 10.0.0.2", got)
@@ -44,7 +44,7 @@ func TestAdaptivePartialScoresIgnoresUnknown(t *testing.T) {
 			{URL: "http://10.0.0.2:80"},
 		},
 	}
-	b := NewBalancer(route, fakeScorer{"10.0.0.2": 10})
+	b, _ := NewBalancer(route, fakeScorer{"10.0.0.2": 10})
 	// 10.0.0.1 unknown — must still pick scored backend, not fall back to RR blindly
 	counts := map[string]int{}
 	for i := 0; i < 20; i++ {

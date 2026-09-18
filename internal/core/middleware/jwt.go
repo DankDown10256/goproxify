@@ -27,6 +27,12 @@ import (
 // jwtContextKey est le type du contexte pour les claims.
 type jwtContextKey struct{}
 
+// GetJWTClaims retourne les claims JWT stockés dans le contexte, ou nil.
+func GetJWTClaims(ctx context.Context) map[string]any {
+	v, _ := ctx.Value(jwtContextKey{}).(map[string]any)
+	return v
+}
+
 // JWTValidation retourne un middleware de validation JWT via JWKS.
 func JWTValidation(cfg *router.JWTConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

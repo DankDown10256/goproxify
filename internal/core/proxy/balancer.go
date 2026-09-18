@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -110,6 +111,7 @@ const (
 )
 
 type circuitBreaker struct {
+	mu        sync.Mutex
 	inner     Balancer
 	cfg       *router.CBConfig
 	failures  int
@@ -122,6 +124,8 @@ func newCB(inner Balancer, cfg *router.CBConfig) *circuitBreaker {
 }
 
 func (cb *circuitBreaker) Next(r *http.Request) *router.Backend {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	if cb.state == cbOpen {
 		if time.Now().Before(cb.openUntil) {
 			return nil
@@ -132,11 +136,15 @@ func (cb *circuitBreaker) Next(r *http.Request) *router.Backend {
 }
 
 func (cb *circuitBreaker) RecordSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.failures = 0
 	cb.state = cbClosed
 }
 
 func (cb *circuitBreaker) RecordFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	cb.failures++
 	if cb.failures >= cb.cfg.Threshold {
 		cb.state = cbOpen
@@ -205,7 +213,9 @@ func backendIP(rawURL string) string {
 }
 
 // NewBalancer construit la chaîne balancer pour une route.
-func NewBalancer(route *router.Route, metrics metricsScorer) Balancer {
+// Retourne également le *circuitBreaker s'il est configuré (nil sinon),
+// pour permettre au handler d'enregistrer les succès/échecs.
+func NewBalancer(route *router.Route, metrics metricsScorer) (Balancer, *circuitBreaker) {
 	bs := route.Backends
 	var b Balancer
 	switch route.LB {
@@ -223,8 +233,10 @@ func NewBalancer(route *router.Route, metrics metricsScorer) Balancer {
 	if route.StickyCookie != "" {
 		b = newSticky(b, bs, route.StickyCookie)
 	}
+	var cb *circuitBreaker
 	if route.CircuitBreaker != nil {
-		b = newCB(b, route.CircuitBreaker)
+		cb = newCB(b, route.CircuitBreaker)
+		b = cb
 	}
-	return b
+	return b, cb
 }

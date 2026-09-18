@@ -33,15 +33,16 @@ import (
 
 // Handler est le reverse proxy HTTP pour une route donnée.
 type Handler struct {
-	route         *router.Route
-	balancer      Balancer
-	health        *BackendHealth
-	peers         *PeerRegistry
-	log           *slog.Logger
-	transport     http.RoundTripper
-	conditionRes  []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
-	subFilterRes  []*regexp.Regexp // parallèle à route.SubFilters ; nil si pas regex
-	rpByBackend   sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
+	route        *router.Route
+	balancer     Balancer
+	cb           *circuitBreaker // non-nil si route.CircuitBreaker est configuré
+	health       *BackendHealth
+	peers        *PeerRegistry
+	log          *slog.Logger
+	transport    http.RoundTripper
+	conditionRes []*regexp.Regexp // parallèle à route.Conditions ; nil si pas regex
+	subFilterRes []*regexp.Regexp // parallèle à route.SubFilters ; nil si pas regex
+	rpByBackend  sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
 }
 
 type proxyAttemptKey struct{}
@@ -56,9 +57,11 @@ type proxyAttempt struct {
 }
 
 func NewHandler(route *router.Route, health *BackendHealth, metrics metricsScorer, peers *PeerRegistry, log *slog.Logger) *Handler {
+	bal, cb := NewBalancer(route, metrics)
 	return &Handler{
 		route:        route,
-		balancer:     NewBalancer(route, metrics),
+		balancer:     bal,
+		cb:           cb,
 		health:       health,
 		peers:        peers,
 		log:          log,
@@ -397,6 +400,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ok, responded, transportErr := h.do(w, r, backend, i, writeOnError)
 		if ok {
 			h.health.MarkUp(backend.URL)
+			if h.cb != nil {
+				h.cb.RecordSuccess()
+			}
 			if h.route.StickyCookie != "" {
 				http.SetCookie(w, &http.Cookie{
 					Name:     h.route.StickyCookie,
@@ -414,6 +420,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// pour ne pas bloquer les requêtes concurrentes du navigateur.
 		if ttl := quarantineDuration(transportErr); ttl > 0 {
 			h.health.MarkDown(backend.URL, ttl)
+		}
+		if h.cb != nil {
+			h.cb.RecordFailure()
 		}
 		if responded {
 			return

@@ -66,10 +66,11 @@ type Route struct {
 	MaxBodySize     int64         `json:"max_body_size,omitempty"`    // taille max corps requête client en octets (nginx: client_max_body_size, 0 = illimité)
 
 	// Résilience
-	LB            LBAlgorithm `json:"lb"`             // round_robin | weighted | adaptive
-	CircuitBreaker *CBConfig  `json:"circuit_breaker,omitempty"`
-	Retry         *RetryConfig `json:"retry,omitempty"`
-	StickyCookie  string       `json:"sticky_cookie,omitempty"`
+	LB             LBAlgorithm  `json:"lb"`              // round_robin | weighted | adaptive
+	CircuitBreaker *CBConfig    `json:"circuit_breaker,omitempty"`
+	Retry          *RetryConfig `json:"retry,omitempty"`
+	StickyCookie   string       `json:"sticky_cookie,omitempty"`
+	HealthCheck    *HealthCheckConfig `json:"health_check,omitempty"`
 
 	// Trafic avancé
 	Canary     *CanaryConfig    `json:"canary,omitempty"`
@@ -182,6 +183,9 @@ const (
 type RateLimitConfig struct {
 	RequestsPerSecond float64 `json:"rps"`
 	Burst             int     `json:"burst"`
+	// KeyBy détermine la clé de rate-limit : "ip" (défaut), "jwt_sub", "jwt_email",
+	// ou "jwt_claim:<nom>" pour un claim JWT arbitraire.
+	KeyBy string `json:"key_by,omitempty"`
 }
 
 // LimitConnConfig limite le nombre de connexions simultanées par IP
@@ -296,8 +300,17 @@ type GeoIPConfig struct {
 }
 
 type CBConfig struct {
-	Threshold   int           `json:"threshold"`    // nb d'échecs consécutifs
-	Timeout     time.Duration `json:"timeout"`      // durée open → half-open
+	Threshold int           `json:"threshold"` // nb d'échecs consécutifs
+	Timeout   time.Duration `json:"timeout"`   // durée open → half-open
+}
+
+// HealthCheckConfig configure les sondes actives de santé des backends.
+type HealthCheckConfig struct {
+	Path               string        `json:"path,omitempty"`                // chemin sondé (défaut /health)
+	Interval           time.Duration `json:"interval,omitempty"`            // fréquence (défaut 30s)
+	Timeout            time.Duration `json:"timeout,omitempty"`             // timeout probe (défaut 5s)
+	HealthyThreshold   int           `json:"healthy_threshold,omitempty"`   // succès consécutifs pour passer up (défaut 1)
+	UnhealthyThreshold int           `json:"unhealthy_threshold,omitempty"` // échecs consécutifs pour passer down (défaut 1)
 }
 
 type RetryConfig struct {
