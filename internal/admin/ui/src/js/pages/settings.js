@@ -37,6 +37,14 @@ pages.settings = async function() {
       ]
     },
     {
+      label: t('settings.sec.system'),
+      desc: t('settings.sec.system_desc'),
+      items: [
+        { page: 'settings-mfa', icon: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>', label: gpxPageLabel('settings-mfa', 'MFA'), desc: t('settings.item.mfa_desc') },
+        { page: 'ha-status', icon: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v3a6 6 0 0 0 6 6h3"/><path d="M9 6h3a6 6 0 0 1 6 6v3"/>', label: gpxPageLabel('ha-status', 'HA'), desc: t('settings.item.ha_desc') },
+      ]
+    },
+    {
       label: t('settings.sec.data'),
       desc: t('settings.sec.data_desc'),
       items: [

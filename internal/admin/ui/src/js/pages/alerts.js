@@ -20,112 +20,168 @@ const CHANNEL_META = {
 pages.alerts = async function() {
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML =
-    `<button class="btn btn-primary" onclick="openAlertModal()">${t('alerts.new_rule')}</button>`;
+    `<button class="btn btn-primary" onclick="openAlertRuleModal()">${t('alerts.new_rule')}</button>`;
+  content.innerHTML = `<p style="color:var(--text2)">${t('common.loading')}</p>`;
+
+  let [rules, channels] = [[], []];
+  try {
+    [rules, channels] = await Promise.all([
+      api('GET', '/alert-rules').catch(() => []),
+      api('GET', '/alert-channels').catch(() => []),
+    ]);
+  } catch (_) {}
+
+  const chanMap = {};
+  for (const c of (channels || [])) chanMap[c.id] = c;
+
+  const priorityBadge = p => {
+    if (p >= 80) return `<span class="tag tag-red">P${p}</span>`;
+    if (p >= 50) return `<span class="tag tag-orange">P${p}</span>`;
+    return `<span class="tag tag-neutral">P${p}</span>`;
+  };
+
   content.innerHTML = `
-    <div class="card blueprint">
-      <div class="card-header">
-        <span class="card-title">${t('alerts.rules_title')}</span>
-      </div>
-      <div style="padding:40px;text-align:center;color:var(--text2)">
-        <p>${t('alerts.rules_desc')}</p>
-        <button class="btn btn-primary" style="margin-top:16px" onclick="openAlertModal()">${t('alerts.create_rule')}</button>
+    <div class="card blueprint" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>${t('alerts.col.name')}</th>
+            <th>${t('alerts.col.triggers')}</th>
+            <th>${t('alerts.col.channels')}</th>
+            <th>${t('common.priority')}</th>
+            <th>${t('alerts.col.cooldown')}</th>
+            <th>${t('alerts.col.status')}</th>
+            <th>${t('alerts.col.actions')}</th>
+          </tr></thead>
+          <tbody>
+            ${!(rules||[]).length ? `<tr><td colspan="7" class="empty"><p>${t('alerts.no_rules')}</p></td></tr>` :
+              (rules||[]).map(r => `<tr>
+                <td><b>${esc(r.name)}</b></td>
+                <td style="max-width:200px">
+                  ${(r.triggers||[]).slice(0,3).map(trig => `<span class="tag tag-neutral" style="margin:1px 2px;font-size:10px">${esc(trig.replace(/_/g,' '))}</span>`).join('')}
+                  ${(r.triggers||[]).length > 3 ? `<span style="font-size:11px;color:var(--text2)">+${(r.triggers||[]).length-3}</span>` : ''}
+                </td>
+                <td style="max-width:160px">
+                  ${(r.channels||[]).slice(0,2).map(cid => `<span class="tag tag-neutral" style="margin:1px 2px;font-size:10px">${esc(chanMap[cid]?.name || cid)}</span>`).join('')}
+                  ${(r.channels||[]).length > 2 ? `<span style="font-size:11px;color:var(--text2)">+${(r.channels||[]).length-2}</span>` : ''}
+                </td>
+                <td>${priorityBadge(r.priority||0)}</td>
+                <td style="font-size:12px;color:var(--text2)">${r.cooldown_sec ? r.cooldown_sec+'s' : '—'}</td>
+                <td>${r.enabled ? `<span class="tag tag-green">${t('alerts.active')}</span>` : `<span class="tag tag-neutral">${t('alerts.inactive')}</span>`}</td>
+                <td>
+                  <button class="btn btn-ghost btn-icon btn-sm" onclick="openAlertRuleModal('${esc(r.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+                  <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteAlertRule('${esc(r.id)}','${esc(r.name)}')" title="${esc(t('common.delete'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
       </div>
     </div>`;
 };
 
-window.openAlertModal = function() {
-  const triggerGroupHtml = Object.entries(ALERT_TRIGGER_GROUPS).map(([groupKey, triggers]) => `
-    <div class="alert-section-card">
-      <div class="alert-section-title">${esc(t(groupKey))}</div>
-      <div class="trigger-list">
-        ${triggers.map(trig => `
-          <div class="trigger-chip" data-trigger="${trig}" onclick="this.classList.toggle('selected')">
-            ${esc(trig.replace(/_/g, ' '))}
-          </div>`).join('')}
-      </div>
-    </div>
-  `).join('');
-  const channelsHtml = CHANNELS.map((c) => {
-    const meta = CHANNEL_META[c] || { labelKey: c, helpKey: '' };
-    return `
-      <label class="alert-channel-card">
-        <input type="checkbox" id="al-ch-${c}" onchange="toggleAlertChannelFields()">
-        <div>
-          <div style="font-size:13px;font-weight:600;line-height:1.2;">${esc(t(meta.labelKey))}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">${esc(t(meta.helpKey))}</div>
-        </div>
-      </label>`;
-  }).join('');
-  modal(t('alerts.modal_new'), `
-    <div class="alert-form-layout">
-      <div class="alert-section-card">
-        <div class="alert-section-title">${t('alerts.step1')}</div>
-        <div class="field">
-          <label class="field-label">${t('alerts.rule_name')}</label>
-          <input id="al-name" class="input" placeholder="${esc(t('alerts.rule_name_ph'))}">
-        </div>
-        <div class="field">
-          <label class="field-label">${t('alerts.scope')}</label>
-          <input id="al-scope" class="input" placeholder="${esc(t('alerts.scope_ph'))}">
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
-            <button class="btn btn-ghost btn-sm" type="button" onclick="setAlertScope('global')">${t('alerts.scope_global')}</button>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="setAlertScope('*.prod.*')">${t('alerts.scope_prod')}</button>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="setAlertScope('*.staging.*')">${t('alerts.scope_staging')}</button>
-          </div>
-        </div>
-      </div>
+window.openAlertRuleModal = async function(id) {
+  let [triggersAvail, channels, existing] = [[], [], null];
+  try {
+    [triggersAvail, channels] = await Promise.all([
+      api('GET', '/alert-rules/triggers').catch(() => []),
+      api('GET', '/alert-channels').catch(() => []),
+    ]);
+    if (id) {
+      const all = await api('GET', '/alert-rules').catch(() => []);
+      existing = (all || []).find(r => r.id === id) || null;
+    }
+  } catch (_) {}
 
-      <div class="alert-section-card">
-        <div class="alert-section-title">${t('alerts.step2')}</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
-          ${t('alerts.triggers_hint')}
-        </div>
-        <div class="alert-trigger-groups">${triggerGroupHtml}</div>
-      </div>
+  const selectedTriggers = new Set(existing?.triggers || []);
+  const selectedChannels = new Set(existing?.channels || []);
 
-      <div class="alert-section-card">
-        <div class="alert-section-title">${t('alerts.step3')}</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
-          ${t('alerts.channels_hint')}
-        </div>
-        <div class="alert-channel-grid">${channelsHtml}</div>
-        <div id="al-field-email" class="field" style="display:none;margin-top:12px;">
-          <label class="field-label">${t('alerts.email_recipient')}</label>
-          <input id="al-email" class="input" type="email" placeholder="ops@example.fr">
-        </div>
-        <div id="al-field-webhook" class="field" style="display:none;">
-          <label class="field-label">${t('alerts.webhook_url')}</label>
-          <input id="al-webhook" class="input" placeholder="https://hooks.slack.com/...">
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="field">
+        <label class="field-label">${t('alerts.rule_name')}</label>
+        <input id="ar-name" class="input" value="${esc(existing?.name||'')}" placeholder="${esc(t('alerts.rule_name_ph'))}">
+      </div>
+      <div class="field">
+        <label class="field-label">${t('alerts.col.triggers')}</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+          ${(triggersAvail||[]).map(trig => `
+            <button type="button" class="tag${selectedTriggers.has(trig.id)?' tag-blue':' tag-neutral'}"
+              style="cursor:pointer;border:1px solid var(--border)"
+              data-ar-trig="${esc(trig.id)}"
+              onclick="this.classList.toggle('tag-blue');this.classList.toggle('tag-neutral')">
+              ${esc(trig.label||trig.id)}
+            </button>`).join('')}
         </div>
       </div>
-    </div>
-  `,
+      <div class="field">
+        <label class="field-label">${t('alerts.col.channels')}</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+          ${!(channels||[]).length
+            ? `<span style="font-size:12px;color:var(--text2)">${t('alerts.no_channels')}</span>`
+            : (channels||[]).map(c => `
+                <button type="button" class="tag${selectedChannels.has(c.id)?' tag-blue':' tag-neutral'}"
+                  style="cursor:pointer;border:1px solid var(--border)"
+                  data-ar-chan="${esc(c.id)}"
+                  onclick="this.classList.toggle('tag-blue');this.classList.toggle('tag-neutral')">
+                  ${esc(c.name)}
+                </button>`).join('')}
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div class="field" style="flex:1">
+          <label class="field-label">${t('common.priority')} <span style="font-size:10px;color:var(--text2)">(0–100)</span></label>
+          <input id="ar-priority" class="input" type="number" min="0" max="100" value="${existing?.priority ?? 50}">
+        </div>
+        <div class="field" style="flex:1">
+          <label class="field-label">${t('alerts.col.cooldown')} <span style="font-size:10px;color:var(--text2)">(s)</span></label>
+          <input id="ar-cooldown" class="input" type="number" min="0" value="${existing?.cooldown_sec ?? 300}">
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" style="display:flex;align-items:center;gap:8px">
+          ${t('common.enabled')}
+          <label class="toggle"><input type="checkbox" id="ar-enabled" ${existing?.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
+        </label>
+      </div>
+    </div>`;
+
+  modal(id ? t('alerts.edit_rule') : t('alerts.new_rule'), body,
     `<button class="btn btn-secondary" onclick="closeModal()">${t('common.cancel')}</button>
-     <button class="btn btn-primary" onclick="saveAlert()">${t('common.save')}</button>`,
-    true);
-  toggleAlertChannelFields();
+     <button class="btn btn-primary" id="ar-save-btn" onclick="saveAlertRule('${esc(id||'')}')">${t('common.save')}</button>`);
 };
-window.setAlertScope = function(scope) {
-  const input = document.getElementById('al-scope');
-  if (input) input.value = scope;
-};
-window.toggleAlertChannelFields = function() {
-  const emailChecked = !!document.getElementById('al-ch-email')?.checked;
-  const webhookChecked = !!document.getElementById('al-ch-webhook')?.checked;
-  const emailField = document.getElementById('al-field-email');
-  const webhookField = document.getElementById('al-field-webhook');
-  if (emailField) emailField.style.display = emailChecked ? '' : 'none';
-  if (webhookField) webhookField.style.display = webhookChecked ? '' : 'none';
-};
-window.saveAlert = function() {
-  const name = (document.getElementById('al-name')?.value || '').trim();
+
+window.saveAlertRule = async function(id) {
+  const name = (document.getElementById('ar-name')?.value || '').trim();
   if (!name) { toast(t('alerts.err_name'), 'error'); return; }
-  const selectedTriggers = [...document.querySelectorAll('.trigger-chip.selected')];
-  if (!selectedTriggers.length) { toast(t('alerts.err_trigger'), 'error'); return; }
-  const selectedChannels = CHANNELS.filter((c) => document.getElementById(`al-ch-${c}`)?.checked);
-  if (!selectedChannels.length) { toast(t('alerts.err_channel'), 'error'); return; }
-  toast(t('alerts.saved'), 'success');
-  closeModal();
+  const triggers = [...document.querySelectorAll('[data-ar-trig].tag-blue')].map(el => el.dataset.arTrig);
+  const channels = [...document.querySelectorAll('[data-ar-chan].tag-blue')].map(el => el.dataset.arChan);
+  const priority = parseInt(document.getElementById('ar-priority')?.value || '50', 10);
+  const cooldown_sec = parseInt(document.getElementById('ar-cooldown')?.value || '300', 10);
+  const enabled = document.getElementById('ar-enabled')?.checked ?? true;
+  const btn = document.getElementById('ar-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    if (id) {
+      await api('PUT', `/alert-rules/${id}`, { name, triggers, channels, priority, cooldown_sec, enabled, scope: {} });
+      toast(t('alerts.updated'), 'success');
+    } else {
+      await api('POST', '/alert-rules', { name, triggers, channels, priority, cooldown_sec, enabled, scope: {} });
+      toast(t('alerts.created'), 'success');
+    }
+    closeModal();
+    navigate('alerts');
+  } catch(e) {
+    toast(e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = t('common.save'); }
+  }
+};
+
+window.deleteAlertRule = function(id, name) {
+  confirm_(t('alerts.delete_confirm', { name }), async () => {
+    await api('DELETE', `/alert-rules/${id}`);
+    toast(t('alerts.deleted'), 'success');
+    navigate('alerts');
+  });
 };
 
 
