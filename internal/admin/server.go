@@ -451,6 +451,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 	meH := &api.MeHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 
+	// OpenAPI spec + Scalar UI
+	openapiH := &api.OpenAPIHandler{}
+	mux.Handle("GET /openapi.yaml", openapiH)
+	mux.Handle("GET /api-docs", openapiH)
+
 	// Routes publiques
 	mux.Handle("GET /api/v1/health", healthH)
 	mux.HandleFunc("GET /api/v1/setup/status", s.handleSetupStatus)

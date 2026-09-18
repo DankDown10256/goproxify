@@ -1,0 +1,888 @@
+openapi: "3.0.3"
+info:
+  title: GoProxify Admin API
+  description: API REST du Control Plane GoProxify
+  version: "1.0"
+servers:
+  - url: /
+    description: Instance courante
+
+tags:
+  - name: auth
+    description: Authentification et sessions
+  - name: proxies
+    description: Gestion des proxies (routes)
+  - name: certs
+    description: Certificats TLS
+  - name: nodes
+    description: Nœuds et agents
+  - name: users
+    description: Utilisateurs et équipes
+  - name: tokens
+    description: Tokens d'accès
+  - name: security
+    description: Sécurité (fail2ban, CrowdSec, WAF)
+  - name: audit
+    description: Journaux d'audit
+  - name: settings
+    description: Paramètres système
+  - name: system
+    description: Santé et setup
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: gpx_session
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+        webapp:
+          type: string
+        commit:
+          type: string
+        built:
+          type: string
+        db:
+          type: string
+          enum: [ok, error]
+        timezone:
+          type: string
+        time:
+          type: string
+          format: date-time
+        time_utc:
+          type: string
+          format: date-time
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+        created_at:
+          type: string
+          format: date-time
+    Proxy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        config:
+          type: object
+          description: Configuration de route (JSON arbitraire)
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProxyWrite:
+      type: object
+      required: [name, config]
+      properties:
+        name:
+          type: string
+        config:
+          type: object
+        enabled:
+          type: boolean
+          default: true
+    Cert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        domain:
+          type: string
+        type:
+          type: string
+          enum: [acme, manual, self-signed]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    Node:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [online, offline, pending]
+        version:
+          type: string
+        last_seen:
+          type: string
+          format: date-time
+    Token:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        ts:
+          type: string
+          format: date-time
+        user:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        detail:
+          type: object
+    SetupStatus:
+      type: object
+      properties:
+        initialized:
+          type: boolean
+    SetupInitRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        email:
+          type: string
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [system]
+      summary: État de santé du service
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /api/v1/setup/status:
+    get:
+      tags: [system]
+      summary: État d'initialisation
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupStatus"
+
+  /api/v1/setup/init:
+    post:
+      tags: [system]
+      summary: Initialisation du premier compte administrateur
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupInitRequest"
+      responses:
+        "200":
+          description: Compte créé
+        "409":
+          description: Déjà initialisé
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Connexion
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Connecté
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Identifiants invalides
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Déconnexion
+      responses:
+        "204":
+          description: Session terminée
+
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Profil de l'utilisateur connecté
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /api/v1/me:
+    get:
+      tags: [users]
+      summary: Profil étendu + préférences
+      responses:
+        "200":
+          description: OK
+    patch:
+      tags: [users]
+      summary: Mise à jour du profil
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Mis à jour
+
+  /api/v1/proxies:
+    get:
+      tags: [proxies]
+      summary: Liste des proxies
+      parameters:
+        - name: core
+          in: query
+          schema:
+            type: string
+          description: Filtrer par nœud Core (UUID ou nom)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Proxy"
+    post:
+      tags: [proxies]
+      summary: Créer un proxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxyWrite"
+      responses:
+        "201":
+          description: Créé
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proxy"
+
+  /api/v1/proxies/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [proxies]
+      summary: Détail d'un proxy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Proxy"
+        "404":
+          description: Introuvable
+    put:
+      tags: [proxies]
+      summary: Remplacer un proxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProxyWrite"
+      responses:
+        "200":
+          description: Mis à jour
+    patch:
+      tags: [proxies]
+      summary: Mise à jour partielle
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Mis à jour
+    delete:
+      tags: [proxies]
+      summary: Supprimer un proxy
+      responses:
+        "204":
+          description: Supprimé
+
+  /api/v1/certs:
+    get:
+      tags: [certs]
+      summary: Liste des certificats
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Cert"
+    post:
+      tags: [certs]
+      summary: Ajouter un certificat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain:
+                  type: string
+                type:
+                  type: string
+                cert_pem:
+                  type: string
+                key_pem:
+                  type: string
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/certs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [certs]
+      summary: Supprimer un certificat
+      responses:
+        "204":
+          description: Supprimé
+
+  /api/v1/nodes:
+    get:
+      tags: [nodes]
+      summary: Liste des nœuds (Cores)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Node"
+
+  /api/v1/nodes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [nodes]
+      summary: Détail d'un nœud
+      responses:
+        "200":
+          description: OK
+    delete:
+      tags: [nodes]
+      summary: Supprimer un nœud
+      responses:
+        "204":
+          description: Supprimé
+
+  /api/v1/agents:
+    get:
+      tags: [nodes]
+      summary: Liste des agents
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/agents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      tags: [nodes]
+      summary: Approuver / révoquer un agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [approved, revoked]
+      responses:
+        "200":
+          description: OK
+    delete:
+      tags: [nodes]
+      summary: Supprimer un agent
+      responses:
+        "204":
+          description: Supprimé
+
+  /api/v1/users:
+    get:
+      tags: [users]
+      summary: Liste des utilisateurs (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      tags: [users]
+      summary: Créer un utilisateur (admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, operator, viewer]
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [users]
+      summary: Mettre à jour un utilisateur
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: OK
+    delete:
+      tags: [users]
+      summary: Supprimer un utilisateur
+      responses:
+        "204":
+          description: Supprimé
+
+  /api/v1/teams:
+    get:
+      tags: [users]
+      summary: Liste des équipes
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [users]
+      summary: Créer une équipe
+      responses:
+        "201":
+          description: Créée
+
+  /api/v1/tokens:
+    get:
+      tags: [tokens]
+      summary: Liste des tokens d'accès (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Token"
+    post:
+      tags: [tokens]
+      summary: Créer un token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                scopes:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: Créé
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Token"
+                  - type: object
+                    properties:
+                      secret:
+                        type: string
+                        description: Affiché une seule fois
+
+  /api/v1/tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [tokens]
+      summary: Révoquer un token
+      responses:
+        "204":
+          description: Révoqué
+
+  /api/v1/me/tokens:
+    get:
+      tags: [tokens]
+      summary: Mes tokens personnels
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [tokens]
+      summary: Créer un token personnel
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/me/tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [tokens]
+      summary: Révoquer mon token
+      responses:
+        "204":
+          description: Révoqué
+
+  /api/v1/audit:
+    get:
+      tags: [audit]
+      summary: Journal d'audit
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before
+          in: query
+          schema:
+            type: string
+        - name: user
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /api/v1/security:
+    get:
+      tags: [security]
+      summary: Configuration sécurité (fail2ban, CrowdSec, WAF)
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [security]
+      summary: Mettre à jour la configuration sécurité
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/logs:
+    get:
+      tags: [system]
+      summary: Journaux système et d'accès
+      parameters:
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: level
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/settings/smtp:
+    get:
+      tags: [settings]
+      summary: Configuration SMTP
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [settings]
+      summary: Mettre à jour SMTP
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/settings/acme:
+    get:
+      tags: [settings]
+      summary: Configuration ACME (Let's Encrypt)
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [settings]
+      summary: Mettre à jour ACME
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/settings/mfa:
+    get:
+      tags: [settings]
+      summary: Configuration MFA globale
+      responses:
+        "200":
+          description: OK
+    put:
+      tags: [settings]
+      summary: Mettre à jour MFA
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/auth/mfa:
+    get:
+      tags: [auth]
+      summary: Méthodes MFA de l'utilisateur connecté
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/domains:
+    get:
+      tags: [settings]
+      summary: Domaines configurés
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [settings]
+      summary: Ajouter un domaine
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/ip-profiles:
+    get:
+      tags: [security]
+      summary: Profils IP (réputation, géo)
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/alert-channels:
+    get:
+      tags: [settings]
+      summary: Canaux d'alerte
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [settings]
+      summary: Créer un canal
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/alert-rules:
+    get:
+      tags: [settings]
+      summary: Règles d'alerte
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [settings]
+      summary: Créer une règle
+      responses:
+        "201":
+          description: Créée
+
+  /api/v1/backups:
+    get:
+      tags: [system]
+      summary: Liste des sauvegardes
+      responses:
+        "200":
+          description: OK
+    post:
+      tags: [system]
+      summary: Déclencher une sauvegarde
+      responses:
+        "202":
+          description: En cours
+
+  /api/v1/bootstrap-tickets:
+    post:
+      tags: [nodes]
+      summary: Créer un ticket de bootstrap (QR d'appairage)
+      responses:
+        "201":
+          description: Créé
+
+  /api/v1/pairing-secret:
+    get:
+      tags: [nodes]
+      summary: Secret d'appairage courant
+      responses:
+        "200":
+          description: OK
