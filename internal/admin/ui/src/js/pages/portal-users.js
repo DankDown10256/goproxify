@@ -8,7 +8,10 @@ async function renderPortalUsersPage(ctx) {
 
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
-  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  content.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--text2);padding:32px 0">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+    ${esc(t('common.loading') || 'Chargement…')}
+  </div>`;
 
   if (!isAdmin && !coreName) {
     content.innerHTML = `<div class="empty"><p>${esc(t('portal.need_core') || 'Sélectionnez un Core')}</p></div>`;
@@ -116,7 +119,11 @@ async function renderPortalUsersPage(ctx) {
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                     </button>
                   </td>
-                </tr>`).join('') : `<tr><td colspan="${isAdmin ? 5 : 4}" style="padding:24px;text-align:center;color:var(--text2)">${esc(t('pusers.empty') || 'Aucun utilisateur')}</td></tr>`}
+                </tr>`).join('') : `<tr><td colspan="${isAdmin ? 5 : 4}" style="padding:40px 24px;text-align:center">
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="1.5" style="display:block;margin:0 auto 12px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  <p style="margin:0 0 12px;color:var(--text2);font-size:13px">${esc(t('pusers.empty') || 'Aucun utilisateur portal')}</p>
+                  <button type="button" class="btn btn-primary btn-sm" id="pu-empty-invite">${esc(t('pusers.invite') || 'Inviter le premier utilisateur')}</button>
+                </td></tr>`}
             </tbody>
           </table>
           </div>
@@ -128,6 +135,8 @@ async function renderPortalUsersPage(ctx) {
         btn.onclick = () => { window._puFilter.core = btn.getAttribute('data-core') || ''; render(); };
       });
       document.getElementById('pu-invite').onclick = () => openInviteModal();
+      const emptyInvite = document.getElementById('pu-empty-invite');
+      if (emptyInvite) emptyInvite.onclick = () => openInviteModal();
       content.querySelectorAll('[data-edit]').forEach(btn => {
         btn.onclick = () => {
           const u = (window._portalUsersAll || []).find(x => x.id === btn.getAttribute('data-edit'));
@@ -189,7 +198,10 @@ async function renderPortalUsersPage(ctx) {
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
       overlay.querySelector('#pu-ok').onclick = async () => {
         const errEl = overlay.querySelector('#pu-modal-err');
+        const okBtn = overlay.querySelector('#pu-ok');
         errEl.textContent = '';
+        okBtn.disabled = true;
+        okBtn.textContent = '…';
         try {
           const tags = (overlay.querySelector('#pu-tags').value || '').split(',').map(s => s.trim()).filter(Boolean);
           await api('POST', '/portal/users/invite', {
@@ -202,6 +214,8 @@ async function renderPortalUsersPage(ctx) {
           renderPortalUsersPage(ctx);
         } catch (e) {
           errEl.textContent = e.message || String(e);
+          okBtn.disabled = false;
+          okBtn.textContent = esc(t('pusers.send') || 'Envoyer');
         }
       };
     }
@@ -232,7 +246,10 @@ async function renderPortalUsersPage(ctx) {
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
       overlay.querySelector('#pu-ok').onclick = async () => {
         const errEl = overlay.querySelector('#pu-modal-err');
+        const okBtn = overlay.querySelector('#pu-ok');
         errEl.textContent = '';
+        okBtn.disabled = true;
+        okBtn.textContent = '…';
         try {
           const tags = (overlay.querySelector('#pu-etags').value || '').split(',').map(s => s.trim()).filter(Boolean);
           await api('PUT', '/portal/users/' + u.id, {
@@ -243,6 +260,8 @@ async function renderPortalUsersPage(ctx) {
           renderPortalUsersPage(ctx);
         } catch (e) {
           errEl.textContent = e.message || String(e);
+          okBtn.disabled = false;
+          okBtn.textContent = esc(t('common.save') || 'Enregistrer');
         }
       };
     }

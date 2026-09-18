@@ -30,9 +30,9 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
 ## En cours / prochain
 
-- [ ] Stabiliser les tags SemVer et Releases GitHub régulières
+- [x] Stabiliser les tags SemVer et Releases GitHub régulières
 - [ ] Hygiène CI publique (lint/tests documentés)
-- [ ] Polish UX Access et docs opérateur
+- [x] Polish UX Access et docs opérateur
 - [x] SBOM attaché à chaque Release (workflow sbom-sign.yml)
 
 ### Résilience backend (v0.4)

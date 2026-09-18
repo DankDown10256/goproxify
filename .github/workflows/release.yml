@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - versions.json
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run (ne pas créer de Release)"
+        required: false
+        default: "false"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read versions
+        id: v
+        run: |
+          ADMIN=$(python3 -c "import json; print(json.load(open('versions.json'))['admin'])")
+          CORE=$(python3 -c "import json; print(json.load(open('versions.json'))['core'])")
+          AGENT=$(python3 -c "import json; print(json.load(open('versions.json'))['agent'])")
+          WEBAPP=$(python3 -c "import json; print(json.load(open('versions.json'))['webapp'])")
+          TAG="v${CORE}"
+          echo "admin=$ADMIN"   >> $GITHUB_OUTPUT
+          echo "core=$CORE"     >> $GITHUB_OUTPUT
+          echo "agent=$AGENT"   >> $GITHUB_OUTPUT
+          echo "webapp=$WEBAPP" >> $GITHUB_OUTPUT
+          echo "tag=$TAG"       >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          if git rev-parse "${{ steps.v.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false' && inputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.v.outputs.tag }}" -m "Release ${{ steps.v.outputs.tag }}"
+          git push origin "${{ steps.v.outputs.tag }}"
+
+      - name: Generate changelog excerpt
+        id: cl
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            LOG=$(git log --oneline "${PREV}..HEAD" | head -30 | sed 's/^/- /')
+          else
+            LOG=$(git log --oneline -20 | sed 's/^/- /')
+          fi
+          {
+            echo "log<<EOF"
+            echo "$LOG"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false' && inputs.dry_run != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: "GoProxify ${{ steps.v.outputs.tag }}"
+          body: |
+            ## Versions des composants
+
+            | Service | Version |
+            |---------|---------|
+            | Admin   | `${{ steps.v.outputs.admin }}` |
+            | Core    | `${{ steps.v.outputs.core }}` |
+            | Agent   | `${{ steps.v.outputs.agent }}` |
+            | Webapp  | `${{ steps.v.outputs.webapp }}` |
+
+            ## Images Docker
+
+            ```
+            ghcr.io/vincamok/goproxify/admin:${{ steps.v.outputs.admin }}
+            ghcr.io/vincamok/goproxify/core:${{ steps.v.outputs.core }}
+            ghcr.io/vincamok/goproxify/agent:${{ steps.v.outputs.agent }}
+            ```
+
+            ## Changements
+
+            ${{ steps.cl.outputs.log }}
+
+            ---
+            Voir [CHANGELOG](https://github.com/Vincamok/goproxify/blob/main/CHANGELOG.md) et [docs/](https://github.com/Vincamok/goproxify/tree/main/docs) pour les détails.
+          draft: false
+          prerelease: false
