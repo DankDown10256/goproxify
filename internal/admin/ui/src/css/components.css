@@ -894,6 +894,9 @@ textarea.input { resize: vertical; min-height: 80px; }
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-bottom: 4px;
 }
+.tf-card-head-right {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
 .tf-card-title {
   font-family: var(--font-heading); font-size: 13.5px; font-weight: 600;
   letter-spacing: -.01em;
