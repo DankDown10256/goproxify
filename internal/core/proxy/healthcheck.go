@@ -75,6 +75,7 @@ type BackendHealth struct {
 	states  map[string]*backendState
 	watched map[string]struct{} // URLs avec un goroutine de check actif
 	log     *slog.Logger
+	OnDown  func(url string) // appelé quand un backend passe healthy→unhealthy
 }
 
 func NewBackendHealth(log *slog.Logger) *BackendHealth {
@@ -304,10 +305,14 @@ func (h *BackendHealth) loop(target string, cfg probeConfig) {
 				st.healthy = false
 			}
 		}
+		wentDown := prevHealthy && !st.healthy
 		changed := prevHealthy != st.healthy
 		h.mu.Unlock()
 		if changed && h.log != nil {
 			h.log.Info("backend health change", "url", target, "healthy", ok)
+		}
+		if wentDown && h.OnDown != nil {
+			h.OnDown(target)
 		}
 		time.Sleep(cfg.interval)
 	}

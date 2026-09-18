@@ -157,6 +157,12 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		log.Logger().Info("errorpages: templates chargés depuis le volume", "dir", errorpages.Dir())
 	}
 	s.health = proxy.NewBackendHealth(log.Logger())
+	s.health.OnDown = func(url string) {
+		payload := corews.BackendDownPayload{URL: url, NodeName: cfg.Identity.NodeName}
+		if msg, err := corews.NewMessage(0, corews.TypeBackendDown, payload); err == nil {
+			s.wsHub.BroadcastToAdmins(msg)
+		}
+	}
 	s.metrics = proxy.NewAgentMetricsStore()
 	s.peers = proxy.NewPeerRegistry()
 	s.wafEngine = waf.NewEngine(nil, log.Logger())

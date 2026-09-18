@@ -10,18 +10,20 @@ import "time"
 type TriggerType string
 
 const (
-	TriggerNodeOffline          TriggerType = "node_offline"
-	TriggerCertExpiringSoon     TriggerType = "cert_expiring_soon"
-	TriggerCVEDetected          TriggerType = "cve_detected"
-	TriggerFail2BanBan          TriggerType = "fail2ban_ban"
-	TriggerCrowdSecCritical     TriggerType = "crowdsec_critical"
-	TriggerConfigChanged        TriggerType = "config_changed"
-	TriggerBackupFailed         TriggerType = "backup_failed"
-	TriggerHighErrorRate        TriggerType = "high_error_rate"
-	TriggerHighLatency          TriggerType = "high_latency"
-	TriggerAdminAuthFailures    TriggerType = "admin_auth_failures"
-	TriggerScaleEvent           TriggerType = "scale_event"
-	TriggerHealthEscalation     TriggerType = "health_escalation"
+	TriggerNodeOffline       TriggerType = "node_offline"
+	TriggerCertExpiringSoon  TriggerType = "cert_expiring_soon"
+	TriggerCVEDetected       TriggerType = "cve_detected"
+	TriggerFail2BanBan       TriggerType = "fail2ban_ban"
+	TriggerCrowdSecCritical  TriggerType = "crowdsec_critical"
+	TriggerConfigChanged     TriggerType = "config_changed"
+	TriggerBackupFailed      TriggerType = "backup_failed"
+	TriggerHighErrorRate     TriggerType = "high_error_rate"
+	TriggerHighLatency       TriggerType = "high_latency"
+	TriggerAdminAuthFailures TriggerType = "admin_auth_failures"
+	TriggerScaleEvent        TriggerType = "scale_event"
+	TriggerHealthEscalation  TriggerType = "health_escalation"
+	TriggerSentinelBan       TriggerType = "sentinel_ban"  // IP bannie par Sentinel/WAF
+	TriggerBackendDown       TriggerType = "backend_down"  // backend déclaré indisponible par health-check
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -30,22 +32,25 @@ var AllTriggers = []TriggerType{
 	TriggerFail2BanBan, TriggerCrowdSecCritical, TriggerConfigChanged,
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
+	TriggerSentinelBan, TriggerBackendDown,
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
 var TriggerLabels = map[TriggerType]string{
 	TriggerNodeOffline:       "Nœud Core/Agent hors ligne",
-	TriggerCertExpiringSoon: "Certificat expirant prochainement",
-	TriggerCVEDetected:      "CVE détectée sur un backend",
-	TriggerFail2BanBan:      "Nouveau ban Fail2Ban",
-	TriggerCrowdSecCritical: "Décision CrowdSec critique",
-	TriggerConfigChanged:    "Modification de configuration sensible",
-	TriggerBackupFailed:     "Échec de sauvegarde planifiée",
-	TriggerHighErrorRate:    "Taux d'erreurs HTTP > seuil",
-	TriggerHighLatency:      "Latence P95 > seuil",
+	TriggerCertExpiringSoon:  "Certificat expirant prochainement",
+	TriggerCVEDetected:       "CVE détectée sur un backend",
+	TriggerFail2BanBan:       "Nouveau ban Fail2Ban",
+	TriggerCrowdSecCritical:  "Décision CrowdSec critique",
+	TriggerConfigChanged:     "Modification de configuration sensible",
+	TriggerBackupFailed:      "Échec de sauvegarde planifiée",
+	TriggerHighErrorRate:     "Taux d'erreurs HTTP > seuil",
+	TriggerHighLatency:       "Latence P95 > seuil",
 	TriggerAdminAuthFailures: "Tentatives de connexion admin échouées",
 	TriggerScaleEvent:        "Événement d'auto-scaling (montée/descente)",
 	TriggerHealthEscalation:  "Escalade de santé conteneur (restart→recreate→rollback)",
+	TriggerSentinelBan:       "IP bannie par Sentinel / WAF",
+	TriggerBackendDown:       "Backend déclaré indisponible par health-check",
 }
 
 // Severity classe la sévérité d'une alerte.

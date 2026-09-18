@@ -55,6 +55,8 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.overview(w, r)
 	case r.Method == http.MethodGet && sub == "bans" && id == "history":
 		h.listBanHistory(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "countries":
+		h.bansByCountry(w, r)
 	case r.Method == http.MethodGet && sub == "bans":
 		h.listBans(w, r)
 	case r.Method == http.MethodPost && sub == "bans":
@@ -338,6 +340,41 @@ func (h *SecurityHandler) listBanHistory(w http.ResponseWriter, r *http.Request)
 	}
 	if out == nil {
 		out = []security.BanEvent{}
+	}
+	jsonOK(w, out)
+}
+
+// bansByCountry retourne le nombre de bans actifs par pays (joint geoip_cache).
+func (h *SecurityHandler) bansByCountry(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT COALESCE(g.country_code, 'XX') AS cc,
+		       COALESCE(g.country_name, 'Unknown') AS name,
+		       COUNT(*) AS cnt
+		FROM security_bans b
+		LEFT JOIN geoip_cache g ON g.ip = b.ip
+		WHERE b.expires_at IS NULL OR b.expires_at = '' OR b.expires_at > CURRENT_TIMESTAMP
+		GROUP BY cc, name
+		ORDER BY cnt DESC`)
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		CountryCode string `json:"country_code"`
+		CountryName string `json:"country_name"`
+		Count       int    `json:"count"`
+	}
+	var out []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.CountryCode, &r.CountryName, &r.Count); err != nil {
+			continue
+		}
+		out = append(out, r)
+	}
+	if out == nil {
+		out = []row{}
 	}
 	jsonOK(w, out)
 }

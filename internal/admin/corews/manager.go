@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/admin/alerting"
 	"github.com/vincamok/goproxify/internal/admin/api"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/auth"
@@ -61,6 +62,7 @@ type Manager struct {
 	onAgentPending  func(id, name, version string)
 	onLogBatch      func(entries []coreWS.LogEntryPayload)
 	onWAFReloaded   func(nodeName string)
+	alertEngine     *alerting.Engine
 }
 
 // NewManager crée un Manager WS Admin→Core.
@@ -396,6 +398,11 @@ func (m *Manager) SetWAFReloadedHandler(fn func(nodeName string)) {
 	m.onWAFReloaded = fn
 }
 
+// SetAlertEngine injecte l'engine d'alertes pour émettre des événements depuis les messages Core.
+func (m *Manager) SetAlertEngine(e *alerting.Engine) {
+	m.alertEngine = e
+}
+
 // HandleCoreMessage dispatche les messages reçus du Core.
 func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 	switch msg.Type {
@@ -423,6 +430,8 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handlePortalAudit(msg.Payload)
 	case coreWS.TypeThreatBan:
 		m.handleThreatBan(msg.Payload)
+	case coreWS.TypeBackendDown:
+		m.handleBackendDown(msg.Payload)
 	case coreWS.TypeWAFReloaded:
 		m.handleWAFReloaded(msg.Payload)
 	}
@@ -468,6 +477,32 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	m.db.Exec( //nolint:errcheck
 		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
 		p.IP, "", p.Reason, "threat", banID)
+	if m.alertEngine != nil {
+		m.alertEngine.Emit(alerting.Event{
+			Trigger:  alerting.TriggerSentinelBan,
+			Severity: alerting.SevWarning,
+			NodeName: p.NodeName,
+			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
+		})
+	}
+}
+
+func (m *Manager) handleBackendDown(raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+	var p coreWS.BackendDownPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.URL == "" {
+		return
+	}
+	if m.alertEngine != nil {
+		m.alertEngine.Emit(alerting.Event{
+			Trigger:  alerting.TriggerBackendDown,
+			Severity: alerting.SevCritical,
+			NodeName: p.NodeName,
+			Detail:   map[string]any{"url": p.URL},
+		})
+	}
 }
 
 func (m *Manager) handlePortalAudit(raw json.RawMessage) {

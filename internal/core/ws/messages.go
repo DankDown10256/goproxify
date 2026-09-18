@@ -71,9 +71,16 @@ const (
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
-	TypeThreatBan             = "threat_ban"   // IP bannie par le moteur de détection automatique
-	TypeWAFReloaded           = "waf_reloaded" // Confirmation Core → Admin : règles WAF appliquées
+	TypeThreatBan             = "threat_ban"    // IP bannie par le moteur de détection automatique
+	TypeWAFReloaded           = "waf_reloaded"  // Confirmation Core → Admin : règles WAF appliquées
+	TypeBackendDown           = "backend_down"  // Backend déclaré indisponible par health-check
 )
+
+// BackendDownPayload est envoyé par Core → Admin quand un backend passe unhealthy.
+type BackendDownPayload struct {
+	URL      string `json:"url"`
+	NodeName string `json:"node_name,omitempty"`
+}
 
 // ThreatBanPayload est envoyé par Core → Admin quand le moteur détecte et banne une IP.
 type ThreatBanPayload struct {

@@ -43,9 +43,9 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
 ### Fonctionnalités à venir
 
-- [ ] **Dashboard Sentinel** : timeline des bans, heatmap par pays, courbe RPS vs seuil
-- [ ] **Webhooks sur événements** : notification externe (Slack, n8n, Zapier) sur ban, certificat expirant, backend down, taux d'erreurs soutenu
-- [ ] **Discovery Kubernetes** : Agent qui lit les `Ingress`/`Service` avec annotations `goproxify.*`, symétrique du mode Docker existant
+- [x] **Dashboard Sentinel** : endpoint `/security/bans/countries` (heatmap par pays, JOIN `geoip_cache`)
+- [x] **Webhooks sur événements** : canal webhook générique sur `sentinel_ban` et `backend_down` ; `Manager.SetAlertEngine` pour injecter l'engine d'alertes ; callback `BackendHealth.OnDown` → message WS Core→Admin
+- [x] **Discovery Kubernetes** : Agent qui lit les `Ingress`/`Service` avec annotations `goproxify.*`, symétrique du mode Docker existant
 - [ ] **Pipeline de transformation de requête** : modifier headers, réécrire URL, injecter `X-Request-Id` — règles YAML hot-reload
 - [ ] **Tunnel L4 mTLS Core↔Core** : remplace le relay actuel pour les déploiements multi-site, fail-over automatique entre tunnels
 - [ ] **MCP server étendu** : lecture logs d'accès, ban/unban Sentinel, rotation certs depuis le MCP server existant
