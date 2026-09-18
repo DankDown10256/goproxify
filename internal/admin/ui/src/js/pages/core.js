@@ -148,7 +148,33 @@ pages['core-waf'] = async function() {
             <div class="card-meta">${esc(s.description||t('corepage.waf.profile_default'))}</div>
           </div>`).join('')}
         </div>
-      </div>` : ''}`;
+      </div>` : ''}
+      <div style="margin-top:32px;">
+        <h6 style="margin:0 0 4px;">Détection comportementale (AppSensor)</h6>
+        <p style="margin:0 0 14px;font-size:12px;opacity:0.6;">Analyse stateful par fenêtre glissante — chaque IP accumule un score comportemental indépendant du score WAF par requête.</p>
+        <div class="card blueprint" style="overflow:hidden;margin-bottom:20px;">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Signal</th><th>Seuil de déclenchement</th><th style="text-align:right;">Score ajouté</th></tr></thead>
+            <tbody>
+              <tr><td><div style="font-weight:500;">high_4xx_rate</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Taux de réponses 4xx élevé</div></td><td style="font-size:12px;opacity:0.7;">&gt; 40 % de réponses 4xx sur ≥ 5 requêtes</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+4</td></tr>
+              <tr><td><div style="font-weight:500;">path_scanning</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Scan de chemins</div></td><td style="font-size:12px;opacity:0.7;">&gt; 15 chemins uniques dans la fenêtre</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+3</td></tr>
+              <tr><td><div style="font-weight:500;">waf_score_accumulation</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Accumulation de score WAF</div></td><td style="font-size:12px;opacity:0.7;">Score WAF cumulé ≥ 8 (critique : ≥ 15)</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+3 / +5</td></tr>
+              <tr><td><div style="font-weight:500;">ua_rotation</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Rotation de User-Agent</div></td><td style="font-size:12px;opacity:0.7;">&gt; 3 User-Agents distincts (bot qui se camoufle)</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+3</td></tr>
+              <tr><td><div style="font-weight:500;">request_burst</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Rafale de requêtes</div></td><td style="font-size:12px;opacity:0.7;">&gt; 30 requêtes dans les 10 dernières secondes</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+4</td></tr>
+              <tr><td><div style="font-weight:500;">high_post_ratio</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Ratio POST anormal</div></td><td style="font-size:12px;opacity:0.7;">&gt; 70 % de méthodes POST/PUT/PATCH sur ≥ 10 req</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+2</td></tr>
+              <tr><td><div style="font-weight:500;">high_path_entropy</div><div style="font-size:11.5px;opacity:0.55;margin-top:2px;">Entropie des chemins élevée</div></td><td style="font-size:12px;opacity:0.7;">Entropie &gt; 0.85 sur ≥ 20 requêtes (fuzzing)</td><td style="text-align:right;font-family:monospace;color:var(--orange);">+2</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h6 style="margin:0;">Profils IP actifs</h6>
+          <button class="btn btn-sm" id="waf-behavior-refresh" onclick="loadWafBehaviorProfiles()">Actualiser</button>
+        </div>
+        <div id="waf-behavior-profiles"><p style="color:var(--text2);font-size:13px;">Chargement…</p></div>
+      </div>`;
 
     window._coreWafSnippetId = wafSnippets[0]?.id || null;
     window._coreWafSnippetName = wafSnippets[0]?.name || 'WAF Core';
@@ -206,6 +232,77 @@ pages['core-waf'] = async function() {
         if (btn) { btn.disabled = false; btn.textContent = t('common.save'); }
       }
     };
+    const coreId = core?.id || core;
+    window.loadWafBehaviorProfiles = async function() {
+      const el = document.getElementById('waf-behavior-profiles');
+      if (!el) return;
+      let profiles = {};
+      try {
+        if (coreId) profiles = await coreProxy(coreId, 'GET', '/internal/v1/waf/behavior/profiles') || {};
+      } catch { /* ignore */ }
+      const rows = Object.entries(profiles).sort((a, b) => b[1].score - a[1].score);
+      const scoreColor = (s) => s >= 8 ? 'var(--red)' : s >= 4 ? 'var(--orange)' : 'var(--text3)';
+      const signalLabels = {
+        high_4xx_rate: 'Taux 4xx élevé',
+        path_scanning: 'Scan de chemins',
+        waf_score_accumulation: 'Accumulation WAF',
+        ua_rotation: 'Rotation UA',
+        request_burst: 'Rafale',
+        high_post_ratio: 'Ratio POST',
+        high_path_entropy: 'Entropie paths',
+      };
+      if (rows.length === 0) {
+        el.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text2);font-size:13px;border:1px solid var(--border);border-radius:8px;">Aucun profil comportemental actif</div>`;
+        return;
+      }
+      el.innerHTML = `
+        <div class="card blueprint" style="overflow:hidden;">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div class="table-wrap">
+          <table class="table">
+            <thead><tr>
+              <th>IP</th>
+              <th style="text-align:right;">Score</th>
+              <th>Signaux déclenchés</th>
+              <th style="text-align:center;">Crédit confiance</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(([ip, info]) => `
+                <tr>
+                  <td style="font-family:monospace;">${esc(ip)}</td>
+                  <td style="text-align:right;">
+                    <span style="background:${scoreColor(info.score)};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;font-size:12px;">${info.score}</span>
+                  </td>
+                  <td>
+                    ${(info.signals||[]).map(s => `
+                      <span style="display:inline-flex;align-items:center;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 7px;font-size:11px;margin:1px;">
+                        ${esc(signalLabels[s.name]||s.name)}
+                        <span style="opacity:0.6;">+${s.score}</span>
+                      </span>`).join('')}
+                  </td>
+                  <td style="text-align:center;font-size:12px;">
+                    ${info.trust_bonus > 0
+                      ? `<span style="color:var(--green);font-weight:600;" title="${info.clean_requests} req propres">+${info.trust_bonus}</span>`
+                      : `<span style="opacity:0.4;" title="${info.clean_requests||0} req propres">–</span>`}
+                  </td>
+                  <td style="text-align:right;">
+                    <button class="btn btn-ghost" style="color:var(--red);font-size:12px;" onclick="deleteWafBehaviorProfile('${esc(ip)}')">Supprimer</button>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+          </div>
+        </div>`;
+    };
+    window.deleteWafBehaviorProfile = async function(ip) {
+      try {
+        if (coreId) await coreProxy(coreId, 'DELETE', `/internal/v1/waf/behavior/profiles/${encodeURIComponent(ip)}`);
+        toast('Profil supprimé', 'success');
+        loadWafBehaviorProfiles();
+      } catch(e) { toast(e.message, 'error'); }
+    };
+    loadWafBehaviorProfiles();
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
 
