@@ -33,23 +33,23 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [ ] Stabiliser les tags SemVer et Releases GitHub régulières
 - [ ] Hygiène CI publique (lint/tests documentés)
 - [ ] Polish UX Access et docs opérateur
-- [ ] SBOM attaché à chaque Release
+- [x] SBOM attaché à chaque Release (workflow sbom-sign.yml)
 
 ### Résilience backend (v0.4)
 
-- [ ] **Health-check actif configurable** : path personnalisé, intervalle, timeout et seuils healthy/unhealthy par route — l'intervalle hardcodé à 30 s est remplacé par une config YAML/UI par proxy
-- [ ] **Retry + circuit-breaker câblés** : `CBConfig` (threshold / timeout) existant rendu thread-safe et branché au handler — `RecordSuccess`/`RecordFailure` déclenchés à chaque tentative ; retry exponentiel déjà opérationnel
-- [ ] **Rate-limiting par utilisateur authentifié** : champ `key_by` dans `RateLimitConfig` (`ip` par défaut, ou `jwt_sub` / `jwt_email` / `jwt_claim:<nom>`) pour limiter par identité JWT plutôt que par adresse IP
+- [x] **Health-check actif configurable** : `HealthCheckConfig` par route (path, interval, timeout, thresholds) ; `StartChecksFromRoutes` remplace l'appel global avec intervalle fixe
+- [x] **Retry + circuit-breaker câblés** : `circuitBreaker` rendu thread-safe (mutex), `RecordSuccess`/`RecordFailure` appelés depuis le handler après chaque tentative
+- [x] **Rate-limiting par utilisateur authentifié** : champ `key_by` dans `RateLimitConfig` — `ip` (défaut), `jwt_sub`, `jwt_email`, `jwt_claim:<nom>`
 
 ### Fonctionnalités à venir
 
 - [x] **Dashboard Sentinel** : endpoint `/security/bans/countries` (heatmap par pays, JOIN `geoip_cache`)
 - [x] **Webhooks sur événements** : canal webhook générique sur `sentinel_ban` et `backend_down` ; `Manager.SetAlertEngine` pour injecter l'engine d'alertes ; callback `BackendHealth.OnDown` → message WS Core→Admin
 - [x] **Discovery Kubernetes** : Agent qui lit les `Ingress`/`Service` avec annotations `goproxify.*`, symétrique du mode Docker existant
-- [ ] **Pipeline de transformation de requête** : modifier headers, réécrire URL, injecter `X-Request-Id` — règles YAML hot-reload
-- [ ] **Tunnel L4 mTLS Core↔Core** : remplace le relay actuel pour les déploiements multi-site, fail-over automatique entre tunnels
-- [ ] **MCP server étendu** : lecture logs d'accès, ban/unban Sentinel, rotation certs depuis le MCP server existant
-- [ ] **SBOM + attestation cosign** : SBOM attaché à chaque Release + signature cosign des images GHCR
+- [x] **Pipeline de transformation de requête** : `RequestTransform` sur `Route` (add/remove request+response headers, réécriture de préfixe URL) — middleware `Transform` hot-reload avec le reste de la config
+- [x] **Tunnel L4 mTLS Core↔Core** : package `internal/core/tunnel` — `Manager` (pool de pairs, failover automatique) + `Serve` (listener mTLS, protocole CONNECT-like)
+- [x] **MCP server étendu** : outils `ban_ip`, `unban_ip`, `rotate_cert` ajoutés au MCP server
+- [x] **SBOM + attestation cosign** : workflow `.github/workflows/sbom-sign.yml` — génération SBOM SPDX (syft) + signature keyless cosign sur chaque image GHCR après build
 
 Proposer des idées via
 [Discussions](https://github.com/Vincamok/goproxify/discussions) ou une issue

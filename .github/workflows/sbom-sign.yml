@@ -1,0 +1,113 @@
+name: SBOM & cosign
+
+on:
+  workflow_run:
+    workflows: ["Build & Push images"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Services à traiter (admin core agent ou all)"
+        required: false
+        default: "all"
+
+env:
+  REGISTRY: ghcr.io/vincamok/goproxify
+
+jobs:
+  sbom-sign:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write      # Pour attacher les SBOMs aux Releases
+      packages: write      # Pour annoter les images GHCR
+      id-token: write      # Pour cosign keyless (OIDC)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read versions
+        id: versions
+        run: |
+          echo "admin=$(python3 -c "import json; print(json.load(open('versions.json'))['admin'])")"  >> $GITHUB_OUTPUT
+          echo "core=$(python3 -c "import json; print(json.load(open('versions.json'))['core'])")"    >> $GITHUB_OUTPUT
+          echo "agent=$(python3 -c "import json; print(json.load(open('versions.json'))['agent'])")"  >> $GITHUB_OUTPUT
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      # ── Admin ──────────────────────────────────────────────────────────────
+      - name: SBOM admin
+        if: ${{ inputs.services == 'all' || inputs.services == 'admin' || github.event_name == 'workflow_run' }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/admin:${{ steps.versions.outputs.admin }}
+          artifact-name: sbom-admin-${{ steps.versions.outputs.admin }}.spdx.json
+          output-file: /tmp/sbom-admin.spdx.json
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign admin image
+        if: ${{ inputs.services == 'all' || inputs.services == 'admin' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/admin:${{ steps.versions.outputs.admin }}
+
+      - name: Attest SBOM admin
+        if: ${{ inputs.services == 'all' || inputs.services == 'admin' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign attest --yes --predicate /tmp/sbom-admin.spdx.json --type spdxjson \
+            ${{ env.REGISTRY }}/admin:${{ steps.versions.outputs.admin }}
+
+      # ── Core ───────────────────────────────────────────────────────────────
+      - name: SBOM core
+        if: ${{ inputs.services == 'all' || inputs.services == 'core' || github.event_name == 'workflow_run' }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/core:${{ steps.versions.outputs.core }}
+          artifact-name: sbom-core-${{ steps.versions.outputs.core }}.spdx.json
+          output-file: /tmp/sbom-core.spdx.json
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign core image
+        if: ${{ inputs.services == 'all' || inputs.services == 'core' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/core:${{ steps.versions.outputs.core }}
+
+      - name: Attest SBOM core
+        if: ${{ inputs.services == 'all' || inputs.services == 'core' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign attest --yes --predicate /tmp/sbom-core.spdx.json --type spdxjson \
+            ${{ env.REGISTRY }}/core:${{ steps.versions.outputs.core }}
+
+      # ── Agent ──────────────────────────────────────────────────────────────
+      - name: SBOM agent
+        if: ${{ inputs.services == 'all' || inputs.services == 'agent' || github.event_name == 'workflow_run' }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/agent:${{ steps.versions.outputs.agent }}
+          artifact-name: sbom-agent-${{ steps.versions.outputs.agent }}.spdx.json
+          output-file: /tmp/sbom-agent.spdx.json
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sign agent image
+        if: ${{ inputs.services == 'all' || inputs.services == 'agent' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/agent:${{ steps.versions.outputs.agent }}
+
+      - name: Attest SBOM agent
+        if: ${{ inputs.services == 'all' || inputs.services == 'agent' || github.event_name == 'workflow_run' }}
+        run: |
+          cosign attest --yes --predicate /tmp/sbom-agent.spdx.json --type spdxjson \
+            ${{ env.REGISTRY }}/agent:${{ steps.versions.outputs.agent }}

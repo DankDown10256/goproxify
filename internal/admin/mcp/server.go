@@ -340,6 +340,25 @@ var tools = []map[string]any{
 		"inputSchema": schema(req("id", "string", "ID du ban")),
 	},
 	{
+		"name":        "ban_ip",
+		"description": "Banne immédiatement une IP via le moteur Sentinel (ban natif). Pousse aux Cores.",
+		"inputSchema": schema(
+			req("ip", "string", "Adresse IP à bannir"),
+			opt("reason", "string", "Motif du ban (défaut: mcp_ban)"),
+			opt("expires_at", "string", "Expiration RFC3339 ; omit = permanent"),
+		),
+	},
+	{
+		"name":        "unban_ip",
+		"description": "Débanne une IP bannie par son adresse exacte (supprime tous les bans natifs sur cette IP).",
+		"inputSchema": schema(req("ip", "string", "Adresse IP à débannir")),
+	},
+	{
+		"name":        "rotate_cert",
+		"description": "Force le renouvellement ACME d'un certificat par son domaine et le pousse aux Cores.",
+		"inputSchema": schema(req("domain", "string", "Domaine dont le certificat doit être renouvelé")),
+	},
+	{
 		"name":        "list_security_threats",
 		"description": "Liste les décisions CrowdSec synchronisées (security_threats).",
 		"inputSchema": schema(opt("limit", "number", "Nombre d'entrées (défaut: 100, max: 500)")),
@@ -454,6 +473,14 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "delete_security_ban":
 		id, _ := p.Arguments["id"].(string)
 		result, toolErr = h.toolDeleteSecurityBan(r, id)
+	case "ban_ip":
+		result, toolErr = h.toolBanIP(r, p.Arguments)
+	case "unban_ip":
+		ip, _ := p.Arguments["ip"].(string)
+		result, toolErr = h.toolUnbanIP(r, ip)
+	case "rotate_cert":
+		domain, _ := p.Arguments["domain"].(string)
+		result, toolErr = h.toolRotateCert(r, domain)
 	case "list_security_threats":
 		result, toolErr = h.toolListSecurityThreats(r, p.Arguments)
 	case "list_security_cves":
@@ -1270,6 +1297,78 @@ func (h *Handler) toolDeleteSecurityBan(r *http.Request, id string) (any, error)
 		h.OnBansChange()
 	}
 	return map[string]any{"deleted": id}, nil
+}
+
+func (h *Handler) toolBanIP(r *http.Request, args map[string]any) (any, error) {
+	ip, _ := args["ip"].(string)
+	if ip == "" {
+		return nil, fmt.Errorf("ip requis")
+	}
+	reason, _ := args["reason"].(string)
+	if reason == "" {
+		reason = "mcp_ban"
+	}
+	expiresAt, _ := args["expires_at"].(string)
+	id := "mcp-" + ip
+	var exp any
+	if expiresAt != "" {
+		exp = expiresAt
+	}
+	_, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at) VALUES (?, ?, '', ?, 'native', ?)
+		 ON CONFLICT(id) DO UPDATE SET reason=excluded.reason, expires_at=excluded.expires_at`,
+		id, ip, reason, exp)
+	if err != nil {
+		return nil, err
+	}
+	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "ban_ip", "ban:"+id, ip)
+	if h.OnBansChange != nil {
+		h.OnBansChange()
+	}
+	return map[string]any{"id": id, "ip": ip, "reason": reason, "permanent": expiresAt == ""}, nil
+}
+
+func (h *Handler) toolUnbanIP(r *http.Request, ip string) (any, error) {
+	if ip == "" {
+		return nil, fmt.Errorf("ip requis")
+	}
+	res, err := h.DB.ExecContext(r.Context(), `DELETE FROM security_bans WHERE ip=?`, ip)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "unban_ip", "ip:"+ip, "")
+	if h.OnBansChange != nil {
+		h.OnBansChange()
+	}
+	return map[string]any{"ip": ip, "deleted": n}, nil
+}
+
+func (h *Handler) toolRotateCert(r *http.Request, domain string) (any, error) {
+	if domain == "" {
+		return nil, fmt.Errorf("domain requis")
+	}
+	// Forcer le renouvellement en effaçant l'expiration stockée.
+	res, err := h.DB.ExecContext(r.Context(),
+		`UPDATE domains SET cert_expires_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE domain=?`, domain)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Domaine pas encore en DB — l'enregistrer pour déclenchement ACME.
+		_, err = h.DB.ExecContext(r.Context(),
+			`INSERT OR IGNORE INTO domains (id, domain, cert_method, delegation_mode)
+			 VALUES (lower(hex(randomblob(16))), ?, 'acme', 'auto')`, domain)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "rotate_cert", "domain:"+domain, "")
+	if h.Pusher != nil {
+		h.Pusher.PushRoutes(r.Context())
+	}
+	return map[string]any{"domain": domain, "status": "renew_requested"}, nil
 }
 
 func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) (any, error) {

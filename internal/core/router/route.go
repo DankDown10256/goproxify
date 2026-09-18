@@ -72,6 +72,9 @@ type Route struct {
 	StickyCookie   string       `json:"sticky_cookie,omitempty"`
 	HealthCheck    *HealthCheckConfig `json:"health_check,omitempty"`
 
+	// Pipeline de transformation de requête/réponse (headers, réécriture URL).
+	Transform  *RequestTransform `json:"transform,omitempty"`
+
 	// Trafic avancé
 	Canary     *CanaryConfig    `json:"canary,omitempty"`
 	Shadow     *ShadowConfig    `json:"shadow,omitempty"`
@@ -297,6 +300,20 @@ type GeoIPConfig struct {
 	DBPath    string   `json:"db_path"`
 	Mode      string   `json:"mode"`      // allow | deny
 	Countries []string `json:"countries"` // codes ISO-3166-1 alpha-2
+}
+
+// RequestTransform décrit le pipeline de transformation de requête/réponse.
+// Les opérations sont appliquées dans l'ordre : réécriture URL → headers requête → headers réponse.
+type RequestTransform struct {
+	// Réécriture de préfixe d'URL : /api/v1/foo → /v1/foo si RewriteFrom="/api/v1".
+	RewriteFrom string `json:"rewrite_from,omitempty"`
+	RewriteTo   string `json:"rewrite_to,omitempty"`
+	// Headers ajoutés/supprimés sur la requête vers le backend.
+	AddRequestHeaders    map[string]string `json:"add_request_headers,omitempty"`
+	RemoveRequestHeaders []string          `json:"remove_request_headers,omitempty"`
+	// Headers ajoutés/supprimés sur la réponse vers le client.
+	AddResponseHeaders    map[string]string `json:"add_response_headers,omitempty"`
+	RemoveResponseHeaders []string          `json:"remove_response_headers,omitempty"`
 }
 
 type CBConfig struct {

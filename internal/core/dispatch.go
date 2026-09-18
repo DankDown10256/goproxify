@@ -243,6 +243,7 @@ func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handl
 	if route.RequestID != nil && !*route.RequestID {
 		h = stripRequestIDResponse(h)
 	}
+	h = middleware.Transform(route.Transform)(h)
 
 	s.dispatchHandlers.Store(key, &cachedDispatch{gen: gen, h: h})
 	return h
