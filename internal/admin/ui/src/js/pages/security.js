@@ -888,7 +888,16 @@ function filterSecBansList(bans) {
   list.sort((a, b) => {
     if (sort === 'ip_asc') return _secLocaleCompare(a.ip, b.ip);
     if (sort === 'ip_desc') return _secLocaleCompare(b.ip, a.ip);
-    if (sort === 'source') return _secLocaleCompare(a.source, b.source) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'source' || sort === 'source_asc') return _secLocaleCompare(a.source, b.source) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'source_desc') return _secLocaleCompare(b.source, a.source) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'date_asc') {
+      const da = Date.parse(a.created_at) || 0, db = Date.parse(b.created_at) || 0;
+      return da - db || _secLocaleCompare(a.ip, b.ip);
+    }
+    if (sort === 'date_desc') {
+      const da = Date.parse(a.created_at) || 0, db = Date.parse(b.created_at) || 0;
+      return db - da || _secLocaleCompare(a.ip, b.ip);
+    }
     if (sort === 'expires_desc') {
       const ea = _banExpiresMs(a), eb = _banExpiresMs(b);
       if (ea !== eb) return eb - ea;
@@ -951,13 +960,6 @@ function bansToolbarHTML(total, shown) {
     <div class="sec-bans-toolbar-row">
       <input id="sec-bans-search" class="input search-input" placeholder="${t('security.search_ban_ph')}" value="${esc(q)}" oninput="setSecBansSearch(this.value)" style="max-width:240px;">
       <span id="sec-bans-count" class="sec-bans-count">${countLabel}</span>
-      <select id="sec-bans-sort" onchange="setSecBansSort(this.value)" style="height:30px;font-size:12px;padding:0 6px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);color:var(--text);cursor:pointer;margin-left:auto;">
-        <option value="expires_asc" ${sort==='expires_asc'?'selected':''}>${t('security.sort.expires_asc')}</option>
-        <option value="expires_desc" ${sort==='expires_desc'?'selected':''}>${t('security.sort.expires_desc')}</option>
-        <option value="ip_asc" ${sort==='ip_asc'?'selected':''}>${t('security.sort.ip_asc')}</option>
-        <option value="ip_desc" ${sort==='ip_desc'?'selected':''}>${t('security.sort.ip_desc')}</option>
-        <option value="source" ${sort==='source'?'selected':''}>${t('security.sort.source')}</option>
-      </select>
     </div>
     <div class="sec-bans-toolbar-row">
       <span style="font-size:11px;color:var(--text3);">${t('security.filter_source')}</span>
@@ -1008,8 +1010,23 @@ function bansTableRows(list) {
     const emptyKey = (window._secBans || []).length ? 'security.no_ban_filter_match' : 'security.no_bans';
     return `<div class="empty"><p>${t(emptyKey)}</p></div>`;
   }
+  const _bsort = window._secBansSort || 'expires_asc';
+  const _bthStyle = 'cursor:pointer;user-select:none;white-space:nowrap';
+  const _bind = (col, asc, desc) => {
+    const active = _bsort === asc || _bsort === desc;
+    const arrow = _bsort === asc ? ' ↑' : _bsort === desc ? ' ↓' : '';
+    return `onclick="setSecBansSortCol('${col}')" style="${_bthStyle}${active?';color:var(--accent)':''}" title="${t('common.sort')||'Trier'}"${arrow ? ` data-sorted="${_bsort === asc ? 'asc' : 'desc'}"` : ''}`;
+  };
   return `<div class="table-wrap sec-bans-table-scroll"><table>
-    <thead><tr><th>${t('logs.ip')}</th><th>${t('security.col.domain')}</th><th>${t('security.col.source')}</th><th>${t('security.col.reason')}</th><th>${t('security.col.expires')}</th><th>${t('common.date')}</th><th></th></tr></thead>
+    <thead><tr>
+      <th ${_bind('ip','ip_asc','ip_desc')}>${t('logs.ip')}${_bsort==='ip_asc'?' ↑':_bsort==='ip_desc'?' ↓':''}</th>
+      <th>${t('security.col.domain')}</th>
+      <th ${_bind('source','source_asc','source_desc')}>${t('security.col.source')}${_bsort==='source_asc'||_bsort==='source'?' ↑':_bsort==='source_desc'?' ↓':''}</th>
+      <th>${t('security.col.reason')}</th>
+      <th ${_bind('expires','expires_asc','expires_desc')}>${t('security.col.expires')}${_bsort==='expires_asc'?' ↑':_bsort==='expires_desc'?' ↓':''}</th>
+      <th ${_bind('date','date_asc','date_desc')}>${t('common.date')}${_bsort==='date_asc'?' ↑':_bsort==='date_desc'?' ↓':''}</th>
+      <th></th>
+    </tr></thead>
     <tbody>${list.map((b) => `<tr>
       <td class="mono">${esc(b.ip)}</td>
       <td>${esc(b.domain||'—')}</td>
@@ -1109,6 +1126,15 @@ function renderSecThreatsPanel(opts = {}) {
     btn.classList.toggle('is-on', (m ? m[1] : '') === type);
   });
 }
+
+window.setSecBansSortCol = function(col) {
+  const sort = window._secBansSort || 'expires_asc';
+  const ascKey = col + '_asc';
+  const descKey = col + '_desc';
+  const isAsc = sort === ascKey || (col === 'source' && sort === 'source');
+  window._secBansSort = isAsc ? descKey : ascKey;
+  renderSecBansPanel();
+};
 
 window.setSecBansSearch = function(v) {
   window._secBansQ = v || '';
