@@ -58,6 +58,23 @@ pages['core-waf'] = async function() {
     }
 
     const decompressBody = wafPrimary.decompress_body === true;
+    const activePlatforms = new Set(Array.isArray(wafPrimary.exclude_platforms) ? wafPrimary.exclude_platforms : []);
+
+    const PLATFORM_IDS = {
+      wordpress:  [941100, 941110, 941120, 941130, 941160, 942100, 942110, 942200, 942260, 942330, 942340, 920230, 920272, 921180],
+      drupal:     [941100, 941110, 941160, 942100, 942110, 942200, 942260, 921180, 930120],
+      nextcloud:  [920230, 920272, 921180, 930120, 941100, 941160],
+      dokuwiki:   [941100, 941110, 941160, 921180],
+      cpanel:     [920230, 920272, 941100, 941110, 930120],
+    };
+
+    const PLATFORMS = [
+      { id: 'wordpress',  name: 'WordPress',  desc: "Éditeur Gutenberg, REST API, xmlrpc, WooCommerce — supprime les faux positifs sur XSS/SQLi/form tokens." },
+      { id: 'drupal',     name: 'Drupal',     desc: "Form tokens, AJAX handlers, éditeur de contenu riche — supprime les faux positifs sur XSS/SQLi/path." },
+      { id: 'nextcloud',  name: 'Nextcloud',  desc: "APIs WebDAV, PROPFIND/MKCOL, opérations fichiers — supprime les faux positifs sur path et headers." },
+      { id: 'dokuwiki',   name: 'DokuWiki',   desc: "Syntaxe wiki, upload de médias, namespaces — supprime les faux positifs sur XSS et parameter pollution." },
+      { id: 'cpanel',     name: 'cPanel',     desc: "Interface cPanel/WHM : gestion DNS, comptes email, zones — supprime les faux positifs sur headers et path." },
+    ];
 
     const RULES = [
       { id: 'sqli',       name: 'SQL Injection',               category: 'OWASP CRS-4', ids: '942100–942999', desc: "Détecte ' OR 1=1, UNION SELECT, --, xp_cmdshell, blind SQLi temporelle et encodages SQL alternatifs." },
@@ -107,6 +124,20 @@ pages['core-waf'] = async function() {
           <input type="checkbox" id="waf-decompress" ${decompressBody ? 'checked' : ''}>
           <span class="toggle-track"></span>
         </label>
+      </div>
+      <div style="margin-bottom:20px;">
+        <h6 style="margin:0 0 4px;">Exclusions plateforme</h6>
+        <p style="margin:0 0 12px;font-size:12px;opacity:0.6;">Sélectionnez le CMS ou la plateforme derrière ce proxy — les règles générant des faux positifs connus seront exclues automatiquement.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr));gap:8px;">
+          ${PLATFORMS.map(p => `
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s;" class="platform-card" id="platform-card-${p.id}">
+            <input type="checkbox" name="platform-exclusion" value="${p.id}" ${activePlatforms.has(p.id)?'checked':''} style="margin-top:2px;flex-shrink:0;" onchange="togglePlatformCard('${p.id}',this.checked)">
+            <div>
+              <div style="font-weight:500;font-size:13px;">${esc(p.name)}</div>
+              <div style="font-size:11.5px;opacity:0.55;margin-top:2px;line-height:1.4;">${esc(p.desc)}</div>
+            </div>
+          </label>`).join('')}
+        </div>
       </div>
       <div>
         <h6 style="margin:0 0 12px;">${t('corepage.waf.rules_heading')}</h6>
@@ -180,6 +211,12 @@ pages['core-waf'] = async function() {
     window._coreWafSnippetName = wafSnippets[0]?.name || 'WAF Core';
     window._wafExcluded = excluded;
     window._wafCatIds = CAT_IDS;
+    window._wafPlatformIds = PLATFORM_IDS;
+    window.togglePlatformCard = function(id, checked) {
+      const card = document.getElementById('platform-card-' + id);
+      if (card) card.style.borderColor = checked ? 'var(--accent)' : 'var(--border)';
+    };
+    PLATFORMS.forEach(p => { if (activePlatforms.has(p.id)) window.togglePlatformCard(p.id, true); });
     window.updateWafModeLabel = function(val) {
       const labels = { block: t('corepage.mode.block'), detect: t('corepage.mode.detect_only'), off: t('common.disabled') };
       document.getElementById('waf-mode-label').textContent = labels[val] || val;
@@ -198,11 +235,15 @@ pages['core-waf'] = async function() {
       const mode = document.querySelector('input[name="waf-mode"]:checked')?.value || 'off';
       const excludeCategories = [...(window._wafExcluded || [])];
       const excludeIds = excludeCategories.flatMap(cat => (window._wafCatIds?.[cat] || []));
+      const excludePlatforms = [...document.querySelectorAll('input[name="platform-exclusion"]:checked')].map(el => el.value);
+      const platformIds = excludePlatforms.flatMap(p => (window._wafPlatformIds?.[p] || []));
+      const allExcludeIds = [...new Set([...excludeIds, ...platformIds])];
       const config = {
         mode: mode === 'off' ? 'block' : mode,
         enabled: mode !== 'off',
         exclude_categories: excludeCategories,
-        exclude_ids: excludeIds,
+        exclude_ids: allExcludeIds,
+        exclude_platforms: excludePlatforms,
         decompress_body: document.getElementById('waf-decompress')?.checked === true,
       };
       const btn = document.getElementById('core-waf-save');
