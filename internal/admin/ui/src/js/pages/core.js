@@ -31,19 +31,24 @@ pages['core-waf'] = async function() {
     const excluded = new Set(Array.isArray(wafPrimary.exclude_categories) ? wafPrimary.exclude_categories : []);
     // Compat : exclude_ids → catégories
     const CAT_IDS = {
-      sqli:       [942100, 942110, 942120],
-      xss:        [941100, 941110, 941120],
-      traversal:  [930100, 930110],
-      rce:        [932100, 932110],
-      php:        [933100],
-      ssrf:       [934100],
-      scanner:    [913100],
-      java:       [944100, 944110, 944120],
-      rfi:        [931100, 931110],
-      nodejs:     [934200, 934210],
-      smuggling:  [920200, 920210],
-      restricted: [930200, 930210, 930220],
-      leakage:    [951100, 951110, 951120, 951130],
+      sqli:        [942100, 942110, 942120],
+      xss:         [941100, 941110, 941120],
+      traversal:   [930100, 930110],
+      rce:         [932100, 932110],
+      php:         [933100],
+      ssrf:        [934100],
+      scanner:     [913100],
+      java:        [944100, 944110, 944120],
+      rfi:         [931100, 931110],
+      nodejs:      [934200, 934210],
+      smuggling:   [920200, 920210],
+      restricted:  [930200, 930210, 930220],
+      leakage:     [951100, 951110, 951120, 951130],
+      ssi:         [935100, 935110, 935120],
+      blocklist:   [938100, 938110, 938120],
+      fakebot:     [913110, 913120],
+      dos:         [912100, 912110, 912120],
+      generic:     [936100, 936110, 936120],
     };
     if (Array.isArray(wafPrimary.exclude_ids) && wafPrimary.exclude_ids.length) {
       const idSet = new Set(wafPrimary.exclude_ids);
@@ -51,6 +56,8 @@ pages['core-waf'] = async function() {
         if (ids.every(id => idSet.has(id))) excluded.add(cat);
       });
     }
+
+    const decompressBody = wafPrimary.decompress_body === true;
 
     const RULES = [
       { id: 'sqli',       name: 'SQL Injection',               category: 'OWASP CRS-4', ids: '942100–942999', desc: "Détecte ' OR 1=1, UNION SELECT, --, xp_cmdshell, blind SQLi temporelle et encodages SQL alternatifs." },
@@ -66,6 +73,11 @@ pages['core-waf'] = async function() {
       { id: 'smuggling',  name: 'HTTP Request Smuggling',      category: 'OWASP CRS-4', ids: '920200–920999', desc: 'Bloque HTTP Request Smuggling, Response Splitting et header injection. Critique sur les architectures proxy/reverse-proxy.' },
       { id: 'restricted', name: 'Restricted / Sensitive Files', category: 'OWASP CRS-4', ids: '930200–930999', desc: "Bloque l'accès aux fichiers sensibles : .env, .git/, wp-config.php, /etc/passwd, clés SSH et fichiers de configuration." },
       { id: 'leakage',    name: 'Response Data Leakage',       category: 'OWASP CRS-4', ids: '951100–951999', desc: "Détecte les messages d'erreur SQL, stack traces Java/PHP et erreurs IIS dans les réponses sortantes pour éviter la fuite d'informations." },
+      { id: 'ssi',        name: 'Server-Side Include Injection', category: 'OWASP CRS-4', ids: '935100–935999', desc: "Détecte les injections SSI : <!--#exec cmd=...>, directives SSI dans Apache/Nginx. Vecteur souvent oublié sur les serveurs legacy." },
+      { id: 'blocklist',  name: 'Extension Blocklist',         category: 'OWASP CRS-4', ids: '938100–938999', desc: "Bloque les uploads d'extensions exécutables : .php, .asp, .jsp, .cgi. À combiner avec la vérification du Content-Type réel." },
+      { id: 'fakebot',    name: 'Fake Bot Detection',          category: 'OWASP CRS-4', ids: '913110–913999', desc: "Détecte les bots qui usurpent des User-Agents légitimes (Googlebot, Bingbot) via vérification des signatures connues." },
+      { id: 'dos',        name: 'DoS Protection (HTTP Flood)', category: 'OWASP CRS-4', ids: '912100–912999', desc: "Détecte les floods HTTP applicatifs par fenêtre glissante par IP. Complémentaire au rate limiting réseau de la page Sécurité." },
+      { id: 'generic',    name: 'Generic Injection',           category: 'OWASP CRS-4', ids: '936100–936999', desc: "Catch-all pour les injections de template (Jinja2, Twig, Freemarker) et les payloads polyglots non couverts par les règles spécialisées." },
     ];
 
     content.innerHTML = `
@@ -84,6 +96,17 @@ pages['core-waf'] = async function() {
           <label class="seg-opt"><input type="radio" name="waf-mode" value="detect" ${wafMode==='detect'?'checked':''} onchange="updateWafModeLabel(this.value)">${t('corepage.mode.detect')}</label>
           <label class="seg-opt"><input type="radio" name="waf-mode" value="off" ${wafMode==='off'?'checked':''} onchange="updateWafModeLabel(this.value)">${t('common.disabled')}</label>
         </div>
+      </div>
+      <div class="card blueprint" style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div>
+          <div class="card-kicker">Inspection body gzip</div>
+          <div style="font-size:13px;color:var(--text2);margin-top:2px;">Décompresse les corps gzip avant analyse — contourne l'évasion par compression des payloads malveillants.</div>
+        </div>
+        <label class="toggle" style="flex-shrink:0;">
+          <input type="checkbox" id="waf-decompress" ${decompressBody ? 'checked' : ''}>
+          <span class="toggle-track"></span>
+        </label>
       </div>
       <div>
         <h6 style="margin:0 0 12px;">${t('corepage.waf.rules_heading')}</h6>
@@ -154,6 +177,7 @@ pages['core-waf'] = async function() {
         enabled: mode !== 'off',
         exclude_categories: excludeCategories,
         exclude_ids: excludeIds,
+        decompress_body: document.getElementById('waf-decompress')?.checked === true,
       };
       const btn = document.getElementById('core-waf-save');
       if (btn) { btn.disabled = true; btn.textContent = t('common.saving') || '…'; }
