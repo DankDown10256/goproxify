@@ -492,61 +492,101 @@ async function renderPrismPage() {
       const n = Number(v) || 0;
       if (n === 0) return `<span class="prism-kpi-delta neu">—</span>`;
       const cls = (n > 0) === !inv ? 'up' : 'down';
-      return `<span class="prism-kpi-delta ${cls}">${n>0?'+':''}${n.toFixed(1)}%</span>`;
+      return `<span class="prism-kpi-delta ${cls}">${n > 0 ? '↑' : '↓'} ${Math.abs(n).toFixed(1)}%</span>`;
     };
     const uniqueVal = (Number(k.unique_ips) > 0) ? fmtNum(k.unique_ips) : '…';
     const errRate = Number(k.error_rate) || 0;
     const avgLat = Number(k.avg_latency_ms) || 0;
     const botShare = Number(k.bot_share) || 0;
+    const icoReq = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+    const icoBw  = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
+    const icoErr = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+    const icoIp  = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>`;
+    const icoLat = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+    const icoBot = `<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>`;
+    const card = (color, icon, label, val, foot) => `
+      <div class="prism-kpi" style="--prism-kc:${color}">
+        <div class="prism-kpi-head">
+          <span class="prism-kpi-label">${label}</span>
+          <span class="prism-kpi-ico">${icon}</span>
+        </div>
+        <div class="prism-kpi-val">${val}</div>
+        <div class="prism-kpi-foot">${foot}</div>
+      </div>`;
     return `<div class="prism-kpis">
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.requests')}</div><div class="prism-kpi-val">${fmtNum(k.requests)}</div>${delta(k.requests_delta,false)}</div>
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.bandwidth')}</div><div class="prism-kpi-val">${fmtBytes(k.bandwidth)}</div>${delta(k.bandwidth_delta,false)}</div>
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.error_rate')}</div><div class="prism-kpi-val">${errRate.toFixed(1)}%</div>${delta(k.error_rate_delta,true)}</div>
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.unique_ips')}</div><div class="prism-kpi-val" id="prism-kpi-unique-ips">${uniqueVal}</div></div>
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.latency')}</div><div class="prism-kpi-val">${avgLat.toFixed(0)} ms</div></div>
-      <div class="prism-kpi"><div class="prism-kpi-label">${t('prism.bot_share')}</div><div class="prism-kpi-val">${botShare.toFixed(1)}%</div></div>
+      ${card('var(--accent)', icoReq, t('prism.requests'), fmtNum(k.requests), delta(k.requests_delta, false))}
+      ${card('var(--blue)', icoBw, t('prism.bandwidth'), fmtBytes(k.bandwidth), delta(k.bandwidth_delta, false))}
+      ${card('var(--red)', icoErr, t('prism.error_rate'), errRate.toFixed(1) + '%', delta(k.error_rate_delta, true))}
+      ${card('var(--cyan)', icoIp, t('prism.unique_ips'), `<span id="prism-kpi-unique-ips">${uniqueVal}</span>`, '')}
+      ${card('var(--yellow)', icoLat, t('prism.latency'), avgLat.toFixed(0) + ' ms', '')}
+      ${card('var(--purple)', icoBot, t('prism.bot_share'), botShare.toFixed(1) + '%', '')}
     </div>`;
   }
 
   function timelineHtml(pts) {
     const bucketLabel = liveMode ? 'minute' : 'heure';
     if (!pts || pts.length === 0) return `<div class="prism-panel-title">${t('prism.requests_per', { bucket: bucketLabel })}</div><p style="color:var(--text3);font-size:13px">${liveMode ? t('prism.wait_traffic') : t('prism.no_period')}</p>`;
-    const max = Math.max(...pts.map(p=>p.requests), 1);
-    const W = 600, H = 120, pad = 4;
-    const xStep = pts.length > 1 ? (W - pad*2) / (pts.length - 1) : W - pad*2;
-    const toX = i => pad + i * xStep;
-    const toY = v => H - pad - (v / max) * (H - pad*2);
+    const max = Math.max(...pts.map(p => p.requests), 1);
+    const W = 600, H = 150, padX = 38, padY = 8, padB = 22;
+    const toX = i => padX + (pts.length > 1 ? (i / (pts.length - 1)) * (W - padX - 8) : (W - padX - 8));
+    const toY = v => padY + (1 - v / max) * (H - padY - 4);
 
-    const reqLine = pts.map((p,i)=>`${i===0?'M':'L'}${toX(i).toFixed(1)},${toY(p.requests).toFixed(1)}`).join(' ');
-    const errLine = pts.length > 1 ? pts.map((p,i)=>`${i===0?'M':'L'}${toX(i).toFixed(1)},${toY(p.errors).toFixed(1)}`).join(' ') : '';
-    const area = reqLine + ` L${toX(pts.length-1).toFixed(1)},${H-pad} L${pad},${H-pad} Z`;
+    const gridLines = [0.25, 0.5, 0.75, 1].map(f => {
+      const v = Math.round(max * f);
+      const y = toY(v).toFixed(1);
+      return `<line x1="${padX}" y1="${y}" x2="${W - 8}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+        <text x="${padX - 5}" y="${parseFloat(y) + 3}" text-anchor="end" font-size="8" fill="var(--text3)">${fmtNum(v)}</text>`;
+    }).join('');
+
+    function bezier(data, field) {
+      if (data.length < 2) return data.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p[field]).toFixed(1)}`).join(' ');
+      let d = `M${toX(0).toFixed(1)},${toY(data[0][field]).toFixed(1)}`;
+      for (let i = 0; i < data.length - 1; i++) {
+        const x1 = toX(i), y1 = toY(data[i][field]);
+        const x2 = toX(i + 1), y2 = toY(data[i + 1][field]);
+        const cp = (x2 - x1) * 0.4;
+        d += ` C${(x1 + cp).toFixed(1)},${y1.toFixed(1)} ${(x2 - cp).toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
+      }
+      return d;
+    }
+
+    const reqLine = bezier(pts, 'requests');
+    const errLine = pts.length > 1 ? bezier(pts, 'errors') : '';
+    const area = reqLine + ` L${toX(pts.length - 1).toFixed(1)},${H} L${padX},${H} Z`;
 
     const step = Math.ceil(pts.length / 8);
-    const xLabels = pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>{
+    const xLabels = pts.filter((_, i) => i % step === 0 || i === pts.length - 1).map(p => {
       const i = pts.indexOf(p);
-      const label = p.bucket.includes('T') ? p.bucket.split('T')[1].slice(0,5) : p.bucket.slice(5);
-      return `<text x="${toX(i).toFixed(1)}" y="${H+14}" text-anchor="middle" font-size="9" fill="var(--text3)">${esc(label)}</text>`;
+      const label = p.bucket.includes('T') ? p.bucket.split('T')[1].slice(0, 5) : p.bucket.slice(5);
+      return `<text x="${toX(i).toFixed(1)}" y="${H + padB - 6}" text-anchor="middle" font-size="9" fill="var(--text3)">${esc(label)}</text>`;
     });
 
-    const dots = pts.map((p,i) => {
+    const dots = pts.map((p, i) => {
       const x = toX(i).toFixed(1), y = toY(p.requests).toFixed(1);
-      return `<circle cx="${x}" cy="${y}" r="5" fill="var(--accent)" fill-opacity="0.01" stroke="transparent" stroke-width="12" style="cursor:pointer"
+      return `<circle cx="${x}" cy="${y}" r="5" fill="var(--accent)" fill-opacity="0.01" stroke="transparent" stroke-width="14" style="cursor:pointer"
         data-prism="bucket" data-bucket="${esc(p.bucket)}" title="${esc(p.bucket)} — ${p.requests} req"/>`;
     }).join('');
 
     return `
       <div class="prism-panel-title">${t('prism.requests_per', { bucket: bucketLabel })} <span style="font-weight:400;color:var(--text3);font-size:11px">· ${t('prism.click_zoom')}</span></div>
-      <svg class="prism-svg" viewBox="0 0 ${W} ${H+20}" preserveAspectRatio="none">
-        <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--accent)" stop-opacity=".2"/><stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+      <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--accent)" stop-opacity=".3"/>
+            <stop offset="65%" stop-color="var(--accent)" stop-opacity=".06"/>
+            <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        ${gridLines}
         <path d="${area}" fill="url(#pg)"/>
-        <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="2"/>
-        ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4,2"/>` : ''}
+        <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>` : ''}
         ${dots}
         ${xLabels.join('')}
       </svg>
-      <div style="display:flex;gap:16px;font-size:11px;color:var(--text3);margin-top:2px">
-        <span><span style="display:inline-block;width:12px;height:2px;background:var(--accent);vertical-align:middle;margin-right:4px"></span>Requêtes</span>
-        <span><span style="display:inline-block;width:12px;height:2px;background:var(--red);vertical-align:middle;margin-right:4px"></span>${t('prism.errors')}</span>
+      <div style="display:flex;gap:18px;font-size:11px;color:var(--text3);margin-top:4px">
+        <span><span style="display:inline-block;width:14px;height:3px;background:var(--accent);border-radius:2px;vertical-align:middle;margin-right:4px"></span>Requêtes</span>
+        <span><span style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--red);vertical-align:middle;margin-right:4px"></span>${t('prism.errors')}</span>
       </div>`;
   }
 
@@ -554,27 +594,28 @@ async function renderPrismPage() {
     if (!groups || groups.length === 0) return `<div class="prism-panel-title">${t('prism.http_codes')}</div><p style="color:var(--text3);font-size:13px">${t('prism.no_data')}</p>`;
     const colors = {'2xx':'var(--green)','3xx':'#60a5fa','4xx':'#f59e0b','5xx':'var(--red)'};
     const byGroup = Object.fromEntries(groups.map(g => [g.group, g]));
-    const leftGroups = ['4xx', '5xx'].map(k => byGroup[k]).filter(Boolean);
-    const rightGroups = ['2xx', '3xx'].map(k => byGroup[k]).filter(Boolean);
-    const total = groups.reduce((s,g)=>s+g.count,0);
-    const R=44, CX=56, CY=56, sw=22, circum=2*Math.PI*R;
+    const leftGroups = ['4xx', '5xx'].map(key => byGroup[key]).filter(Boolean);
+    const rightGroups = ['2xx', '3xx'].map(key => byGroup[key]).filter(Boolean);
+    const total = groups.reduce((s, g) => s + g.count, 0);
+    const R = 52, CX = 64, CY = 64, sw = 20, circum = 2 * Math.PI * R;
     let offset = 0;
     const arcs = groups.map(g => {
-      const pct = total>0 ? g.count/total : 0;
-      const a = {g:g.group,pct,offset,color:colors[g.group]||'#999'}; offset+=pct; return a;
-    }).filter(a=>a.pct>0).map(a=>{
-      const dash=a.pct*circum, gap=circum-dash, rot=a.offset*360-90;
+      const pct = total > 0 ? g.count / total : 0;
+      const a = {g: g.group, pct, offset, color: colors[g.group] || '#999'}; offset += pct; return a;
+    }).filter(a => a.pct > 0).map(a => {
+      const dash = a.pct * circum, gap = circum - dash, rot = a.offset * 360 - 90;
       return `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="${a.color}" stroke-width="${sw}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}" transform="rotate(${rot.toFixed(2)} ${CX} ${CY})"/>`;
     });
+    const okPct = total > 0 ? ((byGroup['2xx']?.count || 0) / total * 100).toFixed(0) : 0;
     const legendCol = (list) => `
       <div class="prism-donut-legend">
-        ${list.map(g=>`
+        ${list.map(g => `
           <div style="display:flex;align-items:center;gap:6px">
-            <div class="prism-legend-dot" style="background:${colors[g.group]||'#999'}"></div>
+            <div class="prism-legend-dot" style="background:${colors[g.group] || '#999'}"></div>
             <button type="button" class="log-filter-link" data-prism="to-logs-status" data-status="${esc(g.group)}" title="Voir dans les logs"><b style="color:var(--text)">${g.group}</b></button>
-            <span style="color:var(--text3)">${fmtNum(g.count)} (${g.pct.toFixed(1)}%)</span>
+            <span style="color:var(--text3)">${fmtNum(g.count)} <span style="font-size:10px">(${g.pct.toFixed(1)}%)</span></span>
           </div>
-          ${(g.breakdown||[]).slice(0,4).map(b=>`<div style="padding-left:16px;font-size:11px;color:var(--text3)">
+          ${(g.breakdown || []).slice(0, 4).map(b => `<div style="padding-left:16px;font-size:11px;color:var(--text3)">
             <button type="button" class="log-filter-link" data-prism="to-logs-status" data-status="${b.code}" title="${esc(t('prism.filter_logs'))}">${b.code}</button> — ${fmtNum(b.count)}
           </div>`).join('')}`).join('')}
       </div>`;
@@ -582,10 +623,12 @@ async function renderPrismPage() {
       <div class="prism-panel-title">Codes HTTP</div>
       <div class="prism-donut">
         ${legendCol(leftGroups)}
-        <svg width="112" height="112" viewBox="0 0 112 112" style="flex-shrink:0">
+        <svg width="128" height="128" viewBox="0 0 128 128" style="flex-shrink:0">
           <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--bg3)" stroke-width="${sw}"/>
           ${arcs.join('')}
-          <text x="${CX}" y="${CY+4}" text-anchor="middle" font-size="11" fill="var(--text2)">${fmtNum(total)}</text>
+          <text x="${CX}" y="${CY - 4}" text-anchor="middle" font-size="22" font-weight="700" fill="var(--text)">${okPct}%</text>
+          <text x="${CX}" y="${CY + 12}" text-anchor="middle" font-size="9" fill="var(--text3)">succès 2xx</text>
+          <text x="${CX}" y="${CY + 24}" text-anchor="middle" font-size="9" fill="var(--text3)">${fmtNum(total)} req</text>
         </svg>
         ${legendCol(rightGroups)}
       </div>`;
