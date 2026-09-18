@@ -8,6 +8,8 @@ package behavior
 
 import (
 	"math"
+	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,6 +22,7 @@ type Event struct {
 	Method   string // GET, POST, …
 	Path     string
 	UA       string
+	SourceIP string // IP source réelle, pour agrégation sous-réseau
 }
 
 // Signal est un indicateur comportemental déclenché.
@@ -41,6 +44,7 @@ type ProfileInfo struct {
 	Signals    []Signal `json:"signals"`
 	TrustBonus int      `json:"trust_bonus"`
 	CleanReqs  int64    `json:"clean_requests"`
+	IsSubnet   bool     `json:"is_subnet,omitempty"`
 }
 
 // HAPayload est échangé entre nœuds HA.
@@ -55,11 +59,21 @@ type Profile struct {
 	cleanRequests int64   // compteur cumulatif de requêtes propres (non-fenêtré)
 }
 
+// subnetProfile agrège les événements de toutes les IPs d'un sous-réseau /24 (/48 IPv6).
+type subnetProfile struct {
+	mu     sync.Mutex
+	events []Event            // événements de toutes les IPs du sous-réseau
+	ips    map[string]struct{} // IPs distinctes vues dans la fenêtre (approximatif)
+}
+
 // Store conserve les profils par IP avec nettoyage périodique.
 type Store struct {
 	mu       sync.RWMutex
 	profiles map[string]*Profile
 	window   time.Duration
+
+	subnetMu sync.RWMutex
+	subnets  map[string]*subnetProfile // subnet key → profil agrégé
 }
 
 // NewStore crée un store comportemental.
@@ -67,29 +81,62 @@ type Store struct {
 func NewStore(window time.Duration) *Store {
 	s := &Store{
 		profiles: make(map[string]*Profile),
+		subnets:  make(map[string]*subnetProfile),
 		window:   window,
 	}
 	go s.gcLoop()
 	return s
 }
 
+// subnetKey retourne la clé de sous-réseau d'une IP (/24 pour IPv4, /48 pour IPv6).
+func subnetKey(ip string) string {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return ""
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4[:3].String() + ".0/24"
+	}
+	// IPv6 : /48
+	masked := parsed.Mask(net.CIDRMask(48, 128))
+	return masked.String() + "/48"
+}
+
 // Score retourne le score comportemental actuel d'une IP SANS enregistrer d'événement.
-// Utilisé avant de servir la requête pour décider de bloquer immédiatement.
+// Inclut la contribution du sous-réseau si celui-ci est suspect.
 func (s *Store) Score(ip string) (score int, signals []Signal) {
 	s.mu.RLock()
 	p, ok := s.profiles[ip]
 	s.mu.RUnlock()
-	if !ok {
-		return 0, nil
+	if ok {
+		p.mu.Lock()
+		purgeEvents(p, time.Now(), s.window)
+		score, signals = analyze(p.events)
+		p.mu.Unlock()
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	purgeEvents(p, time.Now(), s.window)
-	return analyze(p.events)
+
+	// Ajoute la contribution sous-réseau (scan distribué).
+	if key := subnetKey(ip); key != "" {
+		s.subnetMu.RLock()
+		sp, spok := s.subnets[key]
+		s.subnetMu.RUnlock()
+		if spok {
+			sp.mu.Lock()
+			purgeSubnetEvents(sp, time.Now(), s.window)
+			subScore, subSigs := analyzeSubnet(sp)
+			sp.mu.Unlock()
+			score += subScore
+			signals = append(signals, subSigs...)
+		}
+	}
+
+	return score, signals
 }
 
 // Record enregistre un événement pour une IP et retourne le score mis à jour.
 func (s *Store) Record(ip string, ev Event) (score int, signals []Signal) {
+	ev.SourceIP = ip
+
 	s.mu.Lock()
 	p, ok := s.profiles[ip]
 	if !ok {
@@ -106,6 +153,23 @@ func (s *Store) Record(ip string, ev Event) (score int, signals []Signal) {
 	if ev.WafScore == 0 && ev.Status >= 200 && ev.Status < 400 {
 		p.cleanRequests++
 	}
+
+	// Agrégation sous-réseau pour détecter les scans distribués.
+	if key := subnetKey(ip); key != "" {
+		s.subnetMu.Lock()
+		sp, ok := s.subnets[key]
+		if !ok {
+			sp = &subnetProfile{ips: make(map[string]struct{})}
+			s.subnets[key] = sp
+		}
+		s.subnetMu.Unlock()
+		sp.mu.Lock()
+		purgeSubnetEvents(sp, ev.At, s.window)
+		sp.events = append(sp.events, ev)
+		sp.ips[ip] = struct{}{}
+		sp.mu.Unlock()
+	}
+
 	return analyze(p.events)
 }
 
@@ -220,6 +284,41 @@ func (s *Store) RestoreSnapshot(snap HAPayload) {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+func purgeSubnetEvents(sp *subnetProfile, now time.Time, window time.Duration) {
+	cutoff := now.Add(-window)
+	i := 0
+	for i < len(sp.events) && sp.events[i].At.Before(cutoff) {
+		i++
+	}
+	if i > 0 {
+		sp.events = sp.events[i:]
+	}
+	// Reconstruire l'ensemble des IPs actives après purge.
+	sp.ips = make(map[string]struct{}, len(sp.events))
+	for _, e := range sp.events {
+		if e.SourceIP != "" {
+			sp.ips[e.SourceIP] = struct{}{}
+		}
+	}
+}
+
+// analyzeSubnet retourne le score et les signaux du profil sous-réseau.
+func analyzeSubnet(sp *subnetProfile) (score int, signals []Signal) {
+	uniqueIPs := len(sp.ips)
+	n := len(sp.events)
+	if uniqueIPs < 5 || n < 10 {
+		return 0, nil
+	}
+	// Signal : ≥5 IPs distinctes dans le sous-réseau avec activité coordonnée.
+	s := 5
+	if uniqueIPs >= 10 {
+		s = 8
+	}
+	signals = append(signals, Signal{"distributed_scan", s})
+	score = s
+	return
+}
 
 func purgeEvents(p *Profile, now time.Time, window time.Duration) {
 	cutoff := now.Add(-window)
@@ -354,7 +453,6 @@ func (s *Store) gcLoop() {
 func (s *Store) gc() {
 	cutoff := time.Now().Add(-s.window)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for ip, p := range s.profiles {
 		p.mu.Lock()
 		active := len(p.events) > 0 && p.events[len(p.events)-1].At.After(cutoff)
@@ -363,6 +461,18 @@ func (s *Store) gc() {
 			delete(s.profiles, ip)
 		}
 	}
+	s.mu.Unlock()
+
+	s.subnetMu.Lock()
+	for key, sp := range s.subnets {
+		sp.mu.Lock()
+		active := len(sp.events) > 0 && sp.events[len(sp.events)-1].At.After(cutoff)
+		sp.mu.Unlock()
+		if !active {
+			delete(s.subnets, key)
+		}
+	}
+	s.subnetMu.Unlock()
 }
 
 // Len retourne le nombre de profils IP actifs dans le store.
@@ -377,6 +487,28 @@ func (s *Store) DeleteProfile(ip string) {
 	s.mu.Lock()
 	delete(s.profiles, ip)
 	s.mu.Unlock()
+
+	// Retire l'IP du sous-réseau correspondant.
+	if key := subnetKey(ip); key != "" {
+		s.subnetMu.Lock()
+		if sp, ok := s.subnets[key]; ok {
+			sp.mu.Lock()
+			delete(sp.ips, ip)
+			// Purge les événements de cette IP.
+			filtered := sp.events[:0]
+			for _, e := range sp.events {
+				if e.SourceIP != ip {
+					filtered = append(filtered, e)
+				}
+			}
+			sp.events = filtered
+			sp.mu.Unlock()
+			if len(filtered) == 0 {
+				delete(s.subnets, key)
+			}
+		}
+		s.subnetMu.Unlock()
+	}
 }
 
 // TrustBonus retourne le bonus de confiance d'une IP (0–5 points).
@@ -403,11 +535,12 @@ func calcTrustBonus(cleanReqs int64) int {
 }
 
 // Profiles retourne un snapshot des profils actifs avec score, signaux et trust.
+// Les profils sous-réseau sont inclus avec le préfixe "subnet:".
 func (s *Store) Profiles() map[string]ProfileInfo {
 	now := time.Now()
 	cutoff := now.Add(-s.window)
+
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	out := make(map[string]ProfileInfo, len(s.profiles))
 	for ip, p := range s.profiles {
 		p.mu.Lock()
@@ -424,5 +557,24 @@ func (s *Store) Profiles() map[string]ProfileInfo {
 		}
 		p.mu.Unlock()
 	}
+	s.mu.RUnlock()
+
+	s.subnetMu.RLock()
+	for key, sp := range s.subnets {
+		sp.mu.Lock()
+		if len(sp.events) > 0 && sp.events[len(sp.events)-1].At.After(cutoff) {
+			score, sigs := analyzeSubnet(sp)
+			if score > 0 {
+				out["subnet:"+key] = ProfileInfo{
+					Score:    score,
+					Signals:  sigs,
+					IsSubnet: true,
+				}
+			}
+		}
+		sp.mu.Unlock()
+	}
+	s.subnetMu.RUnlock()
+
 	return out
 }

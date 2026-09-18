@@ -291,46 +291,57 @@ pages['core-waf'] = async function() {
         request_burst: 'Rafale',
         high_post_ratio: 'Ratio POST',
         high_path_entropy: 'Entropie paths',
+        distributed_scan: 'Scan distribué',
       };
+      const ipRows = rows.filter(([k]) => !k.startsWith('subnet:'));
+      const subnetRows = rows.filter(([k]) => k.startsWith('subnet:'));
       if (rows.length === 0) {
         el.innerHTML = `<div style="text-align:center;padding:32px;color:var(--text2);font-size:13px;border:1px solid var(--border);border-radius:8px;">Aucun profil comportemental actif</div>`;
         return;
       }
+      const renderRows = (list, isSubnet) => list.map(([key, info]) => {
+        const display = isSubnet ? key.replace('subnet:', '') : key;
+        const canDelete = !isSubnet;
+        return `<tr>
+          <td style="font-family:monospace;">
+            ${isSubnet ? `<span style="display:inline-block;background:var(--orange);color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;margin-right:4px;vertical-align:middle;">SUBNET</span>` : ''}
+            ${esc(display)}
+          </td>
+          <td style="text-align:right;">
+            <span style="background:${scoreColor(info.score)};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;font-size:12px;">${info.score}</span>
+          </td>
+          <td>
+            ${(info.signals||[]).map(s => `
+              <span style="display:inline-flex;align-items:center;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 7px;font-size:11px;margin:1px;">
+                ${esc(signalLabels[s.name]||s.name)}
+                <span style="opacity:0.6;">+${s.score}</span>
+              </span>`).join('')}
+          </td>
+          <td style="text-align:center;font-size:12px;">
+            ${!isSubnet && info.trust_bonus > 0
+              ? `<span style="color:var(--green);font-weight:600;" title="${info.clean_requests} req propres">+${info.trust_bonus}</span>`
+              : `<span style="opacity:0.4;">–</span>`}
+          </td>
+          <td style="text-align:right;">
+            ${canDelete ? `<button class="btn btn-ghost" style="color:var(--red);font-size:12px;" onclick="deleteWafBehaviorProfile('${esc(key)}')">Supprimer</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('');
       el.innerHTML = `
         <div class="card blueprint" style="overflow:hidden;">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div class="table-wrap">
           <table class="table">
             <thead><tr>
-              <th>IP</th>
+              <th>IP / Sous-réseau</th>
               <th style="text-align:right;">Score</th>
               <th>Signaux déclenchés</th>
               <th style="text-align:center;">Crédit confiance</th>
               <th></th>
             </tr></thead>
             <tbody>
-              ${rows.map(([ip, info]) => `
-                <tr>
-                  <td style="font-family:monospace;">${esc(ip)}</td>
-                  <td style="text-align:right;">
-                    <span style="background:${scoreColor(info.score)};color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;font-size:12px;">${info.score}</span>
-                  </td>
-                  <td>
-                    ${(info.signals||[]).map(s => `
-                      <span style="display:inline-flex;align-items:center;gap:3px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 7px;font-size:11px;margin:1px;">
-                        ${esc(signalLabels[s.name]||s.name)}
-                        <span style="opacity:0.6;">+${s.score}</span>
-                      </span>`).join('')}
-                  </td>
-                  <td style="text-align:center;font-size:12px;">
-                    ${info.trust_bonus > 0
-                      ? `<span style="color:var(--green);font-weight:600;" title="${info.clean_requests} req propres">+${info.trust_bonus}</span>`
-                      : `<span style="opacity:0.4;" title="${info.clean_requests||0} req propres">–</span>`}
-                  </td>
-                  <td style="text-align:right;">
-                    <button class="btn btn-ghost" style="color:var(--red);font-size:12px;" onclick="deleteWafBehaviorProfile('${esc(ip)}')">Supprimer</button>
-                  </td>
-                </tr>`).join('')}
+              ${renderRows(ipRows, false)}
+              ${renderRows(subnetRows, true)}
             </tbody>
           </table>
           </div>
