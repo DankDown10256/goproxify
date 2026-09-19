@@ -27,12 +27,8 @@ git push origin main
 
 Après **tout** changement (feature, bugfix, refacto), vérifier et mettre à jour si nécessaire :
 
-> **`versions.json` — PATCH géré par le CI Harness** (`bump_version` stage).
-> Ne pas bumper le PATCH manuellement : le pipeline le fait automatiquement à chaque push selon les chemins modifiés.
-> Bumper le **MINOR manuellement** uniquement pour une nouvelle feature (le CI ne bumpe que le PATCH).
-
 1. **`suivi/changelog.md`** — entrée dans `[Unreleased]` (MAJOR.MINOR.PATCH)
-2. **`versions.json`** — MINOR uniquement si nouvelle feature (PATCH = CI) ; services concernés uniquement
+2. **`versions.json`** — MINOR si nouvelle feature, PATCH si bugfix ; services concernés uniquement
 3. **`suivi/roadmap-public.md`** — marquer livré ou ajouter si prévu
 4. **`docs/fonctionnalites.md`** — ajouter la fonctionnalité si nouvelle
 5. **`docs/api_specs.md`** — documenter tout nouvel endpoint ou modification d'API
