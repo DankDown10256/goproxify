@@ -464,33 +464,33 @@ async function renderSecurityBans(ctx) {
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
-      <div class="sec-kpi-row" style="margin-bottom:16px">
-        <div class="sec-kpi-tile">
-          <div class="sec-kpi-icon" style="color:var(--red)">${kpiSvgBan}</div>
-          <div class="sec-kpi-body">
-            <div class="sec-kpi-val">${bans.length}</div>
-            <div class="sec-kpi-label">${t('security.bans.kpi_active')}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="flex-shrink:0;color:var(--red)">${kpiSvgBan}</div>
+          <div>
+            <div style="font-size:20px;font-weight:700;line-height:1.2">${bans.length}</div>
+            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_active')}</div>
           </div>
         </div>
-        <div class="sec-kpi-tile">
-          <div class="sec-kpi-icon" style="color:var(--accent)">${kpiSvgPie}</div>
-          <div class="sec-kpi-body">
-            <div class="sec-kpi-val" style="font-size:13px;line-height:1.4">${sourceBreakdown}</div>
-            <div class="sec-kpi-label">${t('security.bans.kpi_by_source')}</div>
+        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="flex-shrink:0;color:var(--accent)">${kpiSvgPie}</div>
+          <div>
+            <div style="font-size:13px;font-weight:600;line-height:1.4">${sourceBreakdown}</div>
+            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_by_source')}</div>
           </div>
         </div>
-        <div class="sec-kpi-tile">
-          <div class="sec-kpi-icon" style="color:var(--blue)">${kpiSvgCS}</div>
-          <div class="sec-kpi-body">
-            <div class="sec-kpi-val">${(threats||[]).length}</div>
-            <div class="sec-kpi-label">${t('security.bans.kpi_crowdsec')}</div>
+        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="flex-shrink:0;color:var(--blue)">${kpiSvgCS}</div>
+          <div>
+            <div style="font-size:20px;font-weight:700;line-height:1.2">${(threats||[]).length}</div>
+            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_crowdsec')}</div>
           </div>
         </div>
-        <div class="sec-kpi-tile">
-          <div class="sec-kpi-icon" style="color:${expiringIn1h>0?'var(--yellow)':'var(--text3)'}">${kpiSvgClock}</div>
-          <div class="sec-kpi-body">
-            <div class="sec-kpi-val" style="color:${expiringIn1h>0?'var(--yellow)':'inherit'}">${expiringIn1h}</div>
-            <div class="sec-kpi-label">${t('security.bans.kpi_expiring')}</div>
+        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="flex-shrink:0;color:${expiringIn1h>0?'var(--yellow)':'var(--text3)'}">${kpiSvgClock}</div>
+          <div>
+            <div style="font-size:20px;font-weight:700;line-height:1.2;color:${expiringIn1h>0?'var(--yellow)':'inherit'}">${expiringIn1h}</div>
+            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_expiring')}</div>
           </div>
         </div>
       </div>
