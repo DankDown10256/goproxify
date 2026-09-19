@@ -35,7 +35,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 ## En cours / prochain
 
 - [x] Stabiliser les tags SemVer et Releases GitHub régulières
-- [ ] Hygiène CI publique (lint/tests documentés)
+- [x] Hygiène CI publique (lint/tests documentés)
 - [x] Polish UX Access et docs opérateur
 - [x] SBOM attaché à chaque Release (workflow sbom-sign.yml)
 
