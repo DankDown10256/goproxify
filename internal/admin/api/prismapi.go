@@ -50,6 +50,12 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.export(w, r)
 	case r.Method == http.MethodGet && path == "backend-errors":
 		h.backendErrors(w, r)
+	case r.Method == http.MethodGet && path == "bans/timeline":
+		h.bansTimeline(w, r)
+	case r.Method == http.MethodGet && path == "bans/by-source":
+		h.bansBySource(w, r)
+	case r.Method == http.MethodGet && path == "bans/top-ips":
+		h.bansTopIPs(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -331,4 +337,113 @@ func prismJSONErr(w http.ResponseWriter, err error, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}) //nolint:errcheck
+}
+
+// ── Bans analytics ───────────────────────────────────────────────────────────
+
+func (h *PrismHandler) bansTimeline(w http.ResponseWriter, r *http.Request) {
+	p := prismParams(r)
+	bucket := r.URL.Query().Get("bucket")
+	if bucket != "day" {
+		bucket = "hour"
+	}
+	var groupFmt string
+	if bucket == "day" {
+		groupFmt = "%Y-%m-%d"
+	} else {
+		groupFmt = "%Y-%m-%dT%H:00:00Z"
+	}
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT strftime(?, created_at) AS ts, COUNT(*) AS cnt
+		FROM security_ban_history
+		WHERE action = 'banned'
+		  AND created_at >= ? AND created_at <= ?
+		GROUP BY ts ORDER BY ts ASC`,
+		groupFmt,
+		p.From.UTC().Format("2006-01-02T15:04:05Z"),
+		p.To.UTC().Format("2006-01-02T15:04:05Z"),
+	)
+	if err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type pt struct {
+		TS    string `json:"ts"`
+		Count int    `json:"count"`
+	}
+	var out []pt
+	for rows.Next() {
+		var p pt
+		if rows.Scan(&p.TS, &p.Count) == nil {
+			out = append(out, p)
+		}
+	}
+	if out == nil {
+		out = []pt{}
+	}
+	jsonOK(w, out)
+}
+
+func (h *PrismHandler) bansBySource(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT source, COUNT(*) AS cnt
+		FROM security_bans
+		WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+		GROUP BY source ORDER BY cnt DESC`)
+	if err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		Source string `json:"source"`
+		Count  int    `json:"count"`
+	}
+	var out []row
+	for rows.Next() {
+		var rr row
+		if rows.Scan(&rr.Source, &rr.Count) == nil {
+			out = append(out, rr)
+		}
+	}
+	if out == nil {
+		out = []row{}
+	}
+	jsonOK(w, out)
+}
+
+func (h *PrismHandler) bansTopIPs(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT ip, COUNT(*) AS cnt, MAX(created_at) AS last_seen
+		FROM security_ban_history
+		WHERE action = 'banned'
+		GROUP BY ip ORDER BY cnt DESC LIMIT ?`, limit)
+	if err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	type row struct {
+		IP       string `json:"ip"`
+		Count    int    `json:"count"`
+		LastSeen string `json:"last_seen"`
+	}
+	var out []row
+	for rows.Next() {
+		var rr row
+		if rows.Scan(&rr.IP, &rr.Count, &rr.LastSeen) == nil {
+			out = append(out, rr)
+		}
+	}
+	if out == nil {
+		out = []row{}
+	}
+	jsonOK(w, out)
 }

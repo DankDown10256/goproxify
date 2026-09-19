@@ -6,7 +6,9 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -57,6 +59,8 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.listBanHistory(w, r)
 	case r.Method == http.MethodGet && sub == "bans" && id == "countries":
 		h.bansByCountry(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "export":
+		h.exportBans(w, r)
 	case r.Method == http.MethodGet && sub == "bans":
 		h.listBans(w, r)
 	case r.Method == http.MethodPost && sub == "bans":
@@ -905,4 +909,62 @@ func secJSONErr(w http.ResponseWriter, err error, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}) //nolint:errcheck
+}
+
+// ── Export bans ───────────────────────────────────────────────────────────────
+
+func (h *SecurityHandler) exportBans(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	format := q.Get("format")
+	if format == "" {
+		format = "csv"
+	}
+
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT id, ip, domain, reason, source,
+		       COALESCE(strftime('%Y-%m-%dT%H:%M:%SZ', expires_at), '') AS expires_at,
+		       strftime('%Y-%m-%dT%H:%M:%SZ', created_at) AS created_at
+		FROM security_bans ORDER BY created_at DESC LIMIT 10000`)
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type row struct {
+		ID        string `json:"id"`
+		IP        string `json:"ip"`
+		Domain    string `json:"domain"`
+		Reason    string `json:"reason"`
+		Source    string `json:"source"`
+		ExpiresAt string `json:"expires_at"`
+		CreatedAt string `json:"created_at"`
+	}
+	var bans []row
+	for rows.Next() {
+		var b row
+		if rows.Scan(&b.ID, &b.IP, &b.Domain, &b.Reason, &b.Source, &b.ExpiresAt, &b.CreatedAt) == nil {
+			bans = append(bans, b)
+		}
+	}
+	if bans == nil {
+		bans = []row{}
+	}
+
+	ts := time.Now().Format("20060102-150405")
+	switch format {
+	case "json":
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=bans-export-%s.json", ts))
+		json.NewEncoder(w).Encode(bans) //nolint:errcheck
+	default: // csv
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=bans-export-%s.csv", ts))
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"id", "ip", "domain", "reason", "source", "expires_at", "created_at"})
+		for _, b := range bans {
+			_ = cw.Write([]string{b.ID, b.IP, b.Domain, b.Reason, b.Source, b.ExpiresAt, b.CreatedAt})
+		}
+		cw.Flush()
+	}
 }

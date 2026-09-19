@@ -535,6 +535,7 @@ async function renderSecurityBans(ctx) {
           <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>${t('security.bans_title')}</span>
           <div style="display:flex;gap:6px;margin-left:auto;align-items:center">
             ${['active','crowdsec','history'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="setBansTab('${tab}')">${t('security.bans.tab_'+tab)}</button>`).join('')}
+            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text3)" onclick="exportBansCSV()" title="Export CSV">CSV</button>
             <button class="btn btn-primary btn-sm" onclick="openBanModal()" style="margin-left:8px">${t('security.ban_add')}</button>
           </div>
         </div>
@@ -2848,6 +2849,16 @@ window.showHeaderFix = function(h) {
 };
 window.applyProxyHeaderFix = async function(proxyId) {
   if (proxyId) await openProxySecModal(proxyId);
+};
+
+window.exportBansCSV = function() {
+  fetch('/api/v1/security/bans/export?format=csv', { headers: { 'Authorization': 'Bearer ' + state.token } })
+    .then(r => r.blob()).then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'bans-export.csv';
+      a.click();
+    }).catch(e => toast('Export : ' + e.message, 'error'));
 };
 
 window.openBanModal = function() {

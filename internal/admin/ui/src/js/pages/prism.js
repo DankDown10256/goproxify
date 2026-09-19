@@ -322,6 +322,7 @@ async function renderPrismPage() {
         <div class="prism-panel prism-col-2" id="px-ips">${spin}</div>
         <div class="prism-panel" id="px-agents">${spin}</div>
         <div class="prism-panel prism-grid-wide" id="px-berrs">${spin}</div>
+        <div class="prism-panel prism-grid-wide" id="px-bans">${spin}</div>
       </div>`;
   }
 
@@ -364,6 +365,15 @@ async function renderPrismPage() {
     apiP('GET', '/prism/geo?' + q, signal)
       .then(d => { upd('prism-geo-panel', geoHtml(d)); renderChoropleth(d); })
       .catch(guard(() => upd('prism-geo-panel', geoHtml([]))));
+
+    // Section bans : timeline + by-source + top IPs
+    Promise.all([
+      apiP('GET', '/prism/bans/timeline?' + q, signal).catch(() => []),
+      apiP('GET', '/prism/bans/by-source', signal).catch(() => []),
+      apiP('GET', '/prism/bans/top-ips?limit=20', signal).catch(() => []),
+    ]).then(([timeline, bySource, topIPs]) => {
+      upd('px-bans', bansHtml(timeline, bySource, topIPs));
+    }).catch(() => upd('px-bans', bansHtml([], [], [])));
   }
 
   async function loadAll(opts = {}) {
@@ -1070,8 +1080,91 @@ async function renderPrismPage() {
     } catch(e) { out.innerHTML = `<p style="color:var(--red)">${t('prism.error')}: ${esc(e.message)}</p>`; }
   }
 
+  function bansHtml(timeline, bySource, topIPs) {
+    const title = `<div class="prism-panel-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Bans IP</span>
+      <a href="#" class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text3)" data-prism="export-bans" data-fmt="csv">Export CSV</a>
+    </div>`;
+
+    // Timeline sparkline
+    let timelineOut = '';
+    if (timeline && timeline.length > 0) {
+      const maxV = Math.max(...timeline.map(p => p.count), 1);
+      const w = 400, h = 60, pad = 4;
+      const pts = timeline.map((p, i) => {
+        const x = pad + (i / Math.max(timeline.length - 1, 1)) * (w - pad * 2);
+        const y = h - pad - (p.count / maxV) * (h - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      timelineOut = `<div style="margin-bottom:12px">
+        <div style="font-size:11px;opacity:.5;margin-bottom:4px">Bans / heure</div>
+        <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;overflow:visible">
+          <polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </div>`;
+    }
+
+    // By-source bars
+    let srcOut = '';
+    if (bySource && bySource.length > 0) {
+      const total = bySource.reduce((s, r) => s + r.count, 0) || 1;
+      const srcColors = { fail2ban: 'var(--yellow)', crowdsec: 'var(--blue)', rules_engine: 'var(--purple)', threat: 'var(--orange)', native: 'var(--text3)', admin: 'var(--green)' };
+      srcOut = `<div style="margin-bottom:12px">
+        <div style="font-size:11px;opacity:.5;margin-bottom:6px">Par source (actifs)</div>
+        ${bySource.map(r => {
+          const pct = (r.count / total * 100).toFixed(1);
+          const color = srcColors[r.source] || 'var(--text3)';
+          return `<div style="margin-bottom:4px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px">
+              <span style="opacity:.7">${esc(r.source)}</span><b>${r.count} <span style="opacity:.4">(${pct}%)</span></b>
+            </div>
+            <div style="height:4px;background:var(--border);border-radius:2px">
+              <div style="height:4px;width:${pct}%;background:${color};border-radius:2px"></div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    // Top IPs table
+    let ipsOut = '';
+    if (topIPs && topIPs.length > 0) {
+      ipsOut = `<div>
+        <div style="font-size:11px;opacity:.5;margin-bottom:6px">IPs les plus bannies</div>
+        <table class="prism-table">
+          <thead><tr><th>IP</th><th>Bans</th><th>Dernier ban</th></tr></thead>
+          <tbody>${topIPs.slice(0, 15).map(r => `
+            <tr>
+              <td><code style="font-size:11px">${esc(r.ip)}</code></td>
+              <td>${r.count}</td>
+              <td style="opacity:.6;font-size:11px">${r.last_seen ? r.last_seen.replace('T',' ').slice(0,16) : '—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }
+
+    const empty = !timelineOut && !srcOut && !ipsOut;
+    return title + (empty
+      ? `<p style="color:var(--text3);font-size:13px;margin-top:8px">Aucun ban enregistré sur la période.</p>`
+      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>${timelineOut}${srcOut}</div>
+          <div>${ipsOut}</div>
+        </div>`);
+  }
+
   function startLive() {
     toggleLiveMode();
+  }
+
+  function doExportBans(fmt) {
+    fetch('/api/v1/security/bans/export?format=' + fmt, { headers: { 'Authorization': 'Bearer ' + state.token } })
+      .then(r => r.blob()).then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `bans-export.${fmt}`;
+        a.click();
+      }).catch(e => toast('Export bans : ' + e.message, 'error'));
   }
 
   function doExport(fmt) {
@@ -1177,6 +1270,7 @@ async function renderPrismPage() {
       else if (act === 'compare') { e.preventDefault(); showCompare(); }
       else if (act === 'run-compare') { e.preventDefault(); runCompare(); }
       else if (act === 'export') { e.preventDefault(); doExport(el.getAttribute('data-fmt') || 'csv'); }
+      else if (act === 'export-bans') { e.preventDefault(); doExportBans(el.getAttribute('data-fmt') || 'csv'); }
       else if (act === 'live') { e.preventDefault(); startLive(); }
       else if (act === 'filter-ip') {
         e.preventDefault();

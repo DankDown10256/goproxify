@@ -7,6 +7,13 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Observabilité bans dans Prism (`webapp` · `admin`)
+
+- **Section "Bans IP" dans Prism** : timeline bans/heure (SVG sparkline), répartition par source (barres), top 15 IPs les plus bannies
+- **API Prism** : 3 nouveaux endpoints — `GET /api/v1/prism/bans/timeline`, `GET /api/v1/prism/bans/by-source`, `GET /api/v1/prism/bans/top-ips` — alimentés depuis `security_ban_history` et `security_bans`
+- **Export CSV bans** : bouton "CSV" sur la page Bans + endpoint `GET /api/v1/security/bans/export?format=csv|json` (10 000 bans max, fichier `bans-export-<ts>.csv`)
+- **Export CSV bans dans Prism** : lien "Export CSV" dans le panneau Bans de Prism
+
 ---
 
 ## [0.4.0] — 2026-09-19
