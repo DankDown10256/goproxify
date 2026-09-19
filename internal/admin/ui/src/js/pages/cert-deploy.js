@@ -110,7 +110,11 @@ function targetRow(tgt, certID, domain) {
     : `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
 
   const cfg = tgt.config || {};
-  const cfgHint = tgt.type === 'webhook' ? esc(cfg.url || '') : '';
+  const cfgHint = tgt.type === 'webhook'
+    ? esc(cfg.url || '')
+    : tgt.type === 'ssh_exec'
+    ? esc((cfg.user && cfg.host) ? `${cfg.user}@${cfg.host}` : (cfg.host || ''))
+    : '';
 
   return `<div class="card" style="padding:12px 14px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
@@ -186,11 +190,31 @@ window.openAddTargetModal = function(certID, domain) {
       <div class="field"><label>Type</label>
         <select class="input" id="tgt-type" onchange="onTgtTypeChange()">
           <option value="webhook">Webhook (HTTP POST signé)</option>
+          <option value="ssh_exec">SSH exec (script sur machine distante)</option>
         </select>
       </div>
       <div id="tgt-cfg-webhook" style="display:flex;flex-direction:column;gap:10px;">
         <div class="field"><label>URL du webhook</label><input class="input" id="tgt-url" placeholder="https://votre-serveur.com/cert-hook" type="url"></div>
         <div class="field"><label>Secret HMAC <span style="opacity:0.5;font-size:11px;">(optionnel)</span></label><input class="input" id="tgt-secret" placeholder="Clé secrète partagée" type="password" autocomplete="new-password"></div>
+      </div>
+      <div id="tgt-cfg-ssh" style="display:none;flex-direction:column;gap:10px;">
+        <div style="display:flex;gap:10px;">
+          <div class="field" style="flex:2"><label>Hôte</label><input class="input" id="tgt-ssh-host" placeholder="10.0.0.1:22 ou hostname"></div>
+          <div class="field" style="flex:1"><label>Utilisateur</label><input class="input" id="tgt-ssh-user" placeholder="deploy"></div>
+        </div>
+        <div class="field">
+          <label>Clé privée SSH (Ed25519 ou RSA)</label>
+          <textarea class="input" id="tgt-ssh-key" rows="5" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----" style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+        </div>
+        <div class="field">
+          <label>Script à exécuter</label>
+          <textarea class="input" id="tgt-ssh-script" rows="4" placeholder='echo "$GPX_CERT_PEM" > /etc/ssl/certs/$GPX_DOMAIN.pem
+echo "$GPX_KEY_PEM" > /etc/ssl/private/$GPX_DOMAIN.key
+nginx -s reload' style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+          <p style="margin:4px 0 0;font-size:11px;opacity:0.5;">Variables disponibles : <code>$GPX_DOMAIN</code>, <code>$GPX_CERT_PEM</code>, <code>$GPX_KEY_PEM</code>, <code>$GPX_EXPIRES_AT</code></p>
+        </div>
       </div>
       <div class="field"><label>Déclenchement</label>
         <select class="input" id="tgt-trigger">
@@ -205,7 +229,11 @@ window.openAddTargetModal = function(certID, domain) {
   );
 };
 
-window.onTgtTypeChange = function() {};
+window.onTgtTypeChange = function() {
+  const type = document.getElementById('tgt-type')?.value;
+  document.getElementById('tgt-cfg-webhook').style.display = type === 'webhook' ? 'flex' : 'none';
+  document.getElementById('tgt-cfg-ssh').style.display = type === 'ssh_exec' ? 'flex' : 'none';
+};
 
 window.submitAddTarget = async function(certID, domain) {
   const name = document.getElementById('tgt-name')?.value.trim();
@@ -219,6 +247,16 @@ window.submitAddTarget = async function(certID, domain) {
     };
     if (!config.url) { alert('URL requise'); return; }
     if (!config.secret) delete config.secret;
+  } else if (type === 'ssh_exec') {
+    config = {
+      host:        document.getElementById('tgt-ssh-host')?.value.trim(),
+      user:        document.getElementById('tgt-ssh-user')?.value.trim(),
+      private_key: document.getElementById('tgt-ssh-key')?.value.trim(),
+      script:      document.getElementById('tgt-ssh-script')?.value.trim(),
+    };
+    if (!config.host || !config.user || !config.private_key || !config.script) {
+      alert('Hôte, utilisateur, clé privée et script sont requis'); return;
+    }
   }
   if (!name) { alert('Nom requis'); return; }
   try {

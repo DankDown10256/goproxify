@@ -12,9 +12,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Deployer déclenche les déploiements de certificats vers les cibles configurées.
@@ -96,6 +100,8 @@ func (d *Deployer) runTarget(ctx context.Context, targetID, certID, typ, cfgJSON
 	switch typ {
 	case "webhook":
 		status, msg = d.doWebhook(cfgJSON, domain, certPEM, keyPEM, expiresAt)
+	case "ssh_exec":
+		status, msg = d.doSSHExec(cfgJSON, domain, certPEM, keyPEM)
 	default:
 		status, msg = "error", "type non supporté: "+typ
 	}
@@ -161,4 +167,80 @@ func (d *Deployer) recordHistory(targetID, certID, status, message string) {
 func certFingerprint(certPEM []byte) string {
 	h := sha256.Sum256(certPEM)
 	return hex.EncodeToString(h[:])
+}
+
+// ── SSH exec ──────────────────────────────────────────────────────────────
+
+type sshConfig struct {
+	Host       string `json:"host"`        // "10.0.0.1:22"
+	User       string `json:"user"`        // "deploy"
+	PrivateKey string `json:"private_key"` // PEM de la clé privée Ed25519/RSA
+	// Script exécuté sur la cible. Les variables d'env suivantes sont injectées :
+	//   GPX_CERT_PEM, GPX_KEY_PEM, GPX_DOMAIN, GPX_EXPIRES_AT
+	// Exemple : "echo \"$GPX_CERT_PEM\" > /etc/ssl/certs/$GPX_DOMAIN.pem && nginx -s reload"
+	Script string `json:"script"`
+}
+
+func (d *Deployer) doSSHExec(cfgJSON, domain, certPEM, keyPEM string) (string, string) {
+	var cfg sshConfig
+	if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil || cfg.Host == "" || cfg.User == "" || cfg.Script == "" {
+		return "error", "config ssh_exec invalide (host, user, script requis)"
+	}
+
+	signer, err := ssh.ParsePrivateKey([]byte(cfg.PrivateKey))
+	if err != nil {
+		return "error", "clé privée SSH invalide: " + err.Error()
+	}
+
+	clientCfg := &ssh.ClientConfig{
+		User:            cfg.User,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec — cible interne, pas de TOFU pour le MVP
+		Timeout:         20 * time.Second,
+	}
+
+	host := cfg.Host
+	if !strings.Contains(host, ":") {
+		host += ":22"
+	}
+
+	conn, err := ssh.Dial("tcp", host, clientCfg)
+	if err != nil {
+		return "error", "connexion SSH échouée: " + err.Error()
+	}
+	defer conn.Close()
+
+	sess, err := conn.NewSession()
+	if err != nil {
+		return "error", "session SSH échouée: " + err.Error()
+	}
+	defer sess.Close()
+
+	// Injecte les variables d'environnement via le script lui-même (pas SetEnv,
+	// souvent désactivé côté serveur). On préfixe le script avec les exports.
+	script := fmt.Sprintf(
+		"export GPX_DOMAIN=%q GPX_EXPIRES_AT=%q GPX_CERT_PEM GPX_KEY_PEM\nGPX_CERT_PEM=%q\nGPX_KEY_PEM=%q\n%s",
+		domain, "", certPEM, keyPEM, cfg.Script,
+	)
+
+	var stderr bytes.Buffer
+	sess.Stderr = &stderr
+	out, err := sess.Output(script)
+	if err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+		return "error", "script SSH échoué: " + errMsg
+	}
+
+	outStr := strings.TrimSpace(string(out))
+	_ = io.Discard // évite import inutilisé
+	if len(outStr) > 200 {
+		outStr = outStr[:200] + "…"
+	}
+	if outStr == "" {
+		outStr = "ok"
+	}
+	return "ok", outStr
 }
