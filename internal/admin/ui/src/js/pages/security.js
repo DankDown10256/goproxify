@@ -2866,12 +2866,12 @@ window.openRuleModal = function(ruleJSON) {
   const actOptions = _ACTION_TYPES.map(a=>`<option value="${a.value}"${act.type===a.value?' selected':''}>${a.label}</option>`).join('');
 
   const modal = document.createElement('div');
-  modal.className = 'modal-backdrop';
+  modal.className = 'modal-overlay';
   modal.innerHTML = `
     <div class="modal" style="max-width:540px;width:100%">
       <div class="modal-header">
         <span class="modal-title">${isEdit ? t('security.rules.edit') : t('security.rules.add')}</span>
-        <button class="btn-close" onclick="this.closest('.modal-backdrop').remove()">✕</button>
+        <button class="btn-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
       </div>
       <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
         <div class="field" style="margin:0">
@@ -2912,7 +2912,7 @@ window.openRuleModal = function(ruleJSON) {
         </label>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="this.closest('.modal-backdrop').remove()">${t('common.cancel')}</button>
+        <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">${t('common.cancel')}</button>
         <button class="btn btn-primary" onclick="_reSaveRule('${isEdit?rule.id:''}')">${t('common.save')}</button>
       </div>
     </div>`;
@@ -3041,7 +3041,7 @@ window._reSaveRule = async function(existingId) {
     } else {
       await api('POST', '/rules-engine/rules', payload);
     }
-    document.querySelector('.modal-backdrop')?.remove();
+    document.querySelector('.modal-overlay')?.remove();
     toast(t('common.saved'), 'success');
     renderSecurityRules();
   } catch(e) { toast(e.message,'error'); }
