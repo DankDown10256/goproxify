@@ -801,6 +801,104 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
 		backends = append(backends, *bs)
 	}
 
+	// Proxies breakdown par host
+	type proxyStat struct {
+		Host          string  `json:"host"`
+		Requests      float64 `json:"requests"`
+		Errors        float64 `json:"errors"`
+		ErrorRate     float64 `json:"error_rate"`
+		P95ms         float64 `json:"p95_ms"`
+		ActiveReqs    float64 `json:"active_requests"`
+		BytesIn       float64 `json:"bytes_in"`
+		BytesOut      float64 `json:"bytes_out"`
+		BlockedTotal  float64 `json:"blocked_total"`
+	}
+	proxyMap := map[string]*proxyStat{}
+	ensureProxy := func(host string) *proxyStat {
+		if ps, ok := proxyMap[host]; ok {
+			return ps
+		}
+		ps := &proxyStat{Host: host}
+		proxyMap[host] = ps
+		return ps
+	}
+	if mf, ok := idx["gpx_core_requests_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			ps := ensureProxy(host)
+			ps.Requests += m.GetCounter().GetValue()
+			if st := labelVal(m.GetLabel(), "status"); len(st) > 0 && st[0] == '5' {
+				ps.Errors += m.GetCounter().GetValue()
+			}
+		}
+	}
+	if mf, ok := idx["gpx_core_active_requests"]; ok {
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			ensureProxy(host).ActiveReqs = m.GetGauge().GetValue()
+		}
+	}
+	if mf, ok := idx["gpx_core_request_duration_seconds"]; ok {
+		type hstat struct{ sum, count float64 }
+		durByHost := map[string]hstat{}
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			h := m.GetHistogram()
+			e := durByHost[host]
+			e.sum += h.GetSampleSum()
+			e.count += float64(h.GetSampleCount())
+			durByHost[host] = e
+		}
+		for host, e := range durByHost {
+			if e.count > 0 {
+				ensureProxy(host).P95ms = (e.sum / e.count) * 1000
+			}
+		}
+	}
+	if mf, ok := idx["gpx_core_bytes_received_by_host_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			ensureProxy(host).BytesIn = m.GetCounter().GetValue()
+		}
+	}
+	if mf, ok := idx["gpx_core_bytes_sent_by_host_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			ensureProxy(host).BytesOut = m.GetCounter().GetValue()
+		}
+	}
+	if mf, ok := idx["gpx_pipeline_blocked_total"]; ok {
+		for _, m := range mf.GetMetric() {
+			host := labelVal(m.GetLabel(), "host")
+			if host == "" {
+				continue
+			}
+			ensureProxy(host).BlockedTotal += m.GetCounter().GetValue()
+		}
+	}
+	proxies := make([]proxyStat, 0, len(proxyMap))
+	for _, ps := range proxyMap {
+		if ps.Requests > 0 {
+			ps.ErrorRate = ps.Errors / ps.Requests * 100
+		}
+		proxies = append(proxies, *ps)
+	}
+
 	// Certs expiry (secondes restantes)
 	type certStat struct {
 		Domain  string  `json:"domain"`
@@ -845,6 +943,7 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
 		"backends":           backends,
 		"certs":              certs,
 		"pipeline":           pipeline,
+		"proxies":            proxies,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

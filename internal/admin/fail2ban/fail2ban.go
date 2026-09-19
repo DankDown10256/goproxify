@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 )
 
 // Config paramètre le moteur Fail2Ban.
@@ -127,6 +128,7 @@ func (e *Engine) scan() {
 	e.lastActivityMu.Lock()
 	e.lastActivity = time.Now()
 	e.lastActivityMu.Unlock()
+	adminmetrics.F2B.ScansTotal.Inc()
 
 	window := cfg.WindowSec
 	if window <= 0 {
@@ -184,6 +186,7 @@ func (e *Engine) scan() {
 				e.db.Exec( //nolint:errcheck
 					`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
 					rawIP, "", reason, "fail2ban", banID)
+				adminmetrics.F2B.BansTotal.Inc()
 				e.log.Info("fail2ban: IP bannie automatiquement", "ip", rawIP, "errors", count)
 				if e.OnBan != nil {
 					e.OnBan(rawIP, reason)

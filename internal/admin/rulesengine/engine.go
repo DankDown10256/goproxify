@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 )
 
 const defaultInterval = 60 * time.Second
@@ -83,6 +85,7 @@ func (e *Engine) loop() {
 }
 
 func (e *Engine) evalAll() {
+	adminmetrics.RulesEngine.EvalsTotal.Inc()
 	rules, err := e.loadRules()
 	if err != nil {
 		e.log.Error("rulesengine: chargement règles", "err", err)
@@ -126,8 +129,10 @@ func (e *Engine) evalRule(ctx context.Context, rule Rule) {
 	errStr := ""
 	if actionErr != nil {
 		errStr = actionErr.Error()
+		adminmetrics.RulesEngine.ActionsTotal.WithLabelValues(string(rule.Action.Type), "error").Inc()
 		e.log.Warn("rulesengine: action échouée", "rule", rule.Name, "action", rule.Action.Type, "err", actionErr)
 	} else {
+		adminmetrics.RulesEngine.ActionsTotal.WithLabelValues(string(rule.Action.Type), "success").Inc()
 		e.log.Info("rulesengine: règle déclenchée", "rule", rule.Name, "action", rule.Action.Type)
 	}
 

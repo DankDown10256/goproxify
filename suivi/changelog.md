@@ -7,6 +7,15 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Métriques par proxy (`core` 0.3.95 · `admin` 0.3.4)
+
+- **Option A** — `handleMetricsSummary` (`GET /internal/v1/metrics/summary`) : nouveau champ `proxies[]` avec détail par host : `requests`, `errors`, `error_rate`, `p95_ms`, `active_requests`, `bytes_in`, `bytes_out`, `blocked_total`
+- **Option B** — Prometheus : 2 nouveaux CounterVec `gpx_core_bytes_received_by_host_total{host}` et `gpx_core_bytes_sent_by_host_total{host}` pour tracer les octets par proxy ; `dispatch.go` mis à jour
+- **Option C** — Métriques Prometheus des moteurs Admin (`internal/admin/adminmetrics`) :
+  - `gpx_f2b_bans_total` / `gpx_f2b_scans_total` (Fail2Ban)
+  - `gpx_crowdsec_decisions_total{action}` / `gpx_crowdsec_syncs_total{result}` (CrowdSec)
+  - `gpx_rulesengine_evals_total` / `gpx_rulesengine_actions_total{action,result}` (moteur de règles)
+
 ### Modifié — Moteurs de ban indépendants (`webapp` 0.4.4)
 
 - **Page Moteurs de ban** : remplacement du sélecteur radio exclusif (native/fail2ban/crowdsec) par 3 cartes indépendantes avec toggle — Fail2Ban, CrowdSec et Sentinel peuvent être activés simultanément

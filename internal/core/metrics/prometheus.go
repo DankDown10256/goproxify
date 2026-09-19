@@ -38,13 +38,15 @@ var (
 
 // Core expose les métriques Prometheus du Core.
 var Core = struct {
-	RequestsTotal   *prometheus.CounterVec
-	RequestDuration *prometheus.HistogramVec
-	ActiveRequests  *prometheus.GaugeVec
-	BytesIn         prometheus.Counter
-	BytesOut        prometheus.Counter
-	RouteCount      prometheus.Gauge
-	CertCount       prometheus.Gauge
+	RequestsTotal    *prometheus.CounterVec
+	RequestDuration  *prometheus.HistogramVec
+	ActiveRequests   *prometheus.GaugeVec
+	BytesIn          prometheus.Counter
+	BytesOut         prometheus.Counter
+	BytesInByHost    *prometheus.CounterVec
+	BytesOutByHost   *prometheus.CounterVec
+	RouteCount       prometheus.Gauge
+	CertCount        prometheus.Gauge
 }{
 	RequestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "gpx",
@@ -72,15 +74,29 @@ var Core = struct {
 		Namespace: "gpx",
 		Subsystem: "core",
 		Name:      "bytes_received_total",
-		Help:      "Octets reçus (tous protocoles).",
+		Help:      "Octets reçus (tous protocoles, agrégé).",
 	}),
 
 	BytesOut: promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "gpx",
 		Subsystem: "core",
 		Name:      "bytes_sent_total",
-		Help:      "Octets envoyés (tous protocoles).",
+		Help:      "Octets envoyés (tous protocoles, agrégé).",
 	}),
+
+	BytesInByHost: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "core",
+		Name:      "bytes_received_by_host_total",
+		Help:      "Octets reçus par proxy (host).",
+	}, []string{"host"}),
+
+	BytesOutByHost: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "core",
+		Name:      "bytes_sent_by_host_total",
+		Help:      "Octets envoyés par proxy (host).",
+	}, []string{"host"}),
 
 	RouteCount: promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: "gpx",

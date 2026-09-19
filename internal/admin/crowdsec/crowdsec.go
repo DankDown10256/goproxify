@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 )
 
 // Config paramètre l'intégration CrowdSec.
@@ -159,6 +161,7 @@ func (b *Bouncer) sync(ctx context.Context, cfg Config) {
 	b.lastSyncMu.Lock()
 	b.lastSync = time.Now()
 	b.lastSyncMu.Unlock()
+	adminmetrics.CrowdSec.SyncsTotal.WithLabelValues("attempt").Inc()
 
 	b.mu.Lock()
 	startup := b.startup
@@ -226,6 +229,8 @@ func (b *Bouncer) sync(ctx context.Context, cfg Config) {
 		b.mu.Lock()
 		b.startup = false
 		b.mu.Unlock()
+		adminmetrics.CrowdSec.DecisionsTotal.WithLabelValues("new").Add(float64(len(stream.New)))
+		adminmetrics.CrowdSec.SyncsTotal.WithLabelValues("success").Inc()
 		b.log.Info("crowdsec: snapshot LAPI appliqué", "decisions", len(stream.New))
 	} else {
 		nNew, nDel, inserted, err := b.applyDelta(ctx, stream.New, stream.Deleted)
@@ -235,6 +240,9 @@ func (b *Bouncer) sync(ctx context.Context, cfg Config) {
 		}
 		if nNew > 0 || nDel > 0 {
 			changed = true
+			adminmetrics.CrowdSec.DecisionsTotal.WithLabelValues("new").Add(float64(nNew))
+			adminmetrics.CrowdSec.DecisionsTotal.WithLabelValues("deleted").Add(float64(nDel))
+			adminmetrics.CrowdSec.SyncsTotal.WithLabelValues("success").Inc()
 			b.log.Info("crowdsec: delta synchronisé", "new", nNew, "deleted", nDel)
 		}
 		if b.OnNewDecision != nil {
