@@ -23,11 +23,16 @@ async function renderCertsPage(ctx) {
   }
 
   try {
-    const [allDomains, tokens, nodes] = await Promise.all([
+    const [allDomains, tokens, nodes, tlsMetrics] = await Promise.all([
       api('GET', '/domains').catch(() => []),
       api('GET', '/tokens?role=core').catch(() => []),
       api('GET', '/nodes').catch(() => []),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
+    const tlsMap = {};
+    for (const c of (tlsMetrics?.tls?.certs || [])) {
+      if (c.domain) tlsMap[c.domain.toLowerCase()] = c;
+    }
     const cores = _buildDomainCores(tokens, nodes);
     const coreName = id => {
       const c = cores.find(c => c.id === id || c.node_name === id);
@@ -86,11 +91,19 @@ async function renderCertsPage(ctx) {
               ${rows.length ? rows.map(d => {
                 const exp = d.cert_expires_at ? new Date(d.cert_expires_at) : null;
                 const days = exp ? Math.round((exp - Date.now()) / 86400000) : null;
-                const certTag = days == null ? `<span class="tag tag-neutral">—</span>`
-                  : days < 0   ? `<span class="tag tag-red">${t('domains.cert_expired')}</span>`
-                  : days < 7   ? `<span class="tag tag-red">${t('domains.cert_days_warn', { n: days })}</span>`
-                  : days < 30  ? `<span class="tag tag-yellow">${t('domains.cert_days_left', { n: days })}</span>`
-                  :              `<span class="tag tag-green">${t('domains.cert_valid', { n: days })}</span>`;
+                const pm = tlsMap[d.domain?.toLowerCase()] || null;
+                const promDays = pm?.expires_in_seconds != null ? Math.round(pm.expires_in_seconds / 86400) : null;
+                const certDays = promDays ?? days;
+                const certTag = certDays == null ? `<span class="tag tag-neutral">—</span>`
+                  : certDays < 0   ? `<span class="tag tag-red">${t('domains.cert_expired')}</span>`
+                  : certDays < 7   ? `<span class="tag tag-red">${t('domains.cert_days_warn', { n: certDays })}</span>`
+                  : certDays < 30  ? `<span class="tag tag-yellow">${t('domains.cert_days_left', { n: certDays })}</span>`
+                  :                  `<span class="tag tag-green">${t('domains.cert_valid', { n: certDays })}</span>`;
+                const handshakeP95 = pm?.handshake_p95_ms;
+                const activeConns = pm?.active_connections;
+                const tlsMetricsHtml = (handshakeP95 != null || activeConns != null)
+                  ? `<div style="font-size:10px;opacity:.5;margin-top:2px">${handshakeP95!=null?`p95 ${Math.round(handshakeP95)} ms`:''} ${activeConns!=null?`· ${activeConns} conx`:''}`.trim() + `</div>`
+                  : '';
                 const prov = DNS_PROVIDERS.find(p => p.id === d.dns_provider);
                 const provLabel = prov && d.dns_provider !== 'none' ? prov.name : 'HTTP-01';
                 const delegLabel = d.delegated_to_core_id
@@ -100,7 +113,7 @@ async function renderCertsPage(ctx) {
                   <td><b>${esc(d.domain)}</b></td>
                   ${isAdmin ? `<td><span class="tag tag-neutral">${esc(coreName(d.core_id))}</span></td>` : ''}
                   <td style="color:var(--text2);font-size:12px">${esc(provLabel)}</td>
-                  <td>${certTag}</td>
+                  <td>${certTag}${tlsMetricsHtml}</td>
                   <td>${delegLabel}</td>
                   <td><div style="display:inline-flex;gap:4px">
                     <button class="btn btn-ghost btn-icon btn-sm" onclick="openDomainModal('${esc(d.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>

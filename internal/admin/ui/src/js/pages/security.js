@@ -297,6 +297,7 @@ async function renderSecurityOverview(ctx) {
     const fetches = [
       api('GET', '/security/overview'),
       api('GET', '/security/timeline?limit=40&source=all'),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
       api('GET', `/security/ips-provider${coreQ}`).catch(() => null),
       api('GET', `/security/threat-config${coreQ}`).catch(() => null),
       api('GET', '/security/fail2ban').catch(() => null),
@@ -307,7 +308,7 @@ async function renderSecurityOverview(ctx) {
       fetches.push(api('GET', '/security/bans?active=true').catch(() => []));
       fetches.push(api('GET', '/security/cves').catch(() => []));
     }
-    const [ovData, timeline, ipsProvider, threatCfg, f2bCfg, csCfg, rulesRaw, bansRaw, cvesRaw] = await Promise.all(fetches);
+    const [ovData, timeline, metricsSec, ipsProvider, threatCfg, f2bCfg, csCfg, rulesRaw, bansRaw, cvesRaw] = await Promise.all(fetches);
     const ov = ovData?.overview || {};
     let headers = filterSecHeaders(ov.headers || [], coreCtx);
     let certs = filterSecCerts(ovData?.certs || [], coreCtx);
@@ -383,6 +384,41 @@ async function renderSecurityOverview(ctx) {
         </div>` : ''}
       </div>
 
+      ${metricsSec ? (() => {
+        const mSec = metricsSec;
+        const f2bBans = mSec.f2b?.bans_total ?? '—';
+        const f2bScans = mSec.f2b?.scans_total ?? '—';
+        const csNew = mSec.crowdsec?.decisions_new ?? '—';
+        const csDel = mSec.crowdsec?.decisions_deleted ?? '—';
+        const wafProfiles = mSec.waf?.profiles_active ?? '—';
+        const pipeline = mSec.pipeline || [];
+        const top3 = [...pipeline].sort((a,b)=>(b.blocked_total||0)-(a.blocked_total||0)).slice(0,3);
+        return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="card blueprint" style="padding:14px 16px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Fail2Ban</div>
+            <div style="font-size:20px;font-weight:700">${f2bBans} <span style="font-size:12px;font-weight:400;opacity:.5">bans</span></div>
+            <div style="font-size:11px;opacity:.5;margin-top:4px">${f2bScans} cycles de scan</div>
+          </div>
+          <div class="card blueprint" style="padding:14px 16px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">CrowdSec</div>
+            <div style="font-size:20px;font-weight:700">${csNew} <span style="font-size:12px;font-weight:400;opacity:.5">new</span></div>
+            <div style="font-size:11px;opacity:.5;margin-top:4px">${csDel} supprimées</div>
+          </div>
+          <div class="card blueprint" style="padding:14px 16px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">WAF comportemental</div>
+            <div style="font-size:20px;font-weight:700">${wafProfiles} <span style="font-size:12px;font-weight:400;opacity:.5">profils</span></div>
+            <div style="font-size:11px;opacity:.5;margin-top:4px">IPs suivies en mémoire</div>
+          </div>
+          <div class="card blueprint" style="padding:14px 16px">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Pipeline bloqués</div>
+            ${top3.length ? top3.map(s=>`<div style="font-size:11px;display:flex;justify-content:space-between"><span style="opacity:.7">${esc(s.stage)}</span><span style="font-weight:600">${s.blocked_total}</span></div>`).join('') : '<div style="font-size:12px;opacity:.4">—</div>'}
+          </div>
+        </div>`;
+      })() : ''}
       ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
 
       <div class="card blueprint" style="margin-bottom:20px">
@@ -2652,13 +2688,15 @@ async function renderSecurityRules() {
   if (ta) ta.innerHTML = `<button class="btn btn-primary btn-sm" onclick="openRuleModal(null)">${t('security.rules.add')}</button>`;
 
   try {
-    const [rules, history] = await Promise.all([
+    const [rules, history, reMetrics] = await Promise.all([
       api('GET', '/rules-engine/rules'),
       api('GET', '/rules-engine/history'),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
     window._reRules = rules || [];
     window._reHistory = history || [];
     window._reTab = window._reTab || 'rules';
+    window._reMetrics = reMetrics;
     content.innerHTML = _rulesPageHTML();
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -2672,7 +2710,14 @@ function _rulesPageHTML() {
   const tabBar = `<div style="display:flex;gap:6px;margin-bottom:16px">
     ${tabs.map(t2=>`<button class="btn btn-sm${tab===t2.v?' btn-primary':' btn-ghost'}" onclick="setReTab('${t2.v}')">${t2.label}</button>`).join('')}
   </div>`;
-  return tabBar + (tab === 'history' ? _reHistoryHTML() : _reRulesHTML());
+  const m = window._reMetrics?.rules_engine;
+  const metricsBand = m ? `<div style="display:flex;gap:20px;flex-wrap:wrap;padding:12px 16px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px">
+    <div><span style="opacity:.5">Cycles/min : </span><b>${m.evals_per_minute != null ? m.evals_per_minute.toFixed(2) : '—'}</b></div>
+    <div><span style="opacity:.5">Durée moy. : </span><b>${m.avg_duration_ms != null ? Math.round(m.avg_duration_ms) + ' ms' : '—'}</b></div>
+    <div><span style="opacity:.5">Règles actives : </span><b>${m.active_rules ?? '—'}</b></div>
+    <div><span style="opacity:.5">Actions déclenchées : </span><b>${m.actions_total ?? '—'}</b></div>
+  </div>` : '';
+  return metricsBand + tabBar + (tab === 'history' ? _reHistoryHTML() : _reRulesHTML());
 }
 
 function _reRulesHTML() {

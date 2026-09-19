@@ -7,6 +7,17 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Intégration métriques Prometheus dans l'UI admin (`webapp` 0.4.5)
+
+- **Dashboard** : bande temps réel (req/s global, taux d'erreur 5xx, bytes in/out) ; sparklines p95 latence + req/s sur chaque nœud Core ; alertes cert expiry Prometheus (<7j) ; indicateur backends dégradés
+- **Trafic/Proxies** : bande métriques par proxy sur chaque tuile (req/s, taux d'erreur, p95, backends up)
+- **Sécurité Overview** : 4 tuiles métriques (Fail2Ban bans/scans, CrowdSec new/deleted, WAF profils actifs, Pipeline top 3 stages)
+- **Moteur de règles** : bande métriques (cycles/min, durée moy., règles actives, actions déclenchées)
+- **Infrastructure** : bande métriques cluster (WS Admin/Agent connections, peer sync moyen)
+- **Domaines/TLS** : enrichissement cert expiry depuis Prometheus + p95 handshake et connexions actives
+- **Portal** : KPI sessions actives (one_shot vs multi) depuis `gpx_portal_sessions_active`
+- **Prism** : section top proxies (p95 latence + taux d'erreur) depuis `/internal/v1/metrics/summary`
+
 ### Ajouté — Métriques complètes tous services (`core` 0.3.96 · `admin` 0.3.5)
 
 - **Backend health** : `gpx_backend_up{backend}` (gauge 0/1) — `MarkUp`/`MarkDown` instrumentés dans `proxy/healthcheck.go`

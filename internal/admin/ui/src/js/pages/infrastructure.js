@@ -7,10 +7,11 @@ pages.infrastructure = async function() {
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   try {
-    const [nodes, health, declaredAll] = await Promise.all([
+    const [nodes, health, declaredAll, infraMetrics] = await Promise.all([
       api('GET','/nodes'),
       api('GET','/health').catch(()=>null),
       api('GET','/declared-nodes').catch(()=>[]),
+      api('GET','/internal/v1/metrics/summary').catch(()=>null),
     ]);
     const allNodes   = nodes || [];
     // Build excluded map: nodeName → declared-node entry
@@ -45,7 +46,18 @@ pages.infrastructure = async function() {
       : '';
     const topoPending = pendingNodes.length ? t('infra.topology_pending_suffix', { n: pendingNodes.length }) : '';
 
+    const wsAdminConns = infraMetrics?.ws?.admin_connections ?? null;
+    const wsAgentConns = infraMetrics?.ws?.agent_connections ?? null;
+    const peerSyncAvg = infraMetrics?.peers?.avg_sync_ms ?? null;
+    const clusterMetricsBand = (wsAdminConns != null || wsAgentConns != null || peerSyncAvg != null) ? `
+      <div style="display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px">
+        ${wsAdminConns!=null?`<span style="opacity:.7">WS Admin : <b>${wsAdminConns}</b></span>`:''}
+        ${wsAgentConns!=null?`<span style="opacity:.7">WS Agent : <b>${wsAgentConns}</b></span>`:''}
+        ${peerSyncAvg!=null?`<span style="opacity:.7">Sync pair (moy.) : <b>${Math.round(peerSyncAvg)} ms</b></span>`:''}
+      </div>` : '';
+
     content.innerHTML = `
+      ${clusterMetricsBand}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
         <h2 style="font-family:var(--font-heading);font-size:16px;font-weight:600;margin:0;">${t('page.infrastructure')}</h2>
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">

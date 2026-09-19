@@ -104,9 +104,28 @@ async function renderPrismPage() {
     } catch { /* ignore */ }
   }
 
+  const prismMetrics = await api('GET', '/internal/v1/metrics/summary').catch(() => null);
+  const pmProxies = prismMetrics?.proxies || [];
+  const topByTTFB = [...pmProxies].sort((a,b)=>(b.p95_ms||0)-(a.p95_ms||0)).slice(0,3);
+  const topByErr = [...pmProxies].filter(p=>(p.error_rate||0)>0).sort((a,b)=>b.error_rate-a.error_rate).slice(0,3);
+  const prismMetricsBand = pmProxies.length ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      ${topByTTFB.length ? `<div class="card blueprint" style="padding:12px 14px">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Top p95 latence</div>
+        ${topByTTFB.map(p=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0"><span style="opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${esc(p.host||'?')}</span><b>${Math.round(p.p95_ms||0)} ms</b></div>`).join('')}
+      </div>` : ''}
+      ${topByErr.length ? `<div class="card blueprint" style="padding:12px 14px">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Top taux d'erreur</div>
+        ${topByErr.map(p=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0"><span style="opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">${esc(p.host||'?')}</span><b style="color:${(p.error_rate||0)>0.05?'var(--red)':'var(--yellow)'}">${((p.error_rate||0)*100).toFixed(1)}%</b></div>`).join('')}
+      </div>` : ''}
+    </div>` : '';
+
   const main = document.getElementById('content');
   main.innerHTML = `
     ${prismScopeBanner()}
+    ${prismMetricsBand}
     <div id="prism-root"><div class="spinner" style="margin:60px auto"></div></div>`;
   const prismRoot = document.getElementById('prism-root');
 

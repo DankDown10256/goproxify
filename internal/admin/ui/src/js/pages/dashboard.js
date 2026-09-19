@@ -5,12 +5,13 @@ pages.dashboard = async function() {
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   try {
-    const [health, proxies, nodes, domains, auditData] = await Promise.all([
+    const [health, proxies, nodes, domains, auditData, metricsSummary] = await Promise.all([
       api('GET', '/health').catch(() => null),
       api('GET', '/proxies').catch(() => []),
       api('GET', '/nodes').catch(() => []),
       api('GET', '/domains').catch(() => []),
       api('GET', '/audit?limit=8').catch(() => null),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
 
     const allNodes    = nodes || [];
@@ -48,6 +49,53 @@ pages.dashboard = async function() {
 
     const auditEntries = auditData?.entries || [];
 
+    // Metrics summary
+    const mGlobal   = metricsSummary?.global || {};
+    const mProxies  = metricsSummary?.proxies || [];
+    const mTLS      = metricsSummary?.tls?.certs || [];
+    const backendsDown = mProxies.reduce((s, p) => s + ((p.backends_total||0) - (p.backends_up||p.backends_total||0)), 0);
+
+    // Cert expiry from Prometheus (< 7 days)
+    const promCertsExpiring7 = mTLS.filter(c => c.expires_in_seconds != null && c.expires_in_seconds < 7 * 86400);
+
+    const fmtRps  = v => v != null ? (v < 1 ? v.toFixed(2) : v < 10 ? v.toFixed(1) : Math.round(v)) + ' req/s' : '—';
+    const fmtErr  = v => v != null ? (v * 100).toFixed(1) + '%' : '—';
+    const fmtBytes = v => {
+      if (v == null) return '—';
+      if (v < 1024) return v + ' B';
+      if (v < 1048576) return (v/1024).toFixed(1) + ' KB';
+      if (v < 1073741824) return (v/1048576).toFixed(1) + ' MB';
+      return (v/1073741824).toFixed(2) + ' GB';
+    };
+
+    const metricsBandHtml = metricsSummary ? `
+      <div class="card blueprint" style="margin-bottom:20px;padding:14px 22px">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em">${t('dash.rps')}</span>
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${fmtRps(mGlobal.requests_per_second)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em">${t('dash.error_rate')}</span>
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-heading);color:${(mGlobal.error_rate_5xx||0)>0.05?'var(--red)':(mGlobal.error_rate_5xx||0)>0.01?'var(--yellow)':'inherit'}">${fmtErr(mGlobal.error_rate_5xx)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em">${t('dash.bytes_in')}</span>
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${fmtBytes(mGlobal.bytes_in_total)}</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em">${t('dash.bytes_out')}</span>
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${fmtBytes(mGlobal.bytes_out_total)}</span>
+          </div>
+          ${backendsDown > 0 ? `
+          <div style="display:flex;flex-direction:column;gap:2px;margin-left:auto">
+            <span style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em">${t('dash.backends_down')}</span>
+            <span style="font-size:18px;font-weight:700;font-family:var(--font-heading);color:var(--red)">⚠ ${backendsDown}</span>
+          </div>` : ''}
+        </div>
+      </div>` : '';
+
     const fmtTime = iso => {
       if (!iso) return '—';
       const d = new Date(iso);
@@ -72,6 +120,13 @@ pages.dashboard = async function() {
     };
 
     const attentionItems = [
+      ...promCertsExpiring7.map(c => ({
+        icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l5 3v4c0 3-2.5 5.5-5 6.5C9.5 14.5 7 12 7 9V5l5-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+        color: c.expires_in_seconds < 0 ? 'var(--red)' : 'var(--red)',
+        text: t('dash.cert_soon', { domain: esc(c.domain), days: Math.max(0, Math.round(c.expires_in_seconds / 86400)) }),
+        action: `navigate('certs')`,
+        actionLabel: t('dash.renew'),
+      })),
       ...nodesOffline.map(n => ({
         icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
         color: n.role === 'core' ? 'var(--red)' : 'var(--yellow)',
@@ -105,6 +160,7 @@ pages.dashboard = async function() {
         : '';
 
     content.innerHTML = `
+      ${metricsBandHtml}
       <div class="gp-stat-grid" style="margin-bottom:20px">
         <div class="card blueprint" style="padding:20px 22px;cursor:default">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
@@ -178,6 +234,9 @@ pages.dashboard = async function() {
               const mem = n.mem_pct != null ? Math.round(n.mem_pct) : null;
               const cpuColor = cpu > 85 ? 'var(--red)' : cpu > 65 ? 'var(--yellow)' : 'var(--accent)';
               const memColor = mem > 85 ? 'var(--red)' : mem > 65 ? 'var(--yellow)' : 'var(--accent)';
+              const coreMetrics = mProxies.find(p => p.core_id === n.id || p.core_name === (n.node_name || n.id));
+              const p95ms = coreMetrics?.p95_ms;
+              const rps   = coreMetrics?.requests_per_second;
               return `<div style="display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;transition:background .15s"
                            onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''"
                            onclick="selectCore(window._coreNodes[${i}])">
@@ -198,6 +257,7 @@ pages.dashboard = async function() {
                     <div style="flex:1;height:3px;border-radius:2px;background:var(--border)"><div style="width:${mem||0}%;height:100%;background:${memColor};border-radius:2px"></div></div>
                     <span style="min-width:22px;text-align:right">${mem??'—'}%</span>
                   </div>
+                  ${(p95ms != null || rps != null) ? `<div style="display:flex;gap:8px;font-size:10px;opacity:.5;margin-top:2px">${rps!=null?fmtRps(rps):''}${p95ms!=null?' · p95 '+Math.round(p95ms)+' ms':''}</div>` : ''}
                 </div>` : `<span style="font-size:11px;color:var(--red);opacity:.8">${online?'':' '+t('common.offline')}</span>`}
               </div>`;
             }).join('')}

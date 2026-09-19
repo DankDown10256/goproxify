@@ -37,7 +37,7 @@ async function renderTraficPage(ctx) {
     const proxiesPath = (!isAdmin && coreRef)
       ? `/proxies?core=${encodeURIComponent(coreRef)}`
       : '/proxies';
-    const [allProxies, nodesRes, domainsRes, tokensRes] = await Promise.all([
+    const [allProxies, nodesRes, domainsRes, tokensRes, metricsSum] = await Promise.all([
       api('GET', proxiesPath).catch((e) => {
         toast((e && e.message) ? e.message : t('trafic.load_error'), 'error');
         return null;
@@ -45,7 +45,12 @@ async function renderTraficPage(ctx) {
       isAdmin ? api('GET', '/nodes').catch(() => []) : Promise.resolve([]),
       isAdmin ? api('GET', '/domains').catch(() => []) : Promise.resolve([]),
       isAdmin ? api('GET', '/tokens?role=core').catch(() => []) : Promise.resolve([]),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
+    const _metricsMap = {};
+    for (const mp of (metricsSum?.proxies || [])) {
+      if (mp.host) _metricsMap[mp.host.toLowerCase()] = mp;
+    }
     if (allProxies === null) {
       content.innerHTML = '<p style="color:var(--red)">' + esc(t('trafic.load_error') || 'Impossible de charger les proxies') + '</p>';
       return;
@@ -392,6 +397,7 @@ async function renderTraficPage(ctx) {
       const badges = featureBadges(cfg);
       const stype = isStr ? 'stream' : 'proxy';
       const secAlert = !isStr ? proxySecAlert(cfg) : null;
+      const pm = _metricsMap[host.toLowerCase()];
 
       const toggleEl = Role.canWrite()
         ? `<label class="toggle" style="flex-shrink:0;margin:0;"><input type="checkbox" ${enabled?'checked':''} ${isAuto?'disabled':''} onchange="traficToggle('${esc(p.id)}',${enabled})"><span class="toggle-slider"></span></label>`
@@ -431,6 +437,12 @@ async function renderTraficPage(ctx) {
         <div style="min-width:0;margin-bottom:7px">${domainsHtml}${chips?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${chips}</div>`:''}</div>
         ${badges?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:7px">${badges}</div>`:''}
         ${backendsGridHtml(allBackends)}
+        ${pm ? `<div style="display:flex;gap:14px;flex-wrap:wrap;padding:6px 0 0;border-top:1px solid var(--border);margin-top:6px;font-size:10px;color:var(--text2)">
+          ${pm.requests_per_second!=null?`<span>${pm.requests_per_second<1?pm.requests_per_second.toFixed(2):pm.requests_per_second<10?pm.requests_per_second.toFixed(1):Math.round(pm.requests_per_second)} req/s</span>`:''}
+          ${pm.error_rate!=null?`<span style="color:${pm.error_rate>0.05?'var(--red)':pm.error_rate>0.01?'var(--yellow)':'inherit'}">${(pm.error_rate*100).toFixed(1)}% err</span>`:''}
+          ${pm.p95_ms!=null?`<span>p95 ${Math.round(pm.p95_ms)} ms</span>`:''}
+          ${pm.backends_up!=null&&pm.backends_total!=null&&pm.backends_up<pm.backends_total?`<span style="color:var(--yellow)">${pm.backends_up}/${pm.backends_total} up</span>`:''}
+        </div>` : ''}
       </div>`;
     }
 

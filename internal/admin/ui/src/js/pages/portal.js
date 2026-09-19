@@ -19,18 +19,29 @@ pages.portal = async function() {
   const content = document.getElementById('content');
   content.innerHTML = `<div class="muted">${esc(t('common.loading') || '…')}</div>`;
   try {
-    const cfg = await api('GET', '/portal?core=' + encodeURIComponent(coreName)) || {};
-    renderPortalPage(cfg, coreName, coreLabel);
+    const [cfg, metricsPt] = await Promise.all([
+      api('GET', '/portal?core=' + encodeURIComponent(coreName)).catch(() => ({})),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
+    ]);
+    renderPortalPage(cfg || {}, coreName, coreLabel, metricsPt);
   } catch (e) {
     content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
   }
 };
 
-function renderPortalPage(cfg, coreName, coreLabel) {
+function renderPortalPage(cfg, coreName, coreLabel, metricsData) {
   const content = document.getElementById('content');
   const enabled = !!cfg.enabled;
   const host = cfg.public_host || '';
   const q = '?core=' + encodeURIComponent(coreName);
+  const pSessions = metricsData?.portal?.sessions || {};
+  const sessOneShot = pSessions.one_shot ?? null;
+  const sessMulti = pSessions.multi ?? null;
+  const sessKPI = (sessOneShot != null || sessMulti != null) ? `
+    <div style="display:flex;gap:16px;padding:8px 0 0;font-size:11px;color:var(--text2)">
+      ${sessOneShot!=null?`<span>One-shot : <b style="color:var(--text1)">${sessOneShot}</b></span>`:''}
+      ${sessMulti!=null?`<span>Multi : <b style="color:var(--text1)">${sessMulti}</b></span>`:''}
+    </div>` : '';
 
   content.innerHTML = `
     <div class="card blueprint" style="margin-bottom:16px;padding:16px 18px">
@@ -53,6 +64,7 @@ function renderPortalPage(cfg, coreName, coreLabel) {
             ${enabled ? 'Actif' : 'Inactif'}
           </span>
           ${host ? `<code style="font-size:11px;color:var(--text2)">https://${esc(host)}</code>` : ''}
+          ${sessKPI}
         </div>
       </div>
     </div>
