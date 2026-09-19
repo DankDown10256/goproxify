@@ -42,6 +42,9 @@ type Manager struct {
 	DirectoryURL string
 	// OnCertObtained est appelé après chaque obtention/renouvellement réussi.
 	OnCertObtained func(ctx context.Context, certID string)
+	// OnCertExpiring est appelé pour chaque cert dont l'expiration est imminente.
+	// daysLeft ≤ 7 → critique, ≤ 30 → warning.
+	OnCertExpiring func(ctx context.Context, domain string, daysLeft int)
 }
 
 // New crée un Manager ACME.
@@ -281,6 +284,33 @@ func (m *Manager) renewExpiring(ctx context.Context) {
 		if err := m.ObtainCert(ctx, domain); err != nil {
 			m.log.Error("acme: renouvellement échoué", "domain", domain, "err", err)
 		}
+	}
+	m.checkExpirationAlerts(ctx)
+}
+
+// checkExpirationAlerts émet OnCertExpiring pour les certs non-ACME ou en échec de renouvellement.
+func (m *Manager) checkExpirationAlerts(ctx context.Context) {
+	if m.OnCertExpiring == nil {
+		return
+	}
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT domain, expires_at FROM certs WHERE expires_at <= datetime('now', '+30 days')`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	now := time.Now()
+	for rows.Next() {
+		var domain string
+		var expiresAt time.Time
+		if err := rows.Scan(&domain, &expiresAt); err != nil {
+			continue
+		}
+		daysLeft := int(expiresAt.Sub(now).Hours() / 24)
+		if daysLeft < 0 {
+			daysLeft = 0
+		}
+		m.OnCertExpiring(ctx, domain, daysLeft)
 	}
 }
 

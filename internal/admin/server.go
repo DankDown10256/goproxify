@@ -278,6 +278,18 @@ func (s *Server) Start(ctx context.Context) error {
 		acmeMgr.OnCertObtained = func(ctx context.Context, certID string) {
 			certDeployer.TriggerForCert(ctx, certID)
 		}
+		acmeMgr.OnCertExpiring = func(_ context.Context, domain string, daysLeft int) {
+			sev := alerting.SevWarning
+			if daysLeft <= 7 {
+				sev = alerting.SevCritical
+			}
+			s.alertingEngine.Emit(alerting.Event{
+				Trigger:  alerting.TriggerCertExpiringSoon,
+				Severity: sev,
+				Domain:   domain,
+				Detail:   map[string]any{"days_left": daysLeft},
+			})
+		}
 	}
 
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}

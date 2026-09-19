@@ -7,6 +7,12 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Monitoring ACME & alertes d'expiration (`webapp` · `admin`)
+
+- **Endpoint `GET /api/v1/certs/acme-monitor`** — retourne par cert : `days_left`, `status` (`ok`/`warning`/`critical`/`expired`) + KPIs résumés (`total`, `ok`, `warning`, `critical`, `expired`)
+- **Alertes automatiques** : callback `OnCertExpiring` dans `acme.Manager` — déclenché à chaque cycle 12h pour tous les certs expirant dans ≤ 30 jours → émission de `TriggerCertExpiringSoon` (warning ≤30j, critical ≤7j) vers le moteur d'alertes existant
+- **Page Admin `acme-monitor`** : 5 tuiles KPI (total / valides / ≤30j / ≤7j / expirés), tableau avec badge statut coloré, date d'expiration, date de dernier renouvellement, bouton "Renouveler" inline — accessible via Accès → Monitoring ACME
+
 ### Ajouté — Certificate Deploy Hub (`webapp` · `admin`)
 
 - **3 nouvelles tables SQLite** : `cert_deploy_targets` (webhook, pull_token, ssh_exec), `cert_pull_tokens` (tokens signés HMAC, TTL, max_uses), `cert_deploy_history` (audit de chaque déploiement)

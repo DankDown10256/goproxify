@@ -239,6 +239,26 @@ Réponse :
 
 Liste les certificats gérés.
 
+### `GET /api/v1/certs/acme-monitor`
+
+Retourne le statut d'expiration de tous les certificats.
+
+**Réponse :**
+```json
+{
+  "total": 5, "ok": 3, "warning": 1, "critical": 1, "expired": 0,
+  "certs": [
+    {
+      "id": "abc123", "domain": "*.example.fr", "issuer": "letsencrypt",
+      "expires_at": "2026-10-15T00:00:00Z", "updated_at": "2026-09-15T02:00:00Z",
+      "days_left": 26, "status": "warning"
+    }
+  ]
+}
+```
+
+`status` : `ok` (>30j) · `warning` (≤30j) · `critical` (≤7j) · `expired`
+
 ### `POST /api/v1/certs/request`
 
 Demande un certificat ACME DNS-01.
