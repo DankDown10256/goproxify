@@ -216,7 +216,7 @@ function secActivityChartHTML(events) {
       <div style="display:flex;gap:12px">${legend}</div>
       <span style="font-size:10px;color:var(--text3)">${totalEvents} ${t('security.overview_events')||'événements'}</span>
     </div>
-    <svg width="100%" viewBox="0 0 ${totalW} ${chartH+20}" preserveAspectRatio="none" style="display:block;overflow:visible">${bars}${hourLabels}</svg>`;
+    <svg width="100%" height="${chartH+22}" viewBox="0 0 ${totalW} ${chartH+22}" preserveAspectRatio="none" style="display:block;overflow:visible">${bars}${hourLabels}</svg>`;
 }
 
 function secBansBySourceHTML(bans) {
@@ -361,7 +361,7 @@ async function renderSecurityOverview(ctx) {
         <div class="card-header">
           <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>${t('security.overview_activity_24h')||'Activité — 24 dernières heures'}</span>
         </div>
-        <div style="padding:16px 16px 8px">
+        <div style="padding:10px 16px 6px">
           ${secActivityChartHTML(allEvents)}
         </div>
       </div>
