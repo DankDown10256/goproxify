@@ -410,190 +410,231 @@ pages['core-security-sentinel'] = () => renderSentinelDashboard({ mode: 'core' }
 
 async function renderSentinelDashboard({ mode }) {
   const content = document.getElementById('content');
-  const coreCtx = mode === 'core' ? getCoreContext() : null;
-  const coreQ = coreCtx ? `?core=${encodeURIComponent(coreCtx.coreID)}` : '';
   content.innerHTML = `<div style="padding:20px 0"><div class="spinner"></div></div>`;
   try {
-    const [bansRaw, threats, threatCfg, bansByCountry] = await Promise.all([
-      api('GET', `/security/bans?active=true${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
+    const coreCtx = await resolveSecurityCoreCtx(mode);
+    if (mode === 'core' && coreCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+      return;
+    }
+    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+
+    const [bansRaw, threatsRaw, cfg] = await Promise.all([
+      api('GET', `/security/bans?active=true&source=threat${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
       api('GET', `/security/threats?limit=500${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
       api('GET', `/security/threat-config${coreQ}`).catch(() => null),
-      api('GET', `/security/bans/countries${coreQ}`).catch(() => []),
     ]);
-    const bans = filterSecBans(bansRaw || [], coreCtx);
-    const threatList = threats || [];
 
-    // Top IPs by ban/threat count
-    const ipCount = {};
-    for (const b of bans) { ipCount[b.ip] = (ipCount[b.ip] || 0) + 1; }
-    for (const th of threatList) { ipCount[th.ip] = (ipCount[th.ip] || 0) + 1; }
-    const topIPs = Object.entries(ipCount).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const sentinelBans = filterSecBans(bansRaw || [], coreCtx);
+    const threats = threatsRaw || [];
+    const threatCfg = cfg || {};
 
-    // Scenario breakdown
+    // IPs bannies vs IPs détectées non encore bannies
+    const bannedIPs = new Set(sentinelBans.map(b => b.ip));
+    const detectedIPs = new Set(threats.map(t => t.ip));
+    const pendingCount = [...detectedIPs].filter(ip => !bannedIPs.has(ip)).length;
+
+    // Taux de conversion détection → ban
+    const conversionRate = detectedIPs.size > 0
+      ? Math.round((bannedIPs.size / detectedIPs.size) * 100)
+      : 0;
+
+    // Analyse des scénarios : déclenchements, IPs uniques, dernière occurrence
     const scenariosMap = {};
-    for (const th of threatList) {
+    for (const th of threats) {
       const s = th.scenario || th.type || 'unknown';
-      scenariosMap[s] = (scenariosMap[s] || 0) + 1;
+      if (!scenariosMap[s]) scenariosMap[s] = { count: 0, ips: new Set(), last: null };
+      scenariosMap[s].count++;
+      scenariosMap[s].ips.add(th.ip);
+      const d = new Date(th.created_at);
+      if (!isNaN(d) && (!scenariosMap[s].last || d > scenariosMap[s].last)) scenariosMap[s].last = d;
     }
-    const scenarios = Object.entries(scenariosMap).sort((a,b)=>b[1]-a[1]);
+    const scenarios = Object.entries(scenariosMap)
+      .map(([name, d]) => ({ name, count: d.count, ips: d.ips.size, last: d.last }))
+      .sort((a, b) => b.count - a.count);
 
-    // Bans over time (last 24h buckets of 1h)
-    const now = Date.now();
-    const buckets = Array(24).fill(0);
-    for (const b of bans) {
-      if (!b.created_at && !b.banned_at) continue;
-      const ts = new Date(b.created_at || b.banned_at).getTime();
-      const hoursAgo = Math.floor((now - ts) / 3600000);
-      if (hoursAgo >= 0 && hoursAgo < 24) buckets[23 - hoursAgo]++;
-    }
-    const maxBucket = Math.max(...buckets, 1);
-    const barW = 100 / 24;
+    // Top IPs par nombre de menaces (pas de bans — c'est la vue Sentinel)
+    const ipThreatMap = {};
+    for (const th of threats) ipThreatMap[th.ip] = (ipThreatMap[th.ip] || 0) + 1;
+    const topIPs = Object.entries(ipThreatMap).sort((a, b) => b[1] - a[1]).slice(0, 12);
 
-    const cfgEnabled = threatCfg?.enabled;
-    const cfgThreshold = threatCfg?.score_threshold || 0;
+    // Décisions récentes : 20 dernières menaces triées par date
+    const recentDecisions = [...threats]
+      .filter(d => d.created_at)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 20);
 
+    // Listes de détection
+    const lists = threatCfg.lists || {};
+    const custom = threatCfg.custom_lists || {};
+    const whitelist = threatCfg.whitelist || {};
+    const listItems = [
+      { label: 'IPs malveillantes', enabled: lists.ip_enabled, custom: (custom.ips || []).length, wl: (whitelist.ips || []).length },
+      { label: 'User-Agents',       enabled: lists.ua_enabled, custom: (custom.uas || []).length, wl: (whitelist.uas || []).length },
+      { label: 'Paths',             enabled: lists.path_enabled, custom: (custom.paths || []).length, wl: (whitelist.paths || []).length },
+    ];
+
+    const cfgEnabled = !!threatCfg.enabled;
+    const cfgMode = threatCfg.mode || 'block';
+    const noData = `<p style="color:var(--text2);font-size:13px;padding-top:8px">${t('security.no_data') || 'Aucune donnée'}</p>`;
     const svgGear = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
+
     content.innerHTML = `
-      <div class="page-header" style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      ${securityCoreBanner(coreCtx)}
+      <div class="page-header" style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
         <h1 class="page-title" style="margin:0">&#x26a1; Sentinel</h1>
-        <span class="tag ${cfgEnabled?'tag-green':'tag-neutral'}" style="margin-left:8px">${cfgEnabled ? t('common.active')||'Actif' : t('common.inactive')||'Inactif'}</span>
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto;display:flex;align-items:center;gap:6px" onclick="openSentinelSettings()">${svgGear} ${t('common.settings')||'Paramètres'}</button>
+        <span class="tag ${cfgEnabled ? 'tag-green' : 'tag-neutral'}">${cfgEnabled ? t('common.active') || 'Actif' : t('common.inactive') || 'Inactif'}</span>
+        <span class="tag ${cfgMode === 'block' ? 'tag-red' : 'tag-yellow'}">${cfgMode === 'block' ? 'Block' : 'Detect'}</span>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;display:flex;align-items:center;gap:6px" onclick="openSentinelSettings()">${svgGear} ${t('common.settings') || 'Paramètres'}</button>
       </div>
-      <div class="sec-grid" style="margin-bottom:20px">
+
+      <!-- Tuiles moteur -->
+      <div class="sec-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
         <div class="sec-tile">
-          <div class="sec-tile-label">${t('security.active_bans')||'Bans actifs'}</div>
-          <div class="sec-tile-value" style="color:${bans.length>0?'var(--red)':'var(--green)'}">${bans.length}</div>
+          <div class="sec-tile-label">Score seuil</div>
+          <div class="sec-tile-value">${threatCfg.score_threshold || 0}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${threatCfg.score_threshold === 0 ? 'premier signal' : 'cumulatif'}</div>
         </div>
         <div class="sec-tile">
-          <div class="sec-tile-label">${t('security.crowdsec_threats')||'Menaces détectées'}</div>
-          <div class="sec-tile-value" style="color:${threatList.length>0?'var(--yellow)':'var(--green)'}">${threatList.length}</div>
+          <div class="sec-tile-label">Rate limit</div>
+          <div class="sec-tile-value" style="color:${threatCfg.rate_limit > 0 ? 'var(--primary)' : 'var(--text3)'}">${threatCfg.rate_limit > 0 ? threatCfg.rate_limit + ' req/s' : '—'}</div>
         </div>
         <div class="sec-tile">
-          <div class="sec-tile-label">${t('security.sentinel_threshold')||'Seuil score'}</div>
-          <div class="sec-tile-value">${cfgThreshold}</div>
+          <div class="sec-tile-label">Durée ban</div>
+          <div class="sec-tile-value">${threatCfg.ban_duration || '24h'}</div>
         </div>
         <div class="sec-tile">
-          <div class="sec-tile-label">${t('security.sentinel_scenarios')||'Scénarios actifs'}</div>
-          <div class="sec-tile-value">${scenarios.length}</div>
+          <div class="sec-tile-label">Seuil erreurs 4xx</div>
+          <div class="sec-tile-value">${threatCfg.error_threshold || 20}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">sur ${threatCfg.error_window || '10s'}</div>
         </div>
       </div>
 
-      <div class="card blueprint" style="margin-bottom:20px" id="sentinel-map-card">
-        <div class="card-header"><span class="card-title">&#x1f30d; ${t('security.sentinel_bans_countries')||'Bans par pays'}</span></div>
-        <div style="padding:12px 16px 8px">
-          <div id="sentinel-map-wrap" style="position:relative;user-select:none">
-            <div id="sentinel-map-tooltip" style="display:none;position:absolute;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;pointer-events:none;z-index:10;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15)"></div>
-          </div>
-          <div style="margin-top:8px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2)">
-            <span>${t('security.map_legend_none')||'0'}</span>
-            <div style="display:flex;gap:2px">${[0.1,0.25,0.45,0.65,0.85,1].map(o=>`<div style="width:16px;height:8px;border-radius:2px;background:rgba(239,68,68,${o})"></div>`).join('')}</div>
-            <span>${t('security.map_legend_max')||'max'}</span>
-          </div>
+      <!-- Tuiles activité -->
+      <div class="sec-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+        <div class="sec-tile">
+          <div class="sec-tile-label">Bans Sentinel actifs</div>
+          <div class="sec-tile-value" style="color:${sentinelBans.length > 0 ? 'var(--red)' : 'var(--green)'}">${sentinelBans.length}</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">Menaces enregistrées</div>
+          <div class="sec-tile-value" style="color:${threats.length > 0 ? 'var(--yellow)' : 'var(--green)'}">${threats.length}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${detectedIPs.size} IP${detectedIPs.size > 1 ? 's' : ''} uniques</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">IPs détectées, non bannies</div>
+          <div class="sec-tile-value" style="color:${pendingCount > 0 ? 'var(--yellow)' : 'var(--green)'}">${pendingCount}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">${cfgMode === 'detect' ? 'mode detect' : 'en approche du seuil'}</div>
+        </div>
+        <div class="sec-tile">
+          <div class="sec-tile-label">Taux blocage</div>
+          <div class="sec-tile-value" style="color:${conversionRate > 0 ? 'var(--primary)' : 'var(--text3)'}">${detectedIPs.size > 0 ? conversionRate + '%' : '—'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">détect. → ban</div>
         </div>
       </div>
 
+      <!-- Scénarios déclenchés -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title">&#x1f4c5; ${t('security.sentinel_bans_timeline')||'Bans (24 dernières heures)'}</span></div>
-        <div style="padding:16px">
-          <div style="display:flex;align-items:flex-end;height:80px;gap:2px">
-            ${buckets.map((v,i)=>`<div title="${v} ban(s) il y a ${23-i}h" style="flex:1;background:var(--primary);opacity:0.7;height:${Math.round(v/maxBucket*100)}%;min-height:${v>0?'3px':'0'};border-radius:2px 2px 0 0"></div>`).join('')}
-          </div>
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-top:4px">
-            <span>-23h</span><span>-12h</span><span>maintenant</span>
-          </div>
+        <div class="card-header"><span class="card-title">&#x1f4cb; Scénarios déclenchés</span></div>
+        <div style="padding:0 16px 16px">
+          ${scenarios.length === 0 ? noData :
+            `<table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr>
+                <th style="text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)">Scénario</th>
+                <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Décl.</th>
+                <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">IPs uniques</th>
+                <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Dernière occurrence</th>
+              </tr></thead>
+              <tbody>${scenarios.map(s => `
+                <tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:6px;font-family:monospace;font-size:12px;color:var(--text1)">${esc(s.name)}</td>
+                  <td style="text-align:right;padding:6px"><span class="tag tag-red">${s.count}</span></td>
+                  <td style="text-align:right;padding:6px"><span class="tag tag-yellow">${s.ips}</span></td>
+                  <td style="text-align:right;padding:6px;font-size:11px;color:var(--text3)">${s.last ? fmtDate(s.last.toISOString()) : '—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>`}
         </div>
       </div>
 
+      <!-- Décisions récentes + Top IPs -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title">&#x1f4ca; ${t('security.sentinel_top_ips')||'Top IPs'}</span></div>
+          <div class="card-header"><span class="card-title">&#x23f1; Décisions récentes</span></div>
           <div style="padding:0 16px 16px">
-            ${topIPs.length === 0 ? `<p style="color:var(--text2);font-size:13px">${t('security.no_data')||'Aucune donnée'}</p>` :
-              `<table style="width:100%;border-collapse:collapse;font-size:13px">
-                <thead><tr><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)">IP</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border)">${t('common.count')||'Occurrences'}</th></tr></thead>
-                <tbody>${topIPs.map(([ip,n])=>`<tr><td style="padding:4px;font-family:monospace">${esc(ip)}</td><td style="text-align:right;padding:4px"><span class="tag tag-red">${n}</span></td></tr>`).join('')}</tbody>
-              </table>`}
+            ${recentDecisions.length === 0 ? noData :
+              `<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">
+                ${recentDecisions.map(d => {
+                  const isBanned = bannedIPs.has(d.ip);
+                  return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;border-radius:6px;background:var(--bg2)">
+                    <span class="tag ${isBanned ? 'tag-red' : 'tag-yellow'}" style="min-width:52px;text-align:center;font-size:10px">${isBanned ? 'BAN' : 'DETECT'}</span>
+                    <span style="font-family:monospace;color:var(--text1);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.ip)}">${esc(d.ip)}</span>
+                    <span style="color:var(--text3);font-size:11px;white-space:nowrap;min-width:0">${fmtDate(d.created_at)}</span>
+                  </div>`;
+                }).join('')}
+              </div>`}
           </div>
         </div>
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title">&#x1f5c2; ${t('security.sentinel_scenarios')||'Scénarios'}</span></div>
+          <div class="card-header"><span class="card-title">&#x1f4ca; Top IPs par menaces</span></div>
           <div style="padding:0 16px 16px">
-            ${scenarios.length === 0 ? `<p style="color:var(--text2);font-size:13px">${t('security.no_data')||'Aucune donnée'}</p>` :
+            ${topIPs.length === 0 ? noData :
               `<table style="width:100%;border-collapse:collapse;font-size:13px">
-                <thead><tr><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)">${t('security.col.scenario')||'Scénario'}</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border)">${t('common.count')||'Nb'}</th></tr></thead>
-                <tbody>${scenarios.map(([s,n])=>`<tr><td style="padding:4px;font-size:12px">${esc(s)}</td><td style="text-align:right;padding:4px"><span class="tag tag-yellow">${n}</span></td></tr>`).join('')}</tbody>
+                <thead><tr>
+                  <th style="text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)">IP</th>
+                  <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Menaces</th>
+                  <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Statut</th>
+                </tr></thead>
+                <tbody>${topIPs.map(([ip, n]) => `
+                  <tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:6px;font-family:monospace;font-size:12px">${esc(ip)}</td>
+                    <td style="text-align:right;padding:6px"><span class="tag tag-yellow">${n}</span></td>
+                    <td style="text-align:right;padding:6px">${bannedIPs.has(ip) ? '<span class="tag tag-red">Banni</span>' : '<span class="tag tag-neutral">Libre</span>'}</td>
+                  </tr>`).join('')}
+                </tbody>
               </table>`}
           </div>
         </div>
       </div>
 
-      <div style="text-align:right">
-        <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('bans', mode)}')">${t('security.view_all_bans')||'Voir tous les bans'} &rarr;</button>
+      <!-- Listes de détection -->
+      <div class="card blueprint" style="margin-bottom:20px">
+        <div class="card-header"><span class="card-title">&#x1f4cb; Listes de détection</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px 16px 16px">
+          ${listItems.map(li => `
+            <div style="padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid ${li.enabled ? 'var(--green)' : 'var(--border)'}">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="width:8px;height:8px;min-width:8px;border-radius:50%;background:${li.enabled ? 'var(--green)' : 'var(--text3)'}"></span>
+                <span style="font-size:12.5px;font-weight:600;color:${li.enabled ? 'var(--text1)' : 'var(--text2)'}">${li.label}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text3);display:flex;flex-direction:column;gap:3px">
+                <span>${li.enabled ? 'Liste active' : 'Désactivée'}</span>
+                ${li.custom > 0 ? `<span>${li.custom} entrée${li.custom > 1 ? 's' : ''} inline</span>` : ''}
+                ${li.wl > 0 ? `<span>${li.wl} en whitelist</span>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>
       </div>
 
+      <!-- Lien vers les bans -->
+      <div style="text-align:right;margin-bottom:20px">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('bans', mode)}')">${t('security.view_all_bans') || 'Voir tous les bans'} &rarr;</button>
+      </div>
+
+      <!-- Modal paramètres Sentinel -->
       <div id="sentinel-settings-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;overflow-y:auto" onclick="if(event.target===this)closeSentinelSettings()">
         <div style="background:var(--bg);border-radius:10px;max-width:720px;margin:40px auto;padding:0;box-shadow:0 8px 32px rgba(0,0,0,.25)">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
-            <h3 style="margin:0;font-size:15px">&#x26a1; ${t('security.threat.title')||'Sentinel'} — ${t('common.settings')||'Paramètres'}</h3>
+            <h3 style="margin:0;font-size:15px">&#x26a1; ${t('security.threat.title') || 'Sentinel'} — ${t('common.settings') || 'Paramètres'}</h3>
             <button class="btn btn-ghost btn-sm" onclick="closeSentinelSettings()" style="padding:4px 8px;font-size:16px;line-height:1">&#x2715;</button>
           </div>
           <div style="padding:16px 20px" id="sentinel-settings-body">
-            ${threatEngineBanner(threatCfg || {})}
+            ${threatEngineBanner(threatCfg)}
           </div>
         </div>
       </div>`;
 
-    // ── Heatmap géographique ──────────────────────────────────────────────
-    const countries = Array.isArray(bansByCountry) ? bansByCountry : [];
-    const maxCnt = countries.reduce((m, r) => Math.max(m, r.cnt || 0), 1);
-    const countryMap = {};
-    for (const r of countries) countryMap[r.cc] = r;
-
-    const mapWrap = document.getElementById('sentinel-map-wrap');
-    if (mapWrap) {
-      fetch('/world.svg')
-        .then(r => r.text())
-        .then(svgText => {
-          mapWrap.insertAdjacentHTML('afterbegin', svgText);
-          const svg = mapWrap.querySelector('svg');
-          if (!svg) return;
-          svg.style.cssText = 'width:100%;height:auto;display:block';
-          const tooltip = document.getElementById('sentinel-map-tooltip');
-          svg.querySelectorAll('path[id]').forEach(path => {
-            const cc = path.getAttribute('id');
-            const row = countryMap[cc];
-            const opacity = row ? Math.max(0.12, row.cnt / maxCnt) : 0;
-            path.style.fill = row ? `rgba(239,68,68,${opacity.toFixed(2)})` : 'var(--bg-surface,#f1f3f5)';
-            path.style.stroke = 'var(--border)';
-            path.style.strokeWidth = '0.5';
-            path.style.cursor = row ? 'pointer' : 'default';
-            path.style.transition = 'fill .15s';
-            if (row) {
-              path.addEventListener('mouseenter', e => {
-                path.style.fill = 'rgba(239,68,68,1)';
-                tooltip.style.display = 'block';
-                tooltip.innerHTML = `<strong>${esc(row.name || cc)}</strong> &mdash; ${row.cnt} ban${row.cnt > 1 ? 's' : ''}`;
-              });
-              path.addEventListener('mousemove', e => {
-                const rect = mapWrap.getBoundingClientRect();
-                tooltip.style.left = (e.clientX - rect.left + 10) + 'px';
-                tooltip.style.top  = (e.clientY - rect.top  - 32) + 'px';
-              });
-              path.addEventListener('mouseleave', () => {
-                path.style.fill = `rgba(239,68,68,${opacity.toFixed(2)})`;
-                tooltip.style.display = 'none';
-              });
-              path.addEventListener('click', () => {
-                navigate(securityPageId('bans', mode) + '?country=' + encodeURIComponent(cc));
-              });
-            }
-          });
-        })
-        .catch(() => {
-          mapWrap.innerHTML = `<p style="color:var(--text2);font-size:13px;padding:8px">${t('security.map_unavailable')||'Carte non disponible'}</p>`;
-        });
-    }
-  } catch(e) { toast(e.message,'error'); }
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function secProxyCountLabel(n, total) {
