@@ -383,7 +383,7 @@ async function renderSecurityOverview(ctx) {
         </div>` : ''}
       </div>
 
-      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
+      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
 
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header">
@@ -911,55 +911,71 @@ async function renderSecurityIpsEngines() {
   if (ta) ta.innerHTML = '';
 
   try {
-    const [ipsProvider, f2bCfg, csCfg] = await Promise.all([
-      api('GET', '/security/ips-provider').catch(() => null),
+    const [f2bCfg, csCfg, threatCfg] = await Promise.all([
       api('GET', '/security/fail2ban').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
+      api('GET', '/security/threat-config').catch(() => null),
     ]);
 
-    window._ipsProvider = ipsProvider?.provider || 'native';
-    window._f2bCfg = f2bCfg || {};
-    window._csCfg = csCfg || {};
+    window._f2bCfg    = f2bCfg    || {};
+    window._csCfg     = csCfg     || {};
+    window._threatCfg = threatCfg || {};
 
-    const f2bActive = window._ipsProvider === 'fail2ban';
-    const csActive  = window._ipsProvider === 'crowdsec';
+    const f2bOn      = !!(window._f2bCfg.enabled);
+    const csOn       = !!(window._csCfg.enabled);
+    const sentinelOn = !!(window._threatCfg.enabled);
 
-    const svgWrench = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
-    const svgShield = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
-    const svgNative = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
-
-    const statusDot = (active) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${active?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
+    const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
+    const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+    const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+    const statusDot  = (on) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${on?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
+    const engineLabel = (on) => `<span style="font-size:11px;font-weight:400;color:${on?'var(--green)':'var(--text3)'}">${on ? t('security.engine_active') : t('security.engine_inactive')}</span>`;
+    const toggleSwitch = (id, on, fn) => `<label class="toggle" style="margin-left:auto"><input type="checkbox" id="${id}" ${on?'checked':''} onchange="${fn}(this.checked)"><span class="toggle-slider"></span></label>`;
 
     content.innerHTML = `
-      <div style="max-width:760px">
-        <div class="card blueprint" style="margin-bottom:16px">
-          <div class="card-header">
-            <span class="card-title">${t('security.ips_engines.selector_title')}</span>
-          </div>
-          <div style="padding:0 16px 16px">
-            ${ipsProviderBanner(window._ipsProvider, window._f2bCfg, window._csCfg)}
-          </div>
-        </div>
+      <div style="max-width:900px">
+        <p style="font-size:13px;color:var(--text2);margin:0 0 16px">${t('security.ips_engines.multi_hint')}</p>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-          <div class="card blueprint">
-            <div class="card-header">
-              <span class="card-title">${svgWrench} Fail2Ban ${statusDot(f2bActive)}<span style="font-size:11px;font-weight:400;color:${f2bActive?'var(--green)':'var(--text3)'}">${f2bActive ? t('security.engine_active') : t('security.engine_inactive')}</span></span>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
+
+          <div class="card blueprint" id="engine-card-f2b" style="border-color:${f2bOn?'var(--green)':'var(--border)'}">
+            <div class="card-header" style="gap:6px">
+              <span class="card-title">${svgWrench} Fail2Ban ${statusDot(f2bOn)}${engineLabel(f2bOn)}</span>
+              ${toggleSwitch('toggle-f2b', f2bOn, 'toggleEngineF2B')}
             </div>
             <div style="padding:0 16px 16px">
               <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.f2b_desc')}</p>
-              ${f2bPanel(window._f2bCfg)}
+              <div id="f2b-panel-body" style="${f2bOn?'':'opacity:.45;pointer-events:none'}">
+                ${f2bPanel(window._f2bCfg)}
+              </div>
             </div>
           </div>
-          <div class="card blueprint">
-            <div class="card-header">
-              <span class="card-title">${svgShield} CrowdSec ${statusDot(csActive)}<span style="font-size:11px;font-weight:400;color:${csActive?'var(--green)':'var(--text3)'}">${csActive ? t('security.engine_active') : t('security.engine_inactive')}</span></span>
+
+          <div class="card blueprint" id="engine-card-cs" style="border-color:${csOn?'var(--green)':'var(--border)'}">
+            <div class="card-header" style="gap:6px">
+              <span class="card-title">${svgShield} CrowdSec ${statusDot(csOn)}${engineLabel(csOn)}</span>
+              ${toggleSwitch('toggle-cs', csOn, 'toggleEngineCS')}
             </div>
             <div style="padding:0 16px 16px">
               <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.cs_desc')}</p>
-              ${crowdSecPanel(window._csCfg)}
+              <div id="cs-panel-body" style="${csOn?'':'opacity:.45;pointer-events:none'}">
+                ${crowdSecPanel(window._csCfg)}
+              </div>
             </div>
           </div>
+
+          <div class="card blueprint" id="engine-card-sentinel" style="border-color:${sentinelOn?'var(--green)':'var(--border)'}">
+            <div class="card-header" style="gap:6px">
+              <span class="card-title">${svgSentinel} Sentinel ${statusDot(sentinelOn)}${engineLabel(sentinelOn)}</span>
+              ${toggleSwitch('toggle-sentinel', sentinelOn, 'toggleEngineSentinel')}
+            </div>
+            <div style="padding:0 16px 16px">
+              <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.sentinel_desc')}</p>
+              <p style="font-size:12px;color:var(--text3);margin:0 0 10px">${t('security.ips_engines.sentinel_hint')}</p>
+              <button class="btn btn-ghost btn-sm" onclick="navigate('security-sentinel')">${t('security.ips_engines.sentinel_config')} →</button>
+            </div>
+          </div>
+
         </div>
       </div>`;
   } catch(e) { toast(e.message,'error'); }
@@ -1199,25 +1215,24 @@ function secProxyCountLabel(n, total) {
   return total != null && n !== total ? `${suffix} / ${total}` : suffix;
 }
 
-function enginesStatusHTML(provider, threatCfg, navBans, navSentinel, activeRules, totalRules) {
-  const sentinelOn = !!threatCfg.enabled;
+function enginesStatusHTML(f2bCfg, csCfg, threatCfg, navBans, navSentinel, activeRules, totalRules) {
   const engines = [
     {
       key: 'fail2ban',
       label: t('security.fail2ban_native'),
-      active: provider === 'fail2ban',
-      nav: navBans,
+      active: !!(f2bCfg?.enabled),
+      nav: 'security-ips-engines',
     },
     {
       key: 'crowdsec',
       label: t('security.crowdsec'),
-      active: provider === 'crowdsec',
-      nav: navBans,
+      active: !!(csCfg?.enabled),
+      nav: 'security-ips-engines',
     },
     {
       key: 'sentinel',
       label: t('security.sentinel_tile_label') || 'Sentinel',
-      active: sentinelOn,
+      active: !!(threatCfg?.enabled),
       nav: navSentinel,
     },
     {
@@ -2251,7 +2266,7 @@ window.saveF2BConfig = async function(e) {
   e.preventDefault();
   const whitelist = (document.getElementById('f2b-whitelist')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
   const cfg = {
-    enabled: true,
+    enabled: !!(window._f2bCfg?.enabled),
     window_sec: parseInt(document.getElementById('f2b-window')?.value)||300,
     max_errors: parseInt(document.getElementById('f2b-max')?.value)||20,
     ban_duration_sec: (() => { const v = parseInt(document.getElementById('f2b-dur')?.value, 10); return Number.isFinite(v) && v >= 0 ? v : 0; })(),
@@ -2259,10 +2274,7 @@ window.saveF2BConfig = async function(e) {
     whitelist,
   };
   try {
-    await Promise.all([
-      api('PUT', `/security/ips-provider${window._secCoreQ || ''}`, { provider: 'fail2ban' }),
-      api('PUT', '/security/fail2ban', cfg),
-    ]);
+    await api('PUT', '/security/fail2ban', cfg);
     toast(t('security.ips.saved'), 'success');
     reloadCurrentSecurityPage();
   } catch(err) { toast(err.message, 'error'); }
@@ -2271,17 +2283,51 @@ window.saveF2BConfig = async function(e) {
 window.saveCrowdSecConfig = async function(e) {
   e.preventDefault();
   const cfg = {
-    enabled: true,
+    enabled: !!(window._csCfg?.enabled),
     api_url: document.getElementById('cs-url')?.value.trim() || 'http://localhost:8080',
     api_key: document.getElementById('cs-key')?.value || '',
   };
   try {
-    await Promise.all([
-      api('PUT', `/security/ips-provider${window._secCoreQ || ''}`, { provider: 'crowdsec' }),
-      api('PUT', '/security/crowdsec', cfg),
-    ]);
+    await api('PUT', '/security/crowdsec', cfg);
     toast(t('security.ips.saved'), 'success');
     reloadCurrentSecurityPage();
+  } catch(err) { toast(err.message, 'error'); }
+};
+
+window.toggleEngineF2B = async function(enabled) {
+  try {
+    const cfg = { ...(window._f2bCfg || {}), enabled };
+    await api('PUT', '/security/fail2ban', cfg);
+    window._f2bCfg = cfg;
+    const card = document.getElementById('engine-card-f2b');
+    if (card) card.style.borderColor = enabled ? 'var(--green)' : 'var(--border)';
+    const body = document.getElementById('f2b-panel-body');
+    if (body) { body.style.opacity = enabled ? '' : '.45'; body.style.pointerEvents = enabled ? '' : 'none'; }
+    toast(enabled ? t('security.engine_enabled') : t('security.engine_disabled'), 'success');
+  } catch(err) { toast(err.message, 'error'); }
+};
+
+window.toggleEngineCS = async function(enabled) {
+  try {
+    const cfg = { ...(window._csCfg || {}), enabled };
+    await api('PUT', '/security/crowdsec', cfg);
+    window._csCfg = cfg;
+    const card = document.getElementById('engine-card-cs');
+    if (card) card.style.borderColor = enabled ? 'var(--green)' : 'var(--border)';
+    const body = document.getElementById('cs-panel-body');
+    if (body) { body.style.opacity = enabled ? '' : '.45'; body.style.pointerEvents = enabled ? '' : 'none'; }
+    toast(enabled ? t('security.engine_enabled') : t('security.engine_disabled'), 'success');
+  } catch(err) { toast(err.message, 'error'); }
+};
+
+window.toggleEngineSentinel = async function(enabled) {
+  try {
+    const cfg = { ...(window._threatCfg || {}), enabled };
+    await api('PUT', '/security/threat-config', cfg);
+    window._threatCfg = cfg;
+    const card = document.getElementById('engine-card-sentinel');
+    if (card) card.style.borderColor = enabled ? 'var(--green)' : 'var(--border)';
+    toast(enabled ? t('security.engine_enabled') : t('security.engine_disabled'), 'success');
   } catch(err) { toast(err.message, 'error'); }
 };
 

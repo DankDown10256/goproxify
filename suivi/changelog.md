@@ -7,6 +7,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Modifié — Moteurs de ban indépendants (`webapp` 0.4.4)
+
+- **Page Moteurs de ban** : remplacement du sélecteur radio exclusif (native/fail2ban/crowdsec) par 3 cartes indépendantes avec toggle — Fail2Ban, CrowdSec et Sentinel peuvent être activés simultanément
+- Chaque carte reflète l'état réel (`enabled`) de chaque moteur et permet de le toggler instantanément sans rechargement
+- Carte Sentinel ajoutée sur la page moteurs avec lien vers le dashboard avancé
+- **Overview sécurité** : grille des moteurs utilise désormais les états réels (`f2bCfg.enabled`, `csCfg.enabled`, `threatCfg.enabled`) et non plus le provider radio
+- i18n : nouveaux clés `engine_enabled`, `engine_disabled`, `ips_engines.multi_hint`, `sentinel_desc/hint/config` dans 4 locales
+
 ### Ajouté — Moteur de règles automatiques IPS (`admin` 0.3.0 · `webapp` 0.4.0)
 
 - **Moteur de règles** (`internal/admin/rulesengine`) : boucle de poll 60 s, évaluation par condition, cooldown par règle, `EvalNow()` dry-run
