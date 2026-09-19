@@ -320,6 +320,11 @@ func migrate(db *sql.DB) error {
 			created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS node_tunnel_configs (
+			node_id    TEXT PRIMARY KEY,
+			config     TEXT NOT NULL DEFAULT '{}',
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 
 	for _, s := range stmts {

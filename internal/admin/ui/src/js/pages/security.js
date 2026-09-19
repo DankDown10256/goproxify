@@ -419,7 +419,7 @@ async function renderSecurityOverview(ctx) {
           </div>
         </div>`;
       })() : ''}
-      ${!isAdmin ? enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, 'core-security-ips-engines', 'core-security-sentinel', activeRules, allRules.length) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
+      ${!isAdmin ? enginesConfigHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, true) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
 
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header">
@@ -1648,6 +1648,49 @@ async function renderSentinelDashboard({ mode }) {
 function secProxyCountLabel(n, total) {
   const suffix = n === 1 ? t('security.proxy_count', { n }) : t('security.proxy_count_n', { n });
   return total != null && n !== total ? `${suffix} / ${total}` : suffix;
+}
+
+function enginesConfigHTML(f2bCfg, csCfg, threatCfg, isCore) {
+  const f2bOn      = !!(f2bCfg?.enabled);
+  const csOn       = !!(csCfg?.enabled);
+  const sentinelOn = !!(threatCfg?.enabled);
+  const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
+  const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+  const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+  const dot = on => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${on?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
+  const lbl = on => `<span style="font-size:11px;font-weight:400;color:${on?'var(--green)':'var(--text3)'}">${on ? (t('security.engine_active')||'Actif') : (t('security.engine_inactive')||'Inactif')}</span>`;
+  const tog = (id, on, fn) => `<label class="toggle" style="margin-left:auto"><input type="checkbox" id="${id}" ${on?'checked':''} onchange="${fn}(this.checked)"><span class="toggle-slider"></span></label>`;
+  window._f2bCfg    = f2bCfg    || {};
+  window._csCfg     = csCfg     || {};
+  window._threatCfg = threatCfg || {};
+  const sentinelNav = isCore ? 'core-security-sentinel' : 'security-sentinel';
+  return `<div class="card blueprint" style="margin-bottom:20px">
+    <div class="card-header"><span class="card-title">${t('security.engines_status')||'Moteurs de sécurité'}</span></div>
+    <div style="padding:0 16px 16px">
+      <p style="font-size:12px;color:var(--text2);margin:12px 0">${t('security.ips_engines.multi_hint')||''}</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <div class="card blueprint" id="engine-card-f2b" style="border-color:${f2bOn?'var(--green)':'var(--border)'}">
+          <div class="card-header" style="gap:6px"><span class="card-title">${svgWrench} Fail2Ban ${dot(f2bOn)}${lbl(f2bOn)}</span>${tog('toggle-f2b',f2bOn,'toggleEngineF2B')}</div>
+          <div style="padding:0 16px 16px"><p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.f2b_desc')||''}</p>
+            <div id="f2b-panel-body" style="${f2bOn?'':'opacity:.45;pointer-events:none'}">${f2bPanel(window._f2bCfg)}</div>
+          </div>
+        </div>
+        <div class="card blueprint" id="engine-card-cs" style="border-color:${csOn?'var(--green)':'var(--border)'}">
+          <div class="card-header" style="gap:6px"><span class="card-title">${svgShield} CrowdSec ${dot(csOn)}${lbl(csOn)}</span>${tog('toggle-cs',csOn,'toggleEngineCS')}</div>
+          <div style="padding:0 16px 16px"><p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.cs_desc')||''}</p>
+            <div id="cs-panel-body" style="${csOn?'':'opacity:.45;pointer-events:none'}">${crowdSecPanel(window._csCfg)}</div>
+          </div>
+        </div>
+        <div class="card blueprint" id="engine-card-sentinel" style="border-color:${sentinelOn?'var(--green)':'var(--border)'}">
+          <div class="card-header" style="gap:6px"><span class="card-title">${svgSentinel} Sentinel ${dot(sentinelOn)}${lbl(sentinelOn)}</span>${tog('toggle-sentinel',sentinelOn,'toggleEngineSentinel')}</div>
+          <div style="padding:0 16px 16px"><p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.sentinel_desc')||''}</p>
+            <p style="font-size:12px;color:var(--text3);margin:0 0 10px">${t('security.ips_engines.sentinel_hint')||''}</p>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('${sentinelNav}')">${t('security.ips_engines.sentinel_config')||'Configurer'} →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function enginesStatusHTML(f2bCfg, csCfg, threatCfg, navBans, navSentinel, activeRules, totalRules) {

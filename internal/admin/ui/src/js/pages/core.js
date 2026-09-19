@@ -1146,3 +1146,148 @@ pages['core-http-timeouts'] = async function() {
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
 
+// ── B1 : Health checks par route ─────────────────────────────────────────────
+pages['core-health'] = async function(content) {
+  const spin = `<div class="spinner"></div>`;
+  content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Health checks</h1>${spin}`;
+
+  let timer = null;
+  async function refresh() {
+    const [health, proxies] = await Promise.all([
+      api('GET', '/api/v1/backends/health').catch(() => ({ backends: {} })),
+      api('GET', '/api/v1/proxies').catch(() => []),
+    ]);
+    const backends = health.backends || {};
+    const proxyMap = {};
+    (Array.isArray(proxies) ? proxies : []).forEach(p => { proxyMap[p.id] = p; });
+
+    // group backends by proxy id (url format: contains proxy id or name)
+    const groups = {};
+    Object.entries(backends).forEach(([url, status]) => {
+      // url may be like "https://core-host/proxy/<id>/backend/<backend>"
+      const m = url.match(/\/proxy\/([^/]+)\//);
+      const key = m ? m[1] : '__ungrouped__';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push({ url, status });
+    });
+
+    const dot = s => {
+      const c = s === 'up' ? 'var(--green)' : s === 'down' ? 'var(--red)' : 'var(--text3)';
+      return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px"></span>`;
+    };
+
+    if (Object.keys(backends).length === 0) {
+      content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Health checks</h1>
+        <p style="color:var(--text2);font-size:13px">Aucun backend remonté — vérifiez que les Cores sont connectés.</p>`;
+      return;
+    }
+
+    let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <h1 style="margin:0;font-size:24px;font-family:var(--font-heading);font-weight:600">Health checks</h1>
+      <span style="font-size:12px;color:var(--text3)">Rafraîchi toutes les 30 s</span>
+    </div>`;
+
+    Object.entries(groups).forEach(([key, entries]) => {
+      const proxy = proxyMap[key];
+      const label = proxy ? (proxy.name || proxy.host || key) : key === '__ungrouped__' ? 'Non groupé' : key;
+      const up = entries.filter(e => e.status === 'up').length;
+      const total = entries.length;
+      const hc = proxy?.health_check;
+      const hcInfo = hc ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(hc.path || '/')} · ${hc.interval || '?'}s / timeout ${hc.timeout || '?'}s · seuils ${hc.healthy_threshold || 2}↑ ${hc.unhealthy_threshold || 3}↓</span>` : '';
+      html += `<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <strong style="font-size:14px">${esc(label)}</strong>${hcInfo}
+          <span style="margin-left:auto;font-size:12px;color:${up===total?'var(--green)':up===0?'var(--red)':'var(--orange)'}">${up}/${total} up</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:4px 8px">Backend</th><th style="padding:4px 8px">Statut</th></tr></thead>
+          <tbody>${entries.map(e => `<tr><td style="padding:4px 8px;font-family:monospace;font-size:12px">${esc(e.url)}</td><td style="padding:4px 8px">${dot(e.status)}${esc(e.status)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>`;
+    });
+
+    content.innerHTML = html;
+  }
+
+  await refresh();
+  timer = setInterval(refresh, 30000);
+  content._cleanup = () => clearInterval(timer);
+};
+
+// ── B2 : Tunnel L4 mTLS Core↔Core ────────────────────────────────────────────
+pages['core-tunnel'] = async function(content) {
+  const spin = `<div class="spinner"></div>`;
+  content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Tunnel L4 mTLS</h1>${spin}`;
+
+  const coreId = window._selectedCore?.id;
+  if (!coreId) {
+    content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Tunnel L4 mTLS</h1><p style="color:var(--text2)">Aucun Core sélectionné.</p>`;
+    return;
+  }
+
+  let cfg = {};
+  try {
+    cfg = await api('GET', `/api/v1/nodes/${encodeURIComponent(coreId)}/tunnel-config`);
+  } catch(e) {
+    cfg = {};
+  }
+
+  const peers = Array.isArray(cfg.peers) ? cfg.peers : [];
+
+  function render(peers, saving) {
+    const rows = peers.map((p, i) => `<tr>
+      <td style="padding:6px 8px"><input data-field="name" data-idx="${i}" value="${esc(p.name||'')}" style="width:100%;box-sizing:border-box" placeholder="nom-peer"></td>
+      <td style="padding:6px 8px"><input data-field="addr" data-idx="${i}" value="${esc(p.addr||'')}" style="width:100%;box-sizing:border-box" placeholder="host:port"></td>
+      <td style="padding:6px 8px"><button data-rm="${i}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:18px">×</button></td>
+    </tr>`).join('');
+
+    content.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <h1 style="margin:0;font-size:24px;font-family:var(--font-heading);font-weight:600">Tunnel L4 mTLS</h1>
+    </div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:20px">Configurez les peers mTLS que ce Core peut joindre via tunnel L4 chiffré (TLS 1.3).</p>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <table style="width:100%;border-collapse:collapse;font-size:13px" id="tunnel-peers-table">
+        <thead><tr style="color:var(--text2)"><th style="padding:6px 8px;text-align:left">Nom</th><th style="padding:6px 8px;text-align:left">Adresse</th><th style="width:40px"></th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="3" style="padding:12px 8px;color:var(--text3);text-align:center">Aucun peer configuré</td></tr>'}</tbody>
+      </table>
+      <button id="tunnel-add-peer" style="margin-top:12px;background:none;border:1px dashed var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;color:var(--text2);width:100%">+ Ajouter un peer</button>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button id="tunnel-save" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px"${saving?' disabled':''}>Enregistrer</button>
+    </div>
+    ${saving ? `<p style="font-size:12px;color:var(--text3);margin-top:8px">Sauvegarde en cours…</p>` : ''}`;
+
+    document.getElementById('tunnel-add-peer')?.addEventListener('click', () => {
+      peers.push({ name: '', addr: '' });
+      render(peers, false);
+    });
+
+    document.querySelectorAll('[data-rm]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        peers.splice(parseInt(btn.dataset.rm), 1);
+        render(peers, false);
+      });
+    });
+
+    document.querySelectorAll('[data-field]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        peers[parseInt(inp.dataset.idx)][inp.dataset.field] = inp.value;
+      });
+    });
+
+    document.getElementById('tunnel-save')?.addEventListener('click', async () => {
+      render(peers, true);
+      try {
+        await api('PUT', `/api/v1/nodes/${encodeURIComponent(coreId)}/tunnel-config`, { peers });
+        render(peers, false);
+      } catch(e) {
+        render(peers, false);
+        alert('Erreur : ' + e.message);
+      }
+    });
+  }
+
+  render(peers, false);
+};
+

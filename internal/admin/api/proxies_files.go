@@ -385,6 +385,115 @@ func (h *ProxiesHandler) publishAll(ctx context.Context, id, host string, enable
 	return prod, nil
 }
 
+// revisionsDiff returns a field-level diff between two proxy configs.
+// Query params: from (revision id, default "production"), to (revision id, default "latest").
+func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, proxyID string) {
+	ctx := r.Context()
+	fromRev := r.URL.Query().Get("from")
+	toRev := r.URL.Query().Get("to")
+
+	targets, err := coreproxy.ListTargets(ctx, h.DB)
+	if err != nil || len(targets) == 0 {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.no_core")
+		return
+	}
+	client := coreproxy.NewClient()
+	target := targets[0]
+
+	prod, err := client.Get(ctx, target, proxyID)
+	if err != nil {
+		writeErr(w, r, http.StatusNotFound, "api.err.proxy_not_found")
+		return
+	}
+
+	revisions, err := client.ListRevisions(ctx, target, proxyID)
+	if err != nil {
+		revisions = nil
+	}
+
+	resolve := func(ref string, fallbackProd bool) *proxystore.Envelope {
+		if ref == "" || ref == "production" {
+			return prod
+		}
+		for _, rv := range revisions {
+			if rv.Revision == ref {
+				return rv
+			}
+		}
+		if fallbackProd {
+			return prod
+		}
+		return nil
+	}
+
+	var aEnv, bEnv *proxystore.Envelope
+	aEnv = resolve(fromRev, true)
+	if toRev == "" && len(revisions) > 0 {
+		bEnv = revisions[len(revisions)-1]
+	} else {
+		bEnv = resolve(toRev, false)
+	}
+	if bEnv == nil {
+		bEnv = prod
+	}
+
+	type diffEntry struct {
+		Key  string `json:"key"`
+		From any    `json:"from"`
+		To   any    `json:"to"`
+	}
+
+	flattenJSON := func(raw json.RawMessage) map[string]any {
+		out := map[string]any{}
+		if raw == nil {
+			return out
+		}
+		_ = json.Unmarshal(raw, &out)
+		return out
+	}
+
+	aFields := flattenJSON(aEnv.Config)
+	bFields := flattenJSON(bEnv.Config)
+	diffs := []diffEntry{}
+
+	seen := map[string]bool{}
+	for k, av := range aFields {
+		seen[k] = true
+		bv := bFields[k]
+		aj, _ := json.Marshal(av)
+		bj, _ := json.Marshal(bv)
+		if string(aj) != string(bj) {
+			diffs = append(diffs, diffEntry{Key: k, From: av, To: bv})
+		}
+	}
+	for k, bv := range bFields {
+		if !seen[k] {
+			diffs = append(diffs, diffEntry{Key: k, From: nil, To: bv})
+		}
+	}
+
+	type diffRevMeta struct {
+		Revision  string     `json:"revision"`
+		Status    string     `json:"status"`
+		UpdatedAt time.Time  `json:"updated_at"`
+		CreatedBy string     `json:"created_by,omitempty"`
+	}
+	meta := func(e *proxystore.Envelope) diffRevMeta {
+		return diffRevMeta{
+			Revision:  e.Revision,
+			Status:    string(e.Status),
+			UpdatedAt: e.UpdatedAt,
+			CreatedBy: e.CreatedBy,
+		}
+	}
+	jsonOK(w, map[string]any{
+		"from":      meta(aEnv),
+		"to":        meta(bEnv),
+		"diffs":     diffs,
+		"revisions": revisions,
+	})
+}
+
 func (h *ProxiesHandler) writeCoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	var he *coreproxy.HTTPError
 	if errors.As(err, &he) {

@@ -26,13 +26,14 @@ const App = {
 const CORE_PAGES = new Set([
   'core-trafic','core-proxies','core-streams','core-waf','core-ipfilter',
   'core-certs','core-auth','core-logs-access','core-logs-system',
-  'core-observability','core-prism','core-metrics','core-cluster','core-settings','core-general','ip-profiles',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel','core-security-ips-engines',
+  'core-observability','core-prism','core-metrics','core-health','core-cluster','core-settings','core-general','ip-profiles',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
+  'core-tunnel',
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
   'security','security-bans','security-vulns','security-threats','security-rules','automation',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel','core-security-ips-engines',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
 ]);
 
 // ── Sidebar mobile ────────────────────────────────────────────────────────

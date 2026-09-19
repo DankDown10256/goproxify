@@ -98,6 +98,10 @@ func (h *NodesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.triggerRescan(w, r, id)
 	case r.Method == http.MethodPost && id != "" && action == "configure":
 		h.configureAgent(w, r, id)
+	case r.Method == http.MethodGet && id != "" && action == "tunnel-config":
+		h.getTunnelConfig(w, r, id)
+	case r.Method == http.MethodPut && id != "" && action == "tunnel-config":
+		h.putTunnelConfig(w, r, id)
 	case r.Method == http.MethodDelete && id != "" && action == "":
 		h.deleteNode(w, r, id)
 	default:
@@ -1161,4 +1165,64 @@ func (h *NodeEventsHandler) record(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
+}
+
+// ── Tunnel L4 config ──────────────────────────────────────────────────────────
+
+type tunnelPeer struct {
+	Name string `json:"name"`
+	Addr string `json:"addr"`
+}
+
+type tunnelConfig struct {
+	Peers []tunnelPeer `json:"peers"`
+}
+
+func (h *NodesHandler) getTunnelConfig(w http.ResponseWriter, r *http.Request, nodeID string) {
+	var raw string
+	err := h.DB.QueryRowContext(r.Context(),
+		`SELECT config FROM node_tunnel_configs WHERE node_id = ?`, nodeID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		jsonOK(w, tunnelConfig{Peers: []tunnelPeer{}})
+		return
+	}
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	var cfg tunnelConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.parse")
+		return
+	}
+	if cfg.Peers == nil {
+		cfg.Peers = []tunnelPeer{}
+	}
+	jsonOK(w, cfg)
+}
+
+func (h *NodesHandler) putTunnelConfig(w http.ResponseWriter, r *http.Request, nodeID string) {
+	var cfg tunnelConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.body")
+		return
+	}
+	if cfg.Peers == nil {
+		cfg.Peers = []tunnelPeer{}
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.marshal")
+		return
+	}
+	_, err = h.DB.ExecContext(r.Context(),
+		`INSERT INTO node_tunnel_configs (node_id, config, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(node_id) DO UPDATE SET config=excluded.config, updated_at=excluded.updated_at`,
+		nodeID, string(raw))
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	jsonOK(w, cfg)
 }

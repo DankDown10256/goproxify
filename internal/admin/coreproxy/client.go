@@ -130,6 +130,15 @@ func (c *Client) Delete(ctx context.Context, t Target, id string) error {
 	return c.do(ctx, t, http.MethodDelete, "/internal/v1/proxies/"+id, nil, nil)
 }
 
+func (c *Client) ListRevisions(ctx context.Context, t Target, id string) ([]*proxystore.Envelope, error) {
+	var out []*proxystore.Envelope
+	path := fmt.Sprintf("/internal/v1/proxies/%s/revisions", id)
+	if err := c.do(ctx, t, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Publish runs create revision → dry-run → promote on one Core (UI-compatible).
 func (c *Client) Publish(ctx context.Context, t Target, id string, host string, enabled bool, config json.RawMessage, createdBy string) (*proxystore.Envelope, error) {
 	body := map[string]any{
