@@ -4,12 +4,14 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"time"
 
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
+	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
@@ -128,6 +130,20 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		}
 		s.applyBans(list)
 		s.log.Info("ws/admin: bans mis à jour", "count", len(list))
+
+	case corews.TypePushCrowdSecConfig:
+		var cfg corecrowdsec.Config
+		if err := json.Unmarshal(msg.Payload, &cfg); err != nil {
+			return err
+		}
+		if s.crowdSecBouncer != nil {
+			s.crowdSecBouncer.UpdateConfig(cfg)
+			if err := corecrowdsec.SaveConfig("", cfg); err != nil {
+				s.log.Warn("crowdsec: persistance config échouée", "err", err)
+			}
+			go s.crowdSecBouncer.SyncNow(context.Background())
+		}
+		s.log.Info("crowdsec: config mise à jour", "enabled", cfg.Enabled)
 
 	case corews.TypePushF2BConfig:
 		var cfg coref2b.Config

@@ -7,6 +7,18 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Moteur CrowdSec autonome dans le Core (`core`)
+
+- **`internal/core/crowdsec/`** : nouveau bouncer CrowdSec entièrement autonome dans le Core
+  - État en mémoire (`[]Decision`) + snapshot JSON (`/etc/goproxify/crowdsec/threats.json`) chargé au démarrage
+  - Synchronisation LAPI HTTP toutes les 60 s, `SyncNow` immédiat sur changement de config
+  - `OnBansChanged` : reconstruit la liste de bans actifs + notifie le `banStore` local
+  - `OnDecisions` : notifie l'Admin des nouvelles/supprimées décisions via WS (`TypeCrowdSecDecisions`)
+  - Fonctionne **sans l'Admin** — le Core banne en autonomie
+- **`corews`** : nouveaux messages `TypePushCrowdSecConfig` (Admin→Core) et `TypeCrowdSecDecisions` (Core→Admin)
+- **Admin `corews/manager`** : handler `handleCrowdSecDecisions` qui persiste dans `security_threats`/`security_bans`
+- **Admin `corews/manager`** : méthode `PushCrowdSecConfig` pour synchroniser la config vers un ou tous les Cores
+
 ### Ajouté — Moteur Fail2Ban autonome dans le Core (`core`)
 
 - **`internal/core/fail2ban/`** : nouveau moteur Fail2Ban entièrement autonome dans le Core

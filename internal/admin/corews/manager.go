@@ -432,6 +432,8 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handleThreatBan(msg.Payload)
 	case coreWS.TypeF2BBan:
 		m.handleF2BBan(msg.Payload)
+	case coreWS.TypeCrowdSecDecisions:
+		m.handleCrowdSecDecisions(msg.Payload)
 	case coreWS.TypeBackendDown:
 		m.handleBackendDown(msg.Payload)
 	case coreWS.TypeWAFReloaded:
@@ -1586,6 +1588,62 @@ func (m *Manager) PushF2BConfig(ctx context.Context, coreRef string, cfg any) {
 		go func() {
 			if err := e.client.PushJSON(coreWS.TypePushF2BConfig, json.RawMessage(body)); err != nil {
 				m.log.Warn("corews: push f2b config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// handleCrowdSecDecisions reçoit les nouvelles décisions CrowdSec de Core et les persiste en DB.
+func (m *Manager) handleCrowdSecDecisions(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.CrowdSecDecisionsPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	for _, d := range p.Added {
+		if d.Value == "" {
+			continue
+		}
+		banID := "crowdsec:" + d.Value
+		m.db.Exec( //nolint:errcheck
+			`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at)
+			 VALUES (?, ?, '', ?, 'crowdsec', NULL)
+			 ON CONFLICT(id) DO NOTHING`,
+			banID, d.Value, d.Scenario,
+		)
+		m.db.Exec( //nolint:errcheck
+			`INSERT OR IGNORE INTO security_threats (ip, scenario, origin, type, scope, node_name)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			d.Value, d.Scenario, d.Origin, d.Type, d.Scope, p.NodeName,
+		)
+	}
+	for _, d := range p.Deleted {
+		if d.Value == "" {
+			continue
+		}
+		banID := "crowdsec:" + d.Value
+		m.db.Exec(`DELETE FROM security_bans WHERE id=?`, banID)           //nolint:errcheck
+		m.db.Exec(`DELETE FROM security_threats WHERE ip=? AND scenario=?`, //nolint:errcheck
+			d.Value, d.Scenario)
+	}
+}
+
+// PushCrowdSecConfig envoie la config CrowdSec à un Core spécifique (ou tous si coreRef vide).
+func (m *Manager) PushCrowdSecConfig(ctx context.Context, coreRef string, cfg any) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	for _, e := range m.allEntries() {
+		if coreRef != "" && e.nodeName != coreRef && e.id != coreRef {
+			continue
+		}
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushCrowdSecConfig, json.RawMessage(body)); err != nil {
+				m.log.Warn("corews: push crowdsec config", "core", e.nodeName, "err", err)
 			}
 		}()
 	}

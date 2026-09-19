@@ -28,7 +28,8 @@ const (
 	TypePushGatewayPeers  = "push_gateway_peers"
 	TypePushDelegations   = "push_delegations"
 	TypePushThreatConfig  = "push_threat_config"
-	TypePushF2BConfig     = "push_f2b_config"
+	TypePushF2BConfig       = "push_f2b_config"
+	TypePushCrowdSecConfig  = "push_crowdsec_config"
 	TypePushServerConfig  = "push_server_config"
 	TypePushErrorPages        = "push_error_pages"
 	TypePushPortal            = "push_portal"
@@ -73,7 +74,8 @@ const (
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
 	TypeThreatBan             = "threat_ban"    // IP bannie par le moteur de détection automatique
-	TypeF2BBan                = "f2b_ban"       // IP bannie par le moteur Fail2Ban Core
+	TypeF2BBan                = "f2b_ban"         // IP bannie par le moteur Fail2Ban Core
+	TypeCrowdSecDecisions     = "crowdsec_decisions" // décisions CrowdSec Core→Admin (agrégation)
 	TypeWAFReloaded           = "waf_reloaded"  // Confirmation Core → Admin : règles WAF appliquées
 	TypeBackendDown           = "backend_down"  // Backend déclaré indisponible par health-check
 )
@@ -82,6 +84,23 @@ const (
 type BackendDownPayload struct {
 	URL      string `json:"url"`
 	NodeName string `json:"node_name,omitempty"`
+}
+
+// CrowdSecDecision est une décision CrowdSec relayée Core→Admin.
+type CrowdSecDecision struct {
+	Value    string `json:"value"`
+	Scenario string `json:"scenario"`
+	Origin   string `json:"origin"`
+	Type     string `json:"type"`
+	Duration string `json:"duration"`
+	Scope    string `json:"scope"`
+}
+
+// CrowdSecDecisionsPayload est envoyé par Core → Admin après chaque sync CrowdSec.
+type CrowdSecDecisionsPayload struct {
+	NodeName string             `json:"node_name,omitempty"`
+	Added    []CrowdSecDecision `json:"added,omitempty"`
+	Deleted  []CrowdSecDecision `json:"deleted,omitempty"`
 }
 
 // F2BBanPayload est envoyé par Core → Admin quand le moteur Fail2Ban Core banne une IP.

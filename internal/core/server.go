@@ -23,6 +23,7 @@ import (
 	corecache "github.com/vincamok/goproxify/internal/core/cache"
 	"github.com/vincamok/goproxify/internal/core/cluster"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
+	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	"github.com/vincamok/goproxify/internal/core/geoip"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
@@ -58,7 +59,8 @@ type Server struct {
 	profileStore  *router.IPProfileStore
 	banStore      *router.BanStore
 	threatEngine  *threat.Engine
-	f2bEngine     *coref2b.Engine
+	f2bEngine       *coref2b.Engine
+	crowdSecBouncer *corecrowdsec.Bouncer
 
 	// Bans threat : merge avec les bans Admin sans écraser.
 	bansMu            sync.Mutex
@@ -398,6 +400,13 @@ func (s *Server) Start(ctx context.Context) error {
 	s.accessLog.SetF2BTap(s.f2bEngine.Feed)
 	s.f2bEngine.Start(ctx)
 
+	// Bouncer CrowdSec — autonome, sync LAPI, bans locaux.
+	s.crowdSecBouncer = corecrowdsec.New(s.log.Logger())
+	s.crowdSecBouncer.UpdateConfig(corecrowdsec.LoadConfig(""))
+	s.crowdSecBouncer.OnBansChanged = s.onCrowdSecBansChanged
+	s.crowdSecBouncer.OnDecisions = s.onCrowdSecDecisions
+	s.crowdSecBouncer.Start(ctx)
+
 	// Portail d'accès : activable via env (dev) ou push Admin.
 	if os.Getenv("GPX_PORTAL_ENABLED") == "true" || os.Getenv("GPX_PORTAL_ENABLED") == "1" {
 		pcfg := portal.Config{Enabled: true, PublicHost: os.Getenv("GPX_PORTAL_PUBLIC_HOST")}
@@ -459,6 +468,9 @@ func (s *Server) Stop(ctx context.Context) {
 	if s.f2bEngine != nil {
 		s.accessLog.SetF2BTap(nil)
 		s.f2bEngine.Stop()
+	}
+	if s.crowdSecBouncer != nil {
+		s.crowdSecBouncer.Stop()
 	}
 	// Sauvegarde des profils comportementaux WAF à l'arrêt.
 	if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {

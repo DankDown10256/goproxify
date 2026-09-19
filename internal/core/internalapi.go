@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/vincamok/goproxify/internal/core/bans"
+	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	"github.com/vincamok/goproxify/internal/core/metrics"
@@ -505,6 +506,62 @@ func (s *Server) onF2BBan(b coref2b.Ban) {
 		payload.ExpiresAt = b.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 	if msg, err := corews.NewMessage(0, corews.TypeF2BBan, payload); err == nil {
+		s.wsHub.BroadcastToAdmins(msg)
+	}
+}
+
+// onCrowdSecBansChanged applique la liste complète des bans CrowdSec dans le banStore.
+// Remplace tous les bans crowdsec existants, conserve les autres sources.
+func (s *Server) onCrowdSecBansChanged(csBans []corecrowdsec.Ban) {
+	s.bansMu.Lock()
+	// Retirer les anciens bans crowdsec de lastBanList.
+	filtered := s.lastBanList[:0]
+	for _, b := range s.lastBanList {
+		if b.Source != "crowdsec" {
+			filtered = append(filtered, b)
+		}
+	}
+	// Ajouter les nouveaux.
+	for _, b := range csBans {
+		b := b
+		rb := &router.RuntimeBan{
+			ID:        b.ID,
+			IP:        b.IP,
+			Reason:    b.Reason,
+			Source:    "crowdsec",
+			ExpiresAt: b.ExpiresAt,
+		}
+		filtered = append(filtered, rb)
+	}
+	s.lastBanList = filtered
+	merged := append(filtered, s.pendingThreatBans...)
+	s.bansMu.Unlock()
+	s.banStore.Replace(merged)
+
+	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
+		s.log.Warn("crowdsec: persistance bans échouée", "err", err)
+	}
+	s.log.Info("crowdsec: bans appliqués", "count", len(csBans))
+}
+
+// onCrowdSecDecisions notifie l'Admin des nouvelles/supprimées décisions CrowdSec.
+func (s *Server) onCrowdSecDecisions(added, deleted []corecrowdsec.Decision) {
+	payload := corews.CrowdSecDecisionsPayload{
+		NodeName: s.cfg.Identity.NodeName,
+	}
+	for _, d := range added {
+		payload.Added = append(payload.Added, corews.CrowdSecDecision{
+			Value: d.Value, Scenario: d.Scenario, Origin: d.Origin,
+			Type: d.Type, Duration: d.Duration, Scope: d.Scope,
+		})
+	}
+	for _, d := range deleted {
+		payload.Deleted = append(payload.Deleted, corews.CrowdSecDecision{
+			Value: d.Value, Scenario: d.Scenario, Origin: d.Origin,
+			Type: d.Type, Duration: d.Duration, Scope: d.Scope,
+		})
+	}
+	if msg, err := corews.NewMessage(0, corews.TypeCrowdSecDecisions, payload); err == nil {
 		s.wsHub.BroadcastToAdmins(msg)
 	}
 }
