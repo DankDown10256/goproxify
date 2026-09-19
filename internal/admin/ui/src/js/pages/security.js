@@ -301,12 +301,13 @@ async function renderSecurityOverview(ctx) {
       api('GET', `/security/threat-config${coreQ}`).catch(() => null),
       api('GET', '/security/fail2ban').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
+      isAdmin ? api('GET', '/rules-engine/rules').catch(() => []) : Promise.resolve([]),
     ];
     if (coreCtx) {
       fetches.push(api('GET', '/security/bans?active=true').catch(() => []));
       fetches.push(api('GET', '/security/cves').catch(() => []));
     }
-    const [ovData, timeline, ipsProvider, threatCfg, f2bCfg, csCfg, bansRaw, cvesRaw] = await Promise.all(fetches);
+    const [ovData, timeline, ipsProvider, threatCfg, f2bCfg, csCfg, rulesRaw, bansRaw, cvesRaw] = await Promise.all(fetches);
     const ov = ovData?.overview || {};
     let headers = filterSecHeaders(ov.headers || [], coreCtx);
     let certs = filterSecCerts(ovData?.certs || [], coreCtx);
@@ -339,6 +340,8 @@ async function renderSecurityOverview(ctx) {
     const navVulns = securityPageId('vulns', mode);
     const navPosture = securityPageId('posture', mode);
     const navSentinel = securityPageId('sentinel', mode);
+    const allRules = Array.isArray(rulesRaw) ? rulesRaw : (rulesRaw?.rules || []);
+    const activeRules = allRules.filter(r => r.enabled).length;
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
@@ -373,9 +376,14 @@ async function renderSecurityOverview(ctx) {
           <div class="sec-tile-value" style="color:${threatCfg?.enabled?'var(--green)':'var(--text3)'};font-size:22px">&#x1f6e1;</div>
           <div class="sec-tile-sub">${threatCfg?.enabled ? (t('security.engine_active')||'Actif') : (t('security.engine_inactive')||'Inactif')}</div>
         </div>
+        ${isAdmin ? `<div class="sec-tile" style="cursor:pointer" onclick="navigate('security-rules')" title="${t('security.rules.tab_rules')||'Règles'}">
+          <div class="sec-tile-label">${t('security.rules.tab_rules')||'Règles automatiques'}</div>
+          <div class="sec-tile-value" style="color:${activeRules>0?'var(--accent)':'var(--text3)'}">${activeRules}</div>
+          <div class="sec-tile-sub">${allRules.length} ${t('common.total')||'total'}</div>
+        </div>` : ''}
       </div>
 
-      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel)}
+      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
 
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header">
@@ -1191,40 +1199,44 @@ function secProxyCountLabel(n, total) {
   return total != null && n !== total ? `${suffix} / ${total}` : suffix;
 }
 
-function enginesStatusHTML(provider, threatCfg, navBans, navSentinel) {
+function enginesStatusHTML(provider, threatCfg, navBans, navSentinel, activeRules, totalRules) {
   const sentinelOn = !!threatCfg.enabled;
   const engines = [
     {
       key: 'fail2ban',
       label: t('security.fail2ban_native'),
-      desc: t('security.ips.f2b_desc'),
       active: provider === 'fail2ban',
       nav: navBans,
     },
     {
       key: 'crowdsec',
       label: t('security.crowdsec'),
-      desc: t('security.ips.cs_desc'),
       active: provider === 'crowdsec',
       nav: navBans,
     },
     {
       key: 'sentinel',
       label: t('security.sentinel_tile_label') || 'Sentinel',
-      desc: t('security.sentinel_tile_sub') || 'Threat engine',
       active: sentinelOn,
       nav: navSentinel,
+    },
+    {
+      key: 'rules',
+      label: t('security.rules.tab_rules') || 'Règles automatiques',
+      active: (activeRules || 0) > 0,
+      sub: `${activeRules || 0} / ${totalRules || 0}`,
+      nav: 'security-rules',
     },
   ];
   return `<div class="card blueprint" style="margin-bottom:20px">
     <div class="card-header"><span class="card-title">${t('security.engines_status') || 'Moteurs de sécurité'}</span></div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:12px">
       ${engines.map(e => `
         <div onclick="navigate('${e.nav}')" style="cursor:pointer;display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid ${e.active ? 'var(--green)' : 'var(--border)'};transition:border-color .15s">
           <span style="margin-top:2px;width:8px;height:8px;min-width:8px;border-radius:50%;background:${e.active ? 'var(--green)' : 'var(--text3)'}"></span>
           <div style="min-width:0">
             <div style="font-size:12.5px;font-weight:600;color:${e.active ? 'var(--text1)' : 'var(--text2)'}">${esc(e.label)}</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:2px">${e.active ? (t('security.engine_active') || 'Actif') : (t('security.engine_inactive') || 'Inactif')}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">${e.sub !== undefined ? e.sub : (e.active ? (t('security.engine_active') || 'Actif') : (t('security.engine_inactive') || 'Inactif'))}</div>
           </div>
         </div>`).join('')}
     </div>
