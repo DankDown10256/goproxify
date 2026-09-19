@@ -270,7 +270,10 @@ func (s *Server) Start(ctx context.Context) error {
 		acmeMgr = buildACMEManager(s.cfg.ACME.Email, s.cfg.ACME.DirectoryURL, s.cfg.ACME.DNS.Type)
 	}
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}
-	nodesH := &api.NodesHandler{DB: s.db, Log: s.log}
+	nodesH := &api.NodesHandler{DB: s.db, Log: s.log, OnTunnelSave: func(nodeID string) {
+		ctx := context.Background()
+		s.wsManager.PushTunnelConfig(ctx, nodeID)
+	}}
 	autoConfigurer := &api.AgentAutoConfigurer{DB: s.db, Log: s.log, Nodes: nodesH}
 	go autoConfigurer.Start(ctx)
 	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, CoreNodeName: s.cfg.Identity.CoreNodeName, Scheduler: backupSched, ArchStore: archStore}

@@ -29,8 +29,9 @@ import (
 // Les nœuds de type "core" sont lus depuis la table nodes (heartbeat Core→Admin).
 // Les nœuds de type "agent" sont agrégés depuis les Cores via GET /internal/v1/nodes.
 type NodesHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB            *sql.DB
+	Log           *slog.Logger
+	OnTunnelSave  func(nodeID string) // appelé après PUT tunnel-config
 }
 
 type nodeRow struct {
@@ -1223,6 +1224,9 @@ func (h *NodesHandler) putTunnelConfig(w http.ResponseWriter, r *http.Request, n
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
 		return
+	}
+	if h.OnTunnelSave != nil {
+		go h.OnTunnelSave(nodeID)
 	}
 	jsonOK(w, cfg)
 }

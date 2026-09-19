@@ -43,6 +43,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/tracing"
 	"github.com/vincamok/goproxify/internal/core/waf"
 	"github.com/vincamok/goproxify/internal/core/threat"
+	"github.com/vincamok/goproxify/internal/core/tunnel"
 	corews "github.com/vincamok/goproxify/internal/core/ws"
 	"github.com/vincamok/goproxify/internal/nodeident"
 )
@@ -65,6 +66,7 @@ type Server struct {
 	f2bEngine       *coref2b.Engine
 	crowdSecBouncer *corecrowdsec.Bouncer
 	rulesEngine     *corere.Engine
+	tunnelManager   *tunnel.Manager
 
 	// Bans threat : merge avec les bans Admin sans écraser.
 	bansMu            sync.Mutex
@@ -157,6 +159,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		tcpPorts:        make(map[string]interface{ Stop() }),
 		tracingShutdown: tracingShutdown,
 		nodeStore:       coreagent.NewNodeStore(),
+		tunnelManager:   tunnel.New(log.Logger()),
 	}
 	s.initProxyStore()
 	if u := os.Getenv("GPX_ADMIN_PUBLIC_URL"); u != "" {

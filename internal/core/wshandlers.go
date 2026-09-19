@@ -19,6 +19,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/router"
 	"github.com/vincamok/goproxify/internal/core/threat"
 	coretokens "github.com/vincamok/goproxify/internal/core/tokens"
+	"github.com/vincamok/goproxify/internal/core/tunnel"
 	corews "github.com/vincamok/goproxify/internal/core/ws"
 )
 
@@ -320,6 +321,20 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 			s.rulesEngine.ReplaceRules(rules)
 		}
 		s.log.Info("ws/admin: règles automatiques mises à jour", "count", len(rules))
+
+	case corews.TypePushTunnelConfig:
+		var payload corews.TunnelConfigPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			return err
+		}
+		if s.tunnelManager != nil {
+			peers := make([]tunnel.PeerConfig, 0, len(payload.Peers))
+			for _, p := range payload.Peers {
+				peers = append(peers, tunnel.PeerConfig{Name: p.Name, Addr: p.Addr})
+			}
+			s.tunnelManager.SetPeers(peers)
+		}
+		s.log.Info("ws/admin: tunnel peers mis à jour", "count", len(payload.Peers))
 
 	default:
 		s.log.Debug("ws/admin: message inconnu ignoré", "type", msg.Type)

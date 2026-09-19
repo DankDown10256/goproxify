@@ -37,7 +37,8 @@ const (
 	TypeFullSync          = "full_sync"
 	TypeApproveAgent      = "approve_agent"
 	TypeRevokeAgent       = "revoke_agent"
-	TypePushAutoRules     = "push_auto_rules" // pousse les règles automatiques vers Core
+	TypePushAutoRules     = "push_auto_rules"     // pousse les règles automatiques vers Core
+	TypePushTunnelConfig  = "push_tunnel_config"  // pousse la config peers tunnel L4 mTLS vers Core
 )
 
 // Types de messages Agent → Core
@@ -249,6 +250,17 @@ type ShellClosePayload struct {
 type ShellErrorPayload struct {
 	SessionID string `json:"session_id"`
 	Error     string `json:"error"`
+}
+
+// TunnelPeer est un pair tunnel L4 mTLS (nom + adresse host:port).
+type TunnelPeer struct {
+	Name string `json:"name"`
+	Addr string `json:"addr"`
+}
+
+// TunnelConfigPayload est envoyé par Admin → Core pour mettre à jour la liste des peers tunnel.
+type TunnelConfigPayload struct {
+	Peers []TunnelPeer `json:"peers"`
 }
 
 // NewMessage construit un Message à partir d'un type et d'un payload quelconque.

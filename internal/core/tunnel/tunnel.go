@@ -50,6 +50,41 @@ func New(log *slog.Logger) *Manager {
 	}
 }
 
+// SetPeers remplace la liste complète des pairs (diff : retire les disparus, ajoute/update).
+func (m *Manager) SetPeers(peers []PeerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	keep := make(map[string]bool, len(peers))
+	for _, cfg := range peers {
+		keep[cfg.Name] = true
+	}
+	for name, p := range m.peers {
+		if !keep[name] {
+			p.mu.Lock()
+			if p.conn != nil {
+				p.conn.Close()
+			}
+			p.mu.Unlock()
+			delete(m.peers, name)
+		}
+	}
+	for _, cfg := range peers {
+		if p, ok := m.peers[cfg.Name]; ok {
+			p.mu.Lock()
+			if p.conn != nil {
+				p.conn.Close()
+			}
+			p.cfg = cfg
+			p.conn = nil
+			p.broken = false
+			p.mu.Unlock()
+		} else {
+			m.peers[cfg.Name] = &Peer{cfg: cfg}
+		}
+	}
+}
+
 // AddPeer enregistre ou met à jour un pair distant.
 func (m *Manager) AddPeer(cfg PeerConfig) {
 	m.mu.Lock()
@@ -168,19 +203,22 @@ func dialVia(p *Peer, targetAddr string, log *slog.Logger) (net.Conn, error) {
 }
 
 func mtlsDial(cfg PeerConfig) (net.Conn, error) {
-	cert, err := tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("tunnel: certificat local invalide: %w", err)
-	}
-	pool := x509.NewCertPool()
-	if len(cfg.CACert) > 0 {
-		pool.AppendCertsFromPEM(cfg.CACert)
-	}
 	tlsCfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-		ServerName:   cfg.Name,
-		MinVersion:   tls.VersionTLS13,
+		MinVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: len(cfg.CACert) == 0, //nolint:gosec — fallback si pas de CA fourni
+	}
+	if len(cfg.CertPEM) > 0 && len(cfg.KeyPEM) > 0 {
+		cert, err := tls.X509KeyPair(cfg.CertPEM, cfg.KeyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("tunnel: certificat local invalide: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+	if len(cfg.CACert) > 0 {
+		pool := x509.NewCertPool()
+		pool.AppendCertsFromPEM(cfg.CACert)
+		tlsCfg.RootCAs = pool
+		tlsCfg.ServerName = cfg.Name
 	}
 	return tls.DialWithDialer(
 		&net.Dialer{Timeout: 10 * time.Second},

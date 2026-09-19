@@ -420,6 +420,7 @@ async function renderTraficPage(ctx) {
       const labelsBtn = `<button class="btn btn-ghost btn-icon" onclick="openDockerLabelsFromProxy('${esc(p.id)}')" title="${esc(t('trafic.docker_labels'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg></button>`;
       const flowBtn = `<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('proxy','${esc(p.id)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
       const histBtn = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyHistoryModal('${esc(p.id)}','${esc(host)}')" title="${t('backups.history.title')||'Historique'}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>` : '';
+      const diffBtn = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyDiffModal('${esc(p.id)}','${esc(host)}')" title="Diff config"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V4M5 12l7-7 7 7"/><path d="M5 17h14"/></svg></button>` : '';
 
       const domainsHtml = allDomains.map((d, i) => domainLink(d, i === 0, hasTLS)).join('');
 
@@ -431,7 +432,7 @@ async function renderTraficPage(ctx) {
           <div class="trafic-tile-actions">
             <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
             <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(p.node_id||p.core_id||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
-            ${histBtn}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
+            ${histBtn}${diffBtn}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
           </div>
         </div>
         <div style="min-width:0;margin-bottom:7px">${domainsHtml}${chips?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${chips}</div>`:''}</div>
@@ -483,6 +484,7 @@ async function renderTraficPage(ctx) {
       const labelsBtn = `<button class="btn btn-ghost btn-icon" onclick="openDockerLabelsFromProxy('${esc(p.id)}')" title="${esc(t('trafic.docker_labels'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg></button>`;
       const flowBtn = `<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('proxy','${esc(p.id)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
       const histBtn2 = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyHistoryModal('${esc(p.id)}','${esc(host)}')" title="${t('backups.history.title')||'Historique'}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>` : '';
+      const diffBtn2 = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyDiffModal('${esc(p.id)}','${esc(host)}')" title="Diff config"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V4M5 12l7-7 7 7"/><path d="M5 17h14"/></svg></button>` : '';
 
       const hostLink = `<a href="${hasTLS?'https':'http'}://${esc(host)}" target="_blank" rel="noopener noreferrer"
         onclick="event.stopPropagation()"
@@ -519,7 +521,7 @@ async function renderTraficPage(ctx) {
         <td style="padding:8px 10px;white-space:nowrap;text-align:right">
           <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
           <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(p.node_id||p.core_id||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
-          ${histBtn2}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
+          ${histBtn2}${diffBtn2}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
         </td>
       </tr>`;
     }
@@ -1538,6 +1540,75 @@ window.runTrafficPathTest = async function() {
     statusEl.style.color = hasError ? 'var(--red)' : hasWarn ? 'var(--yellow,#f59e0b)' : 'var(--green)';
   }
   if (btn) { btn.disabled = false; btn.textContent = t('trafic.flow_test_retry'); }
+};
+
+// ── Diff de config entre révisions d'un proxy ────────────────────────────
+window.openProxyDiffModal = async function(proxyId, proxyName) {
+  modal(
+    `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M12 20V4M5 12l7-7 7 7"/><path d="M5 17h14"/></svg>${esc(proxyName)} — Diff config`,
+    '<p style="color:var(--text2);font-size:13px">' + t('common.loading') + '</p>',
+    `<button class="btn btn-secondary" onclick="closeModal()">${t('common.close')}</button>`,
+    false
+  );
+  const body = document.querySelector('#modal-overlay .dialog-body');
+  if (!body) return;
+
+  const renderDiff = async (from, to) => {
+    body.innerHTML = '<p style="color:var(--text2);font-size:13px">' + t('common.loading') + '</p>';
+    const data = await api('GET', `/api/v1/proxies/${proxyId}/revisions/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).catch(() => null);
+    if (!data) {
+      body.innerHTML = '<p style="color:var(--red);font-size:13px;margin:0">Erreur lors du chargement du diff.</p>';
+      return;
+    }
+
+    const revOptions = (data.revisions || []).map(r =>
+      `<option value="${esc(r.revision)}">${esc(r.revision)} — ${fmtDate(r.created_at)}${r.status==='production'?' (production)':''}</option>`
+    ).join('');
+
+    const fmtVal = v => v == null ? '<em style="color:var(--text3)">—</em>' : `<code style="font-size:11px;word-break:break-all">${esc(String(v))}</code>`;
+
+    const diffRows = (data.diffs || []).map(d => {
+      const changed = JSON.stringify(d.from) !== JSON.stringify(d.to);
+      return `<tr style="${changed ? 'background:color-mix(in srgb,var(--yellow,#f59e0b) 8%,transparent)' : ''}">
+        <td style="font-size:12px;font-weight:500;white-space:nowrap">${esc(d.key)}</td>
+        <td style="font-size:12px;color:var(--red)">${fmtVal(d.from)}</td>
+        <td style="font-size:12px;color:var(--green)">${fmtVal(d.to)}</td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--text2)">De :
+          <select id="diff-from" style="margin-left:4px;font-size:12px" onchange="window._diffReload('${esc(proxyId)}','${esc(proxyName)}')">
+            <option value="production" ${from==='production'?'selected':''}>Production actuelle</option>
+            ${revOptions}
+          </select>
+        </label>
+        <label style="font-size:12px;color:var(--text2)">À :
+          <select id="diff-to" style="margin-left:4px;font-size:12px" onchange="window._diffReload('${esc(proxyId)}','${esc(proxyName)}')">
+            <option value="latest" ${to==='latest'?'selected':''}>Dernière révision</option>
+            ${revOptions}
+          </select>
+        </label>
+      </div>
+      ${!diffRows ? '<p style="color:var(--text2);font-size:13px;margin:0">Aucune différence.</p>' : `
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th style="font-size:11px">Champ</th>
+          <th style="font-size:11px">Avant</th>
+          <th style="font-size:11px">Après</th>
+        </tr></thead>
+        <tbody>${diffRows}</tbody>
+      </table></div>`}`;
+  };
+
+  window._diffReload = async (pid, pname) => {
+    const f = document.getElementById('diff-from')?.value || 'production';
+    const t2 = document.getElementById('diff-to')?.value || 'latest';
+    await renderDiff(f, t2);
+  };
+
+  await renderDiff('production', 'latest');
 };
 
 // ── Historique des versions d'un proxy ────────────────────────────────────

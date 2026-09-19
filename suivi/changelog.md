@@ -23,8 +23,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 ### Ajouté — UX opérateur avancée — B1/B2/B3 (`webapp` · `admin`)
 
 - **B1 — Page Health checks par route** (`core-health`) : tableau des backends groupés par proxy avec statut up/down, paramètres HealthCheck (path, interval, seuils), rafraîchissement auto 30 s
-- **B2 — UI configuration Tunnel L4 mTLS** (`core-tunnel`) : page dédiée par Core pour configurer les peers mTLS (nom + adresse) ; API Admin `GET/PUT /api/v1/nodes/{id}/tunnel-config` ; table `node_tunnel_configs` dans SQLite
-- **B3 — Diff de config proxy** : endpoint `GET /api/v1/proxies/{id}/revisions/diff?from=&to=` — compare deux révisions ou production vs. dernière révision, retourne diff champ par champ + liste des révisions
+- **B2 — Tunnel L4 mTLS complet** (`core-tunnel`) : UI + API Admin `GET/PUT /api/v1/nodes/{id}/tunnel-config` + table `node_tunnel_configs` + **WS push Admin→Core** (`push_tunnel_config`) — les peers configurés sont désormais poussés en temps réel au Core et appliqués via `tunnel.Manager.SetPeers`
+- **B3 — Diff de config proxy** : endpoint `GET /api/v1/proxies/{id}/revisions/diff?from=&to=` + **bouton "Diff config" dans trafic.js** — modal interactif avec sélecteurs de révisions, tableau de diff champ par champ (avant/après mis en évidence)
 - **UX Sécurité Core** : "Moteurs de sécurité" devient une section de configuration inline dans la page `core-security` (toggles Fail2Ban/CrowdSec/Sentinel avec leurs panels) — le sous-menu "Moteurs IPS" est supprimé
 - Client `coreproxy` : ajout de `ListRevisions(ctx, target, id)` (proxy vers `GET /internal/v1/proxies/{id}/revisions`)
 

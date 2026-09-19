@@ -1286,6 +1286,15 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *coreEntry, s Settings) 
 	// Règles automatiques — poussées après le full_sync
 	go m.PushAutoRules(ctx)
 
+	// Config tunnel peers — poussée si présente
+	go func() {
+		var nodeUUID string
+		if err := m.db.QueryRowContext(ctx,
+			`SELECT id FROM nodes WHERE node_name=?`, e.nodeName).Scan(&nodeUUID); err == nil {
+			m.PushTunnelConfig(ctx, nodeUUID)
+		}
+	}()
+
 	m.log.Info("corews/manager: full_sync envoyé", "core", e.nodeName)
 }
 
@@ -1758,6 +1767,49 @@ func (m *Manager) PushAutoRules(ctx context.Context) {
 				m.log.Warn("corews/manager: push auto_rules", "core", e.nodeName, "err", err)
 			}
 		}()
+	}
+}
+
+// PushTunnelConfig envoie la config peers tunnel mTLS au Core identifié par son node UUID (table nodes).
+func (m *Manager) PushTunnelConfig(ctx context.Context, nodeID string) {
+	// Résoudre le node_name depuis l'UUID de la table nodes
+	var nodeName string
+	if err := m.db.QueryRowContext(ctx,
+		`SELECT node_name FROM nodes WHERE id=?`, nodeID).Scan(&nodeName); err != nil {
+		return
+	}
+	// Lire la config tunnel
+	var raw string
+	if err := m.db.QueryRowContext(ctx,
+		`SELECT config FROM node_tunnel_configs WHERE node_id=?`, nodeID).Scan(&raw); err != nil {
+		return // pas de config → rien à pousser
+	}
+	type tunnelPeer struct {
+		Name string `json:"name"`
+		Addr string `json:"addr"`
+	}
+	type tunnelCfg struct {
+		Peers []tunnelPeer `json:"peers"`
+	}
+	var cfg tunnelCfg
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return
+	}
+	// Trouver l'entrée WS par node_name
+	m.mu.RLock()
+	var target *coreEntry
+	for _, e := range m.cores {
+		if e.nodeName == nodeName {
+			target = e
+			break
+		}
+	}
+	m.mu.RUnlock()
+	if target == nil || target.client == nil {
+		return
+	}
+	if err := target.client.PushJSON(coreWS.TypePushTunnelConfig, cfg); err != nil {
+		m.log.Warn("corews/manager: push tunnel_config", "core", target.nodeName, "err", err)
 	}
 }
 
