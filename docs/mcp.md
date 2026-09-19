@@ -519,6 +519,54 @@ Force le renouvellement ACME d'un domaine en vidant la date d'expiration en base
 
 ---
 
+### `get_cert_status`
+
+Retourne le statut d'expiration de tous les certificats avec KPIs globaux (ok / warning / critical / expired).
+
+| Paramètre | Type   | Requis | Description                                    |
+|-----------|--------|--------|------------------------------------------------|
+| `domain`  | string | —      | Filtrer sur un domaine spécifique              |
+
+**Réponse :** `{ "certs": [...], "total": N, "ok": N, "warning": N, "critical": N, "expired": N }`
+
+---
+
+### `list_cert_deploy_targets`
+
+Liste les cibles de déploiement configurées pour un certificat (webhook, ssh_exec) avec leur dernier statut.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|-------------------|
+| `cert_id` | string | ✓      | ID du certificat  |
+
+---
+
+### `trigger_cert_deploy`
+
+Déclenche immédiatement le déploiement d'un certificat vers une cible spécifique.
+
+| Paramètre   | Type   | Requis | Description                     |
+|-------------|--------|--------|---------------------------------|
+| `target_id` | string | ✓      | ID de la cible de déploiement   |
+
+**Réponse :** `{ "target_id": "...", "cert_id": "...", "type": "webhook|ssh_exec", "status": "triggered" }`
+
+---
+
+### `import_cert`
+
+Importe un certificat externe (non-ACME) en fournissant le PEM et la clé privée. Le domaine est extrait automatiquement du CN ou des SAN.
+
+| Paramètre  | Type   | Requis | Description                                          |
+|------------|--------|--------|------------------------------------------------------|
+| `cert_pem` | string | ✓      | Certificat PEM (`-----BEGIN CERTIFICATE-----`)       |
+| `key_pem`  | string | ✓      | Clé privée PEM                                       |
+| `issuer`   | string | —      | Émetteur (défaut : `custom`)                         |
+
+**Réponse :** `{ "domain": "...", "issuer": "...", "expires_at": "...", "status": "imported" }`
+
+---
+
 ### `list_security_threats`
 
 Décisions CrowdSec synchronisées (`security_threats`).

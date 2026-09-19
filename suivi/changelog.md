@@ -7,6 +7,13 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — MCP server étendu : outils Certificate Hub (`admin`)
+
+- **`get_cert_status`** : statut d'expiration de tous les certs avec KPIs (ok/warning/critical/expired) + filtre domaine optionnel ; resource URI `goproxify://certs/monitor`
+- **`list_cert_deploy_targets`** : liste les cibles de déploiement d'un cert (webhook, ssh_exec) avec dernier statut
+- **`trigger_cert_deploy`** : déclenche immédiatement le déploiement d'un cert vers une cible spécifique
+- **`import_cert`** : importe un certificat externe (PEM + clé) — extraction automatique du domaine (SAN/CN), upsert en DB
+
 ### Ajouté — Import de certificats externes (`webapp` · `admin`)
 
 - **Endpoint `POST /api/v1/certs/import`** : accepte `{cert_pem, key_pem, issuer?}`, valide le bloc PEM, extrait domaine (SAN/CN) et `expires_at` depuis le certificat, upsert en DB — écrase un cert existant sur le même domaine

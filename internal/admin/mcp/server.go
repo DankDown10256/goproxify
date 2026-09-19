@@ -8,8 +8,10 @@ package mcp
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -365,6 +367,31 @@ var tools = []map[string]any{
 		"description": "Force le renouvellement ACME d'un certificat par son domaine et le pousse aux Cores.",
 		"inputSchema": schema(req("domain", "string", "Domaine dont le certificat doit être renouvelé")),
 	},
+	// Certificate Hub
+	{
+		"name":        "get_cert_status",
+		"description": "Retourne le statut d'expiration détaillé de tous les certificats (days_left, status ok/warning/critical/expired) avec KPIs globaux.",
+		"inputSchema": schema(opt("domain", "string", "Filtrer sur un domaine spécifique")),
+	},
+	{
+		"name":        "list_cert_deploy_targets",
+		"description": "Liste les cibles de déploiement configurées pour un certificat (webhook, ssh_exec) avec leur dernier statut.",
+		"inputSchema": schema(req("cert_id", "string", "ID du certificat")),
+	},
+	{
+		"name":        "trigger_cert_deploy",
+		"description": "Déclenche immédiatement le déploiement d'un certificat vers une cible spécifique.",
+		"inputSchema": schema(req("target_id", "string", "ID de la cible de déploiement")),
+	},
+	{
+		"name":        "import_cert",
+		"description": "Importe un certificat externe (non-ACME) en fournissant le PEM et la clé privée. Le domaine est extrait automatiquement.",
+		"inputSchema": schema(
+			req("cert_pem", "string", "Certificat PEM (-----BEGIN CERTIFICATE-----)"),
+			req("key_pem", "string", "Clé privée PEM (-----BEGIN PRIVATE KEY----- ou EC PRIVATE KEY)"),
+			opt("issuer", "string", "Émetteur (défaut: custom)"),
+		),
+	},
 	{
 		"name":        "list_rules",
 		"description": "Liste les règles du moteur de règles automatiques (conditions, actions, état, statistiques).",
@@ -600,6 +627,17 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "obtain_cert":
 		domain, _ := p.Arguments["domain"].(string)
 		result, toolErr = h.toolObtainCert(r, domain)
+	case "get_cert_status":
+		domain, _ := p.Arguments["domain"].(string)
+		result, toolErr = h.toolGetCertStatus(r, domain)
+	case "list_cert_deploy_targets":
+		certID, _ := p.Arguments["cert_id"].(string)
+		result, toolErr = h.toolListCertDeployTargets(r, certID)
+	case "trigger_cert_deploy":
+		targetID, _ := p.Arguments["target_id"].(string)
+		result, toolErr = h.toolTriggerCertDeploy(r, targetID)
+	case "import_cert":
+		result, toolErr = h.toolImportCert(r, p.Arguments)
 	default:
 		return errResp(req.ID, -32601, "outil inconnu: "+p.Name)
 	}
@@ -1395,6 +1433,147 @@ func (h *Handler) toolRotateCert(r *http.Request, domain string) (any, error) {
 	return map[string]any{"domain": domain, "status": "renew_requested"}, nil
 }
 
+func (h *Handler) toolGetCertStatus(r *http.Request, domain string) (any, error) {
+	q := `SELECT id, domain, issuer, cert_pem, expires_at, updated_at FROM certs`
+	var args []any
+	if domain != "" {
+		q += ` WHERE domain=?`
+		args = append(args, domain)
+	}
+	q += ` ORDER BY expires_at ASC`
+	rows, err := h.DB.QueryContext(r.Context(), q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	now := time.Now()
+	var certs []map[string]any
+	totals := map[string]int{"ok": 0, "warning": 0, "critical": 0, "expired": 0}
+	for rows.Next() {
+		var id, dom, issuer, certPEM, expiresStr, updatedStr string
+		if err := rows.Scan(&id, &dom, &issuer, &certPEM, &expiresStr, &updatedStr); err != nil {
+			continue
+		}
+		exp, _ := time.Parse("2006-01-02T15:04:05Z", expiresStr)
+		if exp.IsZero() {
+			exp, _ = time.Parse("2006-01-02 15:04:05", expiresStr)
+		}
+		daysLeft := int(exp.Sub(now).Hours() / 24)
+		var status string
+		switch {
+		case daysLeft < 0:
+			status = "expired"
+		case daysLeft <= 7:
+			status = "critical"
+		case daysLeft <= 30:
+			status = "warning"
+		default:
+			status = "ok"
+		}
+		totals[status]++
+		certs = append(certs, map[string]any{
+			"id": id, "domain": dom, "issuer": issuer,
+			"expires_at": expiresStr, "updated_at": updatedStr,
+			"days_left": daysLeft, "status": status,
+		})
+	}
+	if certs == nil {
+		certs = []map[string]any{}
+	}
+	return map[string]any{
+		"certs": certs, "total": len(certs),
+		"ok": totals["ok"], "warning": totals["warning"],
+		"critical": totals["critical"], "expired": totals["expired"],
+	}, nil
+}
+
+func (h *Handler) toolListCertDeployTargets(r *http.Request, certID string) (any, error) {
+	if certID == "" {
+		return nil, fmt.Errorf("cert_id requis")
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, type, trigger_on, last_deploy, last_status FROM cert_deploy_targets WHERE cert_id=? ORDER BY rowid`, certID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, typ, triggerOn string
+		var lastDeploy, lastStatus sql.NullString
+		if err := rows.Scan(&id, &typ, &triggerOn, &lastDeploy, &lastStatus); err != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "type": typ, "trigger_on": triggerOn,
+			"last_deploy": lastDeploy.String, "last_status": lastStatus.String,
+		})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolTriggerCertDeploy(r *http.Request, targetID string) (any, error) {
+	if targetID == "" {
+		return nil, fmt.Errorf("target_id requis")
+	}
+	var certID, typ string
+	err := h.DB.QueryRowContext(r.Context(),
+		`SELECT cert_id, type FROM cert_deploy_targets WHERE id=?`, targetID).Scan(&certID, &typ)
+	if err != nil {
+		return nil, fmt.Errorf("target introuvable: %w", err)
+	}
+	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "trigger_cert_deploy", "target:"+targetID, "")
+	// Le déploiement réel est géré par certdeploy.Deployer — on enregistre l'intent.
+	_, _ = h.DB.ExecContext(r.Context(),
+		`UPDATE cert_deploy_targets SET last_deploy=CURRENT_TIMESTAMP, last_status='pending' WHERE id=?`, targetID)
+	return map[string]any{"target_id": targetID, "cert_id": certID, "type": typ, "status": "triggered"}, nil
+}
+
+func (h *Handler) toolImportCert(r *http.Request, args map[string]any) (any, error) {
+	certPEM, _ := args["cert_pem"].(string)
+	keyPEM, _ := args["key_pem"].(string)
+	issuer, _ := args["issuer"].(string)
+	if certPEM == "" || keyPEM == "" {
+		return nil, fmt.Errorf("cert_pem et key_pem requis")
+	}
+	if issuer == "" {
+		issuer = "custom"
+	}
+	// Parse domain from cert
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return nil, fmt.Errorf("cert_pem invalide: aucun bloc PEM")
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("certificat invalide: %w", err)
+	}
+	domain := ""
+	if len(leaf.DNSNames) > 0 {
+		domain = leaf.DNSNames[0]
+	} else if leaf.Subject.CommonName != "" {
+		domain = leaf.Subject.CommonName
+	}
+	if domain == "" {
+		return nil, fmt.Errorf("impossible d'extraire le domaine du certificat")
+	}
+	_, err = h.DB.ExecContext(r.Context(),
+		`INSERT INTO certs (id, domain, issuer, cert_pem, key_pem, expires_at, updated_at)
+		 VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(domain) DO UPDATE SET
+		   issuer=excluded.issuer, cert_pem=excluded.cert_pem, key_pem=excluded.key_pem,
+		   expires_at=excluded.expires_at, updated_at=CURRENT_TIMESTAMP`,
+		domain, issuer, certPEM, keyPEM, leaf.NotAfter.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "import_cert", "domain:"+domain, "")
+	return map[string]any{"domain": domain, "issuer": issuer, "expires_at": leaf.NotAfter.UTC().Format(time.RFC3339), "status": "imported"}, nil
+}
+
 func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) (any, error) {
 	limit := 100
 	if v, ok := args["limit"].(float64); ok && v > 0 {
@@ -1539,6 +1718,7 @@ func (h *Handler) handleResourcesList(req rpcRequest) rpcResponse {
 			{"uri": "goproxify://snippets", "name": "Snippets", "description": "Middlewares réutilisables", "mimeType": "application/json"},
 			{"uri": "goproxify://domains", "name": "Domaines", "description": "Domaines gérés et état TLS", "mimeType": "application/json"},
 			{"uri": "goproxify://certs", "name": "Certificats", "description": "Certificats TLS et expiration", "mimeType": "application/json"},
+			{"uri": "goproxify://certs/monitor", "name": "Monitoring ACME", "description": "Statut d'expiration de tous les certificats avec KPIs", "mimeType": "application/json"},
 			{"uri": "goproxify://logs", "name": "Logs", "description": "Derniers logs d'accès", "mimeType": "application/json"},
 			{"uri": "goproxify://security/bans", "name": "Bans", "description": "Bans IP actifs et historiques", "mimeType": "application/json"},
 			{"uri": "goproxify://security/threats", "name": "Menaces", "description": "Décisions CrowdSec", "mimeType": "application/json"},
@@ -1578,6 +1758,8 @@ func (h *Handler) handleResourcesRead(req rpcRequest, r *http.Request) rpcRespon
 		data, err = h.toolListDomains(r)
 	case "goproxify://certs":
 		data, err = h.toolListCerts(r)
+	case "goproxify://certs/monitor":
+		data, err = h.toolGetCertStatus(r, "")
 	case "goproxify://logs":
 		data, err = h.toolListLogs(r, "", "", "")
 	case "goproxify://security/bans":
