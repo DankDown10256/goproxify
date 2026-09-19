@@ -539,14 +539,15 @@ async function renderPrismPage() {
     const toX = i => padX + (pts.length > 1 ? (i / (pts.length - 1)) * chartW : chartW);
     const toY = v => padY + (1 - v / niceMax) * chartH;
 
-    const gridVals = [0, 0.25, 0.5, 0.75, 1].map(f => Math.round(niceMax * f));
+    const fmtLabel = v => v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(v);
+    const gridVals = [0.33, 0.67, 1].map(f => Math.round(niceMax * f));
     const gridLines = gridVals.map(v => {
       const y = toY(v).toFixed(1);
-      const label = v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(v);
-      const isCero = v === 0;
-      return `<line x1="${padX}" y1="${y}" x2="${W - 6}" y2="${y}" stroke="var(--border)" stroke-width="${isCero ? 1.5 : 1}" stroke-opacity="${isCero ? .6 : .5}"/>
-        <text x="${padX - 7}" y="${parseFloat(y) + 3.5}" text-anchor="end" font-size="10" fill="var(--text3)" font-family="system-ui,sans-serif">${label}</text>`;
+      return `<line x1="${padX}" y1="${y}" x2="${W - 6}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
+        <text x="${padX - 6}" y="${parseFloat(y) + 3.5}" text-anchor="end" font-size="10" fill="var(--text3)" font-family="system-ui,sans-serif">${fmtLabel(v)}</text>`;
     }).join('');
+    const baseline = toY(0).toFixed(1);
+    const baselineLine = `<line x1="${padX}" y1="${baseline}" x2="${W - 6}" y2="${baseline}" stroke="var(--border)" stroke-width="1.5"/>`;
 
     function bezier(data, field) {
       if (data.length < 2) return data.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(p[field]).toFixed(1)}`).join(' ');
@@ -554,13 +555,12 @@ async function renderPrismPage() {
       for (let i = 0; i < data.length - 1; i++) {
         const x1 = toX(i), y1 = toY(data[i][field]);
         const x2 = toX(i + 1), y2 = toY(data[i + 1][field]);
-        const cp = (x2 - x1) * 0.35;
+        const cp = (x2 - x1) * 0.3;
         d += ` C${(x1 + cp).toFixed(1)},${y1.toFixed(1)} ${(x2 - cp).toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`;
       }
       return d;
     }
 
-    const baseline = toY(0).toFixed(1);
     const reqLine = bezier(pts, 'requests');
     const errLine = pts.length > 1 ? bezier(pts, 'errors') : '';
     const area = reqLine + ` L${toX(pts.length - 1).toFixed(1)},${baseline} L${padX},${baseline} Z`;
@@ -574,9 +574,17 @@ async function renderPrismPage() {
       return acc;
     }, []);
 
-    const dots = pts.map((p, i) => {
+    /* marqueurs visibles sur la ligne principale */
+    const showDots = pts.length <= 48;
+    const markers = showDots ? pts.map((p, i) => {
       const x = toX(i).toFixed(1), y = toY(p.requests).toFixed(1);
-      return `<circle cx="${x}" cy="${y}" r="4" fill="var(--accent)" fill-opacity="0" stroke="transparent" stroke-width="16" style="cursor:pointer"
+      return `<circle cx="${x}" cy="${y}" r="3" fill="var(--bg2)" stroke="var(--accent)" stroke-width="1.5" pointer-events="none"/>`;
+    }).join('') : '';
+
+    /* zones cliquables invisibles par-dessus */
+    const hitTargets = pts.map((p, i) => {
+      const x = toX(i).toFixed(1), y = toY(p.requests).toFixed(1);
+      return `<circle cx="${x}" cy="${y}" r="0" fill="transparent" stroke="transparent" stroke-width="20" style="cursor:pointer"
         data-prism="bucket" data-bucket="${esc(p.bucket)}" title="${esc(p.bucket)} — ${p.requests} req"/>`;
     }).join('');
 
@@ -586,25 +594,26 @@ async function renderPrismPage() {
       <svg class="prism-svg" viewBox="0 0 ${W} ${H + padB}" preserveAspectRatio="none">
         <defs>
           <linearGradient id="${uid}" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stop-color="var(--accent)" stop-opacity=".28"/>
-            <stop offset="50%"  stop-color="var(--accent)" stop-opacity=".10"/>
-            <stop offset="85%"  stop-color="var(--accent)" stop-opacity=".03"/>
+            <stop offset="0%"   stop-color="var(--accent)" stop-opacity=".12"/>
+            <stop offset="60%"  stop-color="var(--accent)" stop-opacity=".04"/>
             <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
           </linearGradient>
-          <clipPath id="${uid}c"><rect x="${padX}" y="${padY}" width="${chartW}" height="${chartH}"/></clipPath>
+          <clipPath id="${uid}c"><rect x="${padX}" y="${padY - 4}" width="${chartW}" height="${chartH + 4}"/></clipPath>
         </defs>
         ${gridLines}
+        ${baselineLine}
         <g clip-path="url(#${uid}c)">
           <path d="${area}" fill="url(#${uid})"/>
-          <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="6,3" stroke-linecap="round"/>` : ''}
+          <path d="${reqLine}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>` : ''}
         </g>
-        ${dots}
+        ${markers}
+        ${hitTargets}
         ${xLabels.join('')}
       </svg>
       <div style="display:flex;gap:20px;font-size:11px;color:var(--text3);margin-top:6px">
-        <span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:2px;background:var(--accent);border-radius:2px;display:inline-block"></span>Requêtes</span>
-        ${errLine ? `<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:2px dashed var(--red);display:inline-block"></span>${t('prism.errors')}</span>` : ''}
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:1.5px;background:var(--accent);border-radius:2px;display:inline-block"></span>Requêtes</span>
+        ${errLine ? `<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:1.5px dashed var(--red);display:inline-block"></span>${t('prism.errors')}</span>` : ''}
       </div>`;
   }
 
