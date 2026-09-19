@@ -22,6 +22,7 @@ import (
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
 	corecache "github.com/vincamok/goproxify/internal/core/cache"
 	"github.com/vincamok/goproxify/internal/core/cluster"
+	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	"github.com/vincamok/goproxify/internal/core/geoip"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
@@ -57,6 +58,7 @@ type Server struct {
 	profileStore  *router.IPProfileStore
 	banStore      *router.BanStore
 	threatEngine  *threat.Engine
+	f2bEngine     *coref2b.Engine
 
 	// Bans threat : merge avec les bans Admin sans écraser.
 	bansMu            sync.Mutex
@@ -389,6 +391,13 @@ func (s *Server) Start(ctx context.Context) error {
 	s.threatEngine = threat.New(s.log.Logger(), s.threatBanCallback())
 	s.threatEngine.Start(ctx)
 
+	// Moteur Fail2Ban — autonome, lit les access logs, bans locaux.
+	s.f2bEngine = coref2b.New()
+	s.f2bEngine.UpdateConfig(coref2b.LoadConfig(""))
+	s.f2bEngine.OnBan = s.onF2BBan
+	s.accessLog.SetF2BTap(s.f2bEngine.Feed)
+	s.f2bEngine.Start(ctx)
+
 	// Portail d'accès : activable via env (dev) ou push Admin.
 	if os.Getenv("GPX_PORTAL_ENABLED") == "true" || os.Getenv("GPX_PORTAL_ENABLED") == "1" {
 		pcfg := portal.Config{Enabled: true, PublicHost: os.Getenv("GPX_PORTAL_PUBLIC_HOST")}
@@ -446,6 +455,10 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.threatEngine != nil {
 		s.threatEngine.Stop()
+	}
+	if s.f2bEngine != nil {
+		s.accessLog.SetF2BTap(nil)
+		s.f2bEngine.Stop()
 	}
 	// Sauvegarde des profils comportementaux WAF à l'arrêt.
 	if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {

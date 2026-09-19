@@ -46,6 +46,9 @@ type AccessLogger struct {
 
 	threatExtMu sync.RWMutex
 	threatExt   ThreatSignalExtractor
+
+	f2bTapMu sync.RWMutex
+	f2bTap   func(ip string, status int)
 }
 
 type accessEntry struct {
@@ -116,6 +119,14 @@ func (a *AccessLogger) drain() {
 		a.mu.Lock()
 		a.enc.Encode(e) //nolint:errcheck
 		a.mu.Unlock()
+
+		// Tap Fail2Ban Core (non-bloquant).
+		a.f2bTapMu.RLock()
+		tap := a.f2bTap
+		a.f2bTapMu.RUnlock()
+		if tap != nil {
+			tap(e.RemoteIP, e.Status)
+		}
 
 		// Transfert non-bloquant vers le shipper Admin.
 		select {
@@ -234,6 +245,15 @@ func (a *AccessLogger) SetThreatExtractor(fn ThreatSignalExtractor) {
 	a.threatExtMu.Lock()
 	a.threatExt = fn
 	a.threatExtMu.Unlock()
+}
+
+// SetF2BTap enregistre un callback appelé pour chaque requête loguée (ip, status).
+// Utilisé par le moteur Fail2Ban Core pour alimenter sa fenêtre glissante.
+// Passer nil pour désactiver.
+func (a *AccessLogger) SetF2BTap(fn func(ip string, status int)) {
+	a.f2bTapMu.Lock()
+	a.f2bTap = fn
+	a.f2bTapMu.Unlock()
 }
 
 // SetRemote configure (ou désactive si url == "") l'envoi HTTP vers l'Admin.

@@ -430,6 +430,8 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handlePortalAudit(msg.Payload)
 	case coreWS.TypeThreatBan:
 		m.handleThreatBan(msg.Payload)
+	case coreWS.TypeF2BBan:
+		m.handleF2BBan(msg.Payload)
 	case coreWS.TypeBackendDown:
 		m.handleBackendDown(msg.Payload)
 	case coreWS.TypeWAFReloaded:
@@ -480,6 +482,37 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	if m.alertEngine != nil {
 		m.alertEngine.Emit(alerting.Event{
 			Trigger:  alerting.TriggerSentinelBan,
+			Severity: alerting.SevWarning,
+			NodeName: p.NodeName,
+			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
+		})
+	}
+}
+
+func (m *Manager) handleF2BBan(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.F2BBanPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.IP == "" {
+		return
+	}
+	var expiresAt any
+	if p.ExpiresAt != "" {
+		expiresAt = p.ExpiresAt
+	}
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at)
+		 VALUES (?, ?, '', ?, 'fail2ban', ?)
+		 ON CONFLICT(id) DO NOTHING`,
+		p.ID, p.IP, p.Reason, expiresAt,
+	)
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
+		p.IP, "", p.Reason, "fail2ban", p.ID)
+	if m.alertEngine != nil {
+		m.alertEngine.Emit(alerting.Event{
+			Trigger:  alerting.TriggerFail2BanBan,
 			Severity: alerting.SevWarning,
 			NodeName: p.NodeName,
 			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
@@ -1533,6 +1566,26 @@ func (m *Manager) PushServerConfig(ctx context.Context, cfg any) {
 		go func() {
 			if err := e.client.PushJSON(coreWS.TypePushServerConfig, json.RawMessage(body)); err != nil {
 				m.log.Warn("corews: push server config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// PushF2BConfig envoie la config Fail2Ban à un Core spécifique (ou tous si coreRef vide).
+func (m *Manager) PushF2BConfig(ctx context.Context, coreRef string, cfg any) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	entries := m.allEntries()
+	for _, e := range entries {
+		if coreRef != "" && e.nodeName != coreRef && e.id != coreRef {
+			continue
+		}
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushF2BConfig, json.RawMessage(body)); err != nil {
+				m.log.Warn("corews: push f2b config", "core", e.nodeName, "err", err)
 			}
 		}()
 	}

@@ -28,6 +28,7 @@ const (
 	TypePushGatewayPeers  = "push_gateway_peers"
 	TypePushDelegations   = "push_delegations"
 	TypePushThreatConfig  = "push_threat_config"
+	TypePushF2BConfig     = "push_f2b_config"
 	TypePushServerConfig  = "push_server_config"
 	TypePushErrorPages        = "push_error_pages"
 	TypePushPortal            = "push_portal"
@@ -72,6 +73,7 @@ const (
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
 	TypeThreatBan             = "threat_ban"    // IP bannie par le moteur de détection automatique
+	TypeF2BBan                = "f2b_ban"       // IP bannie par le moteur Fail2Ban Core
 	TypeWAFReloaded           = "waf_reloaded"  // Confirmation Core → Admin : règles WAF appliquées
 	TypeBackendDown           = "backend_down"  // Backend déclaré indisponible par health-check
 )
@@ -80,6 +82,15 @@ const (
 type BackendDownPayload struct {
 	URL      string `json:"url"`
 	NodeName string `json:"node_name,omitempty"`
+}
+
+// F2BBanPayload est envoyé par Core → Admin quand le moteur Fail2Ban Core banne une IP.
+type F2BBanPayload struct {
+	ID        string `json:"id"`
+	IP        string `json:"ip"`
+	Reason    string `json:"reason"`
+	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, vide = permanent
+	NodeName  string `json:"node_name,omitempty"`
 }
 
 // ThreatBanPayload est envoyé par Core → Admin quand le moteur détecte et banne une IP.

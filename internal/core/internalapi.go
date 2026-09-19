@@ -13,7 +13,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/vincamok/goproxify/internal/core/bans"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
+	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
@@ -464,6 +466,46 @@ func (s *Server) threatBanCallback() threat.BanCallback {
 		if msg, err := corews.NewMessage(0, corews.TypeThreatBan, payload); err == nil {
 			s.wsHub.BroadcastToAdmins(msg)
 		}
+	}
+}
+
+// onF2BBan est appelé par le moteur Fail2Ban Core lors d'un nouveau ban.
+// Applique le ban immédiatement en mémoire, persiste, et notifie l'Admin.
+func (s *Server) onF2BBan(b coref2b.Ban) {
+	var expires *time.Time
+	if b.ExpiresAt != nil {
+		expires = b.ExpiresAt
+	}
+	rb := &router.RuntimeBan{
+		ID:        b.ID,
+		IP:        b.IP,
+		Reason:    b.Reason,
+		Source:    "fail2ban",
+		ExpiresAt: expires,
+	}
+	s.bansMu.Lock()
+	s.lastBanList = append(s.lastBanList, rb)
+	merged := append(s.lastBanList, s.pendingThreatBans...)
+	s.bansMu.Unlock()
+	s.banStore.Replace(merged)
+
+	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
+		s.log.Warn("f2b: persistance ban échouée", "err", err)
+	}
+	s.log.Info("fail2ban: IP bannie", "ip", b.IP, "reason", b.Reason)
+
+	// Notifier l'Admin pour qu'il puisse agréger dans security_bans.
+	payload := corews.F2BBanPayload{
+		ID:       b.ID,
+		IP:       b.IP,
+		Reason:   b.Reason,
+		NodeName: s.cfg.Identity.NodeName,
+	}
+	if b.ExpiresAt != nil {
+		payload.ExpiresAt = b.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	if msg, err := corews.NewMessage(0, corews.TypeF2BBan, payload); err == nil {
+		s.wsHub.BroadcastToAdmins(msg)
 	}
 }
 

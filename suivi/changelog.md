@@ -7,6 +7,18 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Moteur Fail2Ban autonome dans le Core (`core`)
+
+- **`internal/core/fail2ban/`** : nouveau moteur Fail2Ban entièrement autonome dans le Core
+  - Fenêtre glissante en mémoire par IP (pas de DB), alimenté directement depuis l'`AccessLogger` via un tap non-bloquant
+  - Config persistée sur le volume Core en JSON (`/etc/goproxify/fail2ban/config.json`)
+  - `OnBan` : applique le ban immédiatement dans le `banStore` local + persiste dans `bans.json` + notifie l'Admin via WS (`TypeF2BBan`)
+  - Fonctionne **sans l'Admin** — le Core banne en autonomie, l'Admin reçoit une notification s'il est connecté
+- **`AccessLogger`** : ajout de `SetF2BTap(func(ip, status))` pour alimenter le moteur sans overhead
+- **`corews`** : nouveaux messages `TypePushF2BConfig` (Admin→Core) et `TypeF2BBan` (Core→Admin)
+- **Admin `corews/manager`** : handler `handleF2BBan` qui persiste le ban dans `security_bans` et émet une alerte
+- **Admin `corews/manager`** : méthode `PushF2BConfig` pour synchroniser la config vers un ou tous les Cores
+
 ### Ajouté — Dashboard sécurité agrégé Admin (`webapp`)
 
 - **Admin > Sécurité** (vue globale) : KPIs agrégés tous Cores (bans actifs, décisions CrowdSec, CVEs critiques, score posture moyen), état engines IPS (F2B/CrowdSec/WAF), alertes certificats, tableau rapide des Cores avec lien "Voir ce Core"

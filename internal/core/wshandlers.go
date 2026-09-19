@@ -10,6 +10,7 @@ import (
 
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
+	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
@@ -127,6 +128,19 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 		}
 		s.applyBans(list)
 		s.log.Info("ws/admin: bans mis à jour", "count", len(list))
+
+	case corews.TypePushF2BConfig:
+		var cfg coref2b.Config
+		if err := json.Unmarshal(msg.Payload, &cfg); err != nil {
+			return err
+		}
+		if s.f2bEngine != nil {
+			s.f2bEngine.UpdateConfig(cfg)
+			if err := coref2b.SaveConfig("", cfg); err != nil {
+				s.log.Warn("f2b: persistance config échouée", "err", err)
+			}
+		}
+		s.log.Info("fail2ban: config mise à jour", "enabled", cfg.Enabled)
 
 	case corews.TypePushThreatConfig:
 		var cfg threat.Config
