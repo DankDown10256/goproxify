@@ -931,7 +931,7 @@ pages['security-bans'] = () => renderAdminSecurityBans();
 pages['security-vulns'] = () => renderAdminSecurityVulns();
 pages['security-threats'] = () => renderAdminSecurityThreats();
 pages['security-rules'] = () => renderSecurityRules();
-pages['core-security-ips-engines'] = () => renderSecurityIpsEngines();
+pages['core-security-ips-engines'] = () => renderSecurityIpsEngines({ mode: 'core' });
 
 // ── PAGE ADMIN : Vue globale sécurité (agrégat tous Cores) ─────────────────
 async function renderAdminSecurityOverview() {
@@ -1332,11 +1332,17 @@ pages['core-security-posture'] = () => renderSecurityPosture({ mode: 'core' });
 pages['security-sentinel'] = () => renderSentinelDashboard({ mode: 'admin' });
 pages['core-security-sentinel'] = () => renderSentinelDashboard({ mode: 'core' });
 
-async function renderSecurityIpsEngines() {
+async function renderSecurityIpsEngines({ mode } = {}) {
+  const isCore = mode === 'core';
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   const ta = document.getElementById('topbar-actions');
   if (ta) ta.innerHTML = '';
+
+  if (isCore && !state.selectedCore) {
+    content.innerHTML = `<div class="empty"><p style="font-size:15px;font-weight:600">Sélectionnez un Core</p></div>`;
+    return;
+  }
 
   try {
     const [f2bCfg, csCfg, threatCfg] = await Promise.all([
@@ -1400,7 +1406,7 @@ async function renderSecurityIpsEngines() {
             <div style="padding:0 16px 16px">
               <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.sentinel_desc')}</p>
               <p style="font-size:12px;color:var(--text3);margin:0 0 10px">${t('security.ips_engines.sentinel_hint')}</p>
-              <button class="btn btn-ghost btn-sm" onclick="navigate('security-sentinel')">${t('security.ips_engines.sentinel_config')} →</button>
+              <button class="btn btn-ghost btn-sm" onclick="navigate('${isCore ? 'core-security-sentinel' : 'security-sentinel'}')">${t('security.ips_engines.sentinel_config')} →</button>
             </div>
           </div>
 
