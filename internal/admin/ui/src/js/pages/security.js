@@ -300,7 +300,6 @@ async function renderSecurityBans(ctx) {
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
       ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
-      ${!isAdmin ? threatEngineBanner(threatCfg || {}) : ''}
       ${!isAdmin ? serverTimeoutsBanner(serverCfg || {}) : ''}
       <div class="sec-bans-list-stack">
         <div class="card blueprint">
@@ -453,11 +452,12 @@ async function renderSentinelDashboard({ mode }) {
     const cfgEnabled = threatCfg?.enabled;
     const cfgThreshold = threatCfg?.score_threshold || 0;
 
+    const svgGear = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
     content.innerHTML = `
       <div class="page-header" style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-        <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('overview', mode)}')">&larr; ${t('common.back')||'Retour'}</button>
-        <h1 class="page-title" style="margin:0">&#x1f6e1; Sentinel</h1>
+        <h1 class="page-title" style="margin:0">&#x26a1; Sentinel</h1>
         <span class="tag ${cfgEnabled?'tag-green':'tag-neutral'}" style="margin-left:8px">${cfgEnabled ? t('common.active')||'Actif' : t('common.inactive')||'Inactif'}</span>
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;display:flex;align-items:center;gap:6px" onclick="openSentinelSettings()">${svgGear} ${t('common.settings')||'Paramètres'}</button>
       </div>
       <div class="sec-grid" style="margin-bottom:20px">
         <div class="sec-tile">
@@ -529,6 +529,18 @@ async function renderSentinelDashboard({ mode }) {
 
       <div style="text-align:right">
         <button class="btn btn-ghost btn-sm" onclick="navigate('${securityPageId('bans', mode)}')">${t('security.view_all_bans')||'Voir tous les bans'} &rarr;</button>
+      </div>
+
+      <div id="sentinel-settings-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;overflow-y:auto" onclick="if(event.target===this)closeSentinelSettings()">
+        <div style="background:var(--bg);border-radius:10px;max-width:720px;margin:40px auto;padding:0;box-shadow:0 8px 32px rgba(0,0,0,.25)">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+            <h3 style="margin:0;font-size:15px">&#x26a1; ${t('security.threat.title')||'Sentinel'} — ${t('common.settings')||'Paramètres'}</h3>
+            <button class="btn btn-ghost btn-sm" onclick="closeSentinelSettings()" style="padding:4px 8px;font-size:16px;line-height:1">&#x2715;</button>
+          </div>
+          <div style="padding:16px 20px" id="sentinel-settings-body">
+            ${threatEngineBanner(threatCfg || {})}
+          </div>
+        </div>
       </div>`;
 
     // ── Heatmap géographique ──────────────────────────────────────────────
@@ -865,7 +877,18 @@ window.saveThreatConfig = async function(e) {
     await api('PUT', `/security/threat-config${window._secCoreQ || ''}`, cfg);
     window._threatCfg = cfg;
     toast(t('security.threat.saved'), 'success');
+    closeSentinelSettings();
   } catch(err) { toast(err.message, 'error'); }
+};
+
+window.openSentinelSettings = function() {
+  const overlay = document.getElementById('sentinel-settings-overlay');
+  if (overlay) overlay.style.display = '';
+};
+
+window.closeSentinelSettings = function() {
+  const overlay = document.getElementById('sentinel-settings-overlay');
+  if (overlay) overlay.style.display = 'none';
 };
 
 // ── Timeouts HTTP/QUIC ────────────────────────────────────────────────────────

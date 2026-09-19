@@ -111,6 +111,11 @@ const APP_CONFIG = {
           label: 'Bans',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M4.5 4.5l7 7"/></svg>',
         },
+        {
+          page: 'security-sentinel',
+          label: 'Sentinel',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+        },
       ],
     },
     {
@@ -237,6 +242,11 @@ const APP_CONFIG = {
           page: 'core-security-bans',
           label: 'Bans',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M4.5 4.5l7 7"/></svg>',
+        },
+        {
+          page: 'core-security-sentinel',
+          label: 'Sentinel',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
         },
       ],
     },
