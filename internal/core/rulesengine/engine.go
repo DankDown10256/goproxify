@@ -155,6 +155,7 @@ func (e *Engine) evalRule(rule Rule) {
 	actionErr := e.execAction(ActionContext{Rule: rule, Detail: detail})
 	log := ExecLog{
 		RuleID: rule.ID, RuleName: rule.Name,
+		ActionType: string(rule.Action.Type),
 		CondResult: true, ActionTaken: actionErr == nil,
 		Detail: detail, FiredAt: time.Now(),
 	}

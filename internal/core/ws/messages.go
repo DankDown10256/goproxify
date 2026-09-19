@@ -87,6 +87,7 @@ type RuleFiredPayload struct {
 	NodeName    string         `json:"node_name,omitempty"`
 	RuleID      string         `json:"rule_id"`
 	RuleName    string         `json:"rule_name"`
+	ActionType  string         `json:"action_type,omitempty"` // ban_ip | disable_proxy | notify | enable_strict_f2b
 	CondResult  bool           `json:"cond_result"`
 	ActionTaken bool           `json:"action_taken"`
 	Detail      map[string]any `json:"detail,omitempty"`

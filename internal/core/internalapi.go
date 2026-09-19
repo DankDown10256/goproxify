@@ -674,6 +674,7 @@ func (s *Server) onRuleFired(log corere.ExecLog) {
 		NodeName:    s.cfg.Identity.NodeName,
 		RuleID:      log.RuleID,
 		RuleName:    log.RuleName,
+		ActionType:  log.ActionType,
 		CondResult:  log.CondResult,
 		ActionTaken: log.ActionTaken,
 		Detail:      log.Detail,

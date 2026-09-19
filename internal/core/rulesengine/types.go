@@ -82,6 +82,7 @@ type Rule struct {
 type ExecLog struct {
 	RuleID      string         `json:"rule_id"`
 	RuleName    string         `json:"rule_name"`
+	ActionType  string         `json:"action_type,omitempty"`
 	CondResult  bool           `json:"cond_result"`
 	ActionTaken bool           `json:"action_taken"`
 	Detail      map[string]any `json:"detail,omitempty"`

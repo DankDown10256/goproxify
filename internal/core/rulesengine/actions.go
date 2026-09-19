@@ -40,6 +40,12 @@ func (e *Engine) execBanIP(ac ActionContext) error {
 	if ac.Rule.Action.BanDuration != "" {
 		dur, _ = time.ParseDuration(ac.Rule.Action.BanDuration)
 	}
+	// Enrichir Detail pour que Admin puisse reconstruire le ban.
+	ac.Detail["ban_reason"] = reason
+	if dur > 0 {
+		ac.Detail["ban_expires_at"] = time.Now().Add(dur).UTC().Format(time.RFC3339)
+		ac.Detail["ban_duration"] = dur.String()
+	}
 	return e.deps.BanIP(ip, reason, dur)
 }
 

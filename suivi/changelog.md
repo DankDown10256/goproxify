@@ -7,6 +7,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé — Agrégation complète des bans Rules Engine dans l'Admin (`admin`)
+
+- **`internal/core/ws/messages.go`** : ajout de `ActionType` dans `RuleFiredPayload` (propagé depuis `ExecLog`)
+- **`internal/core/rulesengine/types.go`** : ajout de `ActionType string` dans `ExecLog`
+- **`internal/core/rulesengine/engine.go`** : `evalRule` peuple `ActionType` dans le log d'exécution
+- **`internal/core/rulesengine/actions.go`** : `execBanIP` enrichit `Detail` avec `ban_reason`, `ban_expires_at`, `ban_duration` — permet à l'Admin de reconstruire le ban
+- **`internal/admin/corews/manager.go`** : `handleRuleFired` insère maintenant dans `security_bans` + `security_ban_history` quand `action_type == ban_ip` — complète l'agrégation des 4 sources (F2B, CrowdSec, Threat, Rules Engine)
+
 ### Ajouté — Base de données SQLite bans dans le Core (`core`)
 
 - **`internal/core/bansdb/`** : nouveau package SQLite local (CGO-free, `modernc.org/sqlite`)

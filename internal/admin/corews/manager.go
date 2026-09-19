@@ -1681,6 +1681,37 @@ func (m *Manager) handleRuleFired(raw json.RawMessage) {
 			`UPDATE rules_engine_rules SET last_fired_at=CURRENT_TIMESTAMP,
 			 fire_count=fire_count+1 WHERE id=?`, p.RuleID,
 		)
+		// Si l'action est un ban IP, persister dans security_bans pour agrégation.
+		if p.ActionType == "ban_ip" && p.Detail != nil {
+			if ip, _ := p.Detail["ip"].(string); ip != "" {
+				reason, _ := p.Detail["ban_reason"].(string)
+				expiresAt, _ := p.Detail["ban_expires_at"].(string)
+				node := p.NodeName
+				if node == "" {
+					node = "core"
+				}
+				source := "rules_engine:" + node
+				banID := "re:" + node + ":" + ip
+				if expiresAt != "" {
+					m.db.Exec( //nolint:errcheck
+						`INSERT OR REPLACE INTO security_bans (id, ip, domain, reason, source, expires_at)
+						 VALUES (?, ?, '', ?, ?, ?)`,
+						banID, ip, reason, source, expiresAt,
+					)
+				} else {
+					m.db.Exec( //nolint:errcheck
+						`INSERT OR REPLACE INTO security_bans (id, ip, domain, reason, source)
+						 VALUES (?, ?, '', ?, ?)`,
+						banID, ip, reason, source,
+					)
+				}
+				m.db.Exec( //nolint:errcheck
+					`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id)
+					 VALUES (?, '', 'banned', ?, ?, ?)`,
+					ip, reason, source, banID,
+				)
+			}
+		}
 	}
 }
 
