@@ -187,6 +187,43 @@ Bouncer LAPI en mode stream : les décisions CrowdSec sont poussées en temps r�
 
 ---
 
+## Moteur de règles automatiques
+
+Le moteur de règles (`Admin > Sécurité > Règles automatiques`) permet de définir des **réponses automatiques** à des événements de sécurité détectés périodiquement (poll toutes les 60 s).
+
+### Conditions disponibles
+
+| Type | Description | Paramètres |
+|---|---|---|
+| `cve_critical` | CVE ouverte avec score CVSS ≥ seuil sur un backend | `threshold` (défaut 7.0), `proxy_id` optionnel |
+| `ban_spike` | Pic de nouveaux bans sur une fenêtre de temps | `window_sec`, `min_count` |
+| `engine_silent` | Fail2Ban ou CrowdSec inactif depuis N secondes | `engine` (`fail2ban`\|`crowdsec`), `max_silence_sec` |
+| `proxy_error_rate` | Taux d'erreurs 5xx d'un proxy > seuil | `proxy_id`, `threshold_pct`, `window_sec` |
+| `ban_repeat` | IP bannie N fois ou plus sur une période | `min_bans`, `window_sec` |
+
+### Actions disponibles
+
+| Type | Description | Paramètres |
+|---|---|---|
+| `disable_proxy` | Désactive le proxy lié à la condition | `proxy_id` optionnel (détecté automatiquement pour CVE) |
+| `ban_ip` | Bannit une IP identifiée par la condition | `duration_sec` (0 = permanent) |
+| `notify` | Émet une alerte via le moteur d'alertes | `severity`, `title`, `body` |
+| `enable_strict` | Active le mode strict Fail2Ban (max_errors=5) | `duration_sec` |
+
+### Cooldown
+
+Chaque règle dispose d'un cooldown (défaut 5 min) pour éviter les déclenchements en boucle. Le timer repart à chaque exécution.
+
+### Test à la demande
+
+Le bouton **Tester maintenant** lance un `dry_run` : la condition est évaluée et le résultat est affiché sans exécuter l'action.
+
+### Historique
+
+Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis l'onglet **Historique** de la page.
+
+---
+
 ## Timeouts serveur HTTP/QUIC
 
 Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux Cores via WebSocket et persisté dans `core.json`.

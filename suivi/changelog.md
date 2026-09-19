@@ -7,6 +7,21 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Moteur de règles automatiques IPS (`admin` 0.3.0 · `webapp` 0.4.0)
+
+- **Moteur de règles** (`internal/admin/rulesengine`) : boucle de poll 60 s, évaluation par condition, cooldown par règle, `EvalNow()` dry-run
+- **5 types de conditions** : CVE critique (seuil CVSS), pic de bans (fenêtre glissante), moteur silencieux (F2B/CrowdSec inactif), taux d'erreur proxy (5xx), IP récidiviste (N bans en M minutes)
+- **4 types d'actions** : désactiver proxy, bannir IP, alerte, activer mode strict F2B
+- **API REST** `/api/v1/rules-engine` : CRUD règles, historique d'exécution, lancement à la demande, descripteurs de conditions
+- **Migration DB** : tables `rules_engine_rules` et `rules_engine_history`
+- **Wiring** `server.go` : deps injectées (DisableProxy, CreateBan, EmitAlert, LastActivity, LastSync)
+- **Méthodes** `LastActivity()` sur `fail2ban.Engine`, `LastSync()` sur `crowdsec.Bouncer`
+- **UI Admin** : page "Règles automatiques" (admin/superadmin), nav entry, liste avec toggle/run/edit/delete, modal de création dynamique, onglet historique
+- **Page Bans refonte** : 4 tuiles KPI (bans actifs, par source, décisions CrowdSec, expirant dans 1h), 3 onglets (Actifs / CrowdSec / Historique)
+- **Page Moteurs IPS** : sélecteur unifié Fail2Ban / CrowdSec avec panneaux de configuration
+- **Overview sécurité** : tuile "Règles automatiques" + grille moteurs 4 colonnes (F2B, CrowdSec, Sentinel, Règles)
+- i18n ajouté dans les 4 locales (EN/FR/ES/DE) : `security.rules.*`, `security.ips_engines.*`, `security.bans.kpi_*`, `security.bans.tab_*`
+
 ### Ajouté — WAF : 6 nouveaux jeux de règles OWASP CRS-4
 
 - **Java / Log4Shell (944xxx)** : détection JNDI injection (`${jndi:ldap://...}`), Spring EL (`#{Runtime.exec()}`), gadgets de désérialisation Java

@@ -67,6 +67,7 @@ Le Core peut fonctionner **de façon autonome** si l'Administration est temporai
 | Sentinel | Détection comportementale par IP : fenêtre glissante, ban immédiat sur signal, anti-DDoS global RPS — voir [docs/security.md](security.md#sentinel-moteur-de-détection-comportementale) |
 | Fail2Ban natif Go | Bannissement automatique après N échecs, sans dépendance externe |
 | CrowdSec | Bouncer LAPI stream → bans poussés au Core (403), compatible Docker |
+| Moteur de règles automatiques | Conditions pilotées (CVE critique, pic de bans, moteur silencieux, taux d'erreur, IP récidiviste) → actions (désactiver proxy, bannir IP, alerte, mode strict) ; cooldown, dry-run, historique — voir [docs/security.md](security.md#moteur-de-règles-automatiques) |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
 | JWT validation | JWKS (prévue) |
 

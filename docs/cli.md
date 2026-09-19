@@ -585,7 +585,7 @@ goproxify ip-profile delete <id> -y
 
 ### `goproxify security`
 
-Sentinel (threat engine global), gestion des bans, et config WAF par proxy.
+Sentinel (threat engine global), gestion des bans, config WAF par proxy, et moteur de règles automatiques.
 
 ```
 # Config du moteur Sentinel
@@ -632,6 +632,28 @@ goproxify security bans delete -id <ban-id>
 
 goproxify security waf get -proxy app.example.fr
 goproxify security waf set -proxy app.example.fr -file waf.json
+
+# Moteur de règles automatiques
+goproxify security rules list   [-admin-url …] [-token …]
+goproxify security rules get    <id> [-admin-url …] [-token …]
+goproxify security rules create -file <rule.json> [-admin-url …] [-token …]
+goproxify security rules update <id> -file <rule.json> [-admin-url …] [-token …]
+goproxify security rules delete <id> [-y] [-admin-url …] [-token …]
+goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
+```
+
+**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action.
+
+Exemple de fichier règle (`rule.json`) :
+
+```json
+{
+  "name": "CVE critique → désactiver proxy",
+  "enabled": true,
+  "condition": { "type": "cve_critical", "threshold": 9.0 },
+  "action":    { "type": "disable_proxy" },
+  "cooldown_sec": 600
+}
 ```
 
 ---

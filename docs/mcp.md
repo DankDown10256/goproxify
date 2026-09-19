@@ -497,6 +497,15 @@ Lève le ban d'une IP (supprime de `security_bans`, pousse la mise à jour aux C
 
 ---
 
+### `list_rules`
+
+Liste les règles automatiques configurées dans le moteur de règles.
+
+**Scope :** `audit:read`  
+**Réponse :** tableau de règles `{ id, name, enabled, condition, action, cooldown_sec, fire_count, last_fired_at }`
+
+---
+
 ### `rotate_cert`
 
 Force le renouvellement ACME d'un domaine en vidant la date d'expiration en base (le prochain cycle d'auto-renouvellement émettra un nouveau certificat) et pousse les routes aux Cores.

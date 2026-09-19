@@ -315,6 +315,72 @@ Accepte ou rejette un nœud en attente (`pending_nodes`) après présentation du
 
 ---
 
+## Sécurité
+
+### `GET /api/v1/security/overview`
+
+Compteurs globaux : `active_bans`, `active_threats`, `open_cves`, `critical_cves`, `avg_header_score`, `certs_expired`, `certs_expiring`.
+
+### `GET /api/v1/security/bans`
+
+Liste les bans. Paramètres : `active=true|false`, `limit`, `source` (`native|fail2ban|crowdsec`).
+
+### `POST /api/v1/security/bans`
+
+Crée un ban manuel. Corps : `{ "ip", "domain", "reason", "expires_at" }`.
+
+### `DELETE /api/v1/security/bans/:id`
+
+Supprime un ban par ID.
+
+### `GET /api/v1/security/threats`
+
+Liste les menaces CrowdSec (`security_threats`). Paramètre : `limit`.
+
+### `GET /api/v1/security/fail2ban` · `PUT /api/v1/security/fail2ban`
+
+Lit ou met à jour la configuration Fail2Ban (`enabled`, `window_sec`, `max_errors`, `ban_duration_sec`, `whitelist`).
+
+### `GET /api/v1/security/crowdsec` · `PUT /api/v1/security/crowdsec`
+
+Lit ou met à jour la configuration CrowdSec (`enabled`, `api_url`, `api_key`).
+
+### `POST /api/v1/security/crowdsec/sync`
+
+Déclenche une synchronisation LAPI immédiate.
+
+## Moteur de règles automatiques
+
+### `GET /api/v1/rules-engine/rules`
+
+Liste toutes les règles. Réponse : tableau `Rule[]`.
+
+### `POST /api/v1/rules-engine/rules`
+
+Crée une règle. Corps : `{ name, description, enabled, condition, action, cooldown_sec }`.
+
+### `PUT /api/v1/rules-engine/rules/:id`
+
+Met à jour une règle existante.
+
+### `DELETE /api/v1/rules-engine/rules/:id`
+
+Supprime une règle.
+
+### `POST /api/v1/rules-engine/rules/:id/run`
+
+Déclenche une évaluation immédiate. Paramètre : `?dry_run=true` (défaut). Réponse : `{ matched, action_taken, detail, error }`.
+
+### `GET /api/v1/rules-engine/history`
+
+Historique des exécutions. Paramètre : `limit`.
+
+### `GET /api/v1/rules-engine/condition-types`
+
+Liste les descripteurs de types de conditions disponibles (nom, paramètres, descriptions).
+
+---
+
 ## Santé
 
 ### `GET /health` `[PUBLIC]`
