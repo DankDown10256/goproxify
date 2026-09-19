@@ -118,7 +118,7 @@ Core A (client)          Core B (serveur)
 
 - **Access log JSON asynchrone** : IP client, domaine, méthode, code HTTP, durée, upstream, version HTTP
 - **System log JSON structuré** pour tous les composants, avec rotation
-- **Métriques Prometheus** exposées sur `/metrics`
+- **Métriques Prometheus** exposées sur `/metrics` — instrumentation complète de tous les services : `gpx_core_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — voir `docs/services.md`
 - **Tracing OpenTelemetry** (prévu)
 - **Audit log JSON** : traçabilité de toutes les opérations
 

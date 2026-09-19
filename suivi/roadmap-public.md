@@ -28,6 +28,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - Tokens API utilisateur (PAT) + MCP server
 - CLI opérationnel (`token`, `backup`, `alert`, `import`, `nodes`, `access`)
 - Métriques Prometheus, Prism dashboard, Logs d’accès live
+- **Observabilité complète** : instrumentation Prometheus de tous les services (backend health, peer sync, WAF, portal sessions, Admin HTTP, VulnScan, Rules Engine) — `docs/services.md`
 - i18n EN / FR / ES / DE
 - Quickstart Docker Compose + images GHCR (preview)
 
