@@ -153,6 +153,12 @@ const APP_CONFIG = {
           label: 'Espaces de travail',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
         },
+        {
+          page: 'cert-deploy',
+          label: 'Déploiement certificats',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>',
+          guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
+        },
       ],
     },
     {
@@ -294,6 +300,7 @@ const APP_CONFIG = {
     settings:           'Paramètres',
     users:              'Utilisateurs',
     certs:              'Certificats TLS',
+    'cert-deploy':      'Déploiement certificats',
     snippets:           'Snippets',
     'error-pages':      'Pages d\'erreur',
     'docker-labels':    'Labels Docker / Kubernetes',

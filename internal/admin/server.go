@@ -18,6 +18,7 @@ import (
 
 	"github.com/vincamok/goproxify/internal/admin/acme"
 	"github.com/vincamok/goproxify/internal/admin/alerting"
+	"github.com/vincamok/goproxify/internal/admin/certdeploy"
 	"github.com/vincamok/goproxify/internal/admin/analytics"
 	"github.com/vincamok/goproxify/internal/admin/api"
 	"github.com/vincamok/goproxify/internal/admin/rulesengine"
@@ -269,6 +270,16 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.cfg.ACME.Enabled && s.cfg.ACME.Email != "" {
 		acmeMgr = buildACMEManager(s.cfg.ACME.Email, s.cfg.ACME.DirectoryURL, s.cfg.ACME.DNS.Type)
 	}
+	certDeployer := certdeploy.New(s.db, s.log)
+	certDeployH := &api.CertDeployHandler{DB: s.db, Log: s.log, Deployer: certDeployer}
+	certBundleH := &api.CertBundleHandler{DB: s.db, Log: s.log}
+
+	if acmeMgr != nil {
+		acmeMgr.OnCertObtained = func(ctx context.Context, certID string) {
+			certDeployer.TriggerForCert(ctx, certID)
+		}
+	}
+
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}
 	nodesH := &api.NodesHandler{DB: s.db, Log: s.log, OnTunnelSave: func(nodeID string) {
 		ctx := context.Background()
@@ -574,7 +585,16 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/portal", adminOnly(portalH))
 	mux.Handle("/api/v1/portal/", adminOnly(portalH))
 	mux.Handle("/api/v1/certs", protected(certsH))
-	mux.Handle("/api/v1/certs/", protected(certsH))
+	mux.Handle("/api/v1/certs/", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/certs/")
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) >= 2 && (parts[1] == "deploy-targets" || parts[1] == "pull-tokens") {
+			certDeployH.ServeHTTP(w, r)
+		} else {
+			certsH.ServeHTTP(w, r)
+		}
+	})))
+	mux.Handle("/api/v1/cert-bundle", http.HandlerFunc(certBundleH.ServeHTTP))
 	mux.Handle("/api/v1/nodes", protected(nodesH))
 	mux.Handle("/api/v1/nodes/", protected(nodesH))
 	mux.Handle("/api/v1/declared-nodes", protected(declaredNodesH))

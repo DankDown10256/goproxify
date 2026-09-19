@@ -7,6 +7,15 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Certificate Deploy Hub (`webapp` · `admin`)
+
+- **3 nouvelles tables SQLite** : `cert_deploy_targets` (webhook, pull_token, ssh_exec), `cert_pull_tokens` (tokens signés HMAC, TTL, max_uses), `cert_deploy_history` (audit de chaque déploiement)
+- **Deploy targets** : CRUD `GET|POST /api/v1/certs/{id}/deploy-targets`, `DELETE /…/{targetID}`, `POST /…/{targetID}/trigger`, `GET /…/{targetID}/history` — déclenchement automatique à chaque renouvellement ACME ou manuel
+- **Webhook push** : POST HMAC-SHA256 signé (`X-GoProxify-Signature: sha256=…`) vers n'importe quelle URL avec retry — payload JSON `{domain, cert_pem, key_pem, chain_pem, fingerprint, expires_at}`
+- **Pull tokens** : génération de tokens sécurisés (hash HMAC-SHA256, TTL, max_uses) — `GET /api/v1/cert-bundle?token=xxx&format=pem|key|fullchain|json` — endpoint **public** sans auth, téléchargeable par simple `curl`
+- **Hook OnCertObtained** dans `acme.Manager` — déclenche automatiquement `certdeploy.Deployer.TriggerForCert` après chaque renouvellement
+- **Page Admin** `cert-deploy` : liste des certificats, drawer de gestion par cert, onglets "Deploy Targets" / "Pull Tokens", modal de création target (webhook + trigger), modal de création token avec affichage one-time + exemple `curl`
+
 ### Ajouté — Workspaces : espaces de travail multi-tenant (`webapp` · `admin`)
 
 - **3 nouvelles tables SQLite** : `workspaces` (nom, description, créateur), `workspace_members` (user/team), `workspace_resources` (proxy/domain/core)

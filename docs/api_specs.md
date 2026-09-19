@@ -171,6 +171,48 @@ Supprime un proxy manuel.
 
 Active/désactive un proxy à chaud.
 
+### `GET /api/v1/certs/:id/deploy-targets`
+
+Liste les deploy targets d'un certificat. Réponse : `[{id, cert_id, name, type, config, trigger_on, last_deploy, last_status, created_at}]` — les champs `secret` des configs webhook sont masqués (`***`).
+
+### `POST /api/v1/certs/:id/deploy-targets`
+
+Crée un deploy target. Corps : `{name, type ("webhook"), config {url, secret?}, trigger_on ("on_renewal"|"manual")}`.
+
+### `DELETE /api/v1/certs/:id/deploy-targets/:targetID`
+
+Supprime un deploy target.
+
+### `POST /api/v1/certs/:id/deploy-targets/:targetID/trigger`
+
+Déclenche manuellement le déploiement vers ce target.
+
+### `GET /api/v1/certs/:id/deploy-targets/:targetID/history`
+
+Retourne les 50 derniers résultats de déploiement pour ce target.
+
+### `GET /api/v1/certs/:id/pull-tokens`
+
+Liste les pull tokens d'un certificat (valeur du token non retournée, seulement les métadonnées).
+
+### `POST /api/v1/certs/:id/pull-tokens`
+
+Génère un nouveau pull token. Corps : `{name?, format ("pem"|"key"|"fullchain"|"json"), max_uses (0=illimité), ttl_hours (0=pas d'expiration)}`. Réponse : `{id, token, format}` — le token est retourné **une seule fois**.
+
+### `DELETE /api/v1/certs/:id/pull-tokens/:tokenID`
+
+Révoque un pull token.
+
+### `GET /api/v1/cert-bundle` *(endpoint public)*
+
+Télécharge un bundle de certificat via un token. Paramètres : `token` (requis), `format` (`pem`|`key`|`fullchain`|`json`). Pas d'authentification — le token fait office d'autorisation. Vérifie TTL et max_uses.
+
+```bash
+curl -s "https://admin.example.com/api/v1/cert-bundle?token=TOKEN&format=fullchain" -o fullchain.pem
+```
+
+---
+
 ### `GET /api/v1/proxies/:id/revisions`
 
 Liste les révisions sauvegardées d'un proxy. Réponse : `[{"revision":"<uuid>","status":"production|draft","updated_at":"...","created_by":"..."}]`.

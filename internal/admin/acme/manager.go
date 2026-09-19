@@ -40,6 +40,8 @@ type Manager struct {
 	certDir  string // répertoire de persistance des PEM sur disque (fallback DB)
 	// DirectoryURL vide → Let's Encrypt production.
 	DirectoryURL string
+	// OnCertObtained est appelé après chaque obtention/renouvellement réussi.
+	OnCertObtained func(ctx context.Context, certID string)
 }
 
 // New crée un Manager ACME.
@@ -175,6 +177,14 @@ func (m *Manager) obtainCertWithProv(ctx context.Context, domain string, prov DN
 	if m.pusher != nil {
 		for _, n := range coretls.PushNames(certName, certPEM) {
 			m.pusher.PushCert(ctx, n, certPEM, keyPEM)
+		}
+	}
+
+	if m.OnCertObtained != nil {
+		var certID string
+		_ = m.db.QueryRowContext(ctx, `SELECT id FROM certs WHERE domain=?`, certName).Scan(&certID)
+		if certID != "" {
+			go m.OnCertObtained(ctx, certID)
 		}
 	}
 

@@ -690,6 +690,38 @@ func migrate(db *sql.DB) error {
 			resource_id   TEXT NOT NULL,
 			PRIMARY KEY (workspace_id, resource_type, resource_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS cert_deploy_targets (
+			id          TEXT PRIMARY KEY,
+			cert_id     TEXT NOT NULL,
+			name        TEXT NOT NULL,
+			type        TEXT NOT NULL CHECK(type IN ('webhook','pull_token','ssh_exec')),
+			config      TEXT NOT NULL DEFAULT '{}',
+			trigger_on  TEXT NOT NULL DEFAULT 'on_renewal' CHECK(trigger_on IN ('on_renewal','manual')),
+			last_deploy DATETIME,
+			last_status TEXT NOT NULL DEFAULT 'pending',
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS cert_pull_tokens (
+			id          TEXT PRIMARY KEY,
+			cert_id     TEXT NOT NULL,
+			target_id   TEXT,
+			name        TEXT NOT NULL,
+			token_hash  TEXT NOT NULL UNIQUE,
+			format      TEXT NOT NULL DEFAULT 'pem',
+			max_uses    INTEGER NOT NULL DEFAULT 1,
+			uses        INTEGER NOT NULL DEFAULT 0,
+			expires_at  DATETIME,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_by  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS cert_deploy_history (
+			id          TEXT PRIMARY KEY,
+			target_id   TEXT NOT NULL,
+			cert_id     TEXT NOT NULL,
+			status      TEXT NOT NULL,
+			message     TEXT NOT NULL DEFAULT '',
+			deployed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 	} {
 		if _, err := db.Exec(s); err != nil {
 			return fmt.Errorf("migration rules_engine: %w", err)
