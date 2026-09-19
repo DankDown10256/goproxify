@@ -55,12 +55,18 @@ type Handler struct {
 	// ResolvePublicURL (optionnel) — base publique Admin pour les tickets bootstrap (QR / curl|bash).
 	ResolvePublicURL func(r *http.Request) string
 	// RulesEngine (optionnel) — moteur de règles automatiques pour l'outil run_rule.
-	RulesEngine RulesEvaluator
+	RulesEngine  RulesEvaluator
+	CertDeployer CertDeployerIface // optionnel — déclenche les déploiements de certs
 }
 
 // RulesEvaluator est implémenté par rulesengine.Engine (évite l'import direct).
 type RulesEvaluator interface {
 	EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error)
+}
+
+// CertDeployerIface est implémenté par certdeploy.Deployer (évite l'import direct).
+type CertDeployerIface interface {
+	TriggerTarget(ctx context.Context, targetID string) error
 }
 
 // RoutePusher est implémenté par corews.Manager / corepush.Pusher (évite un import cyclique).
@@ -1526,9 +1532,11 @@ func (h *Handler) toolTriggerCertDeploy(r *http.Request, targetID string) (any, 
 		return nil, fmt.Errorf("target introuvable: %w", err)
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "trigger_cert_deploy", "target:"+targetID, "")
-	// Le déploiement réel est géré par certdeploy.Deployer — on enregistre l'intent.
-	_, _ = h.DB.ExecContext(r.Context(),
-		`UPDATE cert_deploy_targets SET last_deploy=CURRENT_TIMESTAMP, last_status='pending' WHERE id=?`, targetID)
+	if h.CertDeployer != nil {
+		if err := h.CertDeployer.TriggerTarget(r.Context(), targetID); err != nil {
+			return nil, fmt.Errorf("déploiement échoué: %w", err)
+		}
+	}
 	return map[string]any{"target_id": targetID, "cert_id": certID, "type": typ, "status": "triggered"}, nil
 }
 

@@ -717,6 +717,7 @@ func (s *Server) Start(ctx context.Context) error {
 		},
 		OnBansChange: pushBans,
 		RulesEngine:  s.rulesEngine,
+		CertDeployer: certDeployer,
 	}
 	mux.Handle("/mcp", auth.RequirePAT(s.db)(mcpH))
 	mux.Handle("/mcp/", auth.RequirePAT(s.db)(mcpH))
