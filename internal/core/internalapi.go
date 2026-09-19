@@ -17,6 +17,7 @@ import (
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
+	corere "github.com/vincamok/goproxify/internal/core/rulesengine"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
@@ -484,6 +485,7 @@ func (s *Server) onF2BBan(b coref2b.Ban) {
 		Source:    "fail2ban",
 		ExpiresAt: expires,
 	}
+	s.addBanEvent(b.IP, "fail2ban")
 	s.bansMu.Lock()
 	s.lastBanList = append(s.lastBanList, rb)
 	merged := append(s.lastBanList, s.pendingThreatBans...)
@@ -524,6 +526,7 @@ func (s *Server) onCrowdSecBansChanged(csBans []corecrowdsec.Ban) {
 	// Ajouter les nouveaux.
 	for _, b := range csBans {
 		b := b
+		s.addBanEvent(b.IP, "crowdsec")
 		rb := &router.RuntimeBan{
 			ID:        b.ID,
 			IP:        b.IP,
@@ -564,6 +567,166 @@ func (s *Server) onCrowdSecDecisions(added, deleted []corecrowdsec.Decision) {
 	if msg, err := corews.NewMessage(0, corews.TypeCrowdSecDecisions, payload); err == nil {
 		s.wsHub.BroadcastToAdmins(msg)
 	}
+}
+
+// --- Moteur de règles automatiques (Core) ------------------------------------
+
+const maxBanEvents = 2000
+
+// addBanEvent enregistre un ban dans le journal local (pour CondBanSpike / CondBanRepeat).
+func (s *Server) addBanEvent(ip, source string) {
+	s.banEventsMu.Lock()
+	s.banEvents = append(s.banEvents, banEvent{IP: ip, Source: source, At: time.Now()})
+	if len(s.banEvents) > maxBanEvents {
+		s.banEvents = s.banEvents[len(s.banEvents)-maxBanEvents:]
+	}
+	s.banEventsMu.Unlock()
+}
+
+// recentBanCount retourne le nombre de bans depuis `since` (source="" = toutes).
+func (s *Server) recentBanCount(since time.Time, source string) int {
+	s.banEventsMu.Lock()
+	defer s.banEventsMu.Unlock()
+	n := 0
+	for _, e := range s.banEvents {
+		if e.At.Before(since) {
+			continue
+		}
+		if source != "" && e.Source != source {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// repeatBanIP retourne l'IP bannie ≥ minCount fois depuis `since`.
+func (s *Server) repeatBanIP(since time.Time, minCount int) (string, int) {
+	s.banEventsMu.Lock()
+	defer s.banEventsMu.Unlock()
+	counts := map[string]int{}
+	for _, e := range s.banEvents {
+		if !e.At.Before(since) {
+			counts[e.IP]++
+		}
+	}
+	best, bestN := "", 0
+	for ip, n := range counts {
+		if n >= minCount && n > bestN {
+			best, bestN = ip, n
+		}
+	}
+	return best, bestN
+}
+
+const maxProxyErrEvents = 5000
+
+// recordProxyEvent est branché sur accessLog.SetProxyTap pour alimenter CondProxyErrorRate.
+func (s *Server) recordProxyEvent(domain string, status int) {
+	if domain == "" {
+		return
+	}
+	s.proxyErrMu.Lock()
+	s.proxyErrLog = append(s.proxyErrLog, proxyErrEvent{
+		Host: domain,
+		Err:  status >= 500,
+		At:   time.Now(),
+	})
+	if len(s.proxyErrLog) > maxProxyErrEvents {
+		s.proxyErrLog = s.proxyErrLog[len(s.proxyErrLog)-maxProxyErrEvents:]
+	}
+	s.proxyErrMu.Unlock()
+}
+
+// proxyErrorRate retourne le pire taux d'erreurs HTTP parmi tous les domaines.
+func (s *Server) proxyErrorRate(since time.Time) (rate float64, host string) {
+	s.proxyErrMu.Lock()
+	defer s.proxyErrMu.Unlock()
+	type stats struct{ total, errs int }
+	byHost := map[string]*stats{}
+	for _, e := range s.proxyErrLog {
+		if e.At.Before(since) {
+			continue
+		}
+		st := byHost[e.Host]
+		if st == nil {
+			st = &stats{}
+			byHost[e.Host] = st
+		}
+		st.total++
+		if e.Err {
+			st.errs++
+		}
+	}
+	best, bestHost := 0.0, ""
+	for h, st := range byHost {
+		if st.total < 10 {
+			continue
+		}
+		r := float64(st.errs) / float64(st.total) * 100
+		if r > best {
+			best, bestHost = r, h
+		}
+	}
+	return best, bestHost
+}
+
+// addRuleBan ajoute un ban déclenché par une règle automatique dans le banStore.
+func (s *Server) addRuleBan(ip, reason string, duration time.Duration) {
+	var expires *time.Time
+	if duration > 0 {
+		t := time.Now().Add(duration)
+		expires = &t
+	}
+	id := "rule:" + ip
+	rb := &router.RuntimeBan{
+		ID:        id,
+		IP:        ip,
+		Reason:    reason,
+		Source:    "rules_engine",
+		ExpiresAt: expires,
+	}
+	s.addBanEvent(ip, "rules_engine")
+	s.bansMu.Lock()
+	s.lastBanList = append(s.lastBanList, rb)
+	merged := append(s.lastBanList, s.pendingThreatBans...)
+	s.bansMu.Unlock()
+	s.banStore.Replace(merged)
+	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
+		s.log.Warn("rulesengine: persistance ban échouée", "err", err)
+	}
+	s.log.Info("rulesengine: IP bannie", "ip", ip, "reason", reason)
+}
+
+// onRuleFired est appelé par le moteur de règles après chaque déclenchement.
+// Il notifie l'Admin via WS pour persistance dans rules_engine_history.
+func (s *Server) onRuleFired(log corere.ExecLog) {
+	payload := corews.RuleFiredPayload{
+		NodeName:    s.cfg.Identity.NodeName,
+		RuleID:      log.RuleID,
+		RuleName:    log.RuleName,
+		CondResult:  log.CondResult,
+		ActionTaken: log.ActionTaken,
+		Detail:      log.Detail,
+		Error:       log.Error,
+		FiredAt:     log.FiredAt.UTC().Format(time.RFC3339),
+	}
+	if msg, err := corews.NewMessage(0, corews.TypeRuleFired, payload); err == nil {
+		s.wsHub.BroadcastToAdmins(msg)
+	}
+}
+
+// onRuleNotify est le callback EmitNotify du moteur de règles.
+func (s *Server) onRuleNotify(ruleID, severity, title, message string, detail map[string]any) {
+	log := corere.ExecLog{
+		RuleID:      ruleID,
+		RuleName:    title,
+		CondResult:  true,
+		ActionTaken: true,
+		Detail:      detail,
+		FiredAt:     time.Now(),
+	}
+	s.onRuleFired(log)
 }
 
 // flushThreatBans fusionne les bans threat dans le BanStore actif.

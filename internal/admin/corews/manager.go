@@ -434,6 +434,8 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handleF2BBan(msg.Payload)
 	case coreWS.TypeCrowdSecDecisions:
 		m.handleCrowdSecDecisions(msg.Payload)
+	case coreWS.TypeRuleFired:
+		m.handleRuleFired(msg.Payload)
 	case coreWS.TypeBackendDown:
 		m.handleBackendDown(msg.Payload)
 	case coreWS.TypeWAFReloaded:
@@ -1281,6 +1283,9 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *coreEntry, s Settings) 
 		}
 	}()
 
+	// Règles automatiques — poussées après le full_sync
+	go m.PushAutoRules(ctx)
+
 	m.log.Info("corews/manager: full_sync envoyé", "core", e.nodeName)
 }
 
@@ -1644,6 +1649,82 @@ func (m *Manager) PushCrowdSecConfig(ctx context.Context, coreRef string, cfg an
 		go func() {
 			if err := e.client.PushJSON(coreWS.TypePushCrowdSecConfig, json.RawMessage(body)); err != nil {
 				m.log.Warn("corews: push crowdsec config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// handleRuleFired reçoit un ExecLog de règle automatique depuis Core et le persiste en DB.
+func (m *Manager) handleRuleFired(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.RuleFiredPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.RuleID == "" {
+		return
+	}
+	detail, _ := json.Marshal(p.Detail)
+	matched, taken := 0, 0
+	if p.CondResult {
+		matched = 1
+	}
+	if p.ActionTaken {
+		taken = 1
+	}
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO rules_engine_history (rule_id, cond_result, action_taken, detail, error)
+		 VALUES (?, ?, ?, ?, ?)`,
+		p.RuleID, matched, taken, string(detail), p.Error,
+	)
+	if p.CondResult && p.ActionTaken {
+		m.db.Exec( //nolint:errcheck
+			`UPDATE rules_engine_rules SET last_fired_at=CURRENT_TIMESTAMP,
+			 fire_count=fire_count+1 WHERE id=?`, p.RuleID,
+		)
+	}
+}
+
+// PushAutoRules envoie toutes les règles automatiques actives à tous les Cores.
+func (m *Manager) PushAutoRules(ctx context.Context) {
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT id, name, description, enabled, condition_json, action_json, cooldown_sec
+		 FROM rules_engine_rules ORDER BY created_at`)
+	if err != nil {
+		m.log.Error("corews/manager: lecture règles automatiques", "err", err)
+		return
+	}
+	defer rows.Close()
+
+	type ruleRow struct {
+		ID          string          `json:"id"`
+		Name        string          `json:"name"`
+		Description string          `json:"description,omitempty"`
+		Enabled     bool            `json:"enabled"`
+		Condition   json.RawMessage `json:"condition"`
+		Action      json.RawMessage `json:"action"`
+		CooldownSec int             `json:"cooldown_sec"`
+	}
+	var rules []ruleRow
+	for rows.Next() {
+		var r ruleRow
+		var condJSON, actionJSON string
+		var enabled int
+		if err := rows.Scan(&r.ID, &r.Name, &r.Description, &enabled, &condJSON, &actionJSON, &r.CooldownSec); err != nil {
+			continue
+		}
+		r.Enabled = enabled == 1
+		r.Condition = json.RawMessage(condJSON)
+		r.Action = json.RawMessage(actionJSON)
+		rules = append(rules, r)
+	}
+	if rules == nil {
+		rules = []ruleRow{}
+	}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushAutoRules, rules); err != nil {
+				m.log.Warn("corews/manager: push auto_rules", "core", e.nodeName, "err", err)
 			}
 		}()
 	}

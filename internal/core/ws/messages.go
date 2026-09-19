@@ -37,6 +37,7 @@ const (
 	TypeFullSync          = "full_sync"
 	TypeApproveAgent      = "approve_agent"
 	TypeRevokeAgent       = "revoke_agent"
+	TypePushAutoRules     = "push_auto_rules" // pousse les règles automatiques vers Core
 )
 
 // Types de messages Agent → Core
@@ -78,7 +79,20 @@ const (
 	TypeCrowdSecDecisions     = "crowdsec_decisions" // décisions CrowdSec Core→Admin (agrégation)
 	TypeWAFReloaded           = "waf_reloaded"  // Confirmation Core → Admin : règles WAF appliquées
 	TypeBackendDown           = "backend_down"  // Backend déclaré indisponible par health-check
+	TypeRuleFired             = "rule_fired"    // Règle automatique déclenchée Core → Admin
 )
+
+// RuleFiredPayload est envoyé par Core → Admin quand une règle automatique se déclenche.
+type RuleFiredPayload struct {
+	NodeName    string         `json:"node_name,omitempty"`
+	RuleID      string         `json:"rule_id"`
+	RuleName    string         `json:"rule_name"`
+	CondResult  bool           `json:"cond_result"`
+	ActionTaken bool           `json:"action_taken"`
+	Detail      map[string]any `json:"detail,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	FiredAt     string         `json:"fired_at"` // RFC3339
+}
 
 // BackendDownPayload est envoyé par Core → Admin quand un backend passe unhealthy.
 type BackendDownPayload struct {

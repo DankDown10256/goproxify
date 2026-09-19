@@ -79,6 +79,18 @@ func (t *Table) Delete(id string) bool {
 	return true
 }
 
+// DisableByIDOrHost retire de la table la route correspondant à l'ID ou au host.
+// Utilisé par le moteur de règles automatiques (disable_proxy action).
+func (t *Table) DisableByIDOrHost(idOrHost string) {
+	t.routes.Range(func(key, val any) bool {
+		r := val.(*Route)
+		if r.ID == idOrHost || r.Host == idOrHost {
+			t.Delete(r.ID)
+		}
+		return true
+	})
+}
+
 // ByHost retourne la route correspondant à un Host header.
 // Essaie d'abord un match exact, puis un match wildcard (*.parent.tld).
 func (t *Table) ByHost(host string) (*Route, bool) {

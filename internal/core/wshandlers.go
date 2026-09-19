@@ -13,6 +13,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
+	corere "github.com/vincamok/goproxify/internal/core/rulesengine"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
@@ -309,6 +310,16 @@ func (s *Server) handleWSAdminMessage(connID string, msg corews.Message) error {
 
 	case corews.TypePushGatewayPeers:
 		return s.applyGatewayPeersWS(msg.Payload)
+
+	case corews.TypePushAutoRules:
+		var rules []corere.Rule
+		if err := json.Unmarshal(msg.Payload, &rules); err != nil {
+			return err
+		}
+		if s.rulesEngine != nil {
+			s.rulesEngine.ReplaceRules(rules)
+		}
+		s.log.Info("ws/admin: règles automatiques mises à jour", "count", len(rules))
 
 	default:
 		s.log.Debug("ws/admin: message inconnu ignoré", "type", msg.Type)

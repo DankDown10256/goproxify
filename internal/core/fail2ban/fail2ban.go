@@ -62,6 +62,9 @@ type Engine struct {
 	// Le callback est responsable de persister et de notifier l'Admin.
 	OnBan func(b Ban)
 
+	lastBanMu sync.RWMutex
+	lastBanAt time.Time
+
 	stop chan struct{}
 	done chan struct{}
 }
@@ -93,6 +96,13 @@ func (e *Engine) UpdateConfig(cfg Config) {
 	e.mu.Lock()
 	e.cfg = cfg
 	e.mu.Unlock()
+}
+
+// LastBan retourne l'heure du dernier ban déclenché (zéro si aucun).
+func (e *Engine) LastBan() time.Time {
+	e.lastBanMu.RLock()
+	defer e.lastBanMu.RUnlock()
+	return e.lastBanAt
 }
 
 // GetConfig retourne la config courante.
@@ -177,6 +187,9 @@ func (e *Engine) Feed(ip string, status int) {
 		ban.ExpiresAt = &exp
 	}
 
+	e.lastBanMu.Lock()
+	e.lastBanAt = time.Now()
+	e.lastBanMu.Unlock()
 	if e.OnBan != nil {
 		e.OnBan(ban)
 	}

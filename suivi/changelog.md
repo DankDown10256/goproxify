@@ -7,6 +7,23 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Moteur de règles automatiques autonome dans le Core (`core`)
+
+- **`internal/core/rulesengine/`** : nouveau package — moteur de règles entièrement autonome dans le Core
+  - `types.go` : `Rule`, `Condition`, `Action`, `ExecLog` (miroir du moteur Admin, sans champs DB)
+  - `evaluators.go` : évaluation via callbacks Deps (`GetRecentBanCount`, `GetRepeatBanIP`, `GetF2BLastActivity`, `GetCrowdSecLastSync`, `GetProxyErrorRate`) ; `CondCVECritical` retourne toujours false (pas de données CVE dans le Core)
+  - `actions.go` : actions via Deps (`DisableProxy`, `BanIP`, `EmitNotify`, `EnableStrictF2B`)
+  - `engine.go` : tick toutes les 60 s, cooldown par règle, `ReplaceRules` dynamique, `OnRuleFired` callback
+  - Fonctionne **sans l'Admin** — le Core évalue les règles en autonomie
+- **`internal/core/server.go`** : ring buffer `banEvents` (2 000 entrées) alimenté depuis F2B, CrowdSec et le moteur de règles lui-même ; ring buffer `proxyErrLog` (5 000 entrées) alimenté via `accessLog.SetProxyTap` ; wiring complet des Deps ; `EnableStrictF2B` réduit `MaxErrors` à 5 pendant la durée configurée
+- **`internal/core/logger/accesslog.go`** : ajout de `SetProxyTap(func(domain string, status int))` pour alimenter le taux d'erreur proxy
+- **`internal/core/fail2ban/fail2ban.go`** : ajout de `LastBan() time.Time` pour la condition `EngineSilent`
+- **`internal/core/router/table.go`** : ajout de `DisableByIDOrHost(idOrHost string)` pour l'action `disable_proxy`
+- **`corews`** : nouveaux messages `TypePushAutoRules` (Admin→Core) et `TypeRuleFired` (Core→Admin) + `RuleFiredPayload`
+- **`internal/core/wshandlers.go`** : handler `TypePushAutoRules` → `rulesEngine.ReplaceRules`
+- **`internal/core/internalapi.go`** : méthodes `addBanEvent`, `recentBanCount`, `repeatBanIP`, `recordProxyEvent`, `proxyErrorRate`, `addRuleBan`, `onRuleFired`, `onRuleNotify`
+- **Admin `corews/manager`** : handler `handleRuleFired` qui persiste dans `rules_engine_history` et met à jour `last_fired_at`/`fire_count` ; méthode `PushAutoRules` pour envoyer les règles à tous les Cores au connect
+
 ### Ajouté — Moteur CrowdSec autonome dans le Core (`core`)
 
 - **`internal/core/crowdsec/`** : nouveau bouncer CrowdSec entièrement autonome dans le Core

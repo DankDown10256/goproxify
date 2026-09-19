@@ -49,6 +49,9 @@ type AccessLogger struct {
 
 	f2bTapMu sync.RWMutex
 	f2bTap   func(ip string, status int)
+
+	proxyTapMu sync.RWMutex
+	proxyTap   func(domain string, status int)
 }
 
 type accessEntry struct {
@@ -126,6 +129,14 @@ func (a *AccessLogger) drain() {
 		a.f2bTapMu.RUnlock()
 		if tap != nil {
 			tap(e.RemoteIP, e.Status)
+		}
+
+		// Tap moteur de règles (domain + status, non-bloquant).
+		a.proxyTapMu.RLock()
+		ptap := a.proxyTap
+		a.proxyTapMu.RUnlock()
+		if ptap != nil {
+			ptap(e.Host, e.Status)
 		}
 
 		// Transfert non-bloquant vers le shipper Admin.
@@ -245,6 +256,14 @@ func (a *AccessLogger) SetThreatExtractor(fn ThreatSignalExtractor) {
 	a.threatExtMu.Lock()
 	a.threatExt = fn
 	a.threatExtMu.Unlock()
+}
+
+// SetProxyTap enregistre un callback appelé pour chaque requête loguée (domain, status).
+// Permet au moteur de règles de calculer les taux d'erreurs par proxy.
+func (a *AccessLogger) SetProxyTap(fn func(domain string, status int)) {
+	a.proxyTapMu.Lock()
+	a.proxyTap = fn
+	a.proxyTapMu.Unlock()
 }
 
 // SetF2BTap enregistre un callback appelé pour chaque requête loguée (ip, status).

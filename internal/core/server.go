@@ -24,6 +24,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/cluster"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
+	corere "github.com/vincamok/goproxify/internal/core/rulesengine"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	"github.com/vincamok/goproxify/internal/core/geoip"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
@@ -45,6 +46,20 @@ import (
 	"github.com/vincamok/goproxify/internal/nodeident"
 )
 
+// banEvent est un événement de ban enregistré dans le journal local du Core.
+type banEvent struct {
+	IP     string
+	Source string
+	At     time.Time
+}
+
+// proxyErrEvent est une requête HTTP (domain, status, timestamp) pour CondProxyErrorRate.
+type proxyErrEvent struct {
+	Host  string
+	Err   bool // status >= 500
+	At    time.Time
+}
+
 // Server est le Data Plane — reverse proxy HTTP/TLS/TCP/UDP.
 type Server struct {
 	cfg       *config.CoreConfig
@@ -58,14 +73,23 @@ type Server struct {
 	providerStore *router.AuthProviderStore
 	profileStore  *router.IPProfileStore
 	banStore      *router.BanStore
-	threatEngine  *threat.Engine
+	threatEngine    *threat.Engine
 	f2bEngine       *coref2b.Engine
 	crowdSecBouncer *corecrowdsec.Bouncer
+	rulesEngine     *corere.Engine
 
 	// Bans threat : merge avec les bans Admin sans écraser.
 	bansMu            sync.Mutex
 	lastBanList       []*router.RuntimeBan
 	pendingThreatBans []*router.RuntimeBan
+
+	// Journal des bans récents pour le moteur de règles (ring buffer 2000 entrées).
+	banEventsMu sync.Mutex
+	banEvents   []banEvent
+
+	// Compteurs d'erreurs HTTP par domaine pour CondProxyErrorRate.
+	proxyErrMu  sync.Mutex
+	proxyErrLog []proxyErrEvent
 	cache         *corecache.Store
 	proxyStore    *proxystore.Store
 	proxyPipe     *proxypipeline.Pipeline
@@ -407,6 +431,43 @@ func (s *Server) Start(ctx context.Context) error {
 	s.crowdSecBouncer.OnDecisions = s.onCrowdSecDecisions
 	s.crowdSecBouncer.Start(ctx)
 
+	// Moteur de règles automatiques — autonome, évalue règles poussées par Admin.
+	s.rulesEngine = corere.New(s.log.Logger(), corere.Deps{
+		GetRecentBanCount:   s.recentBanCount,
+		GetRepeatBanIP:      s.repeatBanIP,
+		GetF2BLastActivity:  func() time.Time { return s.f2bEngine.LastBan() },
+		GetCrowdSecLastSync: func() time.Time { return s.crowdSecBouncer.LastSync() },
+		GetProxyErrorRate:   s.proxyErrorRate,
+		DisableProxy: func(id string) error {
+			s.table.DisableByIDOrHost(id)
+			s.saveCache()
+			return nil
+		},
+		BanIP: func(ip, reason string, duration time.Duration) error {
+			s.addRuleBan(ip, reason, duration)
+			return nil
+		},
+		EnableStrictF2B: func(dur time.Duration) error {
+			cfg := s.f2bEngine.GetConfig()
+			orig := cfg.MaxErrors
+			cfg.MaxErrors = 5
+			s.f2bEngine.UpdateConfig(cfg)
+			go func() {
+				time.Sleep(dur)
+				c := s.f2bEngine.GetConfig()
+				if c.MaxErrors == 5 {
+					c.MaxErrors = orig
+					s.f2bEngine.UpdateConfig(c)
+				}
+			}()
+			return nil
+		},
+		EmitNotify: s.onRuleNotify,
+	})
+	s.rulesEngine.OnRuleFired = s.onRuleFired
+	s.accessLog.SetProxyTap(s.recordProxyEvent)
+	s.rulesEngine.Start()
+
 	// Portail d'accès : activable via env (dev) ou push Admin.
 	if os.Getenv("GPX_PORTAL_ENABLED") == "true" || os.Getenv("GPX_PORTAL_ENABLED") == "1" {
 		pcfg := portal.Config{Enabled: true, PublicHost: os.Getenv("GPX_PORTAL_PUBLIC_HOST")}
@@ -471,6 +532,10 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.crowdSecBouncer != nil {
 		s.crowdSecBouncer.Stop()
+	}
+	if s.rulesEngine != nil {
+		s.accessLog.SetProxyTap(nil)
+		s.rulesEngine.Stop()
 	}
 	// Sauvegarde des profils comportementaux WAF à l'arrêt.
 	if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {
