@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/core/metrics"
 )
 
 // Session est un jeton UUID en mémoire (non sync HA).
@@ -171,4 +172,22 @@ func (m *SessionManager) purgeLocked(now time.Time) {
 			delete(m.byID, id)
 		}
 	}
+	m.updateSessionMetrics()
+}
+
+func (m *SessionManager) updateSessionMetrics() {
+	oneShot, multi := 0, 0
+	now := time.Now()
+	for _, s := range m.byID {
+		if s.Used || now.After(s.ExpiresAt) {
+			continue
+		}
+		if s.Mode == SessionModeMulti {
+			multi++
+		} else {
+			oneShot++
+		}
+	}
+	metrics.Portal.SessionsActive.WithLabelValues("one_shot").Set(float64(oneShot))
+	metrics.Portal.SessionsActive.WithLabelValues("multi").Set(float64(multi))
 }

@@ -5,6 +5,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 	"github.com/vincamok/goproxify/internal/admin/corews"
 	"github.com/vincamok/goproxify/internal/admin/logs"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
@@ -48,6 +50,10 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: 200}
 		next.ServeHTTP(sw, r)
+		elapsed := time.Since(start).Seconds()
+		statusStr := fmt.Sprintf("%d", sw.status)
+		adminmetrics.AdminHTTP.RequestsTotal.WithLabelValues(r.Method, statusStr).Inc()
+		adminmetrics.AdminHTTP.Duration.WithLabelValues(r.Method).Observe(elapsed)
 
 		if strings.HasPrefix(r.URL.Path, "/api/v1/health") ||
 			strings.HasPrefix(r.URL.Path, "/api/v1/logs/live") ||

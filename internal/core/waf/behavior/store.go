@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/core/metrics"
 )
 
 // Event représente une requête observée.
@@ -461,6 +463,7 @@ func (s *Store) gc() {
 			delete(s.profiles, ip)
 		}
 	}
+	metrics.WAF.ProfilesActive.Set(float64(len(s.profiles)))
 	s.mu.Unlock()
 
 	s.subnetMu.Lock()

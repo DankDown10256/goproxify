@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 	"github.com/vincamok/goproxify/internal/admin/coreproxy"
 	"github.com/vincamok/goproxify/internal/ssrf"
 )
@@ -113,6 +114,8 @@ func (s *Scanner) run(ctx context.Context) {
 	}
 	s.running = true
 	s.mu.Unlock()
+	scanStart := time.Now()
+	adminmetrics.VulnScan.ScansTotal.WithLabelValues("attempt").Inc()
 	defer func() {
 		s.mu.Lock()
 		s.running = false
@@ -232,6 +235,16 @@ backendsLoop:
 	st.NVDQueries = nvdQueries
 	st.LastError = lastErr
 	s.saveState(st)
+
+	adminmetrics.VulnScan.ScanDuration.Observe(time.Since(scanStart).Seconds())
+	if lastErr != "" {
+		adminmetrics.VulnScan.ScansTotal.WithLabelValues("error").Inc()
+	} else {
+		adminmetrics.VulnScan.ScansTotal.WithLabelValues("success").Inc()
+	}
+	// CVEs par sévérité — on approxime la sévérité à partir du score CVSS stocké en DB
+	s.recordCVESeverityMetrics(ctx)
+
 	s.log.Info("vulnscan: scan terminé",
 		"backends", len(backends),
 		"reachable", st.ReachableN,
@@ -416,4 +429,32 @@ func (s *Scanner) queryCVEs(ctx context.Context, keyword string) ([]cveResult, s
 		out = append(out, cveResult{id: c.ID, cvss: cvss, desc: desc})
 	}
 	return out, ""
+}
+
+func (s *Scanner) recordCVESeverityMetrics(ctx context.Context) {
+	rows, err := s.db.QueryContext(ctx, `SELECT cvss_score FROM security_cves`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	counts := map[string]float64{"critical": 0, "high": 0, "medium": 0, "low": 0}
+	for rows.Next() {
+		var score float64
+		if rows.Scan(&score) != nil {
+			continue
+		}
+		switch {
+		case score >= 9.0:
+			counts["critical"]++
+		case score >= 7.0:
+			counts["high"]++
+		case score >= 4.0:
+			counts["medium"]++
+		default:
+			counts["low"]++
+		}
+	}
+	for sev, n := range counts {
+		adminmetrics.VulnScan.CVEsDetectedTotal.WithLabelValues(sev).Add(n)
+	}
 }

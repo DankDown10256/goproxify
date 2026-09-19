@@ -248,6 +248,51 @@ var Traffic = struct {
 }
 
 
+// BackendUp suit l'état de santé des backends (1=up, 0=down).
+var BackendUp = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: "gpx",
+	Subsystem: "backend",
+	Name:      "up",
+	Help:      "État de santé du backend (1=up, 0=down).",
+}, []string{"backend"})
+
+// PeerSync expose les métriques de synchronisation inter-Cores.
+var PeerSync = struct {
+	Duration *prometheus.HistogramVec
+}{
+	Duration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "gpx",
+		Subsystem: "peer",
+		Name:      "sync_duration_seconds",
+		Help:      "Durée de synchronisation d'un Core pair.",
+		Buckets:   []float64{.01, .05, .1, .25, .5, 1, 2.5, 5},
+	}, []string{"peer"}),
+}
+
+// WAF expose les métriques du moteur WAF comportemental.
+var WAF = struct {
+	ProfilesActive prometheus.Gauge
+}{
+	ProfilesActive: promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "waf",
+		Name:      "profiles_active",
+		Help:      "Nombre de profils comportementaux WAF actifs en mémoire.",
+	}),
+}
+
+// Portal expose les métriques des sessions portal.
+var Portal = struct {
+	SessionsActive *prometheus.GaugeVec
+}{
+	SessionsActive: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "portal",
+		Name:      "sessions_active",
+		Help:      "Sessions portal actives par type (one_shot|multi).",
+	}, []string{"type"}),
+}
+
 // Backend expose les métriques Prometheus par backend upstream.
 var Backend = struct {
 	RequestsTotal *prometheus.CounterVec

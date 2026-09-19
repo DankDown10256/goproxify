@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
@@ -113,6 +114,7 @@ func (h *BackendHealth) MarkDown(u string, ttl time.Duration) {
 	st := h.getOrCreateLocked(u)
 	st.downUntil = time.Now().Add(ttl)
 	h.mu.Unlock()
+	metrics.BackendUp.WithLabelValues(u).Set(0)
 	if h.log != nil {
 		h.log.Info("backend quarantine", "url", u, "ttl", ttl.String())
 	}
@@ -128,6 +130,7 @@ func (h *BackendHealth) MarkUp(u string) {
 	st.downUntil = time.Time{}
 	st.healthy = true
 	h.mu.Unlock()
+	metrics.BackendUp.WithLabelValues(u).Set(1)
 }
 
 // Status retourne "up", "down" ou "unknown" pour une URL backend.

@@ -85,19 +85,24 @@ func (e *Engine) loop() {
 }
 
 func (e *Engine) evalAll() {
+	start := time.Now()
 	adminmetrics.RulesEngine.EvalsTotal.Inc()
 	rules, err := e.loadRules()
 	if err != nil {
 		e.log.Error("rulesengine: chargement règles", "err", err)
 		return
 	}
+	enabled := 0
 	ctx := context.Background()
 	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
 		}
+		enabled++
 		e.evalRule(ctx, rule)
 	}
+	adminmetrics.RulesEngine.EvalDuration.Observe(time.Since(start).Seconds())
+	adminmetrics.RulesEngine.ActiveRules.Set(float64(enabled))
 }
 
 func (e *Engine) evalRule(ctx context.Context, rule Rule) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/proxy"
 	"github.com/vincamok/goproxify/internal/core/router"
 	"github.com/vincamok/goproxify/internal/core/waf/behavior"
@@ -168,6 +169,10 @@ func (s *Server) syncPeersOnce(ctx context.Context) {
 }
 
 func (s *Server) syncPeer(ctx context.Context, p proxy.PeerInfo) {
+	start := time.Now()
+	defer func() {
+		metrics.PeerSync.Duration.WithLabelValues(p.Name).Observe(time.Since(start).Seconds())
+	}()
 	client := &http.Client{Timeout: 8 * time.Second}
 
 	// Scores LB

@@ -7,6 +7,16 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Métriques complètes tous services (`core` 0.3.96 · `admin` 0.3.5)
+
+- **Backend health** : `gpx_backend_up{backend}` (gauge 0/1) — `MarkUp`/`MarkDown` instrumentés dans `proxy/healthcheck.go`
+- **Peer sync** : `gpx_peer_sync_duration_seconds{peer}` (histogram) — `syncPeer()` instrumenté dans `gateway_peers.go`
+- **WAF comportemental** : `gpx_waf_profiles_active` (gauge) — mis à jour dans `behavior/store.go` après chaque GC
+- **Portal sessions** : `gpx_portal_sessions_active{type}` (gauge) — mis à jour dans `portal/session.go` après chaque mutation
+- **Admin HTTP** : `gpx_admin_http_requests_total{method,status}` et `gpx_admin_http_request_duration_seconds{method}` — `logMiddleware` instrumenté
+- **VulnScan** : `gpx_vulnscan_cves_detected_total{severity}`, `gpx_vulnscan_scans_total{result}`, `gpx_vulnscan_scan_duration_seconds` — scanner instrumenté
+- **Rules Engine** : `gpx_rulesengine_eval_duration_seconds` (histogram), `gpx_rulesengine_active_rules` (gauge) — `evalAll()` instrumenté
+
 ### Ajouté — Métriques par proxy (`core` 0.3.95 · `admin` 0.3.4)
 
 - **Option A** — `handleMetricsSummary` (`GET /internal/v1/metrics/summary`) : nouveau champ `proxies[]` avec détail par host : `requests`, `errors`, `error_rate`, `p95_ms`, `active_requests`, `bytes_in`, `bytes_out`, `blocked_total`
