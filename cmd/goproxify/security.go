@@ -19,6 +19,8 @@ func runSecurity() {
 		runSecurityBans()
 	case "waf":
 		runSecurityWAF()
+	case "rules":
+		runSecurityRules()
 	case "help", "":
 		fmt.Print(`Usage: goproxify security <sous-commande> [options]
 
@@ -26,6 +28,7 @@ Sous-commandes :
   threat   Config du moteur Sentinel (threat engine global)
   bans     Gestion des IPs bannies
   waf      Config WAF d'un proxy
+  rules    Moteur de règles automatiques
 
 goproxify security threat get  [-core <id>] [-admin-url …] [-token …]
 goproxify security threat set  [-core <id>] -file <config.json> [-admin-url …] [-token …]
@@ -36,6 +39,13 @@ goproxify security bans delete -id <ban-id> [-admin-url …] [-token …]
 
 goproxify security waf get  -proxy <id> [-admin-url …] [-token …]
 goproxify security waf set  -proxy <id> -file <config.json> [-admin-url …] [-token …]
+
+goproxify security rules list   [-admin-url …] [-token …]
+goproxify security rules get    <id> [-admin-url …] [-token …]
+goproxify security rules create -file <rule.json> [-admin-url …] [-token …]
+goproxify security rules update <id> -file <rule.json> [-admin-url …] [-token …]
+goproxify security rules delete <id> [-y] [-admin-url …] [-token …]
+goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande security inconnue : %q\n", sub)
@@ -266,6 +276,181 @@ func runSecurityWAF() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande waf inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Rules (moteur de règles automatiques) ────────────────────────────────────
+
+func runSecurityRules() {
+	sub := subcommand(os.Args, 3)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[4:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var rules []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/rules", nil, &rules); err != nil {
+			fmt.Fprintf(os.Stderr, "rules list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(rules) == 0 {
+			fmt.Println("(aucune règle)")
+			return
+		}
+		for _, r := range rules {
+			id, _ := r["id"].(string)
+			name, _ := r["name"].(string)
+			enabled, _ := r["enabled"].(bool)
+			status := "✓"
+			if !enabled {
+				status = "✗"
+			}
+			fmt.Printf("[%s] %-36s  %s\n", status, id, name)
+		}
+
+	case "get":
+		ruleID := subcommand(os.Args, 4)
+		if ruleID == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules get <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var rule json.RawMessage
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/rules/"+ruleID, nil, &rule); err != nil {
+			fmt.Fprintf(os.Stderr, "rules get : %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(rule, "", "  ")
+		fmt.Println(string(out))
+
+	case "create":
+		args := parseFlags(os.Args[4:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules create -file <rule.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/rules-engine/rules", body, &result, 200, 201); err != nil {
+			fmt.Fprintf(os.Stderr, "rules create : %v\n", err)
+			os.Exit(1)
+		}
+		id, _ := result["id"].(string)
+		fmt.Printf("Règle créée : %s\n", id)
+
+	case "update":
+		ruleID := subcommand(os.Args, 4)
+		if ruleID == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules update <id> -file <rule.json>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules update <id> -file <rule.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/rules-engine/rules/"+ruleID, body, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "rules update : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Règle %s mise à jour.\n", ruleID)
+
+	case "delete":
+		ruleID := subcommand(os.Args, 4)
+		if ruleID == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules delete <id> [-y]")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		if flagValue(args, "-y", "") == "" {
+			fmt.Printf("Supprimer la règle %s ? [y/N] ", ruleID)
+			var ans string
+			fmt.Scanln(&ans) //nolint:errcheck
+			if ans != "y" && ans != "Y" {
+				fmt.Println("Annulé.")
+				return
+			}
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("DELETE", "/api/v1/rules-engine/rules/"+ruleID, nil, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "rules delete : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Règle %s supprimée.\n", ruleID)
+
+	case "run":
+		ruleID := subcommand(os.Args, 4)
+		if ruleID == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules run <id> [-dry-run]")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		dryRun := flagValue(args, "-dry-run", "true") != "false"
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		path := "/api/v1/rules-engine/rules/" + ruleID + "/run"
+		if dryRun {
+			path += "?dry_run=true"
+		} else {
+			path += "?dry_run=false"
+		}
+		var result json.RawMessage
+		if _, err := client.DoJSON("POST", path, nil, &result, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "rules run : %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(out))
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande rules inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

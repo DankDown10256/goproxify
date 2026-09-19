@@ -670,6 +670,7 @@ func (s *Server) Start(ctx context.Context) error {
 			agentStore.Upsert(agentID, agentID, "", "revoked")
 		},
 		OnBansChange: pushBans,
+		RulesEngine:  s.rulesEngine,
 	}
 	mux.Handle("/mcp", auth.RequirePAT(s.db)(mcpH))
 	mux.Handle("/mcp/", auth.RequirePAT(s.db)(mcpH))

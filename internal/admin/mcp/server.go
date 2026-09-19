@@ -52,6 +52,13 @@ type Handler struct {
 	OnBansChange func()
 	// ResolvePublicURL (optionnel) — base publique Admin pour les tickets bootstrap (QR / curl|bash).
 	ResolvePublicURL func(r *http.Request) string
+	// RulesEngine (optionnel) — moteur de règles automatiques pour l'outil run_rule.
+	RulesEngine RulesEvaluator
+}
+
+// RulesEvaluator est implémenté par rulesengine.Engine (évite l'import direct).
+type RulesEvaluator interface {
+	EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error)
 }
 
 // RoutePusher est implémenté par corews.Manager / corepush.Pusher (évite un import cyclique).
@@ -359,6 +366,19 @@ var tools = []map[string]any{
 		"inputSchema": schema(req("domain", "string", "Domaine dont le certificat doit être renouvelé")),
 	},
 	{
+		"name":        "list_rules",
+		"description": "Liste les règles du moteur de règles automatiques (conditions, actions, état, statistiques).",
+		"inputSchema": schema(opt("enabled_only", "boolean", "Si true, uniquement les règles activées")),
+	},
+	{
+		"name":        "run_rule",
+		"description": "Déclenche l'évaluation immédiate d'une règle. Par défaut en dry_run (aucune action exécutée).",
+		"inputSchema": schema(
+			req("id", "string", "ID de la règle"),
+			opt("dry_run", "boolean", "Si false, exécute réellement l'action (défaut: true)"),
+		),
+	},
+	{
 		"name":        "list_security_threats",
 		"description": "Liste les décisions CrowdSec synchronisées (security_threats).",
 		"inputSchema": schema(opt("limit", "number", "Nombre d'entrées (défaut: 100, max: 500)")),
@@ -481,6 +501,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "rotate_cert":
 		domain, _ := p.Arguments["domain"].(string)
 		result, toolErr = h.toolRotateCert(r, domain)
+	case "list_rules":
+		result, toolErr = h.toolListRules(r, p.Arguments)
+	case "run_rule":
+		result, toolErr = h.toolRunRule(r, p.Arguments)
 	case "list_security_threats":
 		result, toolErr = h.toolListSecurityThreats(r, p.Arguments)
 	case "list_security_cves":
@@ -1442,6 +1466,64 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 		out = []map[string]any{}
 	}
 	return out, nil
+}
+
+func (h *Handler) toolListRules(r *http.Request, args map[string]any) (any, error) {
+	where := ""
+	if en, _ := args["enabled_only"].(bool); en {
+		where = " WHERE enabled=1"
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, name, description, enabled, condition_json, action_json,
+		        cooldown_sec, fire_count, last_fired_at, created_at, updated_at
+		 FROM rules_engine_rules`+where+` ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, name, desc, condJSON, actionJSON, createdAt, updatedAt string
+		var enabled, cooldown, fireCount int
+		var lastFired sql.NullString
+		if err := rows.Scan(&id, &name, &desc, &enabled, &condJSON, &actionJSON,
+			&cooldown, &fireCount, &lastFired, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+		item := map[string]any{
+			"id": id, "name": name, "description": desc, "enabled": enabled == 1,
+			"condition": json.RawMessage(condJSON), "action": json.RawMessage(actionJSON),
+			"cooldown_sec": cooldown, "fire_count": fireCount,
+			"created_at": createdAt, "updated_at": updatedAt,
+		}
+		if lastFired.Valid {
+			item["last_fired_at"] = lastFired.String
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolRunRule(r *http.Request, args map[string]any) (any, error) {
+	id, _ := args["id"].(string)
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	dryRun := true
+	if dr, ok := args["dry_run"].(bool); ok {
+		dryRun = dr
+	}
+	if h.RulesEngine == nil {
+		return nil, fmt.Errorf("moteur de règles non disponible")
+	}
+	matched, detail, err := h.RulesEngine.EvalNow(r.Context(), id, dryRun)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"matched": matched, "dry_run": dryRun, "detail": detail}, nil
 }
 
 // --- resources/list + resources/read -------------------------------------
