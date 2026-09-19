@@ -160,7 +160,11 @@ function filterVulnscanState(st, coreCtx) {
 function secActivityChartHTML(events) {
   const now = Date.now();
   const H = 24;
-  const buckets = Array.from({ length: H }, () => ({ ban: 0, threat: 0, cve: 0, other: 0 }));
+  const nowH = new Date().getHours();
+  const buckets = Array.from({ length: H }, (_, i) => ({
+    ban: 0, threat: 0, cve: 0, other: 0,
+    label: String((nowH - (H - 1 - i) + 24) % 24).padStart(2, '0') + 'h',
+  }));
   for (const e of events) {
     const ms = new Date(e.created_at).getTime();
     const hoursAgo = (now - ms) / 3600000;
@@ -170,53 +174,41 @@ function secActivityChartHTML(events) {
     buckets[idx][key]++;
   }
   const maxVal = Math.max(1, ...buckets.map(b => b.ban + b.threat + b.cve + b.other));
-  const chartH = 80;
-  const barW = 14;
-  const gap = 3;
-  const totalW = H * (barW + gap) - gap;
   const colors = { ban: 'var(--yellow)', threat: 'var(--red)', cve: 'var(--purple)', other: 'var(--text3)' };
   const layers = ['other', 'cve', 'ban', 'threat'];
+  const totalEvents = buckets.reduce((s, b) => s + b.ban + b.threat + b.cve + b.other, 0);
+  const showLabel = new Set([0, 6, 12, 18, 23]);
 
-  const bars = buckets.map((b, i) => {
-    const total = b.ban + b.threat + b.cve + b.other;
-    if (total === 0) {
-      return `<rect x="${i*(barW+gap)}" y="${chartH}" width="${barW}" height="2" rx="1" fill="var(--border)" opacity="0.5"/>`;
-    }
-    let y = chartH;
-    return layers.map(k => {
-      const h = Math.max(0, Math.round((b[k] / maxVal) * chartH));
-      if (!h) return '';
-      y -= h;
-      return `<rect x="${i*(barW+gap)}" y="${y}" width="${barW}" height="${h}" rx="1" fill="${colors[k]}"/>`;
-    }).join('');
-  }).join('');
-
-  const hourLabels = [0, 6, 12, 18, 23].map(h => {
-    const labelHour = (new Date().getHours() - (H - 1 - h) + 24) % 24;
-    return `<text x="${h*(barW+gap)+barW/2}" y="${chartH+16}" text-anchor="middle" font-size="9" fill="var(--text3)">${String(labelHour).padStart(2,'0')}h</text>`;
-  }).join('');
-
-  const totalEvents = events.filter(e => {
-    const ms = new Date(e.created_at).getTime();
-    return (now - ms) / 3600000 < H;
-  }).length;
-
-  const legend = ['ban','threat','cve'].map(k => `
+  const legend = ['ban', 'threat', 'cve'].map(k => `
     <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text2)">
       <span style="width:8px;height:8px;border-radius:2px;background:${colors[k]};display:inline-block"></span>
-      ${k === 'ban' ? (t('security.overview_leg_ban')||'Ban') : k === 'threat' ? (t('security.overview_leg_threat')||'Threat') : 'CVE'}
+      ${k === 'ban' ? (t('security.overview_leg_ban')||'Ban') : k === 'threat' ? (t('security.overview_leg_threat')||'Menace') : 'CVE'}
     </span>`).join('');
 
   if (totalEvents === 0) {
-    return `<div style="text-align:center;padding:24px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
+    return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
   }
 
+  const bars = buckets.map((b, i) => {
+    const total = b.ban + b.threat + b.cve + b.other;
+    const inner = total === 0
+      ? `<div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--border);border-radius:1px;opacity:.4"></div>`
+      : layers.map(k => {
+          const h = Math.round((b[k] / maxVal) * 100);
+          return h ? `<div style="width:100%;height:${h}%;background:${colors[k]}"></div>` : '';
+        }).join('');
+    return `<div style="flex:1;display:flex;flex-direction:column;align-items:stretch;gap:3px;min-width:0">
+      <div style="height:72px;position:relative;display:flex;flex-direction:column-reverse;border-radius:3px 3px 0 0;overflow:hidden">${inner}</div>
+      <div style="font-size:9px;color:var(--text3);text-align:center;white-space:nowrap;overflow:hidden">${showLabel.has(i) ? b.label : ''}</div>
+    </div>`;
+  }).join('');
+
   return `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="display:flex;gap:12px">${legend}</div>
       <span style="font-size:10px;color:var(--text3)">${totalEvents} ${t('security.overview_events')||'événements'}</span>
     </div>
-    <svg width="100%" height="${chartH+22}" viewBox="0 0 ${totalW} ${chartH+22}" preserveAspectRatio="none" style="display:block;overflow:visible">${bars}${hourLabels}</svg>`;
+    <div style="display:flex;gap:3px;align-items:flex-end;width:100%">${bars}</div>`;
 }
 
 function secBansBySourceHTML(bans) {
