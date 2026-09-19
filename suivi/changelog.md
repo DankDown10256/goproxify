@@ -7,6 +7,12 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Ban Intelligence : dashboard IP rejetées (`webapp` · `admin`)
+
+- **5 endpoints** `GET /api/v1/security/bans/intel/{kpis,by-reason,by-source,timeline,top-ips}` — analyse historique sur `security_ban_history` + `security_bans`
+- **Vue Admin** (`security-bans`) refonte complète : 4 KPIs, sparkline 48h, donut raisons (SVG), barres par source, top 20 IPs récidivistes avec débannissement en 1 clic
+- **Vue Core** (`core-security-bans`) : bans actifs + intelligence fusionnés — onglets Actifs / Analyse / CrowdSec / Historique sur la même page
+
 ### Ajouté — UX opérateur avancée — B1/B2/B3 (`webapp` · `admin`)
 
 - **B1 — Page Health checks par route** (`core-health`) : tableau des backends groupés par proxy avec statut up/down, paramètres HealthCheck (path, interval, seuils), rafraîchissement auto 30 s

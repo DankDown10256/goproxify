@@ -61,6 +61,16 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.bansByCountry(w, r)
 	case r.Method == http.MethodGet && sub == "bans" && id == "export":
 		h.exportBans(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "intel/kpis":
+		h.intelKPIs(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "intel/by-reason":
+		h.intelByReason(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "intel/by-source":
+		h.intelBySource(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "intel/timeline":
+		h.intelTimeline(w, r)
+	case r.Method == http.MethodGet && sub == "bans" && id == "intel/top-ips":
+		h.intelTopIPs(w, r)
 	case r.Method == http.MethodGet && sub == "bans":
 		h.listBans(w, r)
 	case r.Method == http.MethodPost && sub == "bans":
@@ -967,4 +977,146 @@ func (h *SecurityHandler) exportBans(w http.ResponseWriter, r *http.Request) {
 		}
 		cw.Flush()
 	}
+}
+
+// ── Ban Intelligence endpoints ────────────────────────────────────────────────
+
+func (h *SecurityHandler) intelKPIs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var active, histTotal, recurring int
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_bans`).Scan(&active)                      //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`).Scan(&histTotal) //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(DISTINCT ip) FROM security_ban_history WHERE action='banned' GROUP BY ip HAVING COUNT(*)>=3`).Scan(&recurring) //nolint:errcheck
+
+	var bannedCount, unbannedCount int
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`).Scan(&bannedCount)   //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='unbanned'`).Scan(&unbannedCount) //nolint:errcheck
+
+	jsonOK(w, map[string]any{
+		"active":        active,
+		"history_total": histTotal,
+		"recurring_ips": recurring,
+		"unbanned":      unbannedCount,
+		"rotation_ratio": func() float64 {
+			if bannedCount == 0 {
+				return 0
+			}
+			return float64(unbannedCount) / float64(bannedCount)
+		}(),
+	})
+}
+
+func (h *SecurityHandler) intelByReason(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT reason, COUNT(*) as n FROM security_ban_history WHERE action='banned'
+		 GROUP BY reason ORDER BY n DESC LIMIT 30`)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	defer rows.Close()
+	type entry struct {
+		Reason string `json:"reason"`
+		Count  int    `json:"count"`
+	}
+	out := []entry{}
+	for rows.Next() {
+		var e entry
+		rows.Scan(&e.Reason, &e.Count) //nolint:errcheck
+		out = append(out, e)
+	}
+	jsonOK(w, out)
+}
+
+func (h *SecurityHandler) intelBySource(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT source, COUNT(*) as n FROM security_ban_history WHERE action='banned'
+		 GROUP BY source ORDER BY n DESC`)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	defer rows.Close()
+	type entry struct {
+		Source string `json:"source"`
+		Count  int    `json:"count"`
+	}
+	out := []entry{}
+	for rows.Next() {
+		var e entry
+		rows.Scan(&e.Source, &e.Count) //nolint:errcheck
+		out = append(out, e)
+	}
+	jsonOK(w, out)
+}
+
+func (h *SecurityHandler) intelTimeline(w http.ResponseWriter, r *http.Request) {
+	hours := 48
+	if v := r.URL.Query().Get("hours"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 168 {
+			hours = n
+		}
+	}
+	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour).Format("2006-01-02T15:04:05Z")
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at) as hour, COUNT(*) as n
+		 FROM security_ban_history
+		 WHERE action='banned' AND created_at >= ?
+		 GROUP BY hour ORDER BY hour ASC`, since)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	defer rows.Close()
+	type entry struct {
+		Hour  string `json:"hour"`
+		Count int    `json:"count"`
+	}
+	out := []entry{}
+	for rows.Next() {
+		var e entry
+		rows.Scan(&e.Hour, &e.Count) //nolint:errcheck
+		out = append(out, e)
+	}
+	jsonOK(w, out)
+}
+
+func (h *SecurityHandler) intelTopIPs(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT ip,
+		        COUNT(*) as total_bans,
+		        MAX(created_at) as last_seen,
+		        (SELECT source FROM security_ban_history h2 WHERE h2.ip=h.ip AND h2.action='banned' GROUP BY source ORDER BY COUNT(*) DESC LIMIT 1) as main_source,
+		        (SELECT reason FROM security_ban_history h3 WHERE h3.ip=h.ip AND h3.action='banned' GROUP BY reason ORDER BY COUNT(*) DESC LIMIT 1) as main_reason,
+		        EXISTS(SELECT 1 FROM security_bans sb WHERE sb.ip=h.ip) as currently_banned
+		 FROM security_ban_history h WHERE action='banned'
+		 GROUP BY ip ORDER BY total_bans DESC LIMIT ?`, limit)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.db")
+		return
+	}
+	defer rows.Close()
+	type entry struct {
+		IP             string `json:"ip"`
+		TotalBans      int    `json:"total_bans"`
+		LastSeen       string `json:"last_seen"`
+		MainSource     string `json:"main_source"`
+		MainReason     string `json:"main_reason"`
+		CurrentlyBanned bool  `json:"currently_banned"`
+	}
+	out := []entry{}
+	for rows.Next() {
+		var e entry
+		var banned int
+		rows.Scan(&e.IP, &e.TotalBans, &e.LastSeen, &e.MainSource, &e.MainReason, &banned) //nolint:errcheck
+		e.CurrentlyBanned = banned == 1
+		out = append(out, e)
+	}
+	jsonOK(w, out)
 }

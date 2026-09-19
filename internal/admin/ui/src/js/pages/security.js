@@ -458,24 +458,37 @@ async function renderSecurityOverview(ctx) {
 async function renderSecurityBans(ctx) {
   const mode = ctx?.mode || 'admin';
   const isAdmin = mode === 'admin';
+
+  // Vue Admin → renderAdminSecurityBans
+  if (isAdmin) { renderAdminSecurityBans(); return; }
+
+  // Vue Core : bans actifs + intelligence fusionnés
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   const ta = document.getElementById('topbar-actions');
-  if (ta) ta.innerHTML = '';
+  if (ta) ta.innerHTML = `
+    <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="exportBansCSV && exportBansCSV()">Export CSV</button>
+    <button class="btn btn-primary btn-sm" onclick="openBanModal()">+ Ban</button>
+    <button class="btn btn-secondary btn-sm" onclick="renderSecurityBans({mode:'core'})">↺</button>`;
 
   try {
     const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (!isAdmin && coreCtx?.missing) {
+    if (coreCtx?.missing) {
       content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
       return;
     }
+    window._secMode = mode;
+    window._secCoreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
 
-    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    const [bansRaw, threats, bansHistoryRaw, threatCfg] = await Promise.all([
+    const [bansRaw, threats, kpis, byReason, bySource, timeline, topIPs, bansHistoryRaw] = await Promise.all([
       api('GET', '/security/bans?active=true'),
-      api('GET', '/security/threats?limit=500'),
-      api('GET', '/security/bans?active=false&limit=200').catch(() => []),
-      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', '/security/threats?limit=300').catch(() => []),
+      api('GET', '/security/bans/intel/kpis').catch(() => ({})),
+      api('GET', '/security/bans/intel/by-reason').catch(() => []),
+      api('GET', '/security/bans/intel/by-source').catch(() => []),
+      api('GET', '/security/bans/intel/timeline?hours=48').catch(() => []),
+      api('GET', '/security/bans/intel/top-ips?limit=15').catch(() => []),
+      api('GET', '/security/bans?active=false&limit=100').catch(() => []),
     ]);
     const bans = filterSecBans(bansRaw || [], coreCtx);
     const bansHistory = filterSecBans(bansHistoryRaw || [], coreCtx);
@@ -483,64 +496,94 @@ async function renderSecurityBans(ctx) {
     window._secBans = bans;
     window._secBansHistory = bansHistory;
     window._secThreats = threats || [];
-    window._secMode = mode;
-    window._secCoreQ = coreQ;
-    window._threatCfg = threatCfg || {};
-    window._bansTab = window._bansTab || 'active';
+    window._bansTab = window._bansTab || 'actifs';
 
-    const bySource = { native: 0, fail2ban: 0, crowdsec: 0, threat: 0, manual: 0 };
-    bans.forEach(b => { const s = b.source||'native'; bySource[s] = (bySource[s]||0)+1; });
     const expiringIn1h = bans.filter(b => b.expires_at && (new Date(b.expires_at)-Date.now()) < 3600000 && (new Date(b.expires_at)-Date.now()) > 0).length;
-    const kpiSvgBan = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
-    const kpiSvgPie = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>`;
-    const kpiSvgCS  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
-    const kpiSvgClock=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+    const rotPct = kpis.rotation_ratio != null ? Math.round(kpis.rotation_ratio * 100) : 0;
 
-    const sourceBreakdown = Object.entries(bySource).filter(([,v])=>v>0).map(([s,v])=>`<span style="font-size:11px;color:var(--text2)">${_secSourceLabel(s)}: <b style="color:var(--text)">${v}</b></span>`).join(' · ') || '—';
+    function renderBansContent() {
+      const tab = window._bansTab || 'actifs';
+      let body = '';
+      if (tab === 'actifs') {
+        body = bans.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">IP</th>
+            <th style="text-align:left;padding:5px 8px">Source</th>
+            <th style="text-align:left;padding:5px 8px">Raison</th>
+            <th style="text-align:left;padding:5px 8px">Expire</th>
+            <th style="padding:5px 8px"></th>
+          </tr></thead>
+          <tbody>${bans.map(b=>`<tr style="border-bottom:1px solid var(--border-subtle,rgba(0,0,0,.04))">
+            <td style="padding:5px 8px;font-family:monospace;font-size:11.5px">${esc(b.ip||'—')}</td>
+            <td style="padding:5px 8px"><span class="tag tag-neutral" style="font-size:10px">${esc(_secSourceLabel(b.source||'native'))}</span></td>
+            <td style="padding:5px 8px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.reason||'—')}</td>
+            <td style="padding:5px 8px;font-size:11px;color:var(--text2)">${b.expires_at?fmtDate(b.expires_at):'∞'}</td>
+            <td style="padding:5px 8px"><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="_intelUnban('${esc(b.ip)}')">✕</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>`
+        : '<p style="font-size:12px;color:var(--green);padding:12px 0">Aucun ban actif.</p>';
+      } else if (tab === 'crowdsec') {
+        body = `<div id="sec-threats-panel">${threatsPanelHTML()}</div>`;
+      } else if (tab === 'historique') {
+        body = _bansHistoryHTML();
+      } else if (tab === 'intel') {
+        body = `
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Bans / heure — 48h</div>
+              ${_banIntelSparkline(timeline, 48)}
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Par source</div>
+              ${_banIntelSourceBars(bySource)}
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Raisons de ban</div>
+              ${_banIntelDonut(byReason)}
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">Top IPs récidivistes</div>
+              ${_banIntelTopIPsTable(topIPs, true)}
+            </div>
+          </div>`;
+      }
+      const tabBody = document.getElementById('core-bans-tab-body');
+      if (tabBody) tabBody.innerHTML = body;
+    }
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
+      <!-- KPIs -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
-        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="flex-shrink:0;color:var(--red)">${kpiSvgBan}</div>
-          <div>
-            <div style="font-size:20px;font-weight:700;line-height:1.2">${bans.length}</div>
-            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_active')}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="flex-shrink:0;color:var(--accent)">${kpiSvgPie}</div>
-          <div>
-            <div style="font-size:13px;font-weight:600;line-height:1.4">${sourceBreakdown}</div>
-            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_by_source')}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="flex-shrink:0;color:var(--blue)">${kpiSvgCS}</div>
-          <div>
-            <div style="font-size:20px;font-weight:700;line-height:1.2">${(threats||[]).length}</div>
-            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_crowdsec')}</div>
-          </div>
-        </div>
-        <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="flex-shrink:0;color:${expiringIn1h>0?'var(--yellow)':'var(--text3)'}">${kpiSvgClock}</div>
-          <div>
-            <div style="font-size:20px;font-weight:700;line-height:1.2;color:${expiringIn1h>0?'var(--yellow)':'inherit'}">${expiringIn1h}</div>
-            <div style="font-size:12px;color:var(--text2)">${t('security.bans.kpi_expiring')}</div>
-          </div>
-        </div>
+        ${[
+          { v: bans.length, label: t('security.bans.kpi_active'), color: bans.length>0?'var(--red)':'var(--green)' },
+          { v: kpis.history_total ?? '—', label: 'Total historique', color: 'var(--text1)' },
+          { v: kpis.recurring_ips ?? '—', label: 'IPs récidivistes', color: (kpis.recurring_ips??0)>0?'var(--orange,#d97706)':'var(--text1)' },
+          { v: expiringIn1h, label: 'Expirent dans 1h', color: expiringIn1h>0?'var(--yellow)':'var(--text3)' },
+        ].map(k=>`<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${k.color};line-height:1.1">${k.v}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:3px">${k.label}</div>
+        </div>`).join('')}
       </div>
+
+      <!-- Tableau avec onglets -->
       <div class="card blueprint">
-        <div class="card-header" style="align-items:flex-start;flex-wrap:wrap;gap:8px">
-          <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>${t('security.bans_title')}</span>
-          <div style="display:flex;gap:6px;margin-left:auto;align-items:center">
-            ${['active','crowdsec','history'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="setBansTab('${tab}')">${t('security.bans.tab_'+tab)}</button>`).join('')}
-            <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text3)" onclick="exportBansCSV()" title="Export CSV">CSV</button>
-            <button class="btn btn-primary btn-sm" onclick="openBanModal()" style="margin-left:8px">${t('security.ban_add')}</button>
+        <div class="card-header" style="flex-wrap:wrap;gap:8px">
+          <span class="card-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            ${t('security.bans_title')}
+          </span>
+          <div style="display:flex;gap:4px;margin-left:auto;flex-wrap:wrap">
+            ${['actifs','intel','crowdsec','historique'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="window._bansTab='${tab}';document.querySelectorAll('[data-banstab]').forEach(b=>b.className='btn btn-sm'+(b.dataset.banstab===window._bansTab?' btn-primary':' btn-ghost'));renderBansCoreBody()" data-banstab="${tab}">${tab==='actifs'?t('security.bans.tab_active')||'Actifs':tab==='intel'?'Analyse':tab==='crowdsec'?'CrowdSec':'Historique'}</button>`).join('')}
           </div>
         </div>
-        <div id="sec-bans-tab-body">${_bansTabBody()}</div>
+        <div id="core-bans-tab-body" style="padding:4px 0"></div>
       </div>`;
+
+    window.renderBansCoreBody = renderBansContent;
+    renderBansContent();
   } catch(e) { toast(e.message,'error'); }
 }
 
@@ -576,14 +619,17 @@ function _bansHistoryHTML() {
 
 window.setBansTab = function(v) {
   window._bansTab = v;
+  // Vue admin (onglets anciens)
   const body = document.getElementById('sec-bans-tab-body');
-  if (!body) return;
-  body.innerHTML = _bansTabBody();
-  // update tab buttons
-  document.querySelectorAll('[onclick^="setBansTab"]').forEach(btn => {
-    const bv = btn.getAttribute('onclick').replace(/setBansTab\('(.+)'\)/,'$1');
-    btn.className = 'btn btn-sm' + (bv === v ? ' btn-primary' : ' btn-ghost');
-  });
+  if (body) {
+    body.innerHTML = _bansTabBody();
+    document.querySelectorAll('[onclick^="setBansTab"]').forEach(btn => {
+      const bv = btn.getAttribute('onclick').replace(/setBansTab\('(.+)'\)/,'$1');
+      btn.className = 'btn btn-sm' + (bv === v ? ' btn-primary' : ' btn-ghost');
+    });
+  }
+  // Vue Core (onglets fusionnés)
+  if (typeof window.renderBansCoreBody === 'function') window.renderBansCoreBody();
 };
 
 async function renderSecurityVulns(ctx) {
@@ -1061,94 +1107,225 @@ async function renderAdminSecurityOverview() {
 }
 
 // ── PAGE ADMIN : Bans agrégés tous Cores ──────────────────────────────────
+// ── Helpers visuels Ban Intelligence ─────────────────────────────────────────
+
+function _banIntelSparkline(timeline, hours) {
+  if (!timeline || !timeline.length) return `<span style="font-size:12px;color:var(--text3)">Aucune donnée</span>`;
+  const counts = timeline.map(e => e.count);
+  const max = Math.max(...counts, 1);
+  const w = 320, h = 48, n = counts.length;
+  const pts = counts.map((c, i) => {
+    const x = n > 1 ? Math.round(i / (n - 1) * w) : w / 2;
+    const y = Math.round((1 - c / max) * (h - 4)) + 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const fill = counts.map((c, i) => {
+    const x = n > 1 ? Math.round(i / (n - 1) * w) : w / 2;
+    const y = Math.round((1 - c / max) * (h - 4)) + 2;
+    return `${x},${y}`;
+  }).join(' ') + ` ${w},${h} 0,${h}`;
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:48px;display:block">
+    <defs><linearGradient id="spg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--red)" stop-opacity=".25"/><stop offset="100%" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="${fill}" fill="url(#spg)"/>
+    <polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function _banIntelDonut(byReason) {
+  if (!byReason || !byReason.length) return `<span style="font-size:12px;color:var(--text3)">Aucune donnée</span>`;
+  const total = byReason.reduce((s, e) => s + e.count, 0);
+  const colors = ['var(--red)','var(--orange,#d97706)','var(--accent)','var(--blue,#3b82f6)','var(--green)','var(--purple,#8b5cf6)','var(--text3)'];
+  const r = 44, cx = 56, cy = 56, stroke = 20;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  const slices = byReason.slice(0, 7).map((e, i) => {
+    const pct = e.count / total;
+    const dash = circ * pct;
+    const gap  = circ - dash;
+    const s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${colors[i % colors.length]}"
+      stroke-width="${stroke}" stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+      stroke-dashoffset="${(-offset * circ / (2*Math.PI) + circ/4).toFixed(2)}"
+      style="transition:stroke-dashoffset .3s"/>`;
+    offset += pct * 2 * Math.PI;
+    return s;
+  }).join('');
+  const legend = byReason.slice(0, 7).map((e, i) => {
+    const label = e.reason || 'Inconnu';
+    const pct = Math.round(e.count / total * 100);
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;min-width:0">
+      <span style="width:8px;height:8px;min-width:8px;border-radius:50%;background:${colors[i % colors.length]}"></span>
+      <span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1" title="${esc(label)}">${esc(label.length > 28 ? label.slice(0,25)+'…' : label)}</span>
+      <b style="color:var(--text1);min-width:28px;text-align:right">${pct}%</b>
+    </div>`;
+  }).join('');
+  return `<div style="display:flex;align-items:center;gap:20px">
+    <svg viewBox="0 0 112 112" style="width:100px;min-width:100px;height:100px">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--border)" stroke-width="${stroke}"/>
+      ${slices}
+      <text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text1)">${total}</text>
+    </svg>
+    <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">${legend}</div>
+  </div>`;
+}
+
+function _banIntelSourceBars(bySource) {
+  if (!bySource || !bySource.length) return `<span style="font-size:12px;color:var(--text3)">Aucune donnée</span>`;
+  const total = bySource.reduce((s, e) => s + e.count, 0);
+  const srcColors = { fail2ban:'var(--orange,#d97706)', crowdsec:'var(--blue,#3b82f6)', threat:'var(--purple,#8b5cf6)', rules:'var(--accent)', native:'var(--text3)', manual:'var(--green)' };
+  return bySource.map(e => {
+    const pct = total ? Math.round(e.count / total * 100) : 0;
+    const col = srcColors[e.source] || 'var(--text3)';
+    return `<div style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span style="color:var(--text2)">${esc(_secSourceLabel(e.source))}</span>
+        <span><b>${e.count}</b> <span style="color:var(--text3)">${pct}%</span></span>
+      </div>
+      <div style="height:7px;background:var(--bg3);border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:width .4s"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _banIntelTopIPsTable(topIPs, showUnban) {
+  if (!topIPs || !topIPs.length) return `<p style="font-size:12px;color:var(--text3);padding:8px 0">Aucune donnée disponible.</p>`;
+  return `<div class="table-wrap">
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:5px 8px">IP</th>
+      <th style="text-align:left;padding:5px 8px">Bans</th>
+      <th style="text-align:left;padding:5px 8px">Source principale</th>
+      <th style="text-align:left;padding:5px 8px">Raison</th>
+      <th style="text-align:left;padding:5px 8px">Dernière activité</th>
+      <th style="text-align:left;padding:5px 8px">Statut</th>
+      ${showUnban ? '<th style="padding:5px 8px"></th>' : ''}
+    </tr></thead>
+    <tbody>${topIPs.map(ip => `<tr style="border-bottom:1px solid var(--border-subtle,rgba(0,0,0,.04))">
+      <td style="padding:5px 8px;font-family:monospace;font-size:11.5px">${esc(ip.ip)}</td>
+      <td style="padding:5px 8px"><span style="font-weight:700;color:${ip.total_bans>=10?'var(--red)':ip.total_bans>=3?'var(--orange,#d97706)':'var(--text1)'}">${ip.total_bans}</span></td>
+      <td style="padding:5px 8px"><span class="tag tag-neutral" style="font-size:10px">${esc(_secSourceLabel(ip.main_source||''))}</span></td>
+      <td style="padding:5px 8px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(ip.main_reason||'')}">${esc((ip.main_reason||'—').slice(0,40))}</td>
+      <td style="padding:5px 8px;color:var(--text3)">${ip.last_seen ? fmtDate(ip.last_seen) : '—'}</td>
+      <td style="padding:5px 8px">${ip.currently_banned
+        ? `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,var(--red) 12%,transparent);color:var(--red);font-weight:600">BANNI</span>`
+        : `<span style="font-size:10px;color:var(--text3)">Expiré</span>`}</td>
+      ${showUnban && ip.currently_banned ? `<td style="padding:5px 8px"><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="_intelUnban('${esc(ip.ip)}')">Débannir</button></td>` : (showUnban ? '<td></td>' : '')}
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+window._intelUnban = async function(ip) {
+  if (!confirm(`Débannir ${ip} ?`)) return;
+  try {
+    const bans = await api('GET', `/security/bans?ip=${encodeURIComponent(ip)}&active=true`);
+    for (const b of (bans||[])) {
+      await api('DELETE', `/security/bans/${b.id}`);
+    }
+    toast(`${ip} débanni`, 'success');
+    if (window._secMode === 'core') renderSecurityBans({ mode: 'core' });
+    else renderAdminSecurityBans();
+  } catch(e) { toast(e.message, 'error'); }
+};
+
 async function renderAdminSecurityBans() {
   const content = document.getElementById('content');
   const ta = document.getElementById('topbar-actions');
-  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-bans']()">↺ Actualiser</button>`;
+  if (ta) ta.innerHTML = `
+    <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="window.exportBansCSV && exportBansCSV()">Export CSV</button>
+    <button class="btn btn-secondary btn-sm" onclick="renderAdminSecurityBans()">↺</button>`;
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   try {
-    const [bansRaw, bansHistory, threats] = await Promise.all([
+    const [bansRaw, threats, kpis, byReason, bySource, timeline, topIPs] = await Promise.all([
       api('GET', '/security/bans?active=true'),
-      api('GET', '/security/bans?active=false&limit=100').catch(() => []),
       api('GET', '/security/threats?limit=200').catch(() => []),
+      api('GET', '/security/bans/intel/kpis').catch(() => ({})),
+      api('GET', '/security/bans/intel/by-reason').catch(() => []),
+      api('GET', '/security/bans/intel/by-source').catch(() => []),
+      api('GET', '/security/bans/intel/timeline?hours=48').catch(() => []),
+      api('GET', '/security/bans/intel/top-ips?limit=20').catch(() => []),
     ]);
     const bans = bansRaw || [];
-    const history = bansHistory || [];
-
-    const bySource = {};
-    bans.forEach(b => { const s = b.source || 'native'; bySource[s] = (bySource[s] || 0) + 1; });
     const byCore = {};
     bans.forEach(b => { const c = b.core_name || b.core_id || '(global)'; byCore[c] = (byCore[c] || 0) + 1; });
-
-    const sourceBar = Object.entries(bySource).sort((a,b)=>b[1]-a[1]).map(([s,n])=>`
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px">
-        <span style="min-width:90px;color:var(--text2)">${esc(_secSourceLabel(s))}</span>
-        <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${bans.length ? Math.round(n/bans.length*100) : 0}%;background:var(--accent);border-radius:3px"></div>
-        </div>
-        <b style="min-width:30px;text-align:right">${n}</b>
-      </div>`).join('');
-
     const coreBar = Object.entries(byCore).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px">
-        <span style="min-width:90px;color:var(--text2)">${esc(c)}</span>
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">
+        <span style="min-width:80px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c)}</span>
         <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${bans.length ? Math.round(n/bans.length*100) : 0}%;background:var(--red);opacity:.7;border-radius:3px"></div>
+          <div style="height:100%;width:${bans.length ? Math.round(n/bans.length*100) : 0}%;background:var(--red);opacity:.6;border-radius:3px"></div>
         </div>
-        <b style="min-width:30px;text-align:right">${n}</b>
+        <b style="min-width:28px;text-align:right">${n}</b>
       </div>`).join('');
 
-    const bansRows = bans.slice(0, 100).map(b => {
-      const exp = b.expires_at ? new Date(b.expires_at).toLocaleString() : '∞';
-      return `<tr style="font-size:12px">
-        <td style="padding:5px 8px;font-family:monospace">${esc(b.ip || '—')}</td>
-        <td style="padding:5px 8px">${esc(_secSourceLabel(b.source||'native'))}</td>
-        <td style="padding:5px 8px;color:var(--text2)">${esc(b.core_name || b.core_id || '—')}</td>
-        <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(b.reason || '—')}</td>
-        <td style="padding:5px 8px;color:var(--text2);font-size:11px">${exp}</td>
-      </tr>`;
-    }).join('');
+    const rotPct = kpis.rotation_ratio != null ? Math.round(kpis.rotation_ratio * 100) : 0;
 
     content.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${bans.length>0?'var(--red)':'var(--green)'}">${bans.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Bans actifs (tous Cores)</div>
-        </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700">${history.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Bans récents (historique)</div>
-        </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700">${(threats||[]).length}</div>
-          <div style="font-size:11px;color:var(--text2)">Menaces actives</div>
-        </div>
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+        ${[
+          { v: kpis.active ?? bans.length, label: 'Bans actifs', color: (kpis.active??bans.length)>0?'var(--red)':'var(--green)' },
+          { v: kpis.history_total ?? '—', label: 'Total historique', color: 'var(--text1)' },
+          { v: kpis.recurring_ips ?? '—', label: 'IPs récidivistes (≥3)', color: (kpis.recurring_ips??0)>0?'var(--orange,#d97706)':'var(--text1)' },
+          { v: rotPct + '%', label: 'Ratio déban / ban', color: 'var(--text1)' },
+        ].map(k=>`<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+          <div style="font-size:24px;font-weight:700;color:${k.color};line-height:1.1">${k.v}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">${k.label}</div>
+        </div>`).join('')}
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+      <!-- Timeline + Source -->
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Bans / heure — 48 dernières heures</div>
+          ${_banIntelSparkline(timeline, 48)}
+        </div>
         <div class="card blueprint" style="padding:14px 16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:10px">Par source</div>
-          <div style="display:flex;flex-direction:column;gap:6px">${sourceBar || '<span style="font-size:12px;color:var(--text2)">Aucun ban actif</span>'}</div>
-        </div>
-        <div class="card blueprint" style="padding:14px 16px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Par Core</div>
-          <div style="display:flex;flex-direction:column;gap:6px">${coreBar || '<span style="font-size:12px;color:var(--text2)">Aucun ban actif</span>'}</div>
+          ${_banIntelSourceBars(bySource)}
         </div>
       </div>
 
+      <!-- Raisons + Par Core -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:12px">Raisons de ban</div>
+          ${_banIntelDonut(byReason)}
+        </div>
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Répartition par Core</div>
+          ${coreBar || '<span style="font-size:12px;color:var(--text3)">Aucun ban actif</span>'}
+        </div>
+      </div>
+
+      <!-- Top IPs -->
+      <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:600">Top 20 IPs — récidivistes & actives</span>
+          <span style="font-size:11px;color:var(--text3)">Sur tout l'historique</span>
+        </div>
+        ${_banIntelTopIPsTable(topIPs, true)}
+      </div>
+
+      <!-- Bans actifs complets -->
       <div class="card blueprint" style="padding:14px 16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Bans actifs ${bans.length > 100 ? `(100 / ${bans.length})` : ''}</div>
-        ${bans.length ? `
-        <table style="width:100%;border-collapse:collapse">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:600">Bans actifs ${bans.length > 100 ? `(100 / ${bans.length})` : `(${bans.length})`}</span>
+          <button class="btn btn-primary btn-sm" onclick="openBanModal()">+ Ajouter</button>
+        </div>
+        ${bans.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:5px 8px">IP</th>
-            <th style="text-align:left;padding:5px 8px">Source</th>
-            <th style="text-align:left;padding:5px 8px">Core</th>
-            <th style="text-align:left;padding:5px 8px">Raison</th>
-            <th style="text-align:left;padding:5px 8px">Expire</th>
+            <th style="text-align:left;padding:5px 8px">IP</th><th style="text-align:left;padding:5px 8px">Source</th>
+            <th style="text-align:left;padding:5px 8px">Core</th><th style="text-align:left;padding:5px 8px">Raison</th>
+            <th style="text-align:left;padding:5px 8px">Expire</th><th style="padding:5px 8px"></th>
           </tr></thead>
-          <tbody>${bansRows}</tbody>
-        </table>` : '<p style="font-size:12px;color:var(--green)">Aucun ban actif.</p>'}
+          <tbody>${bans.slice(0,100).map(b=>`<tr style="font-size:12px;border-bottom:1px solid var(--border-subtle,rgba(0,0,0,.04))">
+            <td style="padding:5px 8px;font-family:monospace;font-size:11.5px">${esc(b.ip||'—')}</td>
+            <td style="padding:5px 8px"><span class="tag tag-neutral" style="font-size:10px">${esc(_secSourceLabel(b.source||'native'))}</span></td>
+            <td style="padding:5px 8px;color:var(--text2)">${esc(b.core_name||b.core_id||'—')}</td>
+            <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.reason||'—')}</td>
+            <td style="padding:5px 8px;font-size:11px;color:var(--text2)">${b.expires_at?fmtDate(b.expires_at):'∞'}</td>
+            <td style="padding:5px 8px"><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="_intelUnban('${esc(b.ip)}')">✕</button></td>
+          </tr>`).join('')}</tbody>
+        </table></div>` : '<p style="font-size:12px;color:var(--green)">Aucun ban actif.</p>'}
       </div>`;
   } catch(e) {
     content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
