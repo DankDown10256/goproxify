@@ -283,8 +283,7 @@ async function renderSecurityBans(ctx) {
     fetches.push(api('GET', '/security/crowdsec').catch(() => null));
     fetches.push(api('GET', `/security/ips-provider${coreQ}`).catch(() => null));
     fetches.push(api('GET', `/security/threat-config${coreQ}`).catch(() => null));
-    fetches.push(api('GET', `/security/server-config${coreQ}`).catch(() => null));
-    const [bansRaw, threats, f2bCfg, csCfg, ipsProvider, threatCfg, serverCfg] = await Promise.all(fetches);
+    const [bansRaw, threats, f2bCfg, csCfg, ipsProvider, threatCfg] = await Promise.all(fetches);
     const bans = filterSecBans(bansRaw || [], coreCtx);
 
     window._secBans = bans;
@@ -295,12 +294,10 @@ async function renderSecurityBans(ctx) {
     window._csCfg = csCfg || {};
     window._ipsProvider = ipsProvider?.provider || 'native';
     window._threatCfg = threatCfg || {};
-    window._serverCfg = serverCfg || {};
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
       ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
-      ${!isAdmin ? serverTimeoutsBanner(serverCfg || {}) : ''}
       <div class="sec-bans-list-stack">
         <div class="card blueprint">
           <div class="card-header">

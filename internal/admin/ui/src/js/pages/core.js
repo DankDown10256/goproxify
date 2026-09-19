@@ -962,6 +962,7 @@ pages['core-settings'] = function() {
         { page: 'core-portal-catalog', icon: '<rect x="3" y="5" width="10" height="8" rx="1"/><path d="M6 8h6"/>', label: t('coresettings.item.pcatalog'), desc: t('coresettings.item.pcatalog_desc') },
         { page: 'core-portal-users', icon: '<circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.2 2.2-4 5-4s5 1.8 5 4"/>', label: t('coresettings.item.pusers'), desc: t('coresettings.item.pusers_desc') },
         { page: 'core-general', icon: '<circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M3.2 12.8l1.4-1.4M11.4 4.6l1.4-1.4"/>', label: t('coresettings.item.general'), desc: t('coresettings.item.general_desc') },
+        { page: 'core-http-timeouts', icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>', label: t('coresettings.item.http_timeouts'), desc: t('coresettings.item.http_timeouts_desc') },
       ]
     },
   ];
@@ -1114,6 +1115,34 @@ pages['core-general'] = async function() {
         }
       } catch(e) { toast(t('common.error_msg', { msg: e.message }), 'error'); }
     };
+  } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+};
+
+pages['core-http-timeouts'] = async function() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  try {
+    const core = state.selectedCore;
+    if (!core) { content.innerHTML = '<p style="color:var(--text2)">' + t('corepage.general.no_core') + '</p>'; return; }
+    const coreLabel = core.display_name || core.node_name || core.id || '—';
+    const tokens = await api('GET', '/tokens?role=core').catch(() => []);
+    const match = (tokens || []).filter(tok => !tok.revoked && (
+      tok.id === core.id || tok.node_name === core.node_name || tok.node_name === core.id
+    ));
+    const best = match.find(tok => tok.id === core.id) || match.find(tok => tok.node_endpoint) || match[0] || null;
+    const coreRef = best?.id || core.node_name || core.id || '';
+    const coreQ = coreRef ? `?core=${encodeURIComponent(coreRef)}` : '';
+    window._secCoreQ = coreQ;
+
+    const cfg = await api('GET', `/security/server-config${coreQ}`).catch(() => null) || {};
+
+    content.innerHTML = `
+      <div style="margin-bottom:20px">
+        <button onclick="navigate('core-settings')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:12px;padding:0;margin-bottom:8px;">${t('corepage.general.back', { core: esc(coreLabel) })}</button>
+        <h1 style="margin:0 0 4px;font-size:24px;font-family:var(--font-heading);font-weight:600;">${t('coresettings.item.http_timeouts')}</h1>
+        <p style="margin:0;font-size:13px;color:var(--text2)">${t('coresettings.item.http_timeouts_desc')}</p>
+      </div>
+      ${serverTimeoutsBanner(cfg)}`;
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
 
