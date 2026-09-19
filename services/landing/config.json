@@ -9,7 +9,7 @@
   },
   "site": {
     "domain": "goproxify.dev",
-    "version": "0.2.187",
+    "version": "0.2.188",
     "go_version": "1.25",
     "github_url": "https://github.com/Vincamok/goproxify",
     "tagline": "Le reverse proxy qui guide chaque visiteur vers la bonne application."
