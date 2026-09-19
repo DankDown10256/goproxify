@@ -178,12 +178,14 @@ async function renderSecurityOverview(ctx) {
       api('GET', '/security/timeline?limit=40&source=all'),
       api('GET', `/security/ips-provider${coreQ}`).catch(() => null),
       api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', '/security/fail2ban').catch(() => null),
+      api('GET', '/security/crowdsec').catch(() => null),
     ];
     if (coreCtx) {
       fetches.push(api('GET', '/security/bans?active=true').catch(() => []));
       fetches.push(api('GET', '/security/cves').catch(() => []));
     }
-    const [ovData, timeline, ipsProvider, threatCfg, bansRaw, cvesRaw] = await Promise.all(fetches);
+    const [ovData, timeline, ipsProvider, threatCfg, f2bCfg, csCfg, bansRaw, cvesRaw] = await Promise.all(fetches);
     const ov = ovData?.overview || {};
     let headers = filterSecHeaders(ov.headers || [], coreCtx);
     let certs = filterSecCerts(ovData?.certs || [], coreCtx);
@@ -250,6 +252,7 @@ async function renderSecurityOverview(ctx) {
         </div>
       </div>
 
+      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
       ${enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel)}
 
       <div class="card blueprint" style="margin-bottom:20px">
@@ -279,25 +282,18 @@ async function renderSecurityBans(ctx) {
       api('GET', '/security/threats?limit=500'),
     ];
     const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    fetches.push(api('GET', '/security/fail2ban').catch(() => null));
-    fetches.push(api('GET', '/security/crowdsec').catch(() => null));
-    fetches.push(api('GET', `/security/ips-provider${coreQ}`).catch(() => null));
     fetches.push(api('GET', `/security/threat-config${coreQ}`).catch(() => null));
-    const [bansRaw, threats, f2bCfg, csCfg, ipsProvider, threatCfg] = await Promise.all(fetches);
+    const [bansRaw, threats, threatCfg] = await Promise.all(fetches);
     const bans = filterSecBans(bansRaw || [], coreCtx);
 
     window._secBans = bans;
     window._secThreats = threats || [];
     window._secMode = mode;
     window._secCoreQ = coreQ;
-    window._f2bCfg = f2bCfg || {};
-    window._csCfg = csCfg || {};
-    window._ipsProvider = ipsProvider?.provider || 'native';
     window._threatCfg = threatCfg || {};
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
-      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
       <div class="sec-bans-list-stack">
         <div class="card blueprint">
           <div class="card-header">
