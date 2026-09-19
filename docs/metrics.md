@@ -65,6 +65,7 @@ Buckets handshake : 1 ms → 1 s.
 | `gpx_backend_ttfb_seconds` | Histogram | `host`, `backend` | Time To First Byte (headers seulement) |
 | `gpx_backend_errors_total` | Counter | `host`, `backend`, `error_type` | Erreurs transport (`timeout`, `connect`, `reset`, `other`) |
 | `gpx_backend_retries_total` | Counter | `host`, `backend` | Tentatives de failover |
+| `gpx_backend_up` | Gauge | `backend` | État de santé du backend : 1 = up, 0 = down (quarantaine) |
 
 `status_class` : `2xx` / `3xx` / `4xx` / `5xx`.  
 Buckets : 1 ms → 30 s.
@@ -143,6 +144,100 @@ rate(gpx_auth_attempts_total{result="failure"}[5m]) > 10
 
 `type` : `routes`, `cert`, `full_sync`.  
 `result` : `success`, `error`.
+
+---
+
+## Bytes par proxy (`gpx_core_*` — par host)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_core_bytes_received_by_host_total` | Counter | `host` | Octets reçus par proxy (Content-Length) |
+| `gpx_core_bytes_sent_by_host_total` | Counter | `host` | Octets envoyés par proxy (body réponse) |
+
+Complètent les agrégats globaux `gpx_core_bytes_received_total` / `gpx_core_bytes_sent_total` avec une granularité par domaine.
+
+---
+
+## Peers Core (`gpx_peer_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_peer_sync_duration_seconds` | Histogram | `peer` | Durée d'une synchronisation avec un Core pair (scores LB + profils WAF) |
+
+Buckets : 10 ms → 5 s.
+
+---
+
+## WAF comportemental (`gpx_waf_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_waf_profiles_active` | Gauge | — | Profils IP actifs dans la fenêtre glissante du WAF comportemental |
+
+Mis à jour après chaque cycle GC du store comportemental.
+
+---
+
+## Portal sessions (`gpx_portal_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_portal_sessions_active` | Gauge | `type` | Sessions portal actives (`one_shot` ou `multi`) |
+
+---
+
+## Admin HTTP (`gpx_admin_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_admin_http_requests_total` | Counter | `method`, `status` | Requêtes HTTP reçues par l'Admin (code HTTP en string) |
+| `gpx_admin_http_request_duration_seconds` | Histogram | `method` | Durée des requêtes HTTP Admin |
+
+Buckets : 1 ms → 5 s.  
+Les paths `/api/v1/health`, `/api/v1/logs/live` et `/internal/v1/` sont inclus dans les compteurs (pas filtrés).
+
+---
+
+## Fail2Ban (`gpx_f2b_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_f2b_bans_total` | Counter | — | IPs bannies automatiquement par Fail2Ban |
+| `gpx_f2b_scans_total` | Counter | — | Cycles de scan Fail2Ban (toutes les 30 s) |
+
+---
+
+## CrowdSec (`gpx_crowdsec_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_crowdsec_decisions_total` | Counter | `action` | Décisions CrowdSec traitées (`new`, `deleted`) |
+| `gpx_crowdsec_syncs_total` | Counter | `result` | Cycles de synchronisation LAPI (`attempt`, `success`) |
+
+---
+
+## Moteur de règles (`gpx_rulesengine_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_rulesengine_evals_total` | Counter | — | Cycles d'évaluation du moteur de règles |
+| `gpx_rulesengine_eval_duration_seconds` | Histogram | — | Durée d'un cycle complet d'évaluation des règles |
+| `gpx_rulesengine_active_rules` | Gauge | — | Nombre de règles activées dans le moteur |
+| `gpx_rulesengine_actions_total` | Counter | `action`, `result` | Actions déclenchées (`disable_proxy`, `ban_ip`, `notify`, `enable_strict`) × (`success`, `error`) |
+
+Buckets : 1 ms → 5 s.
+
+---
+
+## Scanner de vulnérabilités (`gpx_vulnscan_*`)
+
+| Métrique | Type | Labels | Description |
+|---|---|---|---|
+| `gpx_vulnscan_scans_total` | Counter | `result` | Cycles de scan CVE (`attempt`, `success`, `error`) |
+| `gpx_vulnscan_scan_duration_seconds` | Histogram | — | Durée totale d'un cycle de scan (peut dépasser plusieurs minutes) |
+| `gpx_vulnscan_cves_detected_total` | Counter | `severity` | CVEs détectées par sévérité CVSS (`critical` ≥9.0, `high` ≥7.0, `medium` ≥4.0, `low` <4.0) |
+
+Buckets : 1 s → 300 s.
 
 ---
 
