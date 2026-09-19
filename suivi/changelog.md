@@ -7,6 +7,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Dashboard sécurité agrégé Admin (`webapp`)
+
+- **Admin > Sécurité** (vue globale) : KPIs agrégés tous Cores (bans actifs, décisions CrowdSec, CVEs critiques, score posture moyen), état engines IPS (F2B/CrowdSec/WAF), alertes certificats, tableau rapide des Cores avec lien "Voir ce Core"
+- **Admin > Sécurité > Bans** : bans actifs agrégés tous Cores avec répartition par source (F2B/CrowdSec/natif) et par Core, historique
+- **Admin > Sécurité > Vulnérabilités** : CVEs classées par sévérité (critiques/élevées/moyennes/corrigées) tous Cores, badge CVSS coloré, lien proxy + Core
+- **Admin > Sécurité > Menaces** : timeline événements tous Cores (100 derniers), menaces actives avec source et Core
+- **Admin > Automatisation** : Règles automatiques (globales, moteur Admin)
+
 ### Modifié — Réorganisation navigation admin/core (`webapp`)
 
 - **Admin** : suppression des doublons de sécurité (`security-vulns`, `security-posture`, `security-bans`, `security-sentinel`) — ces pages existent uniquement dans le menu Core

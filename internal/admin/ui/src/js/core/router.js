@@ -20,7 +20,7 @@ const App = {
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
-  'security-rules','automation',
+  'security','security-bans','security-vulns','security-threats','security-rules','automation',
   'backups','import','docker-labels','prism',
 ]);
 const CORE_PAGES = new Set([
@@ -31,7 +31,7 @@ const CORE_PAGES = new Set([
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security-rules',
+  'security','security-bans','security-vulns','security-threats','security-rules','automation',
   'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel','core-security-ips-engines',
 ]);
 

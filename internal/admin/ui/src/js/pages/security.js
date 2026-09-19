@@ -926,12 +926,404 @@ async function renderSecurityPosture(ctx) {
   } catch(e) { toast(e.message,'error'); }
 }
 
-pages.security = () => renderSecurityOverview({ mode: 'admin' });
-pages['security-bans'] = () => renderSecurityBans({ mode: 'admin' });
-pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
-pages['security-posture'] = () => renderSecurityPosture({ mode: 'admin' });
+pages.security = () => renderAdminSecurityOverview();
+pages['security-bans'] = () => renderAdminSecurityBans();
+pages['security-vulns'] = () => renderAdminSecurityVulns();
+pages['security-threats'] = () => renderAdminSecurityThreats();
 pages['security-rules'] = () => renderSecurityRules();
 pages['core-security-ips-engines'] = () => renderSecurityIpsEngines();
+
+// ── PAGE ADMIN : Vue globale sécurité (agrégat tous Cores) ─────────────────
+async function renderAdminSecurityOverview() {
+  const content = document.getElementById('content');
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages.security()">↺ Actualiser</button>`;
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  try {
+    const [ov, metrics, f2b, cs, nodes] = await Promise.all([
+      api('GET', '/security/overview').catch(() => ({})),
+      api('GET', '/internal/v1/metrics/summary').catch(() => null),
+      api('GET', '/security/fail2ban').catch(() => null),
+      api('GET', '/security/crowdsec').catch(() => null),
+      api('GET', '/nodes').catch(() => []),
+    ]);
+    const o = ov?.overview || {};
+    const mf2b = metrics?.f2b || {};
+    const mcs  = metrics?.crowdsec || {};
+    const mwaf = metrics?.waf || {};
+    const mProxies = metrics?.proxies || [];
+
+    const activeBans    = o.active_bans    ?? 0;
+    const activeThreats = o.active_threats ?? 0;
+    const critCVEs      = o.critical_cves  ?? 0;
+    const openCVEs      = o.open_cves      ?? 0;
+    const avgScore      = Math.round(o.avg_header_score || 0);
+    const certsExpired  = o.certs_expired  ?? 0;
+    const certsExpiring = o.certs_expiring ?? 0;
+
+    const f2bActive = f2b?.enabled ?? false;
+    const csActive  = cs?.enabled  ?? false;
+    const wafProfilesActive = mwaf.profiles_active ?? null;
+
+    const coresList = Array.isArray(nodes) ? nodes : [];
+
+    const kpiRow = (icon, value, label, color) => `
+      <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="flex-shrink:0;color:${color || 'var(--text2)'}">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg>
+        </div>
+        <div>
+          <div style="font-size:22px;font-weight:700;line-height:1.1;color:${color || 'var(--text)'}">${value}</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">${label}</div>
+        </div>
+      </div>`;
+
+    const engineChip = (label, active, detail) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:var(--bg3);border:1px solid var(--border)">
+        <span style="width:8px;height:8px;border-radius:50%;background:${active ? 'var(--green)' : 'var(--red)'};flex-shrink:0"></span>
+        <span style="font-size:12px;font-weight:600">${esc(label)}</span>
+        ${detail ? `<span style="font-size:11px;color:var(--text2);margin-left:auto">${esc(detail)}</span>` : ''}
+      </div>`;
+
+    const coreRows = coresList.map(n => {
+      const pm = mProxies.find(p => p.core_name === (n.node_name || n.id) || p.core_id === n.id);
+      const errColor = pm?.error_rate > 5 ? 'var(--red)' : pm?.error_rate > 1 ? 'var(--yellow)' : 'var(--green)';
+      return `<tr style="font-size:12px">
+        <td style="padding:6px 8px;font-weight:500">${esc(n.display_name || n.node_name || n.id)}</td>
+        <td style="padding:6px 8px;color:${n.status === 'online' ? 'var(--green)' : 'var(--red)'}">${esc(n.status || '—')}</td>
+        <td style="padding:6px 8px">${pm?.requests_per_second != null ? (pm.requests_per_second.toFixed(1) + ' req/s') : '—'}</td>
+        <td style="padding:6px 8px;color:${errColor}">${pm?.error_rate != null ? pm.error_rate.toFixed(1) + '%' : '—'}</td>
+        <td style="padding:6px 8px">
+          <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px"
+            onclick="selectCoreAndNavigate(${JSON.stringify(n.node_name||n.id)},'core-security')">
+            Voir →
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+        ${kpiRow('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', activeBans, 'Bans actifs (tous Cores)', activeBans > 0 ? 'var(--red)' : 'var(--green)')}
+        ${kpiRow('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', activeThreats, 'Décisions CrowdSec', activeThreats > 0 ? 'var(--red)' : 'var(--green)')}
+        ${kpiRow('<path d="M7 1.5L1.2 12a1 1 0 00.9 1.5h11.8a1 1 0 00.9-1.5L8.8 1.5a1 1 0 00-1.8 0z"/><path d="M7 5.5v3.5M7 11h.01"/>', critCVEs, `CVEs critiques (${openCVEs} ouvertes)`, critCVEs > 0 ? 'var(--red)' : 'var(--green)')}
+        ${kpiRow('<rect x="2" y="7" width="12" height="7" rx="1.5"/><path d="M4.5 7V4.5a2.5 2.5 0 015 0V7"/>', avgScore + '/100', 'Score posture moyen', avgScore >= 80 ? 'var(--green)' : avgScore >= 50 ? 'var(--yellow)' : 'var(--red)')}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Moteurs IPS — état global</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${engineChip('Fail2Ban', f2bActive, f2bActive ? `${mf2b.bans_total ?? '—'} bans` : 'désactivé')}
+            ${engineChip('CrowdSec', csActive,  csActive  ? `${mcs.decisions_active ?? '—'} décisions` : 'désactivé')}
+            ${engineChip('WAF', wafProfilesActive != null, wafProfilesActive != null ? `${wafProfilesActive} profils actifs` : 'inactif')}
+          </div>
+          ${certsExpired + certsExpiring > 0 ? `
+          <div style="margin-top:10px;padding:8px;background:color-mix(in srgb,var(--yellow) 10%,transparent);border:1px solid color-mix(in srgb,var(--yellow) 30%,var(--border));border-radius:6px;font-size:11px;color:var(--yellow)">
+            ⚠ ${certsExpired} cert(s) expirés · ${certsExpiring} expirent bientôt
+          </div>` : ''}
+        </div>
+
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Cores — vue rapide</div>
+          ${coreRows.length ? `
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="font-size:11px;color:var(--text2)">
+              <th style="text-align:left;padding:4px 8px">Core</th>
+              <th style="text-align:left;padding:4px 8px">État</th>
+              <th style="text-align:left;padding:4px 8px">Req/s</th>
+              <th style="text-align:left;padding:4px 8px">Err%</th>
+              <th style="padding:4px 8px"></th>
+            </tr></thead>
+            <tbody>${coreRows}</tbody>
+          </table>` : '<p style="font-size:12px;color:var(--text2)">Aucun Core enregistré.</p>'}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-bans')">
+          <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bans →</div>
+          <div style="font-size:11px;color:var(--text2)">Voir tous les bans actifs tous Cores</div>
+        </div>
+        <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-vulns')">
+          <div style="font-size:12px;font-weight:600;margin-bottom:4px">Vulnérabilités →</div>
+          <div style="font-size:11px;color:var(--text2)">CVEs critiques sur proxies actifs</div>
+        </div>
+        <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-threats')">
+          <div style="font-size:12px;font-weight:600;margin-bottom:4px">Menaces →</div>
+          <div style="font-size:11px;color:var(--text2)">Timeline événements tous Cores</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+  }
+}
+
+// ── PAGE ADMIN : Bans agrégés tous Cores ──────────────────────────────────
+async function renderAdminSecurityBans() {
+  const content = document.getElementById('content');
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-bans']()">↺ Actualiser</button>`;
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  try {
+    const [bansRaw, bansHistory, threats] = await Promise.all([
+      api('GET', '/security/bans?active=true'),
+      api('GET', '/security/bans?active=false&limit=100').catch(() => []),
+      api('GET', '/security/threats?limit=200').catch(() => []),
+    ]);
+    const bans = bansRaw || [];
+    const history = bansHistory || [];
+
+    const bySource = {};
+    bans.forEach(b => { const s = b.source || 'native'; bySource[s] = (bySource[s] || 0) + 1; });
+    const byCore = {};
+    bans.forEach(b => { const c = b.core_name || b.core_id || '(global)'; byCore[c] = (byCore[c] || 0) + 1; });
+
+    const sourceBar = Object.entries(bySource).sort((a,b)=>b[1]-a[1]).map(([s,n])=>`
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <span style="min-width:90px;color:var(--text2)">${esc(_secSourceLabel(s))}</span>
+        <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${bans.length ? Math.round(n/bans.length*100) : 0}%;background:var(--accent);border-radius:3px"></div>
+        </div>
+        <b style="min-width:30px;text-align:right">${n}</b>
+      </div>`).join('');
+
+    const coreBar = Object.entries(byCore).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px">
+        <span style="min-width:90px;color:var(--text2)">${esc(c)}</span>
+        <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${bans.length ? Math.round(n/bans.length*100) : 0}%;background:var(--red);opacity:.7;border-radius:3px"></div>
+        </div>
+        <b style="min-width:30px;text-align:right">${n}</b>
+      </div>`).join('');
+
+    const bansRows = bans.slice(0, 100).map(b => {
+      const exp = b.expires_at ? new Date(b.expires_at).toLocaleString() : '∞';
+      return `<tr style="font-size:12px">
+        <td style="padding:5px 8px;font-family:monospace">${esc(b.ip || '—')}</td>
+        <td style="padding:5px 8px">${esc(_secSourceLabel(b.source||'native'))}</td>
+        <td style="padding:5px 8px;color:var(--text2)">${esc(b.core_name || b.core_id || '—')}</td>
+        <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(b.reason || '—')}</td>
+        <td style="padding:5px 8px;color:var(--text2);font-size:11px">${exp}</td>
+      </tr>`;
+    }).join('');
+
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${bans.length>0?'var(--red)':'var(--green)'}">${bans.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Bans actifs (tous Cores)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700">${history.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Bans récents (historique)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700">${(threats||[]).length}</div>
+          <div style="font-size:11px;color:var(--text2)">Menaces actives</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Par source</div>
+          <div style="display:flex;flex-direction:column;gap:6px">${sourceBar || '<span style="font-size:12px;color:var(--text2)">Aucun ban actif</span>'}</div>
+        </div>
+        <div class="card blueprint" style="padding:14px 16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Par Core</div>
+          <div style="display:flex;flex-direction:column;gap:6px">${coreBar || '<span style="font-size:12px;color:var(--text2)">Aucun ban actif</span>'}</div>
+        </div>
+      </div>
+
+      <div class="card blueprint" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Bans actifs ${bans.length > 100 ? `(100 / ${bans.length})` : ''}</div>
+        ${bans.length ? `
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">IP</th>
+            <th style="text-align:left;padding:5px 8px">Source</th>
+            <th style="text-align:left;padding:5px 8px">Core</th>
+            <th style="text-align:left;padding:5px 8px">Raison</th>
+            <th style="text-align:left;padding:5px 8px">Expire</th>
+          </tr></thead>
+          <tbody>${bansRows}</tbody>
+        </table>` : '<p style="font-size:12px;color:var(--green)">Aucun ban actif.</p>'}
+      </div>`;
+  } catch(e) {
+    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+  }
+}
+
+// ── PAGE ADMIN : Vulnérabilités agrégées tous Cores ───────────────────────
+async function renderAdminSecurityVulns() {
+  const content = document.getElementById('content');
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-vulns']()">↺ Actualiser</button>`;
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  try {
+    const [cvesRaw, scanInfo] = await Promise.all([
+      api('GET', '/security/cves').catch(() => []),
+      api('GET', '/security/vulnscan').catch(() => null),
+    ]);
+    const cves = cvesRaw || [];
+    const critical = cves.filter(c => (c.cvss_score || 0) >= 9 && c.status === 'open');
+    const high     = cves.filter(c => (c.cvss_score || 0) >= 7 && (c.cvss_score || 0) < 9 && c.status === 'open');
+    const medium   = cves.filter(c => (c.cvss_score || 0) >= 4 && (c.cvss_score || 0) < 7 && c.status === 'open');
+    const fixed    = cves.filter(c => c.status === 'fixed');
+
+    const cveBadge = score => {
+      const color = score >= 9 ? 'var(--red)' : score >= 7 ? 'var(--orange,#d97706)' : score >= 4 ? 'var(--yellow)' : 'var(--text2)';
+      return `<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,${color} 15%,transparent);color:${color}">${score.toFixed(1)}</span>`;
+    };
+
+    const cveRows = (list) => list.map(c => `<tr style="font-size:12px">
+      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(c.cve_id || '—')}</td>
+      <td style="padding:5px 8px">${cveBadge(c.cvss_score || 0)}</td>
+      <td style="padding:5px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.description||'')}">${esc(c.package || c.component || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(c.proxy_name || c.proxy_id || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(c.core_name || '—')}</td>
+    </tr>`).join('');
+
+    const lastScan = scanInfo?.last_scan ? new Date(scanInfo.last_scan).toLocaleString() : null;
+
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${critical.length>0?'var(--red)':'var(--green)'}">${critical.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Critiques (CVSS ≥ 9)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${high.length>0?'var(--orange,#d97706)':'var(--green)'}">${high.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Élevées (CVSS 7–9)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700">${medium.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Moyennes (CVSS 4–7)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:var(--green)">${fixed.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Corrigées${lastScan ? `<br><span style="font-size:10px">Scan : ${esc(lastScan)}</span>` : ''}</div>
+        </div>
+      </div>
+
+      ${critical.length + high.length > 0 ? `
+      <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">CVEs critiques & élevées — tous Cores</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">CVE</th>
+            <th style="text-align:left;padding:5px 8px">CVSS</th>
+            <th style="text-align:left;padding:5px 8px">Package</th>
+            <th style="text-align:left;padding:5px 8px">Proxy</th>
+            <th style="text-align:left;padding:5px 8px">Core</th>
+          </tr></thead>
+          <tbody>${cveRows([...critical, ...high])}</tbody>
+        </table>
+      </div>` : `<div class="card blueprint" style="padding:16px;margin-bottom:16px"><p style="color:var(--green);font-size:13px">✓ Aucune CVE critique ou élevée ouverte.</p></div>`}
+
+      ${medium.length > 0 ? `
+      <div class="card blueprint" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">CVEs moyennes (${medium.length})</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">CVE</th>
+            <th style="text-align:left;padding:5px 8px">CVSS</th>
+            <th style="text-align:left;padding:5px 8px">Package</th>
+            <th style="text-align:left;padding:5px 8px">Proxy</th>
+            <th style="text-align:left;padding:5px 8px">Core</th>
+          </tr></thead>
+          <tbody>${cveRows(medium)}</tbody>
+        </table>
+      </div>` : ''}`;
+  } catch(e) {
+    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+  }
+}
+
+// ── PAGE ADMIN : Timeline menaces tous Cores ──────────────────────────────
+async function renderAdminSecurityThreats() {
+  const content = document.getElementById('content');
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-threats']()">↺ Actualiser</button>`;
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  try {
+    const [timeline, threats] = await Promise.all([
+      api('GET', '/security/timeline?limit=100&source=all').catch(() => []),
+      api('GET', '/security/threats?limit=200').catch(() => []),
+    ]);
+    const events = timeline || [];
+    const activeThreats = (threats || []).filter(t => t.active);
+
+    const typeColor = type => {
+      if (type === 'ban')    return 'var(--red)';
+      if (type === 'unban')  return 'var(--green)';
+      if (type === 'threat') return 'var(--orange,#d97706)';
+      if (type === 'alert')  return 'var(--yellow)';
+      return 'var(--text2)';
+    };
+    const eventRows = events.map(e => `<tr style="font-size:12px">
+      <td style="padding:5px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(e.ts ? new Date(e.ts).toLocaleString() : '—')}</td>
+      <td style="padding:5px 8px">
+        <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,${typeColor(e.type)} 15%,transparent);color:${typeColor(e.type)}">${esc(e.type || '—')}</span>
+      </td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(e.ip || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(e.source || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(e.core_name || e.core_id || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.reason || e.detail || '')}</td>
+    </tr>`).join('');
+
+    const threatRows = activeThreats.map(t => `<tr style="font-size:12px">
+      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(t.ip || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2)">${esc(t.source || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2)">${esc(t.core_name || t.core_id || '—')}</td>
+      <td style="padding:5px 8px;color:var(--red);font-size:11px">${esc(t.reason || '—')}</td>
+    </tr>`).join('');
+
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px">
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${events.length>0?'var(--accent)':'var(--text)'}">${events.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Événements (derniers 100)</div>
+        </div>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="font-size:22px;font-weight:700;color:${activeThreats.length>0?'var(--red)':'var(--green)'}">${activeThreats.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Menaces actives</div>
+        </div>
+      </div>
+
+      ${activeThreats.length > 0 ? `
+      <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces actives</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">IP</th>
+            <th style="text-align:left;padding:5px 8px">Source</th>
+            <th style="text-align:left;padding:5px 8px">Core</th>
+            <th style="text-align:left;padding:5px 8px">Raison</th>
+          </tr></thead>
+          <tbody>${threatRows}</tbody>
+        </table>
+      </div>` : ''}
+
+      <div class="card blueprint" style="padding:14px 16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Timeline événements — tous Cores</div>
+        ${events.length ? `
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px">Date</th>
+            <th style="text-align:left;padding:5px 8px">Type</th>
+            <th style="text-align:left;padding:5px 8px">IP</th>
+            <th style="text-align:left;padding:5px 8px">Source</th>
+            <th style="text-align:left;padding:5px 8px">Core</th>
+            <th style="text-align:left;padding:5px 8px">Détail</th>
+          </tr></thead>
+          <tbody>${eventRows}</tbody>
+        </table>` : '<p style="font-size:12px;color:var(--text2)">Aucun événement récent.</p>'}
+      </div>`;
+  } catch(e) {
+    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
+  }
+}
 
 pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
 pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
