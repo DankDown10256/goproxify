@@ -426,38 +426,120 @@ async function renderSecurityBans(ctx) {
       return;
     }
 
-    const fetches = [
+    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+    const [bansRaw, threats, bansHistoryRaw, threatCfg] = await Promise.all([
       api('GET', '/security/bans?active=true'),
       api('GET', '/security/threats?limit=500'),
-    ];
-    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    fetches.push(api('GET', `/security/threat-config${coreQ}`).catch(() => null));
-    const [bansRaw, threats, threatCfg] = await Promise.all(fetches);
+      api('GET', '/security/bans?active=false&limit=200').catch(() => []),
+      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+    ]);
     const bans = filterSecBans(bansRaw || [], coreCtx);
+    const bansHistory = filterSecBans(bansHistoryRaw || [], coreCtx);
 
     window._secBans = bans;
+    window._secBansHistory = bansHistory;
     window._secThreats = threats || [];
     window._secMode = mode;
     window._secCoreQ = coreQ;
     window._threatCfg = threatCfg || {};
+    window._bansTab = window._bansTab || 'active';
+
+    const bySource = { native: 0, fail2ban: 0, crowdsec: 0, threat: 0, manual: 0 };
+    bans.forEach(b => { const s = b.source||'native'; bySource[s] = (bySource[s]||0)+1; });
+    const expiringIn1h = bans.filter(b => b.expires_at && (new Date(b.expires_at)-Date.now()) < 3600000 && (new Date(b.expires_at)-Date.now()) > 0).length;
+    const kpiSvgBan = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
+    const kpiSvgPie = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>`;
+    const kpiSvgCS  = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+    const kpiSvgClock=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`;
+
+    const sourceBreakdown = Object.entries(bySource).filter(([,v])=>v>0).map(([s,v])=>`<span style="font-size:11px;color:var(--text2)">${_secSourceLabel(s)}: <b style="color:var(--text)">${v}</b></span>`).join(' · ') || '—';
 
     content.innerHTML = `
       ${securityCoreBanner(coreCtx)}
-      <div class="sec-bans-list-stack">
-        <div class="card blueprint">
-          <div class="card-header">
-            <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>${t('security.bans_title')}</span>
-            <button class="btn btn-primary btn-sm" onclick="openBanModal()">${t('security.ban_add')}</button>
+      <div class="sec-kpi-row" style="margin-bottom:16px">
+        <div class="sec-kpi-tile">
+          <div class="sec-kpi-icon" style="color:var(--red)">${kpiSvgBan}</div>
+          <div class="sec-kpi-body">
+            <div class="sec-kpi-val">${bans.length}</div>
+            <div class="sec-kpi-label">${t('security.bans.kpi_active')}</div>
           </div>
-          <div id="sec-bans-panel">${bansPanelHTML()}</div>
         </div>
-        <div class="card blueprint">
-          <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>${t('security.crowdsec_decisions')}</span></div>
-          <div id="sec-threats-panel">${threatsPanelHTML()}</div>
+        <div class="sec-kpi-tile">
+          <div class="sec-kpi-icon" style="color:var(--accent)">${kpiSvgPie}</div>
+          <div class="sec-kpi-body">
+            <div class="sec-kpi-val" style="font-size:13px;line-height:1.4">${sourceBreakdown}</div>
+            <div class="sec-kpi-label">${t('security.bans.kpi_by_source')}</div>
+          </div>
         </div>
+        <div class="sec-kpi-tile">
+          <div class="sec-kpi-icon" style="color:var(--blue)">${kpiSvgCS}</div>
+          <div class="sec-kpi-body">
+            <div class="sec-kpi-val">${(threats||[]).length}</div>
+            <div class="sec-kpi-label">${t('security.bans.kpi_crowdsec')}</div>
+          </div>
+        </div>
+        <div class="sec-kpi-tile">
+          <div class="sec-kpi-icon" style="color:${expiringIn1h>0?'var(--yellow)':'var(--text3)'}">${kpiSvgClock}</div>
+          <div class="sec-kpi-body">
+            <div class="sec-kpi-val" style="color:${expiringIn1h>0?'var(--yellow)':'inherit'}">${expiringIn1h}</div>
+            <div class="sec-kpi-label">${t('security.bans.kpi_expiring')}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card blueprint">
+        <div class="card-header" style="align-items:flex-start;flex-wrap:wrap;gap:8px">
+          <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>${t('security.bans_title')}</span>
+          <div style="display:flex;gap:6px;margin-left:auto;align-items:center">
+            ${['active','crowdsec','history'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="setBansTab('${tab}')">${t('security.bans.tab_'+tab)}</button>`).join('')}
+            <button class="btn btn-primary btn-sm" onclick="openBanModal()" style="margin-left:8px">${t('security.ban_add')}</button>
+          </div>
+        </div>
+        <div id="sec-bans-tab-body">${_bansTabBody()}</div>
       </div>`;
   } catch(e) { toast(e.message,'error'); }
 }
+
+function _bansTabBody() {
+  const tab = window._bansTab || 'active';
+  if (tab === 'crowdsec') return `<div id="sec-threats-panel">${threatsPanelHTML()}</div>`;
+  if (tab === 'history') return _bansHistoryHTML();
+  return `<div id="sec-bans-panel">${bansPanelHTML()}</div>`;
+}
+
+function _bansHistoryHTML() {
+  const list = window._secBansHistory || [];
+  if (!list.length) return '<div class="empty"><p>' + t('security.bans.no_history') + '</p></div>';
+  return `<div class="table-wrap sec-bans-table-scroll"><table>
+    <thead><tr>
+      <th>${t('logs.ip')}</th>
+      <th>${t('security.col.domain')}</th>
+      <th>${t('security.col.source')}</th>
+      <th>${t('security.col.reason')}</th>
+      <th>${t('security.col.expires')}</th>
+      <th>${t('common.date')}</th>
+    </tr></thead>
+    <tbody>${list.map(b=>`<tr>
+      <td class="mono">${esc(b.ip)}</td>
+      <td>${esc(b.domain||'—')}</td>
+      <td><span class="tag tag-neutral">${esc(_secSourceLabel(b.source))}</span></td>
+      <td style="color:var(--text2);font-size:12px">${esc(b.reason||'—')}</td>
+      <td style="font-size:11px">${b.expires_at ? fmtDate(b.expires_at) : t('common.permanent')}</td>
+      <td style="font-size:11px;color:var(--text3)">${b.created_at ? fmtDate(b.created_at) : '—'}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+window.setBansTab = function(v) {
+  window._bansTab = v;
+  const body = document.getElementById('sec-bans-tab-body');
+  if (!body) return;
+  body.innerHTML = _bansTabBody();
+  // update tab buttons
+  document.querySelectorAll('[onclick^="setBansTab"]').forEach(btn => {
+    const bv = btn.getAttribute('onclick').replace(/setBansTab\('(.+)'\)/,'$1');
+    btn.className = 'btn btn-sm' + (bv === v ? ' btn-primary' : ' btn-ghost');
+  });
+};
 
 async function renderSecurityVulns(ctx) {
   const mode = ctx?.mode || 'admin';
@@ -804,6 +886,7 @@ pages.security = () => renderSecurityOverview({ mode: 'admin' });
 pages['security-bans'] = () => renderSecurityBans({ mode: 'admin' });
 pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-posture'] = () => renderSecurityPosture({ mode: 'admin' });
+pages['security-ips-engines'] = () => renderSecurityIpsEngines();
 
 pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
 pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
@@ -811,6 +894,67 @@ pages['core-security-vulns'] = () => renderSecurityVulns({ mode: 'core' });
 pages['core-security-posture'] = () => renderSecurityPosture({ mode: 'core' });
 pages['security-sentinel'] = () => renderSentinelDashboard({ mode: 'admin' });
 pages['core-security-sentinel'] = () => renderSentinelDashboard({ mode: 'core' });
+
+async function renderSecurityIpsEngines() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = '';
+
+  try {
+    const [ipsProvider, f2bCfg, csCfg] = await Promise.all([
+      api('GET', '/security/ips-provider').catch(() => null),
+      api('GET', '/security/fail2ban').catch(() => null),
+      api('GET', '/security/crowdsec').catch(() => null),
+    ]);
+
+    window._ipsProvider = ipsProvider?.provider || 'native';
+    window._f2bCfg = f2bCfg || {};
+    window._csCfg = csCfg || {};
+
+    const f2bActive = window._ipsProvider === 'fail2ban';
+    const csActive  = window._ipsProvider === 'crowdsec';
+
+    const svgWrench = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
+    const svgShield = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+    const svgNative = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
+
+    const statusDot = (active) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${active?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
+
+    content.innerHTML = `
+      <div style="max-width:760px">
+        <div class="card blueprint" style="margin-bottom:16px">
+          <div class="card-header">
+            <span class="card-title">${t('security.ips_engines.selector_title')}</span>
+          </div>
+          <div style="padding:0 16px 16px">
+            ${ipsProviderBanner(window._ipsProvider, window._f2bCfg, window._csCfg)}
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="card blueprint">
+            <div class="card-header">
+              <span class="card-title">${svgWrench} Fail2Ban ${statusDot(f2bActive)}<span style="font-size:11px;font-weight:400;color:${f2bActive?'var(--green)':'var(--text3)'}">${f2bActive ? t('security.engine_active') : t('security.engine_inactive')}</span></span>
+            </div>
+            <div style="padding:0 16px 16px">
+              <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.f2b_desc')}</p>
+              ${f2bPanel(window._f2bCfg)}
+            </div>
+          </div>
+          <div class="card blueprint">
+            <div class="card-header">
+              <span class="card-title">${svgShield} CrowdSec ${statusDot(csActive)}<span style="font-size:11px;font-weight:400;color:${csActive?'var(--green)':'var(--text3)'}">${csActive ? t('security.engine_active') : t('security.engine_inactive')}</span></span>
+            </div>
+            <div style="padding:0 16px 16px">
+              <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.cs_desc')}</p>
+              ${crowdSecPanel(window._csCfg)}
+            </div>
+          </div>
+        </div>
+      </div>`;
+  } catch(e) { toast(e.message,'error'); }
+}
 
 async function renderSentinelDashboard({ mode }) {
   const content = document.getElementById('content');
