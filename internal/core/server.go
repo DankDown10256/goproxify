@@ -21,6 +21,7 @@ import (
 	"github.com/vincamok/goproxify/internal/config"
 	coreagent "github.com/vincamok/goproxify/internal/core/agent"
 	corecache "github.com/vincamok/goproxify/internal/core/cache"
+	"github.com/vincamok/goproxify/internal/core/bansdb"
 	"github.com/vincamok/goproxify/internal/core/cluster"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
@@ -46,20 +47,6 @@ import (
 	"github.com/vincamok/goproxify/internal/nodeident"
 )
 
-// banEvent est un événement de ban enregistré dans le journal local du Core.
-type banEvent struct {
-	IP     string
-	Source string
-	At     time.Time
-}
-
-// proxyErrEvent est une requête HTTP (domain, status, timestamp) pour CondProxyErrorRate.
-type proxyErrEvent struct {
-	Host  string
-	Err   bool // status >= 500
-	At    time.Time
-}
-
 // Server est le Data Plane — reverse proxy HTTP/TLS/TCP/UDP.
 type Server struct {
 	cfg       *config.CoreConfig
@@ -73,6 +60,7 @@ type Server struct {
 	providerStore *router.AuthProviderStore
 	profileStore  *router.IPProfileStore
 	banStore      *router.BanStore
+	bansDB        *bansdb.DB
 	threatEngine    *threat.Engine
 	f2bEngine       *coref2b.Engine
 	crowdSecBouncer *corecrowdsec.Bouncer
@@ -80,16 +68,7 @@ type Server struct {
 
 	// Bans threat : merge avec les bans Admin sans écraser.
 	bansMu            sync.Mutex
-	lastBanList       []*router.RuntimeBan
 	pendingThreatBans []*router.RuntimeBan
-
-	// Journal des bans récents pour le moteur de règles (ring buffer 2000 entrées).
-	banEventsMu sync.Mutex
-	banEvents   []banEvent
-
-	// Compteurs d'erreurs HTTP par domaine pour CondProxyErrorRate.
-	proxyErrMu  sync.Mutex
-	proxyErrLog []proxyErrEvent
 	cache         *corecache.Store
 	proxyStore    *proxystore.Store
 	proxyPipe     *proxypipeline.Pipeline
@@ -158,6 +137,10 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 	if len(cfgPath) > 0 {
 		path = cfgPath[0]
 	}
+	bdb, err := bansdb.Open("")
+	if err != nil {
+		log.Logger().Warn("core: ouverture bansdb échouée, fallback mémoire", "err", err)
+	}
 	s := &Server{
 		cfg:             cfg,
 		cfgPath:         path,
@@ -169,6 +152,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		providerStore:   router.NewAuthProviderStore(),
 		profileStore:    router.NewIPProfileStore(),
 		banStore:        router.NewBanStore(),
+		bansDB:          bdb,
 		cache:           corecache.New(cachePath, secret),
 		tcpPorts:        make(map[string]interface{ Stop() }),
 		tracingShutdown: tracingShutdown,
@@ -467,6 +451,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.rulesEngine.OnRuleFired = s.onRuleFired
 	s.accessLog.SetProxyTap(s.recordProxyEvent)
 	s.rulesEngine.Start()
+	go s.bansDBPurgeLoop(ctx)
 
 	// Portail d'accès : activable via env (dev) ou push Admin.
 	if os.Getenv("GPX_PORTAL_ENABLED") == "true" || os.Getenv("GPX_PORTAL_ENABLED") == "1" {
@@ -536,6 +521,9 @@ func (s *Server) Stop(ctx context.Context) {
 	if s.rulesEngine != nil {
 		s.accessLog.SetProxyTap(nil)
 		s.rulesEngine.Stop()
+	}
+	if s.bansDB != nil {
+		_ = s.bansDB.Close()
 	}
 	// Sauvegarde des profils comportementaux WAF à l'arrêt.
 	if err := s.wafEngine.SaveSnapshot("/etc/goproxify/waf-behavior.json"); err != nil {

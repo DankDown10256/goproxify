@@ -7,6 +7,19 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Base de données SQLite bans dans le Core (`core`)
+
+- **`internal/core/bansdb/`** : nouveau package SQLite local (CGO-free, `modernc.org/sqlite`)
+  - Table `bans` : bans actifs par source (admin, fail2ban, crowdsec, rules_engine, threat) avec expiration
+  - Table `ban_history` : historique complet (remplace le ring buffer de 2000 entrées), indexé par IP + date
+  - Table `proxy_errors` : journal HTTP par domaine (remplace le ring buffer de 5000 entrées), purgé toutes les 48h
+  - Écriture atomique WAL + synchronisation NORMAL
+  - `ActiveBans()`, `UpsertBan()`, `DeleteBan()`, `DeleteBansBySource()`, `RecordBanEvent()`, `RecentBanCount()`, `RepeatBanIP()`, `BanHistorySince()`, `RecordProxyEvent()`, `ProxyErrorRate()`, purge par source/date
+- **`internal/core/server.go`** : champ `bansDB *bansdb.DB` ; suppression des ring buffers `banEvents`/`proxyErrLog` et de `lastBanList` ; initialisation au démarrage + fermeture à l'arrêt
+- **`internal/core/persistence.go`** : `applyBans` persiste via DB (source "admin") ; `loadBansFromDisk` lit depuis DB ; `bansDBPurgeLoop` purge toutes les heures (expirés + historique > 30j + proxy_errors > 48h)
+- **`internal/core/internalapi.go`** : helper `reloadBanStore()` reconstruit le BanStore en mémoire depuis DB + pendingThreatBans ; `onF2BBan`, `onCrowdSecBansChanged`, `addRuleBan` utilisent la DB ; `addBanEvent`, `recentBanCount`, `repeatBanIP`, `recordProxyEvent`, `proxyErrorRate` délèguent à la DB
+- **API interne Core** : nouveaux endpoints `GET /internal/v1/bans`, `GET /internal/v1/bans/history`, `DELETE /internal/v1/bans/{id}`
+
 ### Ajouté — Moteur de règles automatiques autonome dans le Core (`core`)
 
 - **`internal/core/rulesengine/`** : nouveau package — moteur de règles entièrement autonome dans le Core

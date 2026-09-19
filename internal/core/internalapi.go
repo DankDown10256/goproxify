@@ -13,7 +13,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
-	"github.com/vincamok/goproxify/internal/core/bans"
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
@@ -56,6 +55,9 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("POST /internal/v1/auth-providers", s.handlePushAuthProviders)
 	mux.HandleFunc("POST /internal/v1/ip-profiles", s.handlePushIPProfiles)
 	mux.HandleFunc("POST /internal/v1/bans", s.handlePushBans)
+	mux.HandleFunc("GET /internal/v1/bans", s.handleListBans)
+	mux.HandleFunc("GET /internal/v1/bans/history", s.handleListBanHistory)
+	mux.HandleFunc("DELETE /internal/v1/bans/{id}", s.handleDeleteBan)
 	mux.HandleFunc("POST /internal/v1/threat-config", s.handlePushThreatConfig)
 	mux.HandleFunc("POST /internal/v1/server-config", s.handlePushServerConfig)
 	mux.HandleFunc("POST /internal/v1/threat-lists/sync", s.handleHAThreatSync)
@@ -472,7 +474,7 @@ func (s *Server) threatBanCallback() threat.BanCallback {
 }
 
 // onF2BBan est appelé par le moteur Fail2Ban Core lors d'un nouveau ban.
-// Applique le ban immédiatement en mémoire, persiste, et notifie l'Admin.
+// Applique le ban immédiatement en mémoire, persiste en DB, et notifie l'Admin.
 func (s *Server) onF2BBan(b coref2b.Ban) {
 	var expires *time.Time
 	if b.ExpiresAt != nil {
@@ -486,15 +488,12 @@ func (s *Server) onF2BBan(b coref2b.Ban) {
 		ExpiresAt: expires,
 	}
 	s.addBanEvent(b.IP, "fail2ban")
-	s.bansMu.Lock()
-	s.lastBanList = append(s.lastBanList, rb)
-	merged := append(s.lastBanList, s.pendingThreatBans...)
-	s.bansMu.Unlock()
-	s.banStore.Replace(merged)
-
-	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
-		s.log.Warn("f2b: persistance ban échouée", "err", err)
+	if s.bansDB != nil {
+		if err := s.bansDB.UpsertBan(rb.ID, rb.IP, "", rb.Reason, rb.Source, rb.ExpiresAt); err != nil {
+			s.log.Warn("f2b: persistance ban DB échouée", "err", err)
+		}
 	}
+	s.reloadBanStore()
 	s.log.Info("fail2ban: IP bannie", "ip", b.IP, "reason", b.Reason)
 
 	// Notifier l'Admin pour qu'il puisse agréger dans security_bans.
@@ -513,37 +512,21 @@ func (s *Server) onF2BBan(b coref2b.Ban) {
 }
 
 // onCrowdSecBansChanged applique la liste complète des bans CrowdSec dans le banStore.
-// Remplace tous les bans crowdsec existants, conserve les autres sources.
+// Remplace tous les bans crowdsec existants en DB, conserve les autres sources.
 func (s *Server) onCrowdSecBansChanged(csBans []corecrowdsec.Ban) {
-	s.bansMu.Lock()
-	// Retirer les anciens bans crowdsec de lastBanList.
-	filtered := s.lastBanList[:0]
-	for _, b := range s.lastBanList {
-		if b.Source != "crowdsec" {
-			filtered = append(filtered, b)
+	if s.bansDB != nil {
+		if err := s.bansDB.DeleteBansBySource("crowdsec"); err != nil {
+			s.log.Warn("crowdsec: suppression bans DB échouée", "err", err)
+		}
+		for _, b := range csBans {
+			b := b
+			s.addBanEvent(b.IP, "crowdsec")
+			if err := s.bansDB.UpsertBan(b.ID, b.IP, "", b.Reason, "crowdsec", b.ExpiresAt); err != nil {
+				s.log.Warn("crowdsec: persistance ban DB échouée", "err", err)
+			}
 		}
 	}
-	// Ajouter les nouveaux.
-	for _, b := range csBans {
-		b := b
-		s.addBanEvent(b.IP, "crowdsec")
-		rb := &router.RuntimeBan{
-			ID:        b.ID,
-			IP:        b.IP,
-			Reason:    b.Reason,
-			Source:    "crowdsec",
-			ExpiresAt: b.ExpiresAt,
-		}
-		filtered = append(filtered, rb)
-	}
-	s.lastBanList = filtered
-	merged := append(filtered, s.pendingThreatBans...)
-	s.bansMu.Unlock()
-	s.banStore.Replace(merged)
-
-	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
-		s.log.Warn("crowdsec: persistance bans échouée", "err", err)
-	}
+	s.reloadBanStore()
 	s.log.Info("crowdsec: bans appliqués", "count", len(csBans))
 }
 
@@ -569,106 +552,94 @@ func (s *Server) onCrowdSecDecisions(added, deleted []corecrowdsec.Decision) {
 	}
 }
 
+// --- BanStore helpers --------------------------------------------------------
+
+// reloadBanStore reconstruit le BanStore en mémoire depuis la DB + pendingThreatBans.
+func (s *Server) reloadBanStore() {
+	var dbBans []*router.RuntimeBan
+	if s.bansDB != nil {
+		rows, err := s.bansDB.ActiveBans()
+		if err != nil {
+			s.log.Warn("bansdb: lecture bans actifs échouée", "err", err)
+		} else {
+			for _, r := range rows {
+				r := r
+				rb := &router.RuntimeBan{
+					ID:        r.ID,
+					IP:        r.IP,
+					Reason:    r.Reason,
+					Source:    r.Source,
+					ExpiresAt: r.ExpiresAt,
+				}
+				dbBans = append(dbBans, rb)
+			}
+		}
+	}
+	s.bansMu.Lock()
+	merged := append(dbBans, s.pendingThreatBans...)
+	s.bansMu.Unlock()
+	s.banStore.Replace(merged)
+}
+
 // --- Moteur de règles automatiques (Core) ------------------------------------
 
-const maxBanEvents = 2000
-
-// addBanEvent enregistre un ban dans le journal local (pour CondBanSpike / CondBanRepeat).
+// addBanEvent enregistre un ban dans l'historique DB (pour CondBanSpike / CondBanRepeat).
 func (s *Server) addBanEvent(ip, source string) {
-	s.banEventsMu.Lock()
-	s.banEvents = append(s.banEvents, banEvent{IP: ip, Source: source, At: time.Now()})
-	if len(s.banEvents) > maxBanEvents {
-		s.banEvents = s.banEvents[len(s.banEvents)-maxBanEvents:]
+	if s.bansDB == nil {
+		return
 	}
-	s.banEventsMu.Unlock()
+	if err := s.bansDB.RecordBanEvent(ip, source); err != nil {
+		s.log.Warn("bansdb: enregistrement événement ban échoué", "err", err)
+	}
 }
 
 // recentBanCount retourne le nombre de bans depuis `since` (source="" = toutes).
 func (s *Server) recentBanCount(since time.Time, source string) int {
-	s.banEventsMu.Lock()
-	defer s.banEventsMu.Unlock()
-	n := 0
-	for _, e := range s.banEvents {
-		if e.At.Before(since) {
-			continue
-		}
-		if source != "" && e.Source != source {
-			continue
-		}
-		n++
+	if s.bansDB == nil {
+		return 0
+	}
+	n, err := s.bansDB.RecentBanCount(since, source)
+	if err != nil {
+		s.log.Warn("bansdb: recentBanCount échoué", "err", err)
+		return 0
 	}
 	return n
 }
 
 // repeatBanIP retourne l'IP bannie ≥ minCount fois depuis `since`.
 func (s *Server) repeatBanIP(since time.Time, minCount int) (string, int) {
-	s.banEventsMu.Lock()
-	defer s.banEventsMu.Unlock()
-	counts := map[string]int{}
-	for _, e := range s.banEvents {
-		if !e.At.Before(since) {
-			counts[e.IP]++
-		}
+	if s.bansDB == nil {
+		return "", 0
 	}
-	best, bestN := "", 0
-	for ip, n := range counts {
-		if n >= minCount && n > bestN {
-			best, bestN = ip, n
-		}
+	ip, n, err := s.bansDB.RepeatBanIP(since, minCount)
+	if err != nil {
+		s.log.Warn("bansdb: repeatBanIP échoué", "err", err)
+		return "", 0
 	}
-	return best, bestN
+	return ip, n
 }
-
-const maxProxyErrEvents = 5000
 
 // recordProxyEvent est branché sur accessLog.SetProxyTap pour alimenter CondProxyErrorRate.
 func (s *Server) recordProxyEvent(domain string, status int) {
-	if domain == "" {
+	if domain == "" || s.bansDB == nil {
 		return
 	}
-	s.proxyErrMu.Lock()
-	s.proxyErrLog = append(s.proxyErrLog, proxyErrEvent{
-		Host: domain,
-		Err:  status >= 500,
-		At:   time.Now(),
-	})
-	if len(s.proxyErrLog) > maxProxyErrEvents {
-		s.proxyErrLog = s.proxyErrLog[len(s.proxyErrLog)-maxProxyErrEvents:]
+	if err := s.bansDB.RecordProxyEvent(domain, status >= 500); err != nil {
+		s.log.Warn("bansdb: recordProxyEvent échoué", "err", err)
 	}
-	s.proxyErrMu.Unlock()
 }
 
 // proxyErrorRate retourne le pire taux d'erreurs HTTP parmi tous les domaines.
 func (s *Server) proxyErrorRate(since time.Time) (rate float64, host string) {
-	s.proxyErrMu.Lock()
-	defer s.proxyErrMu.Unlock()
-	type stats struct{ total, errs int }
-	byHost := map[string]*stats{}
-	for _, e := range s.proxyErrLog {
-		if e.At.Before(since) {
-			continue
-		}
-		st := byHost[e.Host]
-		if st == nil {
-			st = &stats{}
-			byHost[e.Host] = st
-		}
-		st.total++
-		if e.Err {
-			st.errs++
-		}
+	if s.bansDB == nil {
+		return 0, ""
 	}
-	best, bestHost := 0.0, ""
-	for h, st := range byHost {
-		if st.total < 10 {
-			continue
-		}
-		r := float64(st.errs) / float64(st.total) * 100
-		if r > best {
-			best, bestHost = r, h
-		}
+	rate, host, err := s.bansDB.ProxyErrorRate(since, 10)
+	if err != nil {
+		s.log.Warn("bansdb: proxyErrorRate échoué", "err", err)
+		return 0, ""
 	}
-	return best, bestHost
+	return rate, host
 }
 
 // addRuleBan ajoute un ban déclenché par une règle automatique dans le banStore.
@@ -687,14 +658,12 @@ func (s *Server) addRuleBan(ip, reason string, duration time.Duration) {
 		ExpiresAt: expires,
 	}
 	s.addBanEvent(ip, "rules_engine")
-	s.bansMu.Lock()
-	s.lastBanList = append(s.lastBanList, rb)
-	merged := append(s.lastBanList, s.pendingThreatBans...)
-	s.bansMu.Unlock()
-	s.banStore.Replace(merged)
-	if err := bans.Save(bans.Dir(), s.lastBanList); err != nil {
-		s.log.Warn("rulesengine: persistance ban échouée", "err", err)
+	if s.bansDB != nil {
+		if err := s.bansDB.UpsertBan(rb.ID, rb.IP, "", rb.Reason, rb.Source, rb.ExpiresAt); err != nil {
+			s.log.Warn("rulesengine: persistance ban DB échouée", "err", err)
+		}
 	}
+	s.reloadBanStore()
 	s.log.Info("rulesengine: IP bannie", "ip", ip, "reason", reason)
 }
 
@@ -730,6 +699,7 @@ func (s *Server) onRuleNotify(ruleID, severity, title, message string, detail ma
 }
 
 // flushThreatBans fusionne les bans threat dans le BanStore actif.
+// Les bans threat sont en mémoire seulement (courte durée, non persistés en DB).
 func (s *Server) flushThreatBans() {
 	s.mu.Lock()
 	toAdd := s.pendingThreatBans
@@ -738,13 +708,7 @@ func (s *Server) flushThreatBans() {
 	if len(toAdd) == 0 {
 		return
 	}
-	// Reconstruire la liste complète (BanStore ne supporte que Replace).
-	// Les bans threat ont une durée limitée — ils s'effaceront à expiration.
-	s.bansMu.Lock()
-	defer s.bansMu.Unlock()
-	merged := append(s.lastBanList, toAdd...)
-	s.lastBanList = merged
-	s.banStore.Replace(merged)
+	s.reloadBanStore()
 	s.log.Info("threat: ban(s) appliqués", "count", len(toAdd))
 }
 
@@ -756,6 +720,58 @@ func (s *Server) handlePushBans(w http.ResponseWriter, r *http.Request) {
 	}
 	s.applyBans(list)
 	s.log.Info("bans IP mis à jour", "count", len(list))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListBans(w http.ResponseWriter, r *http.Request) {
+	if s.bansDB == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]")) //nolint:errcheck
+		return
+	}
+	rows, err := s.bansDB.ActiveBans()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rows) //nolint:errcheck
+}
+
+func (s *Server) handleListBanHistory(w http.ResponseWriter, r *http.Request) {
+	if s.bansDB == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]")) //nolint:errcheck
+		return
+	}
+	since := time.Now().AddDate(0, 0, -30)
+	if q := r.URL.Query().Get("since"); q != "" {
+		if t, err := time.Parse(time.RFC3339, q); err == nil {
+			since = t
+		}
+	}
+	rows, err := s.bansDB.BanHistorySince(since)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rows) //nolint:errcheck
+}
+
+func (s *Server) handleDeleteBan(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "id requis", http.StatusBadRequest)
+		return
+	}
+	if s.bansDB != nil {
+		if err := s.bansDB.DeleteBan(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	s.reloadBanStore()
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/vincamok/goproxify/internal/agent/telemetry"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	corecache "github.com/vincamok/goproxify/internal/core/cache"
-	"github.com/vincamok/goproxify/internal/core/bans"
 	"github.com/vincamok/goproxify/internal/core/cluster"
 	"github.com/vincamok/goproxify/internal/core/ipprofiles"
 	"github.com/vincamok/goproxify/internal/core/metrics"
@@ -48,36 +47,58 @@ func (s *Server) loadIPProfilesFromDisk() {
 	)
 }
 
-// applyBans met à jour le store en mémoire et persiste sur le volume Core.
+// applyBans persiste la liste Admin (source "admin") en DB et reconstruit le BanStore.
 func (s *Server) applyBans(list []*router.RuntimeBan) {
-	// Conserver la liste Admin pour pouvoir y fusionner les bans threat.
-	s.bansMu.Lock()
-	s.lastBanList = list
-	merged := append(list, s.pendingThreatBans...)
-	s.bansMu.Unlock()
-
-	s.banStore.Replace(merged)
-	if err := bans.Save(bans.Dir(), list); err != nil {
-		s.log.Warn("core: persistance bans échouée", "err", err)
-		return
+	if s.bansDB != nil {
+		// Remplacer tous les bans source "admin" en DB.
+		if err := s.bansDB.DeleteBansBySource("admin"); err != nil {
+			s.log.Warn("core: suppression bans admin DB échouée", "err", err)
+		}
+		for _, b := range list {
+			if b == nil || b.IP == "" {
+				continue
+			}
+			src := b.Source
+			if src == "" {
+				src = "admin"
+			}
+			if err := s.bansDB.UpsertBan(b.ID, b.IP, "", b.Reason, src, b.ExpiresAt); err != nil {
+				s.log.Warn("core: persistance ban admin DB échouée", "err", err)
+			}
+		}
 	}
-	s.log.Debug("core: bans persistés", "count", len(list), "dir", bans.Dir())
+	s.reloadBanStore()
+	s.log.Debug("core: bans admin appliqués", "count", len(list))
 }
 
 func (s *Server) loadBansFromDisk() {
-	list, err := bans.Load(bans.Dir())
+	if s.bansDB == nil {
+		return
+	}
+	rows, err := s.bansDB.ActiveBans()
 	if err != nil {
-		s.log.Warn("core: lecture bans disque échouée", "err", err)
+		s.log.Warn("core: lecture bans DB échouée", "err", err)
 		return
 	}
-	if list == nil {
+	if len(rows) == 0 {
 		return
 	}
-	s.banStore.Replace(list)
-	s.log.Info("core: bans chargés depuis le disque",
-		"count", len(list),
-		"dir", bans.Dir(),
-	)
+	var list []*router.RuntimeBan
+	for _, r := range rows {
+		r := r
+		list = append(list, &router.RuntimeBan{
+			ID:        r.ID,
+			IP:        r.IP,
+			Reason:    r.Reason,
+			Source:    r.Source,
+			ExpiresAt: r.ExpiresAt,
+		})
+	}
+	s.bansMu.Lock()
+	merged := append(list, s.pendingThreatBans...)
+	s.bansMu.Unlock()
+	s.banStore.Replace(merged)
+	s.log.Info("core: bans chargés depuis la DB", "count", len(list))
 }
 
 func (s *Server) saveCache() {
@@ -107,6 +128,25 @@ func (s *Server) saveCacheNow() {
 		"routes", len(snap.Routes),
 		"certs", len(snap.Certs),
 	)
+}
+
+// bansDBPurgeLoop purge toutes les heures les bans expirés et l'historique > 30 jours.
+func (s *Server) bansDBPurgeLoop(ctx context.Context) {
+	if s.bansDB == nil {
+		return
+	}
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = s.bansDB.PurgeExpiredBans()
+			_ = s.bansDB.PurgeBanHistory(time.Now().AddDate(0, 0, -30))
+			_ = s.bansDB.PurgeProxyErrors(time.Now().Add(-48 * time.Hour))
+		}
+	}
 }
 
 func (s *Server) autosaveLoop(ctx context.Context) {
