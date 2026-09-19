@@ -7,6 +7,12 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Import de certificats externes (`webapp` · `admin`)
+
+- **Endpoint `POST /api/v1/certs/import`** : accepte `{cert_pem, key_pem, issuer?}`, valide le bloc PEM, extrait domaine (SAN/CN) et `expires_at` depuis le certificat, upsert en DB — écrase un cert existant sur le même domaine
+- Après import, le certificat est poussé en temps réel aux Cores via `CertImportPusher` (même chemin que les certs ACME)
+- **Page Admin `acme-monitor`** : bouton "+ Importer un certificat" → modal PEM (cert + clé + émetteur optionnel) ; auto-refresh 60s avec nettoyage du timer à la navigation
+
 ### Ajouté — Monitoring ACME & alertes d'expiration (`webapp` · `admin`)
 
 - **Endpoint `GET /api/v1/certs/acme-monitor`** — retourne par cert : `days_left`, `status` (`ok`/`warning`/`critical`/`expired`) + KPIs résumés (`total`, `ok`, `warning`, `critical`, `expired`)

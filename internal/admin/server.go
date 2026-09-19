@@ -292,7 +292,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
-	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr}
+	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr, Pusher: manager}
 	nodesH := &api.NodesHandler{DB: s.db, Log: s.log, OnTunnelSave: func(nodeID string) {
 		ctx := context.Background()
 		s.wsManager.PushTunnelConfig(ctx, nodeID)

@@ -1,7 +1,10 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
+let _acmeRefreshTimer = null;
+
 pages['acme-monitor'] = async function () {
+  if (_acmeRefreshTimer) { clearInterval(_acmeRefreshTimer); _acmeRefreshTimer = null; }
   const root = document.getElementById('page-content');
   root.innerHTML = `
     <div style="padding:24px 28px;">
@@ -10,12 +13,25 @@ pages['acme-monitor'] = async function () {
           <h2 style="margin:0;font-size:20px;">${t('acme_monitor.title')}</h2>
           <p style="margin:4px 0 0;font-size:13px;opacity:0.55;">${t('acme_monitor.subtitle')}</p>
         </div>
-        <button class="btn btn-ghost" style="font-size:12px;" onclick="acmeMonitorLoad()">↻ Actualiser</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" style="font-size:12px;" onclick="openImportCertModal()">${t('acme_monitor.import_btn')}</button>
+          <button class="btn btn-ghost" style="font-size:12px;" onclick="acmeMonitorLoad()">↻ ${t('common.refresh')}</button>
+        </div>
       </div>
       <div id="acme-kpis" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;"></div>
       <div id="acme-table-wrap"></div>
     </div>`;
   await acmeMonitorLoad();
+  _acmeRefreshTimer = setInterval(acmeMonitorLoad, 60_000);
+  // Nettoie le timer si on navigue vers une autre page
+  const obs = new MutationObserver(() => {
+    if (!document.getElementById('acme-kpis')) {
+      clearInterval(_acmeRefreshTimer);
+      _acmeRefreshTimer = null;
+      obs.disconnect();
+    }
+  });
+  obs.observe(document.getElementById('page-content'), { childList: true });
 };
 
 window.acmeMonitorLoad = async function () {
@@ -104,6 +120,48 @@ window.acmeRenew = async function (domain) {
   try {
     await api('POST', '/certs', { domain });
     showToast(t('acme_monitor.renew_started').replace('{domain}', domain), 'success');
+  } catch (e) {
+    showToast(e.message || t('common.error'), 'error');
+  }
+};
+
+window.openImportCertModal = function () {
+  modal(
+    t('acme_monitor.import_title'),
+    `<div style="display:flex;flex-direction:column;gap:14px;">
+      <p style="margin:0;font-size:13px;opacity:0.65;">${t('acme_monitor.import_hint')}</p>
+      <div class="field">
+        <label>${t('acme_monitor.import_cert_label')}</label>
+        <textarea class="input" id="imp-cert" rows="8" placeholder="-----BEGIN CERTIFICATE-----\n..." style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+      </div>
+      <div class="field">
+        <label>${t('acme_monitor.import_key_label')}</label>
+        <textarea class="input" id="imp-key" rows="6" placeholder="-----BEGIN PRIVATE KEY-----\n..." style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+      </div>
+      <div class="field">
+        <label>${t('acme_monitor.import_issuer_label')} <span style="opacity:0.5;font-size:11px;">${t('common.optional')}</span></label>
+        <input class="input" id="imp-issuer" placeholder="custom" style="font-size:13px;">
+      </div>
+    </div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">${t('common.cancel')}</button>
+     <button class="btn btn-primary" onclick="submitImportCert()">${t('acme_monitor.import_submit')}</button>`,
+    false
+  );
+};
+
+window.submitImportCert = async function () {
+  const certPEM = document.getElementById('imp-cert')?.value.trim() || '';
+  const keyPEM  = document.getElementById('imp-key')?.value.trim() || '';
+  const issuer  = document.getElementById('imp-issuer')?.value.trim() || '';
+  if (!certPEM || !keyPEM) {
+    showToast(t('acme_monitor.import_missing'), 'error');
+    return;
+  }
+  try {
+    const res = await api('POST', '/certs/import', { cert_pem: certPEM, key_pem: keyPEM, issuer });
+    closeModal();
+    showToast(t('acme_monitor.import_ok').replace('{domain}', res.domain), 'success');
+    await acmeMonitorLoad();
   } catch (e) {
     showToast(e.message || t('common.error'), 'error');
   }

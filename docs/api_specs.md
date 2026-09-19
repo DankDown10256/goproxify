@@ -239,6 +239,26 @@ Réponse :
 
 Liste les certificats gérés.
 
+### `POST /api/v1/certs/import`
+
+Importe un certificat externe (non-ACME).
+
+**Corps :**
+```json
+{
+  "cert_pem": "-----BEGIN CERTIFICATE-----\n...",
+  "key_pem":  "-----BEGIN PRIVATE KEY-----\n...",
+  "issuer":   "custom"
+}
+```
+
+Le domaine est extrait automatiquement depuis le SAN/CN du certificat. Upsert sur le domaine existant. Le cert est ensuite poussé aux Cores connectés.
+
+**Réponse 201 :**
+```json
+{ "id": "abc123", "domain": "*.example.fr", "expires_at": "2027-09-15T00:00:00Z" }
+```
+
 ### `GET /api/v1/certs/acme-monitor`
 
 Retourne le statut d'expiration de tous les certificats.

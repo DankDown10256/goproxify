@@ -5,8 +5,10 @@ package api
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -18,11 +20,18 @@ type CertObtainer interface {
 	ObtainCert(ctx context.Context, domain string) error
 }
 
+// CertImportPusher pousse un cert importé vers les Cores connectés.
+type CertImportPusher interface {
+	PushCert(ctx context.Context, name string, certPEM, keyPEM []byte)
+}
+
 // CertsHandler expose la liste des certs et déclenche l'obtention via ACME.
 type CertsHandler struct {
 	DB      *sql.DB
 	Log     *slog.Logger
 	Manager CertObtainer
+	// Pusher optionnel — pousse les certs importés manuellement vers les Cores.
+	Pusher CertImportPusher
 }
 
 type certRow struct {
@@ -45,6 +54,8 @@ func (h *CertsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.monitor(w, r)
 	case r.Method == http.MethodPost && domain == "":
 		h.obtain(w, r)
+	case r.Method == http.MethodPost && domain == "import":
+		h.importCert(w, r)
 	case r.Method == http.MethodDelete && domain != "":
 		h.delete(w, r, domain)
 	default:
@@ -184,4 +195,79 @@ func (h *CertsHandler) delete(w http.ResponseWriter, r *http.Request, domain str
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type importCertReq struct {
+	CertPEM string `json:"cert_pem"`
+	KeyPEM  string `json:"key_pem"`
+	// Issuer optionnel — "custom" par défaut
+	Issuer string `json:"issuer"`
+}
+
+// importCert valide et stocke un certificat fourni manuellement (non-ACME).
+func (h *CertsHandler) importCert(w http.ResponseWriter, r *http.Request) {
+	var req importCertReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	if strings.TrimSpace(req.CertPEM) == "" || strings.TrimSpace(req.KeyPEM) == "" {
+		http.Error(w, "cert_pem et key_pem requis", http.StatusBadRequest)
+		return
+	}
+
+	// Parse le premier bloc PEM pour extraire domain et expiration
+	block, _ := pem.Decode([]byte(req.CertPEM))
+	if block == nil || block.Type != "CERTIFICATE" {
+		http.Error(w, "cert_pem invalide : bloc CERTIFICATE introuvable", http.StatusBadRequest)
+		return
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		http.Error(w, "cert_pem invalide : "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Détermine le nom canonique : CN ou premier SAN DNS
+	domain := leaf.Subject.CommonName
+	if len(leaf.DNSNames) > 0 {
+		domain = leaf.DNSNames[0]
+	}
+	if domain == "" {
+		http.Error(w, "impossible de déterminer le domaine depuis le certificat", http.StatusBadRequest)
+		return
+	}
+
+	issuer := req.Issuer
+	if issuer == "" {
+		issuer = "custom"
+	}
+
+	var id string
+	err = h.DB.QueryRowContext(r.Context(),
+		`INSERT INTO certs (id, domain, issuer, expires_at, cert_pem, key_pem)
+		 VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?)
+		 ON CONFLICT(domain) DO UPDATE SET
+		   issuer=excluded.issuer, expires_at=excluded.expires_at,
+		   cert_pem=excluded.cert_pem, key_pem=excluded.key_pem,
+		   updated_at=CURRENT_TIMESTAMP
+		 RETURNING id`,
+		domain, issuer, leaf.NotAfter, req.CertPEM, req.KeyPEM).Scan(&id)
+	if err != nil {
+		if !isCtxErr(err) { h.Log.Error("certs: import", "err", err) }
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+
+	// Pousse vers les Cores si disponible
+	if h.Pusher != nil {
+		go h.Pusher.PushCert(context.Background(), domain, []byte(req.CertPEM), []byte(req.KeyPEM))
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"id":         id,
+		"domain":     domain,
+		"expires_at": leaf.NotAfter.UTC().Format(time.RFC3339),
+	})
 }
