@@ -7,6 +7,13 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Modifié — Réorganisation navigation admin/core (`webapp`)
+
+- **Admin** : suppression des doublons de sécurité (`security-vulns`, `security-posture`, `security-bans`, `security-sentinel`) — ces pages existent uniquement dans le menu Core
+- **Admin** : groupe "Sécurité" remplacé par "Automatisation" (contient uniquement les Règles automatiques, qui restent globales)
+- **Core** : ajout de "Moteurs IPS" (`core-security-ips-engines`) dans le menu Sécurité du Core — la config F2B/CrowdSec/WAF est poussée aux Cores, elle se configure donc par Core
+- Principe : Admin = gestion plateforme + vues agrégées ; Core = tout ce qui tourne dans un Core
+
 ### Ajouté — Intégration métriques Prometheus dans l'UI admin (`webapp` 0.4.5)
 
 - **Dashboard** : bande temps réel (req/s global, taux d'erreur 5xx, bytes in/out) ; sparklines p95 latence + req/s sur chaque nœud Core ; alertes cert expiry Prometheus (<7j) ; indicateur backends dégradés

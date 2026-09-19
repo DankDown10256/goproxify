@@ -19,20 +19,20 @@ const App = {
 
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
-  'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit','security',
-  'security-vulns','security-posture','security-bans',
+  'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
+  'security-rules','automation',
   'backups','import','docker-labels','prism',
 ]);
 const CORE_PAGES = new Set([
   'core-trafic','core-proxies','core-streams','core-waf','core-ipfilter',
   'core-certs','core-auth','core-logs-access','core-logs-system',
   'core-observability','core-prism','core-metrics','core-cluster','core-settings','core-general','ip-profiles',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel','core-security-ips-engines',
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-vulns','security-posture','security-bans','security-sentinel','security-ips-engines','security-rules',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
+  'security-rules',
+  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel','core-security-ips-engines',
 ]);
 
 // ── Sidebar mobile ────────────────────────────────────────────────────────

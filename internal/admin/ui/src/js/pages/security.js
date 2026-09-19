@@ -930,8 +930,8 @@ pages.security = () => renderSecurityOverview({ mode: 'admin' });
 pages['security-bans'] = () => renderSecurityBans({ mode: 'admin' });
 pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-posture'] = () => renderSecurityPosture({ mode: 'admin' });
-pages['security-ips-engines'] = () => renderSecurityIpsEngines();
 pages['security-rules'] = () => renderSecurityRules();
+pages['core-security-ips-engines'] = () => renderSecurityIpsEngines();
 
 pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
 pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
