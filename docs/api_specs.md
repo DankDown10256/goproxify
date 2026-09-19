@@ -171,6 +171,24 @@ Supprime un proxy manuel.
 
 Active/désactive un proxy à chaud.
 
+### `GET /api/v1/proxies/:id/revisions`
+
+Liste les révisions sauvegardées d'un proxy. Réponse : `[{"revision":"<uuid>","status":"production|draft","updated_at":"...","created_by":"..."}]`.
+
+### `GET /api/v1/proxies/:id/revisions/diff`
+
+Compare deux révisions d'un proxy. Paramètres : `from` (id de révision ou `"production"`) et `to` (id de révision ou `"latest"`).
+
+Réponse :
+```json
+{
+  "from": {"revision":"...","status":"production","updated_at":"...","created_by":"..."},
+  "to":   {"revision":"...","status":"draft","updated_at":"...","created_by":"..."},
+  "diffs": [{"key":"backends[0].addr","from":"10.0.0.1:8080","to":"10.0.0.2:8080"}],
+  "revisions": [...]
+}
+```
+
 ---
 
 ## Certificats
@@ -312,6 +330,14 @@ Page HTML, script bash (`docker compose up -d`), ou JSON public du ticket.
 ### `POST /api/v1/nodes/:id/accept` / `POST /api/v1/nodes/:id/reject`
 
 Accepte ou rejette un nœud en attente (`pending_nodes`) après présentation du pairing secret.
+
+### `GET /api/v1/nodes/:id/tunnel-config`
+
+Retourne la configuration Tunnel L4 mTLS du nœud. Réponse : `{"peers":[{"name":"core-b","addr":"10.0.0.2:9443"},...]}`.
+
+### `PUT /api/v1/nodes/:id/tunnel-config`
+
+Met à jour la liste des peers Tunnel L4 du nœud. Corps : `{"peers":[{"name":"...","addr":"..."}]}`. Déclenche un push WS `push_tunnel_config` vers le Core connecté pour application immédiate via `tunnel.Manager.SetPeers`.
 
 ---
 

@@ -52,7 +52,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [x] **Webhooks sur événements** : canal webhook générique sur `sentinel_ban` et `backend_down` ; `Manager.SetAlertEngine` pour injecter l'engine d'alertes ; callback `BackendHealth.OnDown` → message WS Core→Admin
 - [x] **Discovery Kubernetes** : Agent qui lit les `Ingress`/`Service` avec annotations `goproxify.*`, symétrique du mode Docker existant
 - [x] **Pipeline de transformation de requête** : `RequestTransform` sur `Route` (add/remove request+response headers, réécriture de préfixe URL) — middleware `Transform` hot-reload avec le reste de la config
-- [x] **Tunnel L4 mTLS Core↔Core** : package `internal/core/tunnel` — `Manager` (pool de pairs, failover automatique) + `Serve` (listener mTLS, protocole CONNECT-like)
+- [x] **Tunnel L4 mTLS Core↔Core** : package `internal/core/tunnel` — `Manager` (pool de pairs, failover automatique) + `Serve` (listener mTLS, protocole CONNECT-like) + UI Admin de configuration des peers + WS push Admin→Core (`push_tunnel_config`) avec `SetPeers` à chaud
+- [x] **Diff de config proxy** : endpoint `GET /api/v1/proxies/{id}/revisions/diff?from=&to=` + bouton "Diff config" dans l'UI Traffic — modal interactif avec comparaison champ par champ entre deux révisions (ou production vs. dernière)
 - [x] **MCP server étendu** : outils `ban_ip`, `unban_ip`, `rotate_cert` ajoutés au MCP server
 - [x] **SBOM + attestation cosign** : workflow `.github/workflows/sbom-sign.yml` — génération SBOM SPDX (syft) + signature keyless cosign sur chaque image GHCR après build
 
