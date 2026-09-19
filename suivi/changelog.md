@@ -14,7 +14,9 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Webhook push** : POST HMAC-SHA256 signé (`X-GoProxify-Signature: sha256=…`) vers n'importe quelle URL avec retry — payload JSON `{domain, cert_pem, key_pem, chain_pem, fingerprint, expires_at}`
 - **Pull tokens** : génération de tokens sécurisés (hash HMAC-SHA256, TTL, max_uses) — `GET /api/v1/cert-bundle?token=xxx&format=pem|key|fullchain|json` — endpoint **public** sans auth, téléchargeable par simple `curl`
 - **Hook OnCertObtained** dans `acme.Manager` — déclenche automatiquement `certdeploy.Deployer.TriggerForCert` après chaque renouvellement
-- **Page Admin** `cert-deploy` : liste des certificats, drawer de gestion par cert, onglets "Deploy Targets" / "Pull Tokens", modal de création target (webhook + trigger), modal de création token avec affichage one-time + exemple `curl`
+- **SSH exec target** : déploiement via SSH vers n'importe quelle machine — GoProxify SSHe à la cible et exécute un script configurable avec les variables `GPX_CERT_PEM / GPX_KEY_PEM / GPX_DOMAIN / GPX_EXPIRES_AT` injectées
+- **Package `certformat`** : conversion PEM→DER, DER clé (PKCS#8), PKCS#12/PFX (`software.sslmate.com/src/go-pkcs12`), fullchain, JSON — endpoint `cert-bundle` utilise désormais `certformat.Convert` avec validation du format à la création du token
+- **Page Admin** `cert-deploy` : liste des certificats, drawer de gestion par cert, onglets "Deploy Targets" / "Pull Tokens", modal de création target (webhook + ssh_exec), modal de création token avec tous les formats (PEM/DER/PKCS#12/JSON) + champ mot de passe PKCS#12 conditionnel + exemple `curl` affiché one-time
 
 ### Ajouté — Workspaces : espaces de travail multi-tenant (`webapp` · `admin`)
 

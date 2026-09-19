@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/auth"
+	"github.com/vincamok/goproxify/internal/admin/certformat"
 )
 
 // CertDeployHandler gère les deploy-targets et pull-tokens d'un certificat.
@@ -288,6 +289,10 @@ func (h *CertDeployHandler) createPullToken(w http.ResponseWriter, r *http.Reque
 	if req.Format == "" {
 		req.Format = "pem"
 	}
+	if !certformat.IsValid(req.Format) {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
 	if req.MaxUses <= 0 {
 		req.MaxUses = 1
 	}
@@ -395,29 +400,23 @@ func (h *CertBundleHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !certformat.IsValid(format) {
+		http.Error(w, "format non supporté", http.StatusBadRequest)
+		return
+	}
+
+	password := r.URL.Query().Get("password")
+
 	// Incrémente l'usage
 	_, _ = h.DB.ExecContext(r.Context(),
 		`UPDATE cert_pull_tokens SET uses=uses+1 WHERE id=?`, tokenID)
 
-	switch format {
-	case "pem":
-		w.Header().Set("Content-Type", "application/x-pem-file")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`.pem"`)
-		_, _ = w.Write([]byte(certPEM))
-	case "key":
-		w.Header().Set("Content-Type", "application/x-pem-file")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`.key"`)
-		_, _ = w.Write([]byte(keyPEM))
-	case "fullchain":
-		w.Header().Set("Content-Type", "application/x-pem-file")
-		w.Header().Set("Content-Disposition", `attachment; filename="`+domain+`-fullchain.pem"`)
-		_, _ = w.Write([]byte(certPEM + "\n" + keyPEM))
-	default:
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"domain":   domain,
-			"cert_pem": certPEM,
-			"key_pem":  keyPEM,
-		})
+	bundle, err := certformat.Convert(domain, []byte(certPEM), []byte(keyPEM), certformat.Format(format), password)
+	if err != nil {
+		http.Error(w, "conversion échouée: "+err.Error(), http.StatusBadRequest)
+		return
 	}
+	w.Header().Set("Content-Type", bundle.ContentType)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+bundle.Filename+`"`)
+	_, _ = w.Write(bundle.Data)
 }

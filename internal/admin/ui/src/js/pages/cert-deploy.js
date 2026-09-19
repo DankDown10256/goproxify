@@ -314,12 +314,19 @@ window.openAddTokenModal = function(certID, domain) {
     `<div style="display:flex;flex-direction:column;gap:14px;">
       <div class="field"><label>Nom</label><input class="input" id="ptk-name" placeholder="Ex: deploy-ci" autofocus></div>
       <div class="field"><label>Format</label>
-        <select class="input" id="ptk-format">
-          <option value="pem">PEM (certificat seul)</option>
-          <option value="key">PEM (clé privée seule)</option>
-          <option value="fullchain">Full chain (cert + clé)</option>
-          <option value="json">JSON (cert + clé)</option>
+        <select class="input" id="ptk-format" onchange="onPtkFormatChange()">
+          <option value="pem">PEM — certificat seul</option>
+          <option value="key">PEM — clé privée seule</option>
+          <option value="fullchain">PEM — full chain (cert + clé)</option>
+          <option value="der">DER — certificat binaire</option>
+          <option value="der_key">DER — clé privée (PKCS#8)</option>
+          <option value="pkcs12">PKCS#12 / PFX</option>
+          <option value="json">JSON — cert + clé</option>
         </select>
+      </div>
+      <div class="field" id="ptk-p12-row" style="display:none">
+        <label>Mot de passe PKCS#12 <span style="opacity:0.5;font-size:11px;">(optionnel)</span></label>
+        <input class="input" id="ptk-p12-password" type="password" autocomplete="new-password" placeholder="Laissez vide = sans mot de passe">
       </div>
       <div style="display:flex;gap:12px;">
         <div class="field" style="flex:1"><label>Usages max</label><input class="input" id="ptk-uses" type="number" min="0" value="1" placeholder="0 = illimité"></div>
@@ -333,6 +340,12 @@ window.openAddTokenModal = function(certID, domain) {
   );
 };
 
+window.onPtkFormatChange = function() {
+  const fmt = document.getElementById('ptk-format')?.value;
+  const row = document.getElementById('ptk-p12-row');
+  if (row) row.style.display = fmt === 'pkcs12' ? '' : 'none';
+};
+
 window.submitAddToken = async function(certID, domain) {
   const name = document.getElementById('ptk-name')?.value.trim() || '';
   const format = document.getElementById('ptk-format')?.value || 'pem';
@@ -342,7 +355,11 @@ window.submitAddToken = async function(certID, domain) {
     const res = await api('POST', `/certs/${certID}/pull-tokens`, { name, format, max_uses: maxUses, ttl_hours: ttlHours });
     closeModal();
     const baseURL = window.location.origin;
-    const curlCmd = `curl -s "${baseURL}/api/v1/cert-bundle?token=${res.token}&format=${res.format}" -o cert.${format === 'key' ? 'key' : format === 'json' ? 'json' : 'pem'}`;
+    const p12Pass = document.getElementById('ptk-p12-password')?.value || '';
+    const passwordParam = (format === 'pkcs12' && p12Pass) ? `&password=${encodeURIComponent(p12Pass)}` : '';
+    const extMap = { key: 'key', json: 'json', der: 'crt', der_key: 'key.der', pkcs12: 'p12' };
+    const ext = extMap[format] || 'pem';
+    const curlCmd = `curl -s "${baseURL}/api/v1/cert-bundle?token=${res.token}&format=${res.format}${passwordParam}" -o cert.${ext}`;
     modal(
       'Token créé — conservez-le maintenant',
       `<p style="font-size:13px;margin:0 0 12px;">Ce token <strong>ne sera plus affiché</strong>. Copiez-le maintenant :</p>

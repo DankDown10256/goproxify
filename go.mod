@@ -81,4 +81,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 	nhooyr.io/websocket v1.8.17 // indirect
+	software.sslmate.com/src/go-pkcs12 v0.7.3 // indirect
 )
