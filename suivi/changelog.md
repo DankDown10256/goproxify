@@ -7,6 +7,13 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté — Workspaces : espaces de travail multi-tenant (`webapp` · `admin`)
+
+- **3 nouvelles tables SQLite** : `workspaces` (nom, description, créateur), `workspace_members` (user/team), `workspace_resources` (proxy/domain/core)
+- **API CRUD** `GET|POST /api/v1/workspaces`, `GET|PUT|DELETE /api/v1/workspaces/{id}`, gestion membres (`POST|DELETE /api/v1/workspaces/{id}/members/{type}/{id}`) et ressources (`POST|DELETE /api/v1/workspaces/{id}/resources/{type}/{id}`)
+- **Page Admin** `workspaces` : grille de cards avec compteurs membres/ressources, panneau latéral de détail — ajout/suppression membres (équipes + utilisateurs) et ressources (proxies, cores, domaines par pattern)
+- Accessible via le menu **Accès → Espaces de travail** (réservé admin/superadmin)
+
 ### Ajouté — Ban Intelligence : dashboard IP rejetées (`webapp` · `admin`)
 
 - **5 endpoints** `GET /api/v1/security/bans/intel/{kpis,by-reason,by-source,timeline,top-ips}` — analyse historique sur `security_ban_history` + `security_bans`

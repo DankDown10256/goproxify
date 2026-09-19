@@ -34,6 +34,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 
 ## En cours / prochain
 
+- [x] **Workspaces** : espaces de travail nommés regroupant proxies, domaines et cores — assignation d'équipes et utilisateurs pour une isolation multi-tenant ; page Admin dédiée (Accès → Espaces de travail)
 - [x] Stabiliser les tags SemVer et Releases GitHub régulières
 - [x] Hygiène CI publique (lint/tests documentés)
 - [x] Polish UX Access et docs opérateur

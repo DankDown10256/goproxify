@@ -502,3 +502,21 @@ Tous les messages WS utilisent l'enveloppe suivante :
 |---|---|
 | `agent_pending` | Un Agent attend l'approbation (notification UI) |
 | `node_update` | Mise à jour de l'état d'un Agent (online/offline/metrics) |
+
+---
+
+## Workspaces — `/api/v1/workspaces`
+
+> Accès : admin / superadmin uniquement.
+
+| Méthode | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/workspaces` | Liste tous les espaces de travail (avec compteurs membres/ressources) |
+| POST | `/api/v1/workspaces` | Crée un espace (`name`, `description`) |
+| GET | `/api/v1/workspaces/{id}` | Détail complet : membres + ressources |
+| PUT | `/api/v1/workspaces/{id}` | Renomme / modifie la description |
+| DELETE | `/api/v1/workspaces/{id}` | Supprime (en cascade membres + ressources) |
+| POST | `/api/v1/workspaces/{id}/members` | Ajoute un membre (`entity_type`: `user`/`team`, `entity_id`) |
+| DELETE | `/api/v1/workspaces/{id}/members/{type}/{entityID}` | Retire un membre |
+| POST | `/api/v1/workspaces/{id}/resources` | Ajoute une ressource (`resource_type`: `proxy`/`domain`/`core`, `resource_id`) |
+| DELETE | `/api/v1/workspaces/{id}/resources/{type}/{resourceID}` | Retire une ressource |

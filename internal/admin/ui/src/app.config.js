@@ -148,6 +148,11 @@ const APP_CONFIG = {
           label: 'Politiques d\'accès',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 7h6M5 9.5h4"/></svg>',
         },
+        {
+          page: 'workspaces',
+          label: 'Espaces de travail',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+        },
       ],
     },
     {
@@ -296,6 +301,7 @@ const APP_CONFIG = {
     'api-tokens':        'Mes tokens API',
     access:              'Accès',
     'access-policies':   'Politiques d\'accès',
+    workspaces:          'Espaces de travail',
     prism:              'Prism — Analyse',
     'core-prism':       'Prism',
     alerts:             'Règles d\'alertes',

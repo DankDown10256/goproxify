@@ -414,6 +414,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 	teamsH := &api.TeamsHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
+	workspacesH := &api.WorkspacesHandler{DB: s.db, Log: s.log}
 	discoveredH := &api.DiscoveredContainersHandler{DB: s.db, Log: s.log}
 	backendsHealthH := &api.BackendsHealthHandler{DB: s.db, Log: s.log}
 	domainsH := &api.DomainsHandler{DB: s.db, Log: s.log, Pusher: manager, OnChange: syncArch}
@@ -557,6 +558,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/users/", adminOnly(usersH))
 	mux.Handle("/api/v1/teams", adminOnly(teamsH))
 	mux.Handle("/api/v1/teams/", adminOnly(teamsH))
+	mux.Handle("/api/v1/workspaces", adminOnly(workspacesH))
+	mux.Handle("/api/v1/workspaces/", adminOnly(workspacesH))
 	mux.Handle("/api/v1/snippets", protected(snippetsH))
 	mux.Handle("/api/v1/snippets/", protected(snippetsH))
 	mux.Handle("/api/v1/error-page-templates", adminOnly(errorPagesH))

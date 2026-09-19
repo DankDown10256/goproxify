@@ -671,6 +671,25 @@ func migrate(db *sql.DB) error {
 			error        TEXT NOT NULL DEFAULT '',
 			fired_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS workspaces (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_by  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_members (
+			workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+			entity_type  TEXT NOT NULL CHECK(entity_type IN ('user','team')),
+			entity_id    TEXT NOT NULL,
+			PRIMARY KEY (workspace_id, entity_type, entity_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS workspace_resources (
+			workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+			resource_type TEXT NOT NULL CHECK(resource_type IN ('proxy','domain','core')),
+			resource_id   TEXT NOT NULL,
+			PRIMARY KEY (workspace_id, resource_type, resource_id)
+		)`,
 	} {
 		if _, err := db.Exec(s); err != nil {
 			return fmt.Errorf("migration rules_engine: %w", err)

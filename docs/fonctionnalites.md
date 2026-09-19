@@ -461,6 +461,7 @@ goproxify <commande> [options]
 | `settings smtp/mfa` | Config Admin : SMTP, MFA (SMS, WebAuthn) |
 | `auth-provider list/get/create/update/enable/disable/delete` | Fournisseurs auth externe (OIDC, SAML…) |
 | `teams list/get/create/update/delete + members` | Équipes RBAC |
+| `workspaces list/get/create/update/delete + members + resources` | Espaces de travail (multi-tenant) |
 | `ip-profile list/get/create/update/delete` | Profils IP (allowlist/blocklist CIDR, GeoIP) |
 | `containers list` | Conteneurs Docker découverts (lecture seule) |
 | `me get/update/passwd + me tokens` | Profil courant + tokens API personnels (PAT) |
