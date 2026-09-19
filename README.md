@@ -208,6 +208,7 @@ Référence complète → **[docs/cli.md](docs/cli.md)**
 - **Premier démarrage guidé** — wizard de configuration initiale
 - Gestion ACME DNS-01 wildcard (OVH, Cloudflare, Gandi, Route53, Hetzner)
 - Push des certificats au Core (RAM uniquement, jamais persistés côté Core)
+- **Certificate Hub** — monitoring ACME (dashboard + alertes expiration), import de certs externes PEM, deploy targets (webhook HMAC / ssh_exec), pull tokens multi-format (PEM/DER/PKCS#12/JSON)
 - **Alerting granulaire** — règles par node/domaine/équipe, 10 canaux : Email, Webhook, ntfy.sh, Gotify, Jira, Linear, GitHub Issues, GitLab Issues, Zammad, GLPI
 - Audit log structuré pour tous les composants
 - Sauvegardes planifiées et restauration

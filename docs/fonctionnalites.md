@@ -209,6 +209,29 @@ Les Agents qui se connectent pour la première fois via `JOIN_TOKEN` apparaissen
 - Renouvellement automatique 30 jours avant expiration
 - Push des certificats décodés au Core en RAM uniquement (jamais sur disque côté Core)
 
+### Certificate Hub (v0.8)
+
+Suite de fonctionnalités autour du cycle de vie des certificats TLS.
+
+**Monitoring ACME**
+- Dashboard `/acme-monitor` : statut par cert (`ok` / `warning ≤30j` / `critical ≤7j` / `expired`), KPIs globaux, bouton de renouvellement inline
+- Alertes automatiques : `cert_expiring_soon` (warning ≤30j, critical ≤7j) émises vers le moteur d'alertes existant
+
+**Import de certificats externes**
+- `POST /api/v1/certs/import` : upload PEM + clé privée — domaine extrait automatiquement du SAN/CN, upsert en DB, push temps-réel aux Cores
+- Interface modale dans la page `acme-monitor`
+
+**Deploy Hub**
+- **Deploy targets** : webhook (POST HMAC-SHA256 signé) ou `ssh_exec` (script exécuté sur la machine cible avec `GPX_CERT_PEM / GPX_KEY_PEM / GPX_DOMAIN`)
+- Déclenchement automatique à chaque renouvellement ACME + déclenchement manuel
+- Historique d'audit par target (`cert_deploy_history`)
+- Alerte `cert_deploy_failed` en cas d'échec
+
+**Pull tokens**
+- Tokens sécurisés (HMAC-SHA256, TTL, max_uses) pour téléchargement en pull via `curl`
+- 7 formats de sortie : `pem`, `key`, `fullchain`, `der`, `der_key`, `pkcs12` (password), `json`
+- Endpoint public `GET /api/v1/cert-bundle?token=…&format=…`
+
 ### Alerting granulaire
 
 Modèle inspiré d'Alertmanager : chaque règle définit indépendamment son scope, ses déclencheurs et ses canaux. Un même événement peut notifier plusieurs équipes sur des canaux différents.

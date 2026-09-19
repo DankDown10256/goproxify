@@ -897,6 +897,7 @@ Les ressources permettent à un client MCP d'accéder aux données sans construi
 | `goproxify://snippets`         | Middlewares réutilisables                |
 | `goproxify://domains`          | Domaines gérés et état TLS               |
 | `goproxify://certs`            | Certificats TLS et expiration            |
+| `goproxify://certs/monitor`    | Statut d'expiration avec KPIs (ok/warning/critical/expired) |
 | `goproxify://logs`             | 100 derniers logs d'accès                |
 | `goproxify://security/bans`    | Bans IP actifs                           |
 | `goproxify://security/threats` | Décisions CrowdSec                       |
