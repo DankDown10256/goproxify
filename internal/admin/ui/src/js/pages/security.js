@@ -355,8 +355,7 @@ async function renderSecurityOverview(ctx) {
         </div>
       </div>
 
-      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : ''}
-      ${enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel)}
+      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel)}
 
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header">
