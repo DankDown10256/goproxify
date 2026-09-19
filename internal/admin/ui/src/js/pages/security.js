@@ -189,27 +189,55 @@ function secActivityChartHTML(events) {
     return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
   }
 
-  const bars = buckets.map((b, i) => {
+  const barDivs = buckets.map((b, i) => {
     const total = b.ban + b.threat + b.cve + b.other;
+    const tip = total === 0 ? '' : [
+      total + ' evt',
+      b.ban ? 'Ban: ' + b.ban : '',
+      b.threat ? 'Threat: ' + b.threat : '',
+      b.cve ? 'CVE: ' + b.cve : '',
+    ].filter(Boolean).join(' · ');
     const inner = total === 0
       ? `<div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--border);border-radius:1px;opacity:.4"></div>`
       : layers.map(k => {
           const h = Math.round((b[k] / maxVal) * 100);
           return h ? `<div style="width:100%;height:${h}%;background:${colors[k]}"></div>` : '';
         }).join('');
-    return `<div style="flex:1;display:flex;flex-direction:column;align-items:stretch;gap:3px;min-width:0">
-      <div style="height:72px;position:relative;display:flex;flex-direction:column-reverse;border-radius:3px 3px 0 0;overflow:hidden">${inner}</div>
-      <div style="font-size:9px;color:var(--text3);text-align:center;white-space:nowrap;overflow:hidden">${showLabel.has(i) ? b.label : ''}</div>
-    </div>`;
+    const tipAttr = tip ? ` onmouseenter="secChartTip(event,'${tip.replace(/'/g,'&#39;')}')" onmouseleave="secChartTipHide()"` : '';
+    return `<div style="flex:1;min-width:0;height:72px;position:relative;display:flex;flex-direction:column-reverse;border-radius:3px 3px 0 0;overflow:hidden;cursor:${tip?'default':'default'}"${tipAttr}>${inner}</div>`;
   }).join('');
+
+  const labelDivs = buckets.map((b, i) =>
+    `<div style="flex:1;min-width:0;font-size:9px;color:var(--text3);text-align:center;padding-top:3px;white-space:nowrap;overflow:hidden">${showLabel.has(i) ? b.label : ''}</div>`
+  ).join('');
 
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="display:flex;gap:12px">${legend}</div>
       <span style="font-size:10px;color:var(--text3)">${totalEvents} ${t('security.overview_events')||'événements'}</span>
     </div>
-    <div style="display:flex;gap:3px;align-items:flex-end;width:100%">${bars}</div>`;
+    <div style="display:flex;gap:3px;align-items:flex-end;width:100%">${barDivs}</div>
+    <div style="display:flex;gap:3px;width:100%">${labelDivs}</div>`;
 }
+
+window.secChartTip = function(e, text) {
+  let tip = document.getElementById('_sec-chart-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = '_sec-chart-tip';
+    tip.style.cssText = 'position:fixed;z-index:9999;background:var(--bg1,#1a1a2e);color:var(--text1,#fff);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:11px;pointer-events:none;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+    document.body.appendChild(tip);
+  }
+  tip.textContent = text;
+  tip.style.display = 'block';
+  const r = e.currentTarget.getBoundingClientRect();
+  tip.style.left = Math.min(r.left + r.width / 2 - tip.offsetWidth / 2, window.innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top = (r.top - tip.offsetHeight - 6) + 'px';
+};
+window.secChartTipHide = function() {
+  const tip = document.getElementById('_sec-chart-tip');
+  if (tip) tip.style.display = 'none';
+};
 
 function secBansBySourceHTML(bans) {
   if (!bans.length) return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
