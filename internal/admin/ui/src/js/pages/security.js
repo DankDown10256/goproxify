@@ -157,6 +157,107 @@ function filterVulnscanState(st, coreCtx) {
   };
 }
 
+function secActivityChartHTML(events) {
+  const now = Date.now();
+  const H = 24;
+  const buckets = Array.from({ length: H }, () => ({ ban: 0, threat: 0, cve: 0, other: 0 }));
+  for (const e of events) {
+    const ms = new Date(e.created_at).getTime();
+    const hoursAgo = (now - ms) / 3600000;
+    if (hoursAgo < 0 || hoursAgo >= H) continue;
+    const idx = H - 1 - Math.floor(hoursAgo);
+    const key = e.type === 'ban' ? 'ban' : e.type === 'threat' ? 'threat' : e.type === 'cve' ? 'cve' : 'other';
+    buckets[idx][key]++;
+  }
+  const maxVal = Math.max(1, ...buckets.map(b => b.ban + b.threat + b.cve + b.other));
+  const chartH = 80;
+  const barW = 14;
+  const gap = 3;
+  const totalW = H * (barW + gap) - gap;
+  const colors = { ban: 'var(--yellow)', threat: 'var(--red)', cve: 'var(--purple)', other: 'var(--text3)' };
+  const layers = ['other', 'cve', 'ban', 'threat'];
+
+  const bars = buckets.map((b, i) => {
+    const total = b.ban + b.threat + b.cve + b.other;
+    if (total === 0) {
+      return `<rect x="${i*(barW+gap)}" y="${chartH}" width="${barW}" height="2" rx="1" fill="var(--border)" opacity="0.5"/>`;
+    }
+    let y = chartH;
+    return layers.map(k => {
+      const h = Math.max(0, Math.round((b[k] / maxVal) * chartH));
+      if (!h) return '';
+      y -= h;
+      return `<rect x="${i*(barW+gap)}" y="${y}" width="${barW}" height="${h}" rx="1" fill="${colors[k]}"/>`;
+    }).join('');
+  }).join('');
+
+  const hourLabels = [0, 6, 12, 18, 23].map(h => {
+    const labelHour = (new Date().getHours() - (H - 1 - h) + 24) % 24;
+    return `<text x="${h*(barW+gap)+barW/2}" y="${chartH+16}" text-anchor="middle" font-size="9" fill="var(--text3)">${String(labelHour).padStart(2,'0')}h</text>`;
+  }).join('');
+
+  const totalEvents = events.filter(e => {
+    const ms = new Date(e.created_at).getTime();
+    return (now - ms) / 3600000 < H;
+  }).length;
+
+  const legend = ['ban','threat','cve'].map(k => `
+    <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text2)">
+      <span style="width:8px;height:8px;border-radius:2px;background:${colors[k]};display:inline-block"></span>
+      ${k === 'ban' ? (t('security.overview_leg_ban')||'Ban') : k === 'threat' ? (t('security.overview_leg_threat')||'Threat') : 'CVE'}
+    </span>`).join('');
+
+  if (totalEvents === 0) {
+    return `<div style="text-align:center;padding:24px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
+  }
+
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="display:flex;gap:12px">${legend}</div>
+      <span style="font-size:10px;color:var(--text3)">${totalEvents} ${t('security.overview_events')||'événements'}</span>
+    </div>
+    <svg width="100%" viewBox="0 0 ${totalW} ${chartH+20}" preserveAspectRatio="none" style="display:block;overflow:visible">${bars}${hourLabels}</svg>`;
+}
+
+function secBansBySourceHTML(bans) {
+  if (!bans.length) return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
+  const counts = { native: 0, fail2ban: 0, crowdsec: 0, threat: 0, manual: 0 };
+  for (const b of bans) counts[b.source] = (counts[b.source] || 0) + 1;
+  const total = bans.length || 1;
+  const labels = { native: 'Natif', fail2ban: 'Fail2Ban', crowdsec: 'CrowdSec', threat: 'Sentinel', manual: 'Manuel' };
+  const colors = { native: 'var(--text3)', fail2ban: 'var(--blue)', crowdsec: 'var(--purple)', threat: 'var(--red)', manual: 'var(--yellow)' };
+  return Object.entries(counts)
+    .filter(([, c]) => c > 0)
+    .sort(([,a],[,b]) => b - a)
+    .map(([src, c]) => {
+      const pct = Math.round((c / total) * 100);
+      return `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
+          <span style="color:var(--text1)">${labels[src]||src}</span>
+          <span style="color:var(--text2)">${c} <span style="color:var(--text3)">(${pct}%)</span></span>
+        </div>
+        <div style="height:5px;border-radius:3px;background:var(--bg2);overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${colors[src]||'var(--accent)'};border-radius:3px;transition:width .3s"></div>
+        </div>
+      </div>`;
+    }).join('');
+}
+
+function secTopThreatsHTML(events, navBans) {
+  const threats = events.filter(e => e.type === 'ban' || e.type === 'threat').slice(0, 5);
+  if (!threats.length) return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
+  const srcColor = { ban: 'var(--yellow)', threat: 'var(--red)', cve: 'var(--purple)' };
+  return threats.map(e => `
+    <div style="display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--border)">
+      <span class="tag" style="background:${srcColor[e.type]||'var(--bg2)'};color:#fff;font-size:9px;min-width:36px;text-align:center;padding:1px 5px;border-radius:3px">${(e.type||'').toUpperCase()}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:500;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.summary||'')}</div>
+        <div style="font-size:10px;color:var(--text3)">${fmtDate(e.created_at)}</div>
+      </div>
+      <span class="tag ${e.severity==='critical'?'tag-red':e.severity==='warning'?'tag-yellow':'tag-neutral'}" style="font-size:9px">${esc(e.severity||'')}</span>
+    </div>`).join('');
+}
+
 async function renderSecurityOverview(ctx) {
   const mode = ctx?.mode || 'admin';
   const isAdmin = mode === 'admin';
@@ -189,7 +290,8 @@ async function renderSecurityOverview(ctx) {
     const ov = ovData?.overview || {};
     let headers = filterSecHeaders(ov.headers || [], coreCtx);
     let certs = filterSecCerts(ovData?.certs || [], coreCtx);
-    let events = filterSecTimeline(timeline || [], coreCtx).slice(0, 20);
+    const allEvents = filterSecTimeline(timeline || [], coreCtx);
+    const recentEvents = allEvents.slice(0, 20);
 
     let activeBans = ov.active_bans || 0;
     let activeThreats = ov.active_threats || 0;
@@ -198,11 +300,12 @@ async function renderSecurityOverview(ctx) {
     let avgScore = Math.round(ov.avg_header_score || 0);
     let certsExpired = ov.certs_expired || 0;
     let certsExpiring = ov.certs_expiring || 0;
+    let filteredBans = [];
 
     if (coreCtx) {
-      const bans = filterSecBans(bansRaw || [], coreCtx);
+      filteredBans = filterSecBans(bansRaw || [], coreCtx);
       const cves = filterSecCVEs(cvesRaw || [], coreCtx);
-      activeBans = bans.length;
+      activeBans = filteredBans.length;
       openCVEs = cves.filter(c => c.status === 'open').length;
       criticalCVEs = cves.filter(c => c.status === 'open' && (c.cvss_score || 0) >= 7).length;
       avgScore = headers.length
@@ -256,9 +359,36 @@ async function renderSecurityOverview(ctx) {
       ${enginesStatusHTML(ipsProvider?.provider || 'native', threatCfg || {}, navBans, navSentinel)}
 
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>${t('security.timeline')}</span></div>
-        ${timelineHTML(events)}
-      </div>`;
+        <div class="card-header">
+          <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>${t('security.overview_activity_24h')||'Activité — 24 dernières heures'}</span>
+        </div>
+        <div style="padding:16px 16px 8px">
+          ${secActivityChartHTML(allEvents)}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div class="card blueprint">
+          <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>${t('security.overview_bans_by_source')||'Bans actifs par source'}</span></div>
+          <div style="padding:12px 16px 16px">${secBansBySourceHTML(filteredBans.length ? filteredBans : (bansRaw || []))}</div>
+        </div>
+        <div class="card blueprint">
+          <div class="card-header">
+            <span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${t('security.overview_top_threats')||'Menaces récentes'}</span>
+            <a onclick="navigate('${navBans}')" style="font-size:11px;color:var(--accent);cursor:pointer;text-decoration:none">${t('security.view_all_bans')||'Voir tous'}</a>
+          </div>
+          <div style="padding:4px 0 8px">${secTopThreatsHTML(recentEvents, navBans)}</div>
+        </div>
+      </div>
+
+      <details class="card blueprint" style="margin-bottom:20px">
+        <summary style="padding:12px 16px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text1)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform .2s"><polyline points="9 18 15 12 9 6"/></svg>
+          ${t('security.timeline')}
+          <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--text3)">${recentEvents.length} ${t('security.overview_events')||'événements'}</span>
+        </summary>
+        <div style="padding:0 0 4px">${timelineHTML(recentEvents)}</div>
+      </details>`;
   } catch(e) { toast(e.message,'error'); }
 }
 
