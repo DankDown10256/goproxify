@@ -122,6 +122,12 @@ const APP_CONFIG = {
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
           guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
         },
+        {
+          page: 'security-rules',
+          label: 'Règles automatiques',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/></svg>',
+          guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
+        },
       ],
     },
     {

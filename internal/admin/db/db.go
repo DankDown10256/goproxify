@@ -642,6 +642,36 @@ func migrate(db *sql.DB) error {
 		_, _ = db.Exec(s) // sqlite ignore si la colonne existe déjà
 	}
 
+	// Moteur de règles (condition→action périodique)
+	for _, s := range []string{
+		`CREATE TABLE IF NOT EXISTS rules_engine_rules (
+			id             TEXT PRIMARY KEY,
+			name           TEXT NOT NULL,
+			description    TEXT NOT NULL DEFAULT '',
+			enabled        INTEGER NOT NULL DEFAULT 1,
+			condition_json TEXT NOT NULL DEFAULT '{}',
+			action_json    TEXT NOT NULL DEFAULT '{}',
+			cooldown_sec   INTEGER NOT NULL DEFAULT 300,
+			fire_count     INTEGER NOT NULL DEFAULT 0,
+			last_fired_at  DATETIME,
+			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS rules_engine_history (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			rule_id      TEXT NOT NULL,
+			cond_result  INTEGER NOT NULL DEFAULT 0,
+			action_taken INTEGER NOT NULL DEFAULT 0,
+			detail       TEXT NOT NULL DEFAULT '{}',
+			error        TEXT NOT NULL DEFAULT '',
+			fired_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("migration rules_engine: %w", err)
+		}
+	}
+
 	return nil
 }
 

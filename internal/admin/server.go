@@ -20,6 +20,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/alerting"
 	"github.com/vincamok/goproxify/internal/admin/analytics"
 	"github.com/vincamok/goproxify/internal/admin/api"
+	"github.com/vincamok/goproxify/internal/admin/rulesengine"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/audit"
 	"github.com/vincamok/goproxify/internal/admin/auth"
@@ -53,6 +54,7 @@ type Server struct {
 	haManager      *ha.Manager
 	auditor        *audit.Logger
 	alertingEngine *alerting.Engine
+	rulesEngine    *rulesengine.Engine
 	logStore       *logs.Store
 	wsManager      *corews.Manager // manager WS Admin→Core
 	loginLimit     *loginLimiter
@@ -354,6 +356,54 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		},
 	}
+	// Moteur de règles : condition → action périodique
+	reEngine := rulesengine.New(s.db, s.log, rulesengine.Deps{
+		DisableProxy: func(ctx context.Context, proxyID string) error {
+			_, err := s.db.ExecContext(ctx,
+				`UPDATE proxies SET enabled=0, updated_at=CURRENT_TIMESTAMP WHERE id=?`, proxyID)
+			if err != nil {
+				return err
+			}
+			if manager != nil {
+				go manager.PushRoutes(ctx)
+			}
+			return nil
+		},
+		CreateBan: func(ctx context.Context, ip, reason string, durationSec int) error {
+			var expiresAt any
+			if durationSec > 0 {
+				expiresAt = time.Now().Add(time.Duration(durationSec) * time.Second).UTC().Format(time.RFC3339)
+			}
+			_, err := s.db.ExecContext(ctx,
+				`INSERT OR IGNORE INTO security_bans (ip, reason, source, expires_at) VALUES (?,?,?,?)`,
+				ip, reason, "rules_engine", expiresAt)
+			if err == nil {
+				pushBans()
+			}
+			return err
+		},
+		EmitAlert: func(trigger, severity, title, body string, detail map[string]any) {
+			if s.alertingEngine != nil {
+				sev := alerting.SevWarning
+				if severity == "critical" {
+					sev = alerting.SevCritical
+				} else if severity == "info" {
+					sev = alerting.SevInfo
+				}
+				s.alertingEngine.Emit(alerting.Event{
+					Trigger:   alerting.TriggerType(trigger),
+					Severity:  sev,
+					Component: "admin",
+					Detail:    detail,
+				})
+			}
+		},
+		GetF2BLastActivity:  f2bEngine.LastActivity,
+		GetCrowdSecLastSync: csBouncer.LastSync,
+	})
+	reEngine.Start()
+	s.rulesEngine = reEngine
+	reH := &api.RulesEngineHandler{DB: s.db, Log: s.log, Engine: reEngine}
 	importH := &api.ImportHandler{DB: s.db, Log: s.log}
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
@@ -537,6 +587,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/logs/", protected(logsH))
 	mux.Handle("/api/v1/security", adminOnly(securityH))
 	mux.Handle("/api/v1/security/", adminOnly(securityH))
+	mux.Handle("/api/v1/rules-engine/", adminOnly(reH))
+	mux.Handle("/api/v1/rules-engine", adminOnly(reH))
 	mux.Handle("GET /api/v1/cores/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.db.QueryContext(r.Context(),
 			`SELECT key, value FROM settings WHERE key LIKE 'waf_reloaded_at:%'`)
@@ -694,6 +746,9 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.alertingEngine != nil {
 		s.alertingEngine.Stop()
+	}
+	if s.rulesEngine != nil {
+		s.rulesEngine.Stop()
 	}
 }
 

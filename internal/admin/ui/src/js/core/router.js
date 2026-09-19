@@ -31,7 +31,7 @@ const CORE_PAGES = new Set([
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-vulns','security-posture','security-bans','security-sentinel','security-ips-engines',
+  'security','security-vulns','security-posture','security-bans','security-sentinel','security-ips-engines','security-rules',
   'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
 ]);
 

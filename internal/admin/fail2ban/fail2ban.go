@@ -46,6 +46,16 @@ type Engine struct {
 
 	// OnBan est appelé après chaque nouveau ban (push Core / alertes).
 	OnBan func(ip, reason string)
+
+	lastActivity   time.Time
+	lastActivityMu sync.RWMutex
+}
+
+// LastActivity retourne l'heure du dernier scan Fail2Ban.
+func (e *Engine) LastActivity() time.Time {
+	e.lastActivityMu.RLock()
+	defer e.lastActivityMu.RUnlock()
+	return e.lastActivity
 }
 
 // New crée un Engine en chargeant la config depuis la DB.
@@ -114,6 +124,9 @@ func (e *Engine) scan() {
 	if !cfg.Enabled {
 		return
 	}
+	e.lastActivityMu.Lock()
+	e.lastActivity = time.Now()
+	e.lastActivityMu.Unlock()
 
 	window := cfg.WindowSec
 	if window <= 0 {

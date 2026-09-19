@@ -887,6 +887,7 @@ pages['security-bans'] = () => renderSecurityBans({ mode: 'admin' });
 pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-posture'] = () => renderSecurityPosture({ mode: 'admin' });
 pages['security-ips-engines'] = () => renderSecurityIpsEngines();
+pages['security-rules'] = () => renderSecurityRules();
 
 pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
 pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
@@ -2567,4 +2568,378 @@ window.updateCVE = async function(id, status) {
     toast(t('security.cve_updated'), 'success');
     reloadCurrentSecurityPage();
   } catch(e) { toast(e.message, 'error'); }
+};
+
+// ── Moteur de règles ────────────────────────────────────────────────────────
+
+const _COND_TYPES = [
+  { value: 'cve_critical',     label: 'CVE critique sur proxy actif' },
+  { value: 'ban_spike',        label: 'Pic de bans' },
+  { value: 'engine_silent',    label: 'Moteur IPS silencieux' },
+  { value: 'proxy_error_rate', label: 'Taux d\'erreurs proxy' },
+  { value: 'ban_repeat',       label: 'IP récidiviste (multi-ban)' },
+];
+
+const _ACTION_TYPES = [
+  { value: 'disable_proxy',  label: 'Désactiver le proxy' },
+  { value: 'ban_ip',         label: 'Bannir l\'IP' },
+  { value: 'notify',         label: 'Notifier' },
+  { value: 'enable_strict',  label: 'Mode strict Fail2Ban (temporaire)' },
+];
+
+async function renderSecurityRules() {
+  const content = document.getElementById('content');
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  const ta = document.getElementById('topbar-actions');
+  if (ta) ta.innerHTML = `<button class="btn btn-primary btn-sm" onclick="openRuleModal(null)">${t('security.rules.add')}</button>`;
+
+  try {
+    const [rules, history] = await Promise.all([
+      api('GET', '/rules-engine/rules'),
+      api('GET', '/rules-engine/history'),
+    ]);
+    window._reRules = rules || [];
+    window._reHistory = history || [];
+    window._reTab = window._reTab || 'rules';
+    content.innerHTML = _rulesPageHTML();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function _rulesPageHTML() {
+  const tab = window._reTab || 'rules';
+  const tabs = [
+    { v: 'rules',   label: t('security.rules.tab_rules') },
+    { v: 'history', label: t('security.rules.tab_history') },
+  ];
+  const tabBar = `<div style="display:flex;gap:6px;margin-bottom:16px">
+    ${tabs.map(t2=>`<button class="btn btn-sm${tab===t2.v?' btn-primary':' btn-ghost'}" onclick="setReTab('${t2.v}')">${t2.label}</button>`).join('')}
+  </div>`;
+  return tabBar + (tab === 'history' ? _reHistoryHTML() : _reRulesHTML());
+}
+
+function _reRulesHTML() {
+  const rules = window._reRules || [];
+  if (!rules.length) return `<div class="empty"><p>${t('security.rules.no_rules')}</p></div>`;
+
+  const condLabel = (type) => _COND_TYPES.find(c=>c.value===type)?.label || type;
+  const actionLabel = (type) => _ACTION_TYPES.find(a=>a.value===type)?.label || type;
+  const svgFire = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2c0 6-8 6-8 12a8 8 0 0016 0c0-6-8-6-8-12z"/></svg>`;
+
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    ${rules.map(r => `
+    <div class="card blueprint" style="padding:14px 16px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:13.5px">${esc(r.name)}</span>
+            <span class="tag ${r.enabled?'tag-green':'tag-neutral'}" style="font-size:10px">${r.enabled ? t('security.rules.enabled') : t('security.rules.disabled')}</span>
+            ${r.fire_count ? `<span class="tag tag-yellow" style="font-size:10px">${svgFire} ${r.fire_count}x</span>` : ''}
+          </div>
+          ${r.description ? `<p style="font-size:12px;color:var(--text2);margin:4px 0 0">${esc(r.description)}</p>` : ''}
+          <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap">
+            <div style="font-size:11.5px">
+              <span style="color:var(--text3)">${t('security.rules.condition')}: </span>
+              <span class="tag tag-neutral" style="font-size:10px">${condLabel(r.condition?.type)}</span>
+              ${_condSummary(r.condition)}
+            </div>
+            <div style="font-size:11.5px">
+              <span style="color:var(--text3)">${t('security.rules.action')}: </span>
+              <span class="tag tag-accent" style="font-size:10px">${actionLabel(r.action?.type)}</span>
+              ${_actionSummary(r.action)}
+            </div>
+            <div style="font-size:11px;color:var(--text3)">
+              ${t('security.rules.cooldown')}: ${r.cooldown_sec ? Math.round(r.cooldown_sec/60)+'min' : '5min'}
+              ${r.last_fired_at ? ` · ${t('security.rules.last_fired')}: ${fmtDate(r.last_fired_at)}` : ''}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm" onclick="runRuleNow('${esc(r.id)}','${esc(r.name)}')" title="${t('security.rules.run_now')}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="openRuleModal(${JSON.stringify(JSON.stringify(r))})" title="${t('common.edit')}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <label class="toggle" title="${r.enabled ? t('security.rules.disable') : t('security.rules.enable')}">
+            <input type="checkbox" ${r.enabled?'checked':''} onchange="toggleRule('${esc(r.id)}',this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="deleteRule('${esc(r.id)}','${esc(r.name)}')" style="color:var(--red)" title="${t('common.delete')}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function _condSummary(c) {
+  if (!c) return '';
+  const parts = [];
+  if (c.cvss_threshold) parts.push(`CVSS ≥ ${c.cvss_threshold}`);
+  if (c.ban_count) parts.push(`> ${c.ban_count} bans`);
+  if (c.ban_window) parts.push(`/${c.ban_window}`);
+  if (c.engine_type) parts.push(c.engine_type);
+  if (c.silent_minutes) parts.push(`> ${c.silent_minutes}min`);
+  if (c.error_rate_threshold) parts.push(`> ${c.error_rate_threshold}%`);
+  if (c.repeat_count) parts.push(`≥ ${c.repeat_count}x`);
+  return parts.length ? `<span style="font-size:11px;color:var(--text2);margin-left:4px">${parts.join(' ')}</span>` : '';
+}
+
+function _actionSummary(a) {
+  if (!a) return '';
+  const parts = [];
+  if (a.proxy_id) parts.push(`proxy:${a.proxy_id.slice(0,8)}`);
+  if (a.ban_duration) parts.push(a.ban_duration);
+  if (a.strict_duration) parts.push(a.strict_duration);
+  if (a.notify_severity) parts.push(a.notify_severity);
+  return parts.length ? `<span style="font-size:11px;color:var(--text2);margin-left:4px">${parts.join(' ')}</span>` : '';
+}
+
+function _reHistoryHTML() {
+  const hist = window._reHistory || [];
+  if (!hist.length) return `<div class="empty"><p>${t('security.rules.no_history')}</p></div>`;
+  return `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>${t('common.date')}</th>
+      <th>${t('security.rules.rule')}</th>
+      <th>${t('security.rules.col_matched')}</th>
+      <th>${t('security.rules.col_action')}</th>
+      <th>${t('security.rules.col_detail')}</th>
+    </tr></thead>
+    <tbody>${hist.map(h=>`<tr>
+      <td style="font-size:11px;white-space:nowrap">${fmtDate(h.fired_at)}</td>
+      <td style="font-size:12px">${esc(h.rule_name||h.rule_id)}</td>
+      <td>${h.cond_result ? '<span class="tag tag-green" style="font-size:10px">oui</span>' : '<span class="tag tag-neutral" style="font-size:10px">non</span>'}</td>
+      <td>${h.action_taken ? '<span class="tag tag-accent" style="font-size:10px">exécutée</span>' : '—'}${h.error?`<span style="font-size:10px;color:var(--red);margin-left:4px" title="${esc(h.error)}">⚠</span>`:''}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(h.detail||'')}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+window.setReTab = function(v) {
+  window._reTab = v;
+  const content = document.getElementById('content');
+  if (content) content.innerHTML = _rulesPageHTML();
+};
+
+window.toggleRule = async function(id, enabled) {
+  const rule = (window._reRules||[]).find(r=>r.id===id);
+  if (!rule) return;
+  try {
+    await api('PUT', `/rules-engine/rules/${id}`, { ...rule, enabled });
+    rule.enabled = enabled;
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = _rulesPageHTML();
+  } catch(e) { toast(e.message,'error'); }
+};
+
+window.deleteRule = async function(id, name) {
+  if (!confirm(t('security.rules.delete_confirm', { name }))) return;
+  try {
+    await api('DELETE', `/rules-engine/rules/${id}`);
+    toast(t('security.rules.deleted'), 'success');
+    renderSecurityRules();
+  } catch(e) { toast(e.message,'error'); }
+};
+
+window.runRuleNow = async function(id, name) {
+  try {
+    const res = await api('POST', `/rules-engine/rules/${id}/run?dry_run=true`);
+    const msg = res.matched
+      ? `✓ Condition vraie — action non exécutée (dry-run)\n${JSON.stringify(res.detail||{}, null, 2)}`
+      : '✗ Condition non remplie actuellement';
+    alert(`[${name}]\n${msg}`);
+  } catch(e) { toast(e.message,'error'); }
+};
+
+window.openRuleModal = function(ruleJSON) {
+  const rule = ruleJSON ? JSON.parse(ruleJSON) : null;
+  const isEdit = !!rule;
+  const cond = rule?.condition || {};
+  const act = rule?.action || {};
+
+  const condOptions = _COND_TYPES.map(c=>`<option value="${c.value}"${cond.type===c.value?' selected':''}>${c.label}</option>`).join('');
+  const actOptions = _ACTION_TYPES.map(a=>`<option value="${a.value}"${act.type===a.value?' selected':''}>${a.label}</option>`).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-backdrop';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:540px;width:100%">
+      <div class="modal-header">
+        <span class="modal-title">${isEdit ? t('security.rules.edit') : t('security.rules.add')}</span>
+        <button class="btn-close" onclick="this.closest('.modal-backdrop').remove()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div class="field" style="margin:0">
+          <label class="field-label">${t('security.rules.name')}</label>
+          <input id="re-name" class="input" value="${esc(rule?.name||'')}" placeholder="${t('security.rules.name_ph')}">
+        </div>
+        <div class="field" style="margin:0">
+          <label class="field-label">${t('security.rules.description')}</label>
+          <input id="re-desc" class="input" value="${esc(rule?.description||'')}" placeholder="${t('security.rules.desc_ph')}">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field" style="margin:0">
+            <label class="field-label">${t('security.rules.condition')}</label>
+            <select id="re-cond-type" class="input" style="height:32px" onchange="_reUpdateCondFields(this.value)">${condOptions}</select>
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">${t('security.rules.action')}</label>
+            <select id="re-act-type" class="input" style="height:32px" onchange="_reUpdateActFields(this.value)">${actOptions}</select>
+          </div>
+        </div>
+
+        <div id="re-cond-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          ${_reCondFieldsHTML(cond.type||'cve_critical', cond)}
+        </div>
+        <div id="re-act-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          ${_reActFieldsHTML(act.type||'notify', act)}
+        </div>
+
+        <div class="field" style="margin:0">
+          <label class="field-label">${t('security.rules.cooldown')} <span style="font-weight:400;color:var(--text3)">(secondes, défaut 300)</span></label>
+          <input id="re-cooldown" type="number" class="input" value="${rule?.cooldown_sec||300}" min="60">
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+          <input type="checkbox" id="re-enabled" ${(rule?.enabled!==false)?'checked':''}>
+          <span>${t('security.rules.activate_now')}</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.closest('.modal-backdrop').remove()">${t('common.cancel')}</button>
+        <button class="btn btn-primary" onclick="_reSaveRule('${isEdit?rule.id:''}')">${t('common.save')}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+};
+
+function _reCondFieldsHTML(type, cond = {}) {
+  switch(type) {
+    case 'cve_critical': return `
+      <div class="field" style="margin:0"><label class="field-label">CVSS seuil minimum</label>
+        <input id="re-cvss" type="number" class="input" value="${cond.cvss_threshold||9}" min="0" max="10" step="0.1"></div>
+      <div class="field" style="margin:0"><label class="field-label">Proxy ID (vide = tous)</label>
+        <input id="re-proxy-id" class="input" value="${esc(cond.proxy_id||'')}"></div>`;
+    case 'ban_spike': return `
+      <div class="field" style="margin:0"><label class="field-label">Nombre de bans déclenchant</label>
+        <input id="re-ban-count" type="number" class="input" value="${cond.ban_count||20}" min="1"></div>
+      <div class="field" style="margin:0"><label class="field-label">Fenêtre (ex: 1h, 30m)</label>
+        <input id="re-ban-window" class="input" value="${esc(cond.ban_window||'1h')}"></div>`;
+    case 'engine_silent': return `
+      <div class="field" style="margin:0"><label class="field-label">Moteur</label>
+        <select id="re-engine-type" class="input" style="height:32px">
+          <option value="fail2ban"${(cond.engine_type||'fail2ban')==='fail2ban'?' selected':''}>Fail2Ban</option>
+          <option value="crowdsec"${cond.engine_type==='crowdsec'?' selected':''}>CrowdSec</option>
+        </select></div>
+      <div class="field" style="margin:0"><label class="field-label">Silence > (minutes)</label>
+        <input id="re-silent-min" type="number" class="input" value="${cond.silent_minutes||10}" min="1"></div>`;
+    case 'proxy_error_rate': return `
+      <div class="field" style="margin:0"><label class="field-label">Taux d'erreurs % (500+)</label>
+        <input id="re-err-rate" type="number" class="input" value="${cond.error_rate_threshold||20}" min="1" max="100"></div>
+      <div class="field" style="margin:0"><label class="field-label">Fenêtre (ex: 5m)</label>
+        <input id="re-err-window" class="input" value="${esc(cond.error_rate_window||'5m')}"></div>`;
+    case 'ban_repeat': return `
+      <div class="field" style="margin:0"><label class="field-label">Bans répétés minimum</label>
+        <input id="re-repeat-count" type="number" class="input" value="${cond.repeat_count||3}" min="2"></div>
+      <div class="field" style="margin:0"><label class="field-label">Fenêtre (ex: 24h)</label>
+        <input id="re-repeat-window" class="input" value="${esc(cond.repeat_window||'24h')}"></div>`;
+    default: return '';
+  }
+}
+
+function _reActFieldsHTML(type, act = {}) {
+  switch(type) {
+    case 'disable_proxy': return `
+      <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Proxy ID (vide = proxy issu de la condition)</label>
+        <input id="re-act-proxy-id" class="input" value="${esc(act.proxy_id||'')}"></div>`;
+    case 'ban_ip': return `
+      <div class="field" style="margin:0"><label class="field-label">Durée du ban (ex: 24h, vide = permanent)</label>
+        <input id="re-act-ban-dur" class="input" value="${esc(act.ban_duration||'')}"></div>
+      <div class="field" style="margin:0"><label class="field-label">Raison</label>
+        <input id="re-act-ban-reason" class="input" value="${esc(act.ban_reason||'')}"></div>`;
+    case 'notify': return `
+      <div class="field" style="margin:0"><label class="field-label">Sévérité</label>
+        <select id="re-act-sev" class="input" style="height:32px">
+          <option value="info"${(act.notify_severity||'warning')==='info'?' selected':''}>Info</option>
+          <option value="warning"${(act.notify_severity||'warning')==='warning'?' selected':''}>Warning</option>
+          <option value="critical"${act.notify_severity==='critical'?' selected':''}>Critical</option>
+        </select></div>
+      <div class="field" style="margin:0"><label class="field-label">Message</label>
+        <input id="re-act-msg" class="input" value="${esc(act.notify_message||'')}"></div>`;
+    case 'enable_strict': return `
+      <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Durée mode strict (ex: 30m)</label>
+        <input id="re-act-strict-dur" class="input" value="${esc(act.strict_duration||'30m')}"></div>`;
+    default: return '';
+  }
+}
+
+window._reUpdateCondFields = function(type) {
+  const el = document.getElementById('re-cond-fields');
+  if (el) el.innerHTML = _reCondFieldsHTML(type, {});
+};
+window._reUpdateActFields = function(type) {
+  const el = document.getElementById('re-act-fields');
+  if (el) el.innerHTML = _reActFieldsHTML(type, {});
+};
+
+window._reSaveRule = async function(existingId) {
+  const name = document.getElementById('re-name')?.value?.trim();
+  if (!name) { toast(t('security.rules.name_required'), 'error'); return; }
+
+  const condType = document.getElementById('re-cond-type')?.value;
+  const actType  = document.getElementById('re-act-type')?.value;
+
+  const condition = { type: condType };
+  if (condType === 'cve_critical') {
+    condition.cvss_threshold = parseFloat(document.getElementById('re-cvss')?.value||'9');
+    condition.proxy_id = document.getElementById('re-proxy-id')?.value||'';
+  } else if (condType === 'ban_spike') {
+    condition.ban_count = parseInt(document.getElementById('re-ban-count')?.value||'20');
+    condition.ban_window = document.getElementById('re-ban-window')?.value||'1h';
+  } else if (condType === 'engine_silent') {
+    condition.engine_type = document.getElementById('re-engine-type')?.value||'fail2ban';
+    condition.silent_minutes = parseInt(document.getElementById('re-silent-min')?.value||'10');
+  } else if (condType === 'proxy_error_rate') {
+    condition.error_rate_threshold = parseFloat(document.getElementById('re-err-rate')?.value||'20');
+    condition.error_rate_window = document.getElementById('re-err-window')?.value||'5m';
+  } else if (condType === 'ban_repeat') {
+    condition.repeat_count = parseInt(document.getElementById('re-repeat-count')?.value||'3');
+    condition.repeat_window = document.getElementById('re-repeat-window')?.value||'24h';
+  }
+
+  const action = { type: actType };
+  if (actType === 'disable_proxy') {
+    action.proxy_id = document.getElementById('re-act-proxy-id')?.value||'';
+  } else if (actType === 'ban_ip') {
+    action.ban_duration = document.getElementById('re-act-ban-dur')?.value||'';
+    action.ban_reason   = document.getElementById('re-act-ban-reason')?.value||'';
+  } else if (actType === 'notify') {
+    action.notify_severity = document.getElementById('re-act-sev')?.value||'warning';
+    action.notify_message  = document.getElementById('re-act-msg')?.value||'';
+  } else if (actType === 'enable_strict') {
+    action.strict_duration = document.getElementById('re-act-strict-dur')?.value||'30m';
+  }
+
+  const payload = {
+    name,
+    description: document.getElementById('re-desc')?.value||'',
+    enabled: document.getElementById('re-enabled')?.checked !== false,
+    condition,
+    action,
+    cooldown_sec: parseInt(document.getElementById('re-cooldown')?.value||'300'),
+  };
+
+  try {
+    if (existingId) {
+      await api('PUT', `/rules-engine/rules/${existingId}`, payload);
+    } else {
+      await api('POST', '/rules-engine/rules', payload);
+    }
+    document.querySelector('.modal-backdrop')?.remove();
+    toast(t('common.saved'), 'success');
+    renderSecurityRules();
+  } catch(e) { toast(e.message,'error'); }
 };

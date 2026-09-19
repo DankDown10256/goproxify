@@ -53,6 +53,16 @@ type Bouncer struct {
 	OnChange func()
 	// OnNewDecision est appelé pour chaque nouvelle décision de type ban.
 	OnNewDecision func(d Decision)
+
+	lastSyncMu sync.RWMutex
+	lastSync   time.Time
+}
+
+// LastSync retourne l'heure de la dernière synchronisation CrowdSec réussie.
+func (b *Bouncer) LastSync() time.Time {
+	b.lastSyncMu.RLock()
+	defer b.lastSyncMu.RUnlock()
+	return b.lastSync
 }
 
 // New crée un Bouncer.
@@ -146,6 +156,10 @@ func (b *Bouncer) loadConfig() Config {
 }
 
 func (b *Bouncer) sync(ctx context.Context, cfg Config) {
+	b.lastSyncMu.Lock()
+	b.lastSync = time.Now()
+	b.lastSyncMu.Unlock()
+
 	b.mu.Lock()
 	startup := b.startup
 	b.mu.Unlock()
