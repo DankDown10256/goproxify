@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+---
+
+## [0.4.0] — 2026-09-19
+
 ### Corrigé — Agrégation complète des bans Rules Engine dans l'Admin (`admin`)
 
 - **`internal/core/ws/messages.go`** : ajout de `ActionType` dans `RuleFiredPayload` (propagé depuis `ExecLog`)
