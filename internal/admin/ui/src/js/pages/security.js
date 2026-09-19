@@ -419,7 +419,7 @@ async function renderSecurityOverview(ctx) {
           </div>
         </div>`;
       })() : ''}
-      ${!isAdmin ? ipsProviderBanner(ipsProvider?.provider || 'native', f2bCfg, csCfg) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
+      ${!isAdmin ? enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, 'core-security-ips-engines', 'core-security-sentinel', activeRules, allRules.length) : enginesStatusHTML(f2bCfg || {}, csCfg || {}, threatCfg || {}, navBans, navSentinel, activeRules, allRules.length)}
 
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header">
