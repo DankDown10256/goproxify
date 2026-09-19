@@ -26,6 +26,8 @@ type Deployer struct {
 	db     *sql.DB
 	log    *slog.Logger
 	client *http.Client
+	// OnDeployFail est appelé quand un déploiement échoue (targetID, domain, typ, message).
+	OnDeployFail func(targetID, domain, typ, message string)
 }
 
 func New(db *sql.DB, log *slog.Logger) *Deployer {
@@ -112,6 +114,9 @@ func (d *Deployer) runTarget(ctx context.Context, targetID, certID, typ, cfgJSON
 		status, targetID)
 	if status == "error" {
 		d.log.Warn("certdeploy: deploy échoué", "target", targetID, "msg", msg)
+		if d.OnDeployFail != nil {
+			d.OnDeployFail(targetID, domain, typ, msg)
+		}
 	} else {
 		d.log.Info("certdeploy: deploy ok", "target", targetID, "domain", domain)
 	}

@@ -271,6 +271,14 @@ func (s *Server) Start(ctx context.Context) error {
 		acmeMgr = buildACMEManager(s.cfg.ACME.Email, s.cfg.ACME.DirectoryURL, s.cfg.ACME.DNS.Type)
 	}
 	certDeployer := certdeploy.New(s.db, s.log)
+	certDeployer.OnDeployFail = func(targetID, domain, typ, message string) {
+		s.alertingEngine.Emit(alerting.Event{
+			Trigger:  alerting.TriggerCertDeployFailed,
+			Severity: alerting.SevWarning,
+			Domain:   domain,
+			Detail:   map[string]any{"target_id": targetID, "type": typ, "message": message},
+		})
+	}
 	certDeployH := &api.CertDeployHandler{DB: s.db, Log: s.log, Deployer: certDeployer}
 	certBundleH := &api.CertBundleHandler{DB: s.db, Log: s.log}
 

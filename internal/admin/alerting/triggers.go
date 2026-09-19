@@ -22,8 +22,9 @@ const (
 	TriggerAdminAuthFailures TriggerType = "admin_auth_failures"
 	TriggerScaleEvent        TriggerType = "scale_event"
 	TriggerHealthEscalation  TriggerType = "health_escalation"
-	TriggerSentinelBan       TriggerType = "sentinel_ban"  // IP bannie par Sentinel/WAF
-	TriggerBackendDown       TriggerType = "backend_down"  // backend déclaré indisponible par health-check
+	TriggerSentinelBan       TriggerType = "sentinel_ban"       // IP bannie par Sentinel/WAF
+	TriggerBackendDown       TriggerType = "backend_down"       // backend déclaré indisponible par health-check
+	TriggerCertDeployFailed  TriggerType = "cert_deploy_failed" // échec de déploiement d'un certificat
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -32,7 +33,7 @@ var AllTriggers = []TriggerType{
 	TriggerFail2BanBan, TriggerCrowdSecCritical, TriggerConfigChanged,
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
-	TriggerSentinelBan, TriggerBackendDown,
+	TriggerSentinelBan, TriggerBackendDown, TriggerCertDeployFailed,
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
@@ -49,8 +50,9 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerAdminAuthFailures: "Tentatives de connexion admin échouées",
 	TriggerScaleEvent:        "Événement d'auto-scaling (montée/descente)",
 	TriggerHealthEscalation:  "Escalade de santé conteneur (restart→recreate→rollback)",
-	TriggerSentinelBan:       "IP bannie par Sentinel / WAF",
-	TriggerBackendDown:       "Backend déclaré indisponible par health-check",
+	TriggerSentinelBan:      "IP bannie par Sentinel / WAF",
+	TriggerBackendDown:      "Backend déclaré indisponible par health-check",
+	TriggerCertDeployFailed: "Échec de déploiement d'un certificat",
 }
 
 // Severity classe la sévérité d'une alerte.
