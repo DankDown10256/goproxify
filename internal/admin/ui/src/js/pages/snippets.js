@@ -60,10 +60,14 @@ window.openSnippetModal = async function(id) {
       </div>
       <div class="field">
         <label class="field-label">${t('snippets.type')}</label>
-        <select id="s-type" class="input">
+        <select id="s-type" class="input" onchange="updateSnippetTypeHint(this.value)">
           ${SNIPPET_TYPES.map(st=>`<option value="${st}" ${existing?.type===st?'selected':''}>${st}</option>`).join('')}
         </select>
       </div>
+    </div>
+    <div id="s-type-hint" style="display:${existing?.type==='waf'?'flex':'none'};align-items:flex-start;gap:8px;padding:8px 12px;background:color-mix(in srgb,var(--blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));border-radius:6px;font-size:12px;color:var(--text2);margin-bottom:8px">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;color:var(--blue)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span>Un snippet <code>waf</code> attaché à un proxy remplace la config WAF globale du Core pour ce proxy uniquement.</span>
     </div>
     <div class="field">
       <label class="field-label">${t('snippets.description')}</label>
@@ -101,6 +105,11 @@ window.saveSnippet = async function(id) {
     }
   } catch(e) { toast(e.message, 'error'); }
 };
+window.updateSnippetTypeHint = function(type) {
+  const el = document.getElementById('s-type-hint');
+  if (el) el.style.display = type === 'waf' ? 'flex' : 'none';
+};
+
 window.deleteSnippet = function(id) {
   confirm_(t('snippets.delete_confirm'), async () => {
     try { await api('DELETE', `/snippets/${id}`); toast(t('snippets.deleted'),'success'); refreshSnippets(); }

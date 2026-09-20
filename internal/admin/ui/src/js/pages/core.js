@@ -102,6 +102,10 @@ pages['core-waf'] = async function() {
         <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('page.core-waf')}</h1>
         <p style="margin:0;opacity:0.65;font-size:14px;">${t('corepage.waf.subtitle', { core: esc(coreLabel) })}</p>
       </div>
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:color-mix(in srgb,var(--blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));border-radius:8px;font-size:12.5px;color:var(--text2);margin-bottom:20px">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;color:var(--blue)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Cette configuration s'applique à <strong>tous les proxies</strong> de ce Core par défaut. Un proxy peut définir sa propre config WAF via un <strong>snippet de type <code>waf</code></strong> — dans ce cas, la config du Core ne s'applique plus à ce proxy.</span>
+      </div>
       <div class="card blueprint" style="padding:18px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div>
