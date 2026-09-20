@@ -1537,9 +1537,9 @@ async function renderSecurityIpsEngines({ mode } = {}) {
     const csOn       = !!(window._csCfg.enabled);
     const sentinelOn = !!(window._threatCfg.enabled);
 
-    const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
-    const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
-    const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+    const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/><path d="M15 5l3 3"/></svg>`;
+    const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>`;
+    const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/></svg>`;
     const statusDot  = (on) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${on?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
     const engineLabel = (on) => `<span style="font-size:11px;font-weight:400;color:${on?'var(--green)':'var(--text3)'}">${on ? t('security.engine_active') : t('security.engine_inactive')}</span>`;
     const toggleSwitch = (id, on, fn) => `<label class="toggle" style="margin-left:auto"><input type="checkbox" id="${id}" ${on?'checked':''} onchange="${fn}(this.checked)"><span class="toggle-slider"></span></label>`;
@@ -1831,9 +1831,9 @@ function enginesConfigHTML(f2bCfg, csCfg, threatCfg, isCore) {
   const f2bOn      = !!(f2bCfg?.enabled);
   const csOn       = !!(csCfg?.enabled);
   const sentinelOn = !!(threatCfg?.enabled);
-  const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
-  const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
-  const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
+  const svgWrench  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/><path d="M15 5l3 3"/></svg>`;
+  const svgShield  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>`;
+  const svgSentinel= `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/></svg>`;
   const dot = on => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${on?'var(--green)':'var(--text3)'};margin-right:6px"></span>`;
   const lbl = on => `<span style="font-size:11px;font-weight:400;color:${on?'var(--green)':'var(--text3)'}">${on ? (t('security.engine_active')||'Actif') : (t('security.engine_inactive')||'Inactif')}</span>`;
   const tog = (id, on, fn) => `<label class="toggle" style="margin-left:auto"><input type="checkbox" id="${id}" ${on?'checked':''} onchange="${fn}(this.checked)"><span class="toggle-slider"></span></label>`;
@@ -1914,8 +1914,8 @@ function enginesStatusHTML(f2bCfg, csCfg, threatCfg, navBans, navSentinel, activ
 }
 
 function ipsProviderBanner(provider, f2bCfg, csCfg) {
-  const svgWrench = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
-  const svgShield = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+  const svgWrench = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/><path d="M15 5l3 3"/></svg>`;
+  const svgShield = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>`;
   const svgOff = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
 
   const options = [
@@ -3004,8 +3004,8 @@ window.ipsSelectLocal = function(provider) {
   if (!panel) return;
   const f2bCfg = window._f2bCfg || {};
   const csCfg = window._csCfg || {};
-  const svgWrench = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`;
-  const svgShield = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`;
+  const svgWrench = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/><path d="M15 5l3 3"/></svg>`;
+  const svgShield = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>`;
   if (provider === 'fail2ban') {
     panel.innerHTML = `<div class="ips-config-panel"><div class="ips-config-panel-head"><span class="ips-config-panel-name">${svgWrench}${t('security.fail2ban_native')}</span></div>${f2bPanel(f2bCfg)}</div>`;
   } else if (provider === 'crowdsec') {
