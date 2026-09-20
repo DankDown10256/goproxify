@@ -13,6 +13,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **UI Tunnel L4 mTLS** : double préfixe `/api/v1` dans les appels `api()` — GET et PUT `tunnel-config` échouaient silencieusement
 - **UI modales (transparence)** : tous les backdrops `position:fixed` rendus dans `#content` échappaient à la fenêtre si le conteneur parent créait un nouveau contexte d'empilement — modales déplacées directement dans `document.body` (`insertAdjacentHTML('beforeend')`) dans `workspaces.js`, `cert-deploy.js`, `users.js`, `trafic.js` et `core.js`
 - **UI Workspaces** : padding et bordure manquants dans le footer du modal "Nouvel espace" — la classe CSS `dialog-footer` n'était pas définie (alias vers `dialog-actions` ajouté)
 - **UI modales** : harmonisation du z-index sur toutes les modales/panels (cert-deploy, workspaces, trafic, core, users) — cert-deploy utilisait z-index:9990 au lieu de 9999 ; nettoyage des inline styles redondants avec la classe `dialog-backdrop`

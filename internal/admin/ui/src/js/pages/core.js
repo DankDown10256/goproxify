@@ -1238,7 +1238,7 @@ pages['core-tunnel'] = async function(content) {
 
   let cfg = {};
   try {
-    cfg = await api('GET', `/api/v1/nodes/${encodeURIComponent(coreId)}/tunnel-config`);
+    cfg = await api('GET', `/nodes/${encodeURIComponent(coreId)}/tunnel-config`);
   } catch(e) {
     cfg = {};
   }
@@ -1290,7 +1290,7 @@ pages['core-tunnel'] = async function(content) {
     document.getElementById('tunnel-save')?.addEventListener('click', async () => {
       render(peers, true);
       try {
-        await api('PUT', `/api/v1/nodes/${encodeURIComponent(coreId)}/tunnel-config`, { peers });
+        await api('PUT', `/nodes/${encodeURIComponent(coreId)}/tunnel-config`, { peers });
         render(peers, false);
       } catch(e) {
         render(peers, false);
