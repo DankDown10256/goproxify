@@ -24,6 +24,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **i18n ACME** : traductions ES et DE complètes pour toutes les clés `acme_monitor.*` (providers, new_cert) — la page s'affichait en anglais pour ces locales. Ajout de `common.optional` et `common.required` en ES et DE.
+- **ACME — icônes actions** : les boutons texte "Edit"/"Delete" (providers DNS) et "Renew"/"Delete" (certificats) remplacés par des icônes SVG avec tooltip `title`.
+- **Wizard — fournisseurs ACME dynamiques** : le wizard chargé depuis `/acme/providers` la liste des fournisseurs nommés configurés ; le sélecteur DNS affiche désormais ces providers réels ("cloudflare-prod (cloudflare)") au lieu d'une liste statique générique. Fallback sur la liste statique si aucun provider n'est configuré.
+
 - **UI Sentinel (sécurité Core)** : clés i18n `page.core-security-sentinel` et `common.active`/`common.inactive` manquantes dans les 4 locales — les étiquettes affichaient le nom de clé brut. Icônes améliorées pour Fail2Ban (stylo/édition), CrowdSec (bouclier avec alerte) et Sentinel (œil de surveillance).
 - **UI Tunnel L4 mTLS** : double préfixe `/api/v1` dans les appels `api()` — GET et PUT `tunnel-config` échouaient silencieusement
 - **UI modales (transparence)** : tous les backdrops `position:fixed` rendus dans `#content` échappaient à la fenêtre si le conteneur parent créait un nouveau contexte d'empilement — modales déplacées directement dans `document.body` (`insertAdjacentHTML('beforeend')`) dans `workspaces.js`, `cert-deploy.js`, `users.js`, `trafic.js` et `core.js`

@@ -167,10 +167,14 @@ window.acmeProvidersLoad = async function () {
       <td style="padding:6px 8px;font-size:12px;font-weight:500;">${esc(p.name)}</td>
       <td style="padding:6px 8px;">${badge}</td>
       <td style="text-align:right;padding:6px 8px;white-space:nowrap;">
-        <button class="btn btn-ghost" style="font-size:11px;padding:3px 6px;"
-          onclick="openAcmeProviderModal(${JSON.stringify(p).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})">${t('acme_monitor.providers_edit')}</button>
-        <button class="btn btn-ghost" style="font-size:11px;padding:3px 6px;color:var(--red);"
-          onclick="deleteAcmeProvider('${esc(p.id)}','${esc(p.name)}')">${t('acme_monitor.providers_delete')}</button>
+        <button class="btn btn-ghost" title="${t('acme_monitor.providers_edit')}" style="padding:4px 6px;"
+          onclick="openAcmeProviderModal(${JSON.stringify(p).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="btn btn-ghost" title="${t('acme_monitor.providers_delete')}" style="padding:4px 6px;color:var(--red);"
+          onclick="deleteAcmeProvider('${esc(p.id)}','${esc(p.name)}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
       </td>
     </tr>`;
   }).join('');
@@ -389,10 +393,14 @@ window.acmeMonitorLoad = async function () {
       <td style="padding:10px 10px;">${upd}</td>
       <td style="text-align:center;padding:10px 10px;">${badge}</td>
       <td style="text-align:right;padding:10px 10px;" onclick="event.stopPropagation()">
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;"
-          onclick="acmeRenew('${esc(c.domain)}')">${t('acme_monitor.renew')}</button>
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red);"
-          onclick="acmeDeleteCert('${esc(c.domain)}')">${t('acme_monitor.delete')}</button>
+        <button class="btn btn-ghost" title="${t('acme_monitor.renew')}" style="padding:4px 6px;"
+          onclick="acmeRenew('${esc(c.domain)}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+        <button class="btn btn-ghost" title="${t('acme_monitor.delete')}" style="padding:4px 6px;color:var(--red);"
+          onclick="acmeDeleteCert('${esc(c.domain)}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
       </td>
     </tr>`;
   }).join('');

@@ -15,6 +15,7 @@ const _arch = {
   declaredNodes: [],
   onlineCoreEndpoint: '',
   existingCount: 0,
+  acmeProviders: [],
 };
 
 function _archUid(prefix) {
@@ -347,7 +348,9 @@ function _archLoad() {
     api('GET', '/declared-nodes').catch(() => null),
     api('GET', '/portal/enabled').catch(() => null),
     api('GET', '/domains').catch(() => null),
-  ]).then(([sec, nodes, tokens, declared, portalEnabled, domains]) => {
+    api('GET', '/acme/providers').catch(() => []),
+  ]).then(([sec, nodes, tokens, declared, portalEnabled, domains, acmeProviders]) => {
+    _arch.acmeProviders = Array.isArray(acmeProviders) ? acmeProviders : [];
     const portalCores = portalEnabled?.cores || {};
     _arch.pairingSecret = sec?.secret || '';
     _wiz.pairingSecret = _arch.pairingSecret;
@@ -877,7 +880,11 @@ function _archInspectRole(svc) {
   let body = '';
 
   if (svc.type === 'core') {
-    const dnsOpts = _ARCH_DNS_PROVIDERS.map(p =>
+    const namedProviders = _arch.acmeProviders || [];
+    const dnsProviderList = namedProviders.length
+      ? [{ id: 'none', label: '—' }, ...namedProviders.map(p => ({ id: p.id, label: `${p.name} (${p.type})` }))]
+      : _ARCH_DNS_PROVIDERS;
+    const dnsOpts = dnsProviderList.map(p =>
       `<option value="${p.id}" ${(svc.dnsProvider || 'none') === p.id ? 'selected' : ''}>${esc(p.label)}</option>`
     ).join('');
     body = `
