@@ -314,7 +314,9 @@ window.openProxySecModal = async function(id, initialTab) {
     return null;
   };
   const _detectedPlatform = _detectPlatform();
-  const _activePlatforms = new Set(Array.isArray(wafCfg?.exclude_platforms) ? wafCfg.exclude_platforms : []);
+  const _storedPlatforms = Array.isArray(wafCfg?.exclude_platforms) ? wafCfg.exclude_platforms : [];
+  const _autoMode = _storedPlatforms.includes('auto');
+  const _activePlatforms = new Set(_autoMode ? [] : _storedPlatforms);
   // True si le proxy a une config WAF propre (pas seulement héritage Core)
   const _hasOwnWaf = !!(cfg.waf?.enabled !== undefined || cfg.waf?.mode || cfg.waf?.exclude_platforms?.length);
   const botCfg = scored.botCfg;
@@ -431,6 +433,7 @@ window.openProxySecModal = async function(id, initialTab) {
         ${stab('params', 'Paramètres', '<circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>')}
         ${stab('snippets', `Snippets${selectedSnippetIds.length ? ` <span style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:var(--accent);color:#000;font-size:9px;font-weight:800;margin-left:2px;">${selectedSnippetIds.length}</span>` : ''}`, '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>')}
         ${stab('headers', `Headers${_fixCount > 0 ? ` <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#f59e0b;color:#000;font-size:9px;font-weight:800;margin-left:2px;">${_fixCount}</span>` : ''}`, '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>')}
+        ${stab('waf', `WAF${wafCfg?.enabled ? ` <span style="display:inline-flex;align-items:center;justify-content:center;width:8px;height:8px;border-radius:50%;background:#34d399;margin-left:2px;"></span>` : ''}`, '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>')}
         ${stab('bans', 'Bans & Blocs', '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>')}
         ${stab('timeline', 'Timeline', '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>')}
       </div>
@@ -507,107 +510,15 @@ window.openProxySecModal = async function(id, initialTab) {
               </div>
             </div>
           </div>
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">WAF</div>
-              <div style="display:flex;gap:6px;align-items:center;">
-                ${_hasOwnWaf ? `<button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--text3);" onclick="psecResetWafToCore('${esc(id)}')">↩ Hériter du Core</button>` : ''}
-                <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;cursor:pointer;" onclick="switchSecTab('waf')">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                <span style="font-size:12.5px;font-weight:600;">WAF</span>
+                ${wafCfg?.enabled ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:#34d39918;color:#34d399;border:1px solid #34d39930;">${wafCfg.mode||'block'}</span>` : `<span style="font-size:10px;color:var(--text3);">${_hasOwnWaf?'Désactivé':'Hérite du Core'}</span>`}
               </div>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text3)"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
-            ${!_hasOwnWaf ? `
-            <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:color-mix(in srgb,var(--green) 8%,transparent);border:1px solid color-mix(in srgb,var(--green) 25%,var(--border));border-radius:6px;font-size:11.5px;color:var(--text2);margin-bottom:10px;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--green);flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>Hérite de la config WAF du Core — <button type="button" onclick="psecActivateOwnWaf()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;">Personnaliser pour ce proxy</button></span>
-            </div>` : ''}
-            <div id="psec-waf-own" style="display:${_hasOwnWaf?'block':'none'}">
-            <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:10px;">
-              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:2px;">
-                <label class="toggle"><input type="checkbox" id="psec-waf-enabled" ${wafCfg?.enabled?'checked':''}><span class="toggle-slider"></span></label>
-                <span style="font-size:13px;font-weight:500;">Activé</span>
-              </label>
-              <div class="field" style="flex:1;margin:0;">
-                <label class="field-label" style="font-size:11px">Mode</label>
-                <select id="psec-waf-mode" class="input">
-                  <option value="block" ${(wafCfg?.mode||'block')==='block'?'selected':''}>Bloquer (403)</option>
-                  <option value="detect" ${wafCfg?.mode==='detect'?'selected':''}>Détecter (log seul)</option>
-                </select>
-              </div>
-            </div>
-            <!-- Exclusions plateforme -->
-            <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:6px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);">Plateforme applicative</div>
-                ${_detectedPlatform ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));">✦ Détecté : ${_detectedPlatform}</span>` : ''}
-              </div>
-              <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Sélectionnez le CMS — les règles WAF générant des faux positifs connus seront exclues automatiquement.</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="psec-waf-platforms">
-                ${[
-                  { id: 'wordpress', name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
-                  { id: 'drupal',    name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
-                  { id: 'nextcloud', name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
-                  { id: 'dokuwiki',  name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
-                  { id: 'cpanel',    name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
-                ].map(p => {
-                  const active = _activePlatforms.has(p.id) || _detectedPlatform === p.id && !_activePlatforms.size;
-                  return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
-                    <input type="checkbox" name="psec-platform" value="${p.id}" ${active?'checked':''} style="margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
-                    <div><div style="font-size:12px;font-weight:500;">${p.name}</div><div style="font-size:10px;color:var(--text3);line-height:1.3;">${p.desc}</div></div>
-                  </label>`;
-                }).join('')}
-              </div>
-            </div>
-            </div>
-            <!-- Paramètres avancés WAF -->
-            <div id="psec-waf-advanced" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:4px;flex-direction:column;gap:10px;">
-              <div class="form-row" style="gap:8px;">
-                <div class="field" style="flex:1;margin:0;">
-                  <label class="field-label" style="font-size:11px">Score anomalie (0 = premier match)</label>
-                  <input id="psec-waf-threshold" type="number" class="input" min="0" max="50" value="${wafCfg?.anomaly_threshold ?? 0}" placeholder="0">
-                  <div style="font-size:10px;color:var(--text3);margin-top:2px;">OWASP recommande 5 (Critical=5, High=4, Medium=3, Low=1)</div>
-                </div>
-                <div class="field" style="flex:1;margin:0;">
-                  <label class="field-label" style="font-size:11px">Max body (Mo)</label>
-                  <input id="psec-waf-maxbody" type="number" class="input" min="1" max="100" value="${wafCfg?.max_body_mb ?? 10}">
-                </div>
-              </div>
-              <div class="field" style="margin:0;">
-                <label class="field-label" style="font-size:11px">IDs de règles à exclure (séparés par virgule)</label>
-                <input id="psec-waf-excludeids" class="input" placeholder="942100, 941110" value="${esc((wafCfg?.exclude_ids||[]).join(', '))}">
-              </div>
-              <div class="field" style="margin:0;">
-                <label class="field-label" style="font-size:11px">Règles custom (une par ligne : <code>id|category|severity|targets|pattern|message</code>)</label>
-                <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Targets : uri, args, body, headers, cookies (séparés par +). Severity : critical, high, medium, low.</div>
-                <textarea id="psec-waf-customrules" class="input" rows="4" style="font-family:monospace;font-size:11px;" placeholder="99001|sqli|high|args+body|(?i)evil-payload|Payload interdit">${esc((wafCfg?.custom_rules||[]).map(r => [r.id,r.category,r.severity,(r.targets||[]).join('+'),r.pattern,r.message].join('|')).join('\n'))}</textarea>
-              </div>
-              <!-- Analyse comportementale -->
-              <div style="border-top:1px solid var(--border);padding-top:10px;">
-                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:8px;">Analyse comportementale</div>
-                <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">Détecte les attaques fragmentées, les scans et les bots par accumulation de signaux sur une fenêtre glissante par IP.</div>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                  <label class="toggle" style="flex-shrink:0;"><input type="checkbox" id="psec-waf-behavior-enabled" ${wafCfg?.behavior_enabled?'checked':''}><span class="toggle-slider"></span></label>
-                  <span style="font-size:12px;font-weight:500;">Activé</span>
-                </div>
-                <div class="form-row" style="gap:8px;">
-                  <div class="field" style="flex:1;margin:0;">
-                    <label class="field-label" style="font-size:11px">Fenêtre (secondes)</label>
-                    <input id="psec-waf-behavior-window" type="number" class="input" min="10" max="3600" value="${wafCfg?.behavior_window_s ?? 60}" placeholder="60">
-                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Durée d'observation par IP</div>
-                  </div>
-                  <div class="field" style="flex:1;margin:0;">
-                    <label class="field-label" style="font-size:11px">Score seuil</label>
-                    <input id="psec-waf-behavior-threshold" type="number" class="input" min="1" max="30" value="${wafCfg?.behavior_threshold ?? 8}" placeholder="8">
-                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Signaux : 4xx élevé=4, burst=4, WAF cumulé=3-5, path scan=3, rotation UA=3, POST élevé=2</div>
-                  </div>
-                </div>
-                <div class="field" style="margin:8px 0 0;">
-                  <label class="field-label" style="font-size:11px">Proxies de confiance (CIDRs)</label>
-                  <input id="psec-waf-trusted-proxies" type="text" class="input" value="${(wafCfg?.trusted_proxies||[]).join(', ')}" placeholder="10.0.0.0/8, 172.16.0.0/12, 127.0.0.1">
-                  <div style="font-size:10px;color:var(--text3);margin-top:2px;">IPs/CIDRs dont les headers X-Forwarded-For sont acceptés. Vide = RemoteAddr direct (plus sécurisé).</div>
-                </div>
-              </div>
-            </div>
-            </div><!-- /psec-waf-own -->
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Protection bot</div>
@@ -723,6 +634,124 @@ window.openProxySecModal = async function(id, initialTab) {
           ${_fixCount > 0 ? `<div style="font-size:11px;color:var(--text3);padding-top:4px;">Les headers cochés seront écrits dans <code>headers</code> et appliqués aux réponses clients par le Core.</div>` : ''}
         </div>
 
+        <!-- WAF -->
+        <div id="psectab-waf" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+            <div style="font-size:13px;font-weight:700;">Web Application Firewall</div>
+            <div style="display:flex;gap:6px;">
+              ${_hasOwnWaf ? `<button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--text3);" onclick="psecResetWafToCore('${esc(id)}')">↩ Hériter du Core</button>` : ''}
+              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
+            </div>
+          </div>
+          ${!_hasOwnWaf ? `
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:color-mix(in srgb,var(--green) 8%,transparent);border:1px solid color-mix(in srgb,var(--green) 25%,var(--border));border-radius:8px;font-size:11.5px;color:var(--text2);">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--green);flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>Hérite de la config WAF du Core — <button type="button" onclick="psecActivateOwnWaf()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;">Personnaliser pour ce proxy</button></span>
+          </div>` : ''}
+          <div id="psec-waf-own" style="display:${_hasOwnWaf?'flex':'none'};flex-direction:column;gap:14px;">
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Activation</div>
+              <div style="display:flex;gap:16px;align-items:flex-start;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:2px;">
+                  <label class="toggle"><input type="checkbox" id="psec-waf-enabled" ${wafCfg?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+                  <span style="font-size:13px;font-weight:500;">Activé</span>
+                </label>
+                <div class="field" style="flex:1;margin:0;">
+                  <label class="field-label" style="font-size:11px">Mode</label>
+                  <select id="psec-waf-mode" class="input">
+                    <option value="block" ${(wafCfg?.mode||'block')==='block'?'selected':''}>Bloquer (403)</option>
+                    <option value="detect" ${wafCfg?.mode==='detect'?'selected':''}>Détecter (log seul)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <!-- Exclusions plateforme -->
+            <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);">Plateforme applicative</div>
+                ${_detectedPlatform ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));">✦ Détecté : ${_detectedPlatform}</span>` : ''}
+              </div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Sélectionnez le CMS — les règles WAF générant des faux positifs connus seront exclues automatiquement.</div>
+              <div style="margin-bottom:8px;">
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${_autoMode?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${_autoMode?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};" id="psec-pcard-auto" onclick="psecToggleAutoPlatform(this)">
+                  <input type="checkbox" name="psec-platform-auto" id="psec-platform-auto" ${_autoMode?'checked':''} style="accent-color:var(--accent);">
+                  <div>
+                    <div style="font-size:12px;font-weight:500;">Auto-détection${_detectedPlatform ? ` <span style="font-size:10px;color:var(--blue);">(${_detectedPlatform} détecté)</span>` : ''}</div>
+                    <div style="font-size:10px;color:var(--text3);line-height:1.3;">Applique automatiquement les exclusions selon l'URL upstream</div>
+                  </div>
+                </label>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="psec-waf-platforms">
+                ${[
+                  { id: 'wordpress', name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
+                  { id: 'drupal',    name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
+                  { id: 'nextcloud', name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
+                  { id: 'dokuwiki',  name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
+                  { id: 'cpanel',    name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
+                ].map(p => {
+                  const active = _activePlatforms.has(p.id);
+                  return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
+                    <input type="checkbox" name="psec-platform" value="${p.id}" ${active?'checked':''} style="margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
+                    <div><div style="font-size:12px;font-weight:500;">${p.name}</div><div style="font-size:10px;color:var(--text3);line-height:1.3;">${p.desc}</div></div>
+                  </label>`;
+                }).join('')}
+              </div>
+            </div>
+            <!-- Paramètres avancés WAF -->
+            <div id="psec-waf-advanced" style="display:none;flex-direction:column;gap:10px;">
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Réglages avancés</div>
+                <div class="form-row" style="gap:8px;">
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Score anomalie (0 = premier match)</label>
+                    <input id="psec-waf-threshold" type="number" class="input" min="0" max="50" value="${wafCfg?.anomaly_threshold ?? 0}" placeholder="0">
+                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">OWASP recommande 5 (Critical=5, High=4, Medium=3, Low=1)</div>
+                  </div>
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Max body (Mo)</label>
+                    <input id="psec-waf-maxbody" type="number" class="input" min="1" max="100" value="${wafCfg?.max_body_mb ?? 10}">
+                  </div>
+                </div>
+                <div class="field" style="margin:0;">
+                  <label class="field-label" style="font-size:11px">IDs de règles à exclure (séparés par virgule)</label>
+                  <input id="psec-waf-excludeids" class="input" placeholder="942100, 941110" value="${esc((wafCfg?.exclude_ids||[]).join(', '))}">
+                </div>
+                <div class="field" style="margin:0;">
+                  <label class="field-label" style="font-size:11px">Règles custom (une par ligne : <code>id|category|severity|targets|pattern|message</code>)</label>
+                  <div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Targets : uri, args, body, headers, cookies (séparés par +). Severity : critical, high, medium, low.</div>
+                  <textarea id="psec-waf-customrules" class="input" rows="4" style="font-family:monospace;font-size:11px;" placeholder="99001|sqli|high|args+body|(?i)evil-payload|Payload interdit">${esc((wafCfg?.custom_rules||[]).map(r => [r.id,r.category,r.severity,(r.targets||[]).join('+'),r.pattern,r.message].join('|')).join('\n'))}</textarea>
+                </div>
+              </div>
+              <!-- Analyse comportementale -->
+              <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Analyse comportementale</div>
+                <div style="font-size:11px;color:var(--text2);">Détecte les attaques fragmentées, les scans et les bots par accumulation de signaux sur une fenêtre glissante par IP.</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <label class="toggle" style="flex-shrink:0;"><input type="checkbox" id="psec-waf-behavior-enabled" ${wafCfg?.behavior_enabled?'checked':''}><span class="toggle-slider"></span></label>
+                  <span style="font-size:12px;font-weight:500;">Activé</span>
+                </div>
+                <div class="form-row" style="gap:8px;">
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Fenêtre (secondes)</label>
+                    <input id="psec-waf-behavior-window" type="number" class="input" min="10" max="3600" value="${wafCfg?.behavior_window_s ?? 60}" placeholder="60">
+                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Durée d'observation par IP</div>
+                  </div>
+                  <div class="field" style="flex:1;margin:0;">
+                    <label class="field-label" style="font-size:11px">Score seuil</label>
+                    <input id="psec-waf-behavior-threshold" type="number" class="input" min="1" max="30" value="${wafCfg?.behavior_threshold ?? 8}" placeholder="8">
+                    <div style="font-size:10px;color:var(--text3);margin-top:2px;">Signaux : 4xx élevé=4, burst=4, WAF cumulé=3-5, path scan=3, rotation UA=3, POST élevé=2</div>
+                  </div>
+                </div>
+                <div class="field" style="margin:0;">
+                  <label class="field-label" style="font-size:11px">Proxies de confiance (CIDRs)</label>
+                  <input id="psec-waf-trusted-proxies" type="text" class="input" value="${(wafCfg?.trusted_proxies||[]).join(', ')}" placeholder="10.0.0.0/8, 172.16.0.0/12, 127.0.0.1">
+                  <div style="font-size:10px;color:var(--text3);margin-top:2px;">IPs/CIDRs dont les headers X-Forwarded-For sont acceptés. Vide = RemoteAddr direct (plus sécurisé).</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Bans & Blocs -->
         <div id="psectab-bans" style="display:none;padding:16px 20px;flex-direction:column;gap:8px;">
           <div id="psec-bans-content" style="font-size:12.5px;color:var(--text3);">Chargement…</div>
@@ -740,7 +769,7 @@ window.openProxySecModal = async function(id, initialTab) {
     <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
     <button class="btn btn-primary" onclick="saveProxySec('${esc(id)}')">Enregistrer les paramètres</button>
   `, true);
-  switchSecTab(initialTab && ['recap','params','snippets','headers','bans','timeline'].includes(initialTab) ? initialTab : 'recap');
+  switchSecTab(initialTab && ['recap','params','snippets','headers','waf','bans','timeline'].includes(initialTab) ? initialTab : 'recap');
   try { psecGeoInit(geoCfg.countries || [], 'psec-geo-picker'); } catch (e) { console.warn('psecGeoInit', e); }
   try {
     const snipList = document.getElementById('psec-snippets-list');
@@ -831,12 +860,10 @@ window.psecToggleWAFAdvanced = function() {
 
 window.psecActivateOwnWaf = function() {
   const own = document.getElementById('psec-waf-own');
-  if (own) own.style.display = 'block';
-  const banner = own?.previousElementSibling;
-  // cache le bandeau héritage
-  document.querySelectorAll('#psec-tabs ~ div [style*="Hérite de la config WAF"]').forEach(el => el.remove());
+  if (own) own.style.display = 'flex';
   const inheritBanner = document.querySelector('[onclick*="psecActivateOwnWaf"]')?.closest('div[style*="background"]');
   if (inheritBanner) inheritBanner.style.display = 'none';
+  switchSecTab('waf');
 };
 
 window.psecTogglePlatform = function(id, label) {
@@ -846,6 +873,12 @@ window.psecTogglePlatform = function(id, label) {
   const active = cb.checked;
   card.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
   card.style.background = active ? 'color-mix(in srgb,var(--accent) 6%,transparent)' : 'transparent';
+  if (active) {
+    const autoCb = document.getElementById('psec-platform-auto');
+    if (autoCb) autoCb.checked = false;
+    const autoCard = document.getElementById('psec-pcard-auto');
+    if (autoCard) { autoCard.style.borderColor = 'var(--border)'; autoCard.style.background = 'transparent'; }
+  }
 };
 
 window.psecResetWafToCore = async function(id) {
@@ -856,8 +889,25 @@ window.psecResetWafToCore = async function(id) {
     delete cfg.waf;
     await api('PUT', `/proxies/${encodeURIComponent(id)}`, { ...existing, config: cfg });
     toast('Config WAF réinitialisée — héritage Core actif', 'success');
-    openProxySecModal(id, 'params');
+    openProxySecModal(id, 'waf');
   } catch(e) { toast(e.message, 'error'); }
+};
+
+window.psecToggleAutoPlatform = function(label) {
+  const cb = document.getElementById('psec-platform-auto');
+  const card = document.getElementById('psec-pcard-auto');
+  const checked = cb?.checked;
+  if (card) {
+    card.style.borderColor = checked ? 'var(--accent)' : 'var(--border)';
+    card.style.background = checked ? 'color-mix(in srgb,var(--accent) 6%,transparent)' : 'transparent';
+  }
+  if (checked) {
+    document.querySelectorAll('input[name="psec-platform"]').forEach(inp => {
+      inp.checked = false;
+      const c = document.getElementById('psec-pcard-' + inp.value);
+      if (c) { c.style.borderColor = 'var(--border)'; c.style.background = 'transparent'; }
+    });
+  }
 };
 
 window.psecParseCustomRules = function(text) {
@@ -885,7 +935,7 @@ window.psecParseCustomRules = function(text) {
 };
 
 window.switchSecTab = function(tab) {
-  ['recap','params','snippets','headers','bans','timeline'].forEach(t => {
+  ['recap','params','snippets','headers','waf','bans','timeline'].forEach(t => {
     const panel = document.getElementById('psectab-' + t);
     if (panel) panel.style.display = t === tab ? 'flex' : 'none';
   });
@@ -1104,7 +1154,8 @@ window.saveProxySec = async function(id) {
   const wafBehaviorWindow = parseInt(document.getElementById('psec-waf-behavior-window')?.value || '60', 10) || 60;
   const wafBehaviorThreshold = parseInt(document.getElementById('psec-waf-behavior-threshold')?.value || '8', 10) || 8;
   const wafTrustedProxies = (document.getElementById('psec-waf-trusted-proxies')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
-  const wafPlatforms = [...document.querySelectorAll('input[name="psec-platform"]:checked')].map(cb => cb.value);
+  const wafAutoDetect = document.getElementById('psec-platform-auto')?.checked;
+  const wafPlatforms = wafAutoDetect ? ['auto'] : [...document.querySelectorAll('input[name="psec-platform"]:checked')].map(cb => cb.value);
   const sentinelWhitelist = (document.getElementById('psec-sentinel-whitelist')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
