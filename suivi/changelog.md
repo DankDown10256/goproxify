@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Ajouté
 
+- **Pseudonymisation IP RGPD + scope `gdpr:reveal`** : nouveau mode `ip_pseudonymize` dans les settings Logs. Le Core tronque l'IP dans son fichier local ; l'Admin reçoit l'IP réelle et la chiffre en AES-GCM 256 bits (clé générée à la table `gdpr_keys`). Nouveau scope RBAC `gdpr:reveal` (super-admin par défaut, délégable). Endpoint `POST /api/v1/logs/reveal-ip` : révèle l'IP d'une entrée avec motif obligatoire, crée une entrée d'audit `gdpr_reveal_ip`. Commande CLI `goproxify logs reveal-ip --entry-id xxx --reason "…"`. Documentation dans `docs/rgpd.md` §3 bis.
+
 - **Anonymisation IP dans les access logs** : option `engine.ip_anonymize` dans `core.json` (et toggle Admin UI → Logs → Settings). IPv4 : dernier octet remplacé par 0 ; IPv6 : 80 derniers bits masqués. Fail2Ban et Sentinel reçoivent toujours l'IP réelle. Propagé en temps réel aux Cores via WS `push_settings`.
 - **WAF — whitelist IP par route** : champ `waf_whitelist_ips` (tableau CIDRs) dans `WAFConfig`. Les IPs correspondantes bypassent complètement le WAF pour cette route (Fail2Ban/Sentinel restent actifs).
 - **WAF — hot-reload depuis fichier externe** : champ `engine.waf_custom_rules_path` dans `core.json`. Le Core surveille le fichier toutes les 10 s et recharge les règles custom sans redémarrage.

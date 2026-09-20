@@ -101,12 +101,39 @@ func runLogs() {
 		}
 		fmt.Printf("Logs exportés : %s (%d octets)\n", output, len(data))
 
+	case "reveal-ip":
+		args := parseFlags(os.Args[3:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		entryID := flagValue(args, "-entry-id", "")
+		reason := flagValue(args, "-reason", "")
+		if entryID == "" || reason == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify logs reveal-ip --entry-id <id> --reason \"motif légal\"")
+			os.Exit(1)
+		}
+		var idN float64
+		fmt.Sscanf(entryID, "%f", &idN)
+		body := map[string]any{"entry_id": int64(idN), "reason": reason}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/logs/reveal-ip", body, &result); err != nil {
+			fmt.Fprintf(os.Stderr, "reveal-ip : %v\n", err)
+			os.Exit(1)
+		}
+		ip, _ := result["ip"].(string)
+		by, _ := result["requested_by"].(string)
+		ts, _ := result["ts"].(string)
+		fmt.Printf("IP réelle  : %s\nDemandé par : %s\nHorodatage : %s\nMotif       : %s\n", ip, by, ts, reason)
+
 	case "help":
 		fmt.Print(`Usage: goproxify logs <sous-commande> [options]
 
 Sous-commandes :
-  list    Recherche dans les logs d'accès et système
-  export  Exporte les logs en CSV ou JSON
+  list       Recherche dans les logs d'accès et système
+  export     Exporte les logs en CSV ou JSON
+  reveal-ip  Révèle l'IP réelle d'une entrée pseudonymisée (scope gdpr:reveal requis)
 
 goproxify logs list
   [-level debug|info|warn|error]  Niveau de log
@@ -127,6 +154,12 @@ goproxify logs export
   [-output <fichier>] Fichier de sortie (défaut: logs-export.csv)
   [-level …] [-domain …] [-ip …] [-from …] [-to …]
   [-admin-url …] [-token …]
+
+goproxify logs reveal-ip
+  --entry-id <id>    ID de l'entrée de log (visible dans la colonne id)
+  --reason "<motif>" Motif légal obligatoire (ex: "RGPD Art.17 DPO request")
+  [-admin-url …] [-token …]
+  Nécessite le scope gdpr:reveal.
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande logs inconnue : %q\n", sub)

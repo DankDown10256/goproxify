@@ -398,6 +398,10 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_logs_access_domain_ts ON logs (domain, ts) WHERE status > 0`,
 		// Prism : analytics filtrées par nœud + période (évite full scan quand node_name est renseigné).
 		`CREATE INDEX IF NOT EXISTS idx_logs_analytics_node ON logs (node_name, ts) WHERE status > 0`,
+		// RGPD pseudonymisation : IP chiffrée (AES-GCM) — vide si mode anonymisation classique.
+		`ALTER TABLE logs ADD COLUMN ip_enc TEXT NOT NULL DEFAULT ''`,
+		// Clé de chiffrement RGPD (32 bytes random base64) — générée au premier démarrage.
+		`CREATE TABLE IF NOT EXISTS gdpr_keys (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
 	} {
 		db.Exec(s) //nolint:errcheck
 	}

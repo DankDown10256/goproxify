@@ -148,6 +148,8 @@ type LogEntryPayload struct {
 	Path      string `json:"path"`
 	Status    int    `json:"status"`
 	IP        string `json:"ip"`
+	// RealIP est présent uniquement en mode pseudonymisation — chiffré côté Admin, jamais stocké en clair.
+	RealIP    string `json:"real_ip,omitempty"`
 	LatencyMs int64  `json:"latency_ms"`
 	Bytes     int64  `json:"bytes"`
 	Message   string `json:"message"`

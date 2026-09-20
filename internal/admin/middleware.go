@@ -96,6 +96,10 @@ func (s *Server) runtimeSettings() corews.Settings {
 		anon := v == "true"
 		settings.IPAnonymize = &anon
 	}
+	if v := admindb.GetSetting(s.db, "logs.ip_pseudonymize", ""); v != "" {
+		pseudo := v == "true"
+		settings.IPPseudonymize = &pseudo
+	}
 	return settings
 }
 

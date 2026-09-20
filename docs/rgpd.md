@@ -71,6 +71,30 @@ PUT /api/v1/logs/settings
 
 Older entries are purged automatically every night.
 
+### IP pseudonymisation (recommandé pour RGPD strict)
+
+Mode plus fort que l'anonymisation : l'IP est **chiffrée** (AES-GCM 256 bits) en base SQLite côté Admin. Le fichier de log du Core reçoit toujours une IP tronquée. L'IP réelle ne peut être obtenue que par un utilisateur possédant le scope `gdpr:reveal` (voir §3 bis).
+
+Activer via Admin UI → **Logs → Settings → Pseudonymisation IP** ou via API :
+
+```http
+PUT /api/v1/logs/settings
+{ "ip_pseudonymize": true }
+```
+
+Ou dans `core.json` (non supporté — ce réglage est Admin-side).
+
+| Comportement | Anonymisation | Pseudonymisation |
+|---|---|---|
+| IP dans fichier Core | tronquée (x.x.x.0) | tronquée (x.x.x.0) |
+| IP dans SQLite Admin | tronquée | chiffrée AES-GCM |
+| Taps Fail2Ban/Sentinel | IP réelle ✓ | IP réelle ✓ |
+| Révélation possible ? | ❌ irréversible | ✓ avec scope `gdpr:reveal` |
+
+La clé AES-GCM est générée automatiquement au premier démarrage et stockée dans la table `gdpr_keys` de la base Admin. Elle ne quitte jamais le serveur Admin.
+
+---
+
 ### Right to erasure (Article 17) — delete by IP
 
 ```http
@@ -92,6 +116,54 @@ DELETE /api/v1/logs/by-user/{user_id}
 ```
 
 Removes all log entries attributed to an authenticated user (JWT subject).
+
+---
+
+## 3 bis. Droit de révélation IP (scope `gdpr:reveal`)
+
+Quand la pseudonymisation est active, les utilisateurs possédant le scope `gdpr:reveal` peuvent obtenir l'IP réelle d'une entrée spécifique, avec traçabilité complète.
+
+### Qui peut avoir ce droit ?
+
+| Rôle | `gdpr:reveal` par défaut | Délégable via équipe |
+|---|---|---|
+| Super-admin | ✓ | — |
+| Admin | ❌ | ✓ (super-admin délègue) |
+| Utilisateur (DPO, juriste, RSSI) | ❌ | ✓ (super-admin délègue) |
+
+### Via API
+
+```http
+POST /api/v1/logs/reveal-ip
+Content-Type: application/json
+{
+  "entry_id": 4821,
+  "reason": "Réquisition judiciaire n°2026/1234"
+}
+```
+
+Réponse :
+```json
+{
+  "entry_id": 4821,
+  "ip": "203.0.113.42",
+  "requested_by": "dpo@exemple.fr",
+  "reason": "Réquisition judiciaire n°2026/1234",
+  "ts": "2026-09-20T14:32:01Z"
+}
+```
+
+### Via CLI
+
+```bash
+goproxify logs reveal-ip \
+  --entry-id 4821 \
+  --reason "Réquisition judiciaire n°2026/1234"
+```
+
+### Audit
+
+Chaque révélation crée automatiquement une entrée dans le journal d'audit (`action = gdpr_reveal_ip`) avec l'acteur, l'ID de l'entrée et le motif. Un log système de niveau `warn` est également créé.
 
 ---
 

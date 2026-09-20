@@ -35,6 +35,7 @@ const (
 	ScopePairingRead   = "pairing:read"
 	ScopePortalRead    = "portal:read"
 	ScopePortalWrite   = "portal:write"
+	ScopeGDPRReveal    = "gdpr:reveal"
 )
 
 // AllPATScopes liste tous les scopes connus (ordre stable pour l'UI).
@@ -45,6 +46,7 @@ var AllPATScopes = []string{
 	ScopeDomainsRead, ScopeCertsRead, ScopeLogsRead, ScopeTeamsRead, ScopeAuditRead,
 	ScopeSecurityWrite, ScopeImportWrite, ScopePairingRead,
 	ScopePortalRead, ScopePortalWrite,
+	ScopeGDPRReveal,
 }
 
 // ScopeMeta décrit un scope pour l'UI / API.
@@ -75,8 +77,9 @@ func ScopeCatalog() []ScopeMeta {
 		ScopeSecurityWrite: "Créer / supprimer bans et muter la sécurité",
 		ScopeImportWrite:   "Importer des configurations",
 		ScopePairingRead:   "Lire le secret d'appairage",
-		ScopePortalRead:    "Lire GoProxify Access (config, catalogue, users, templates, audit)",
-		ScopePortalWrite:   "Gérer GoProxify Access (config, catalogue, invitations, templates, push)",
+		ScopePortalRead:  "Lire GoProxify Access (config, catalogue, users, templates, audit)",
+		ScopePortalWrite: "Gérer GoProxify Access (config, catalogue, invitations, templates, push)",
+		ScopeGDPRReveal:  "Révéler l'IP réelle d'une entrée de log pseudonymisée (RGPD — DPO/juriste/RSSI uniquement)",
 	}
 	out := make([]ScopeMeta, 0, len(AllPATScopes))
 	for _, id := range AllPATScopes {
@@ -113,7 +116,11 @@ func AvailableScopesForUser(ctx context.Context, db *sql.DB, userID string) []st
 		ScopeLogsRead, ScopeAuditRead)
 
 	switch {
-	case IsSuperAdminRole(role), IsAdminRole(role):
+	case IsSuperAdminRole(role):
+		add(ScopeProxiesWrite, ScopeProxiesDelete, ScopeSnippetsWrite, ScopeUsersRead, ScopeTeamsRead,
+			ScopeNodesWrite, ScopeSecurityWrite, ScopeImportWrite, ScopePairingRead,
+			ScopePortalRead, ScopePortalWrite, ScopeGDPRReveal)
+	case IsAdminRole(role):
 		add(ScopeProxiesWrite, ScopeProxiesDelete, ScopeSnippetsWrite, ScopeUsersRead, ScopeTeamsRead,
 			ScopeNodesWrite, ScopeSecurityWrite, ScopeImportWrite, ScopePairingRead,
 			ScopePortalRead, ScopePortalWrite)
@@ -263,6 +270,8 @@ func RequiredScopeForRequest(r *http.Request) string {
 		return ScopeDomainsRead
 	case strings.HasPrefix(path, "/api/v1/certs"):
 		return ScopeCertsRead
+	case strings.HasPrefix(path, "/api/v1/logs/reveal-ip"):
+		return ScopeGDPRReveal
 	case strings.HasPrefix(path, "/api/v1/logs"):
 		return ScopeLogsRead
 	case strings.HasPrefix(path, "/api/v1/teams"):

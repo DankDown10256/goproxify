@@ -662,3 +662,38 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | DELETE | `/api/v1/workspaces/{id}/members/{type}/{entityID}` | Retire un membre |
 | POST | `/api/v1/workspaces/{id}/resources` | Ajoute une ressource (`resource_type`: `proxy`/`domain`/`core`, `resource_id`) |
 | DELETE | `/api/v1/workspaces/{id}/resources/{type}/{resourceID}` | Retire une ressource |
+
+---
+
+## Logs RGPD — `/api/v1/logs`
+
+| Méthode | Endpoint | Scope requis | Description |
+|---|---|---|---|
+| GET | `/api/v1/logs/settings` | `logs:read` | Paramètres de rétention et de pseudonymisation |
+| PUT | `/api/v1/logs/settings` | admin | Modifier rétention, `ip_anonymize`, `ip_pseudonymize` |
+| POST | `/api/v1/logs/reveal-ip` | `gdpr:reveal` | Révéler l'IP réelle d'une entrée pseudonymisée |
+| DELETE | `/api/v1/logs/by-ip/{ip}` | admin | Effacement RGPD Art.17 par IP |
+| DELETE | `/api/v1/logs/by-user/{user_id}` | admin | Effacement RGPD Art.17 par utilisateur |
+
+### POST `/api/v1/logs/reveal-ip`
+
+Body :
+```json
+{ "entry_id": 4821, "reason": "Réquisition judiciaire n°2026/1234" }
+```
+
+Réponse `200` :
+```json
+{
+  "entry_id": 4821,
+  "ip": "203.0.113.42",
+  "requested_by": "dpo@exemple.fr",
+  "reason": "Réquisition judiciaire n°2026/1234",
+  "ts": "2026-09-20T14:32:01Z"
+}
+```
+
+Codes d'erreur :
+- `403` — scope `gdpr:reveal` manquant
+- `400` — `entry_id` ou `reason` manquant
+- `422` — entrée non pseudonymisée ou clé non chargée

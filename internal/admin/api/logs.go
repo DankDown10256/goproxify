@@ -18,19 +18,22 @@ import (
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/logs"
+	"github.com/vincamok/goproxify/internal/admin/rbac"
 )
 
 // LogsSettingsPusher pousse les settings de logging vers les Cores.
 type LogsSettingsPusher interface {
 	PushIPAnonymize(ctx context.Context, enabled bool)
+	PushIPPseudonymize(ctx context.Context, enabled bool)
 }
 
 // LogsHandler gère la consultation statique, l'export et le streaming SSE.
 type LogsHandler struct {
-	Log    *slog.Logger
-	Store  *logs.Store
-	DB     *sql.DB
-	Pusher LogsSettingsPusher
+	Log        *slog.Logger
+	Store      *logs.Store
+	DB         *sql.DB
+	Pusher     LogsSettingsPusher
+	GDPRKey    []byte // clé AES-GCM pour activer la pseudonymisation à chaud
 }
 
 func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +53,9 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getSettings(w, r)
 	case r.Method == http.MethodPut && path == "settings":
 		h.putSettings(w, r)
+	// RGPD : révélation IP pseudonymisée (scope gdpr:reveal requis)
+	case r.Method == http.MethodPost && path == "reveal-ip":
+		h.revealIP(w, r)
 	// RGPD : effacement par IP ou utilisateur
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "by-ip/"):
 		h.deleteByIP(w, r, strings.TrimPrefix(path, "by-ip/"))
@@ -163,10 +169,12 @@ func (h *LogsHandler) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	accessDays, systemDays := h.Store.RetentionInfo()
 	ipAnonymize := admindb.GetSetting(h.DB, "logs.ip_anonymize", "false") == "true"
+	ipPseudonymize := admindb.GetSetting(h.DB, "logs.ip_pseudonymize", "false") == "true"
 	jsonOK(w, map[string]any{
 		"retention_access_days": parseInt("logs.retention_access_days", accessDays),
 		"retention_system_days": parseInt("logs.retention_system_days", systemDays),
 		"ip_anonymize":          ipAnonymize,
+		"ip_pseudonymize":       ipPseudonymize,
 		"defaults": map[string]any{
 			"access_days": logs.DefaultRetentionAccessDays,
 			"system_days": logs.DefaultRetentionSystemDays,
@@ -179,6 +187,7 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 		RetentionAccessDays int   `json:"retention_access_days"`
 		RetentionSystemDays int   `json:"retention_system_days"`
 		IPAnonymize         *bool `json:"ip_anonymize,omitempty"`
+		IPPseudonymize      *bool `json:"ip_pseudonymize,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json")
@@ -205,7 +214,67 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 			h.Pusher.PushIPAnonymize(r.Context(), *body.IPAnonymize)
 		}
 	}
+	if body.IPPseudonymize != nil {
+		val := "false"
+		if *body.IPPseudonymize {
+			val = "true"
+		}
+		admindb.SetSetting(h.DB, "logs.ip_pseudonymize", val) //nolint:errcheck
+		if *body.IPPseudonymize && h.GDPRKey != nil {
+			h.Store.SetPseudonymizeKey(h.GDPRKey)
+		} else if !*body.IPPseudonymize {
+			h.Store.SetPseudonymizeKey(nil)
+		}
+		if h.Pusher != nil {
+			h.Pusher.PushIPPseudonymize(r.Context(), *body.IPPseudonymize)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// revealIP retourne l'IP réelle d'une entrée pseudonymisée.
+// Nécessite le scope gdpr:reveal. Un motif (reason) est obligatoire. Chaque appel est audité.
+func (h *LogsHandler) revealIP(w http.ResponseWriter, r *http.Request) {
+	if !rbac.EffectiveHasScope(r.Context(), h.DB, rbac.ScopeGDPRReveal) {
+		http.Error(w, "scope insuffisant: gdpr:reveal", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		EntryID int64  `json:"entry_id"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.json")
+		return
+	}
+	if body.EntryID <= 0 {
+		writeErr(w, r, http.StatusBadRequest, "api.err.missing_entry_id")
+		return
+	}
+	if strings.TrimSpace(body.Reason) == "" {
+		writeErr(w, r, http.StatusBadRequest, "api.err.reason_required")
+		return
+	}
+	ip, err := h.Store.RevealIP(body.EntryID)
+	if err != nil {
+		logsJSONErr(w, err, http.StatusUnprocessableEntity)
+		return
+	}
+	actor := adminauth.UserIDFromContext(r.Context())
+	detail := fmt.Sprintf("entry_id=%d reason=%q", body.EntryID, body.Reason)
+	_ = admindb.WriteAudit(h.DB, actor, "gdpr_reveal_ip", "logs", detail)
+	h.Store.Write(logs.Entry{
+		Level:     "warn",
+		Component: "admin",
+		Message:   fmt.Sprintf("RGPD révélation IP entrée #%d par %s — %s", body.EntryID, actor, body.Reason),
+	})
+	jsonOK(w, map[string]any{
+		"entry_id":     body.EntryID,
+		"ip":           ip,
+		"requested_by": actor,
+		"reason":       body.Reason,
+		"ts":           time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // deleteByIP supprime tous les logs d'une IP (droit à l'effacement RGPD).

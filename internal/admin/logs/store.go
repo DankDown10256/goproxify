@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/gdpr"
 )
 
 // Durées de rétention par défaut — modifiables via settings DB (clés logs.retention_access_days,
@@ -44,6 +46,9 @@ type Entry struct {
 	UserID        string     `json:"user_id,omitempty"`
 	RequestID     string     `json:"request_id,omitempty"`
 	RetainedUntil *time.Time `json:"retained_until,omitempty"`
+	// RealIP est l'IP réelle fournie par le Core en mode pseudonymisation.
+	// Elle n'est JAMAIS renvoyée dans les réponses API — uniquement chiffrée en DB.
+	RealIP string `json:"-"`
 }
 
 // SearchParams filtre les entrées de log.
@@ -79,6 +84,10 @@ type Store struct {
 	retentionMu         sync.RWMutex
 	retentionAccessDays int
 	retentionSystemDays int
+
+	// Pseudonymisation RGPD (AES-GCM) — nil si désactivée.
+	pseudoMu  sync.RWMutex
+	pseudoKey []byte
 }
 
 // New crée un Store avec les durées de rétention par défaut.
@@ -105,6 +114,34 @@ func (s *Store) SetRetention(accessDays, systemDays int) {
 	}
 }
 
+// SetPseudonymizeKey active la pseudonymisation RGPD (AES-GCM).
+// Passer nil pour désactiver (les IPs sont alors stockées en clair ou anonymisées côté Core).
+func (s *Store) SetPseudonymizeKey(key []byte) {
+	s.pseudoMu.Lock()
+	s.pseudoKey = key
+	s.pseudoMu.Unlock()
+}
+
+// RevealIP retourne l'IP réelle d'une entrée pseudonymisée.
+// Retourne une erreur si l'entrée n'est pas pseudonymisée ou si le déchiffrement échoue.
+func (s *Store) RevealIP(entryID int64) (string, error) {
+	var enc string
+	err := s.db.QueryRow(`SELECT ip_enc FROM logs WHERE id = ?`, entryID).Scan(&enc)
+	if err != nil {
+		return "", fmt.Errorf("entrée introuvable : %w", err)
+	}
+	if enc == "" {
+		return "", fmt.Errorf("cette entrée n'est pas pseudonymisée")
+	}
+	s.pseudoMu.RLock()
+	key := s.pseudoKey
+	s.pseudoMu.RUnlock()
+	if key == nil {
+		return "", fmt.Errorf("clé de pseudonymisation non chargée")
+	}
+	return gdpr.Decrypt(key, enc)
+}
+
 func (s *Store) retainedUntil(isAccess bool) time.Time {
 	s.retentionMu.RLock()
 	defer s.retentionMu.RUnlock()
@@ -123,13 +160,25 @@ func (s *Store) Write(e Entry) {
 	retained := s.retainedUntil(e.Status > 0)
 	e.RetainedUntil = &retained
 
+	// Pseudonymisation : chiffrer l'IP réelle si disponible et clé chargée.
+	ipEnc := ""
+	s.pseudoMu.RLock()
+	key := s.pseudoKey
+	s.pseudoMu.RUnlock()
+	if key != nil && e.RealIP != "" {
+		if enc, err := gdpr.Encrypt(key, e.RealIP); err == nil {
+			ipEnc = enc
+			e.IP = "[pseudonymisé]"
+		}
+	}
+
 	res, err := s.db.Exec(
-		`INSERT INTO logs (ts, level, component, node_name, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, retained_until)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO logs (ts, level, component, node_name, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, retained_until, ip_enc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.Ts.UTC().Format(time.RFC3339Nano),
 		nvl(e.Level, "info"), nvl(e.Component, "admin"), e.NodeName,
 		e.Domain, e.Method, e.Path, e.Status, e.IP, e.LatencyMs, e.Bytes, e.Message, e.Referrer,
-		e.UserID, e.RequestID, retained.Format(time.RFC3339),
+		e.UserID, e.RequestID, retained.Format(time.RFC3339), ipEnc,
 	)
 	if err == nil {
 		if id, err2 := res.LastInsertId(); err2 == nil {

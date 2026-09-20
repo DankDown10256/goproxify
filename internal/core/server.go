@@ -287,6 +287,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 				Path:      e.Path,
 				Status:    e.Status,
 				IP:        e.IP,
+				RealIP:    e.RealIP,
 				LatencyMs: e.LatencyMs,
 				Bytes:     e.Bytes,
 				Message:   e.Message,

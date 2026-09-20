@@ -38,6 +38,8 @@ type Settings struct {
 	AdminPublicURL string `json:"admin_public_url,omitempty"`
 	// IPAnonymize : quand true, le Core tronque les IPs dans les access logs (RGPD).
 	IPAnonymize *bool `json:"ip_anonymize,omitempty"`
+	// IPPseudonymize : quand true, le Core tronque l'IP dans son fichier log mais envoie l'IP réelle à l'Admin pour chiffrement AES-GCM.
+	IPPseudonymize *bool `json:"ip_pseudonymize,omitempty"`
 }
 
 // coreEntry associe un coreID (token UUID) à son client WS et ses métadonnées.
@@ -970,6 +972,20 @@ func (m *Manager) PushIPAnonymize(ctx context.Context, enabled bool) {
 		go func() {
 			if err := e.client.PushJSON(coreWS.TypePushSettings, partial); err != nil {
 				m.log.Warn("corews/manager: push ip_anonymize", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// PushIPPseudonymize pousse le toggle de pseudonymisation IP vers tous les Cores.
+// Implémente api.LogsSettingsPusher.
+func (m *Manager) PushIPPseudonymize(ctx context.Context, enabled bool) {
+	partial := Settings{IPPseudonymize: &enabled}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushSettings, partial); err != nil {
+				m.log.Warn("corews/manager: push ip_pseudonymize", "core", e.nodeName, "err", err)
 			}
 		}()
 	}

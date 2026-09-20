@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/gdpr"
 	"github.com/vincamok/goproxify/internal/admin/acme"
 	"github.com/vincamok/goproxify/internal/admin/alerting"
 	"github.com/vincamok/goproxify/internal/admin/certdeploy"
@@ -57,6 +58,7 @@ type Server struct {
 	alertingEngine *alerting.Engine
 	rulesEngine    *rulesengine.Engine
 	logStore       *logs.Store
+	gdprKey        []byte          // clé AES-GCM pseudonymisation RGPD
 	wsManager      *corews.Manager // manager WS Admin→Core
 	loginLimit     *loginLimiter
 }
@@ -77,6 +79,14 @@ func New(cfg *config.AdminConfig) (*Server, error) {
 	setup.Init(db, cfg)
 
 	logStore := logs.New(db)
+	// Charger (ou générer) la clé de pseudonymisation RGPD. Erreur non-fatale.
+	var gdprKey []byte
+	if key, err := gdpr.EnsureKey(db); err == nil {
+		gdprKey = key
+		if admindb.GetSetting(db, "logs.ip_pseudonymize", "false") == "true" {
+			logStore.SetPseudonymizeKey(key)
+		}
+	}
 	nodeName := cfg.HA.NodeID
 	if nodeName == "" {
 		nodeName = "admin"
@@ -96,6 +106,7 @@ func New(cfg *config.AdminConfig) (*Server, error) {
 		auditor:        audit.New(db, cfg.App.AuditRetentionDays),
 		alertingEngine: alerting.New(db, log),
 		logStore:       logStore,
+		gdprKey:        gdprKey,
 		loginLimit:     newLoginLimiter(),
 	}
 
@@ -164,6 +175,7 @@ func (s *Server) Start(ctx context.Context) error {
 				Path:      item.Path,
 				Status:    item.Status,
 				IP:        item.IP,
+				RealIP:    item.RealIP,
 				LatencyMs: item.LatencyMs,
 				Bytes:     item.Bytes,
 				Message:   item.Message,
@@ -331,7 +343,7 @@ func (s *Server) Start(ctx context.Context) error {
 	auditH := &api.AuditHandler{DB: s.db, Log: s.log, Auditor: s.auditor}
 	channelsH := &api.ChannelsHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
 	rulesH := &api.RulesHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
-	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db, Pusher: manager}
+	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db, Pusher: manager, GDPRKey: s.gdprKey}
 	f2bEngine := fail2ban.New(s.db, s.log)
 	vsScanner := vulnscan.New(s.db, s.log, "")
 	csBouncer := crowdsec.New(s.db, s.log)

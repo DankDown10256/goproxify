@@ -248,6 +248,8 @@ type Settings struct {
 	// IPAnonymize : quand true, le Core tronque les IPs dans les access logs (RGPD).
 	// La config locale core.json a toujours la priorité si ip_anonymize y est défini à true.
 	IPAnonymize *bool `json:"ip_anonymize,omitempty"`
+	// IPPseudonymize : quand true, Core tronque l'IP dans son fichier log mais envoie l'IP réelle à l'Admin.
+	IPPseudonymize *bool `json:"ip_pseudonymize,omitempty"`
 }
 
 // PushSettings envoie les paramètres runtime à tous les Cores.

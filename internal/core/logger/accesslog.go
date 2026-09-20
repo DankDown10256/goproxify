@@ -53,8 +53,9 @@ type AccessLogger struct {
 	proxyTapMu sync.RWMutex
 	proxyTap   func(domain string, status int)
 
-	anonymizeMu sync.RWMutex
-	anonymize   bool
+	anonymizeMu    sync.RWMutex
+	anonymize      bool
+	pseudonymize   bool
 }
 
 type accessEntry struct {
@@ -67,6 +68,8 @@ type accessEntry struct {
 	BytesSent     int      `json:"bytes_sent"`
 	DurationMs    int64    `json:"duration_ms"`
 	RemoteIP      string   `json:"remote_ip"`
+	// ShipIP est l'IP réelle à envoyer à l'Admin pour pseudonymisation (non loguée dans le fichier Core).
+	ShipIP        string   `json:"-"`
 	UserAgent     string   `json:"user_agent"`
 	Referrer      string   `json:"referrer,omitempty"`
 	WAFMatches    []string `json:"waf_matches,omitempty"`
@@ -84,6 +87,8 @@ type ShipEntry struct {
 	Path          string   `json:"path"`
 	Status        int      `json:"status"`
 	IP            string   `json:"ip"`
+	// RealIP est présent uniquement en mode pseudonymisation (non loggé, chiffré côté Admin).
+	RealIP        string   `json:"real_ip,omitempty"`
 	LatencyMs     int64    `json:"latency_ms"`
 	Bytes         int64    `json:"bytes"`
 	Message       string   `json:"message"`
@@ -161,7 +166,7 @@ func (a *AccessLogger) ship() {
 			} else if e.Status >= 400 {
 				lvl = "warn"
 			}
-			payload[i] = ShipEntry{
+			se := ShipEntry{
 				Ts:           e.Time,
 				Level:        lvl,
 				Component:    "core",
@@ -171,6 +176,7 @@ func (a *AccessLogger) ship() {
 				Path:         e.Path,
 				Status:       e.Status,
 				IP:           e.RemoteIP,
+				RealIP:       e.ShipIP,
 				LatencyMs:    e.DurationMs,
 				Bytes:        int64(e.BytesSent),
 				Message:      shipMessage(e),
@@ -179,6 +185,7 @@ func (a *AccessLogger) ship() {
 				WAFMatches:   e.WAFMatches,
 				ThreatSignal: e.ThreatSignal,
 			}
+			payload[i] = se
 		}
 		batch = batch[:0]
 
@@ -261,6 +268,15 @@ func (a *AccessLogger) SetF2BTap(fn func(ip string, status int)) {
 	a.f2bTapMu.Lock()
 	a.f2bTap = fn
 	a.f2bTapMu.Unlock()
+}
+
+// SetIPPseudonymize active le mode pseudonymisation : le fichier Core reçoit une IP tronquée,
+// mais l'Admin reçoit l'IP réelle pour la chiffrer (AES-GCM) côté Admin.
+// Mutuellement exclusif avec SetIPAnonymize — les deux ne doivent pas être activés simultanément.
+func (a *AccessLogger) SetIPPseudonymize(enabled bool) {
+	a.anonymizeMu.Lock()
+	a.pseudonymize = enabled
+	a.anonymizeMu.Unlock()
 }
 
 // SetIPAnonymize active ou désactive l'anonymisation des IPs dans les logs.
@@ -368,11 +384,18 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 			ptap(stripHostPort(r.Host), rw.status)
 		}
 
-		logIP := ip
 		a.anonymizeMu.RLock()
 		anon := a.anonymize
+		pseudo := a.pseudonymize
 		a.anonymizeMu.RUnlock()
-		if anon {
+
+		logIP := ip
+		shipIP := ""
+		if pseudo {
+			// Mode pseudonymisation : fichier Core = IP tronquée, Admin = IP réelle chiffrée.
+			logIP = anonymizeIP(ip)
+			shipIP = ip
+		} else if anon {
 			logIP = anonymizeIP(ip)
 		}
 
@@ -387,6 +410,7 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 			BytesSent:    rw.written,
 			DurationMs:   time.Since(start).Milliseconds(),
 			RemoteIP:     logIP,
+			ShipIP:       shipIP,
 			UserAgent:    r.UserAgent(),
 			Referrer:     r.Referer(),
 			WAFMatches:   wafMatches,
