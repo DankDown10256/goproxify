@@ -28,10 +28,11 @@ pages['acme-monitor'] = async function () {
         </div>
       </div>
       <div id="acme-config-section" style="margin-bottom:24px;"></div>
+      <div id="acme-providers-section" style="margin-bottom:24px;"></div>
       <div id="acme-kpis" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;"></div>
       <div id="acme-table-wrap"></div>
     </div>`;
-  await Promise.all([acmeConfigLoad(), acmeMonitorLoad()]);
+  await Promise.all([acmeConfigLoad(), acmeProvidersLoad(), acmeMonitorLoad()]);
   _acmeRefreshTimer = setInterval(acmeMonitorLoad, 60_000);
   const obs = new MutationObserver(() => {
     if (!document.getElementById('acme-kpis')) {
@@ -125,6 +126,133 @@ window.saveAcmeConfig = async function () {
     document.getElementById('acme-config-modal-backdrop')?.remove();
     toast(t('acme_monitor.config_saved'), 'success');
     acmeConfigLoad();
+  } catch (e) {
+    toast(e.message || t('common.error'), 'error');
+  }
+};
+
+// ── Providers section ────────────────────────────────────────────────────────
+
+window.acmeProvidersLoad = async function () {
+  const el = document.getElementById('acme-providers-section');
+  if (!el) return;
+  const providers = await api('GET', '/acme/providers').catch(() => null);
+  if (!providers) { el.innerHTML = ''; return; }
+
+  const rows = providers.map(p => {
+    const pColor = PROVIDER_COLORS[p.type];
+    const pLabel = PROVIDER_LABELS[p.type] || p.type;
+    const badge = pColor
+      ? `<span style="background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;">${pLabel}</span>`
+      : `<span style="font-size:11px;opacity:0.6;">${esc(pLabel)}</span>`;
+    return `<tr>
+      <td style="padding:8px 10px;font-weight:500;">${esc(p.name)}</td>
+      <td style="padding:8px 10px;">${badge}</td>
+      <td style="text-align:right;padding:8px 10px;">
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;"
+          onclick="openAcmeProviderModal(${JSON.stringify(p).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})">${t('acme_monitor.providers_edit')}</button>
+        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red);"
+          onclick="deleteAcmeProvider('${esc(p.id)}','${esc(p.name)}')">${t('acme_monitor.providers_delete')}</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-size:13px;font-weight:600;">${t('acme_monitor.providers_title')}</div>
+          <div style="font-size:11px;opacity:0.55;margin-top:2px;">${t('acme_monitor.providers_subtitle')}</div>
+        </div>
+        <button class="btn btn-ghost" style="font-size:12px;" onclick="openAcmeProviderModal(null)">${t('acme_monitor.providers_add')}</button>
+      </div>
+      ${providers.length === 0
+        ? `<p style="margin:0;font-size:12px;opacity:0.5;text-align:center;padding:12px 0;">${t('acme_monitor.providers_empty')}</p>`
+        : `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border);opacity:0.6;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;">
+                <th style="text-align:left;padding:6px 10px;">${t('acme_monitor.providers_col_name')}</th>
+                <th style="text-align:left;padding:6px 10px;">${t('acme_monitor.providers_col_type')}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`
+      }
+    </div>`;
+};
+
+window.openAcmeProviderModal = function (provider) {
+  const isEdit = !!provider;
+  const paramsStr = provider?.params ? JSON.stringify(provider.params, null, 2) : '{}';
+  document.getElementById('acme-provider-modal-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="acme-provider-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(520px,96vw);max-width:none;">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="dialog-title">${isEdit ? t('acme_monitor.providers_modal_edit') : t('acme_monitor.providers_modal_create')}</div>
+        <div class="dialog-body" style="display:flex;flex-direction:column;gap:14px;">
+          <div class="field">
+            <label>${t('acme_monitor.providers_name')}</label>
+            <input class="input" id="prov-name" placeholder="${t('acme_monitor.providers_name_ph')}" value="${esc(provider?.name||'')}">
+          </div>
+          <div class="field">
+            <label>${t('acme_monitor.providers_type')}</label>
+            <select class="input" id="prov-type">
+              <option value="cloudflare" ${provider?.type==='cloudflare'?'selected':''}>Cloudflare</option>
+              <option value="ovh"        ${provider?.type==='ovh'?'selected':''}>OVH</option>
+              <option value="gandi"      ${provider?.type==='gandi'?'selected':''}>Gandi</option>
+              <option value="hetzner"    ${provider?.type==='hetzner'?'selected':''}>Hetzner DNS</option>
+              <option value="route53"    ${provider?.type==='route53'?'selected':''}>AWS Route 53</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>${t('acme_monitor.providers_credentials')}</label>
+            <textarea class="input" id="prov-params" rows="6" style="font-family:monospace;font-size:11px;resize:vertical;"
+              placeholder="${esc(t('acme_monitor.providers_credentials_ph'))}">${esc(paramsStr)}</textarea>
+            <p style="margin:4px 0 0;font-size:11px;opacity:0.45;">${t('acme_monitor.providers_credentials_hint')}</p>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" onclick="document.getElementById('acme-provider-modal-backdrop').remove()">${t('common.cancel')}</button>
+          <button class="btn btn-primary blueprint" onclick="saveAcmeProvider('${esc(provider?.id||'')}')">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            ${t('acme_monitor.config_save')}
+          </button>
+        </div>
+      </div>
+    </div>`);
+};
+
+window.saveAcmeProvider = async function (id) {
+  const name = document.getElementById('prov-name')?.value?.trim() || '';
+  const type = document.getElementById('prov-type')?.value || '';
+  const paramsRaw = document.getElementById('prov-params')?.value?.trim() || '{}';
+  let params;
+  try { params = JSON.parse(paramsRaw); } catch {
+    toast('Invalid JSON in credentials.', 'error');
+    return;
+  }
+  try {
+    if (id) {
+      await api('PUT', `/acme/providers/${id}`, { name, type, params });
+    } else {
+      await api('POST', '/acme/providers', { name, type, params });
+    }
+    document.getElementById('acme-provider-modal-backdrop')?.remove();
+    toast(t('acme_monitor.providers_saved'), 'success');
+    acmeProvidersLoad();
+  } catch (e) {
+    toast(e.message || t('common.error'), 'error');
+  }
+};
+
+window.deleteAcmeProvider = async function (id, name) {
+  if (!confirm(t('acme_monitor.providers_delete_confirm').replace('{name}', name))) return;
+  try {
+    await api('DELETE', `/acme/providers/${id}`);
+    toast(t('acme_monitor.providers_deleted'), 'success');
+    acmeProvidersLoad();
   } catch (e) {
     toast(e.message || t('common.error'), 'error');
   }

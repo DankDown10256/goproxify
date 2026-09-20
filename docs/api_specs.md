@@ -279,6 +279,40 @@ Retourne le statut d'expiration de tous les certificats.
 
 `status` : `ok` (>30j) · `warning` (≤30j) · `critical` (≤7j) · `expired`
 
+### `GET /api/v1/acme/providers`
+
+Liste les fournisseurs DNS ACME nommés. Admin uniquement.
+
+**Réponse :**
+```json
+[
+  { "id": "abc123", "name": "cloudflare-prod", "type": "cloudflare", "params": {"api_token": "..."} }
+]
+```
+
+### `POST /api/v1/acme/providers`
+
+Crée un nouveau fournisseur DNS nommé.
+
+**Corps :**
+```json
+{ "name": "cloudflare-prod", "type": "cloudflare", "params": {"api_token": "tok_xxx"} }
+```
+
+**Réponse :** `201 Created` avec `{"id": "..."}`
+
+### `GET /api/v1/acme/providers/{id}`
+
+Retourne un fournisseur DNS par identifiant.
+
+### `PUT /api/v1/acme/providers/{id}`
+
+Met à jour un fournisseur DNS existant (même corps que POST).
+
+### `DELETE /api/v1/acme/providers/{id}`
+
+Supprime un fournisseur DNS nommé.
+
 ### `POST /api/v1/certs/request`
 
 Demande un certificat ACME DNS-01.

@@ -216,6 +216,7 @@ Suite de fonctionnalités autour du cycle de vie des certificats TLS.
 **Monitoring ACME**
 - Dashboard `/acme-monitor` : statut par cert (`ok` / `warning ≤30j` / `critical ≤7j` / `expired`), KPIs globaux, bouton de renouvellement inline
 - Alertes automatiques : `cert_expiring_soon` (warning ≤30j, critical ≤7j) émises vers le moteur d'alertes existant
+- **Multi-fournisseurs DNS** : gestion de plusieurs providers nommés (ex: `cloudflare-prod`, `ovh-zone2`) via la section "DNS Providers" de la page Monitoring ACME ; chaque provider a un type (`cloudflare`, `ovh`, `gandi`, `hetzner`, `route53`) et des credentials JSON ; CRUD complet via `/api/v1/acme/providers`
 
 **Import de certificats externes**
 - `POST /api/v1/certs/import` : upload PEM + clé privée — domaine extrait automatiquement du SAN/CN, upsert en DB, push temps-réel aux Cores

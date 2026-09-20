@@ -690,6 +690,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/settings/smtp", adminOnly(&api.SMTPSettingsHandler{DB: s.db, Log: s.log}))
 	mux.Handle("/api/v1/settings/smtp/", adminOnly(&api.SMTPSettingsHandler{DB: s.db, Log: s.log}))
 	mux.Handle("/api/v1/settings/acme", adminOnly(acmeSettingsH))
+	acmeProvidersH := &api.ACMEProvidersHandler{DB: s.db, Log: s.log}
+	mux.Handle("/api/v1/acme/providers", adminOnly(acmeProvidersH))
+	mux.Handle("/api/v1/acme/providers/", adminOnly(acmeProvidersH))
 
 	// MCP server — PAT utilisateur uniquement (pas de JWT session)
 	mcpH := &mcp.Handler{

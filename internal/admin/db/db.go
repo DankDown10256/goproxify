@@ -728,6 +728,16 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	// Fournisseurs DNS ACME nommés (multi-provider)
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS acme_providers (
+		id         TEXT PRIMARY KEY,
+		name       TEXT NOT NULL UNIQUE,
+		type       TEXT NOT NULL,
+		params     TEXT NOT NULL DEFAULT '{}',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+
 	return nil
 }
 

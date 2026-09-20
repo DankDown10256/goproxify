@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Ajouté
 
+- **Monitoring ACME — multi-fournisseurs** : la page "Monitoring ACME" peut désormais gérer plusieurs fournisseurs DNS nommés (ex: "cloudflare-prod", "ovh-zone2"). Nouvelle table `acme_providers` (id, name, type, params JSON). Nouveaux endpoints CRUD `/api/v1/acme/providers`. Section "DNS Providers" dans l'UI avec liste des providers configurés, badges colorés, formulaire d'ajout/édition (nom, type, credentials JSON) et suppression par provider.
+
 - **Prism — carte live** : en mode Live, la carte monde affiche désormais des points pulsants animés par pays au fil des connexions entrantes (bleu = visite, rouge = ban, orange = erreur). Un flux "Connexions temps réel" scrollant apparaît sous la carte avec IP, pays, domaine, statut et horodatage. Nouveau endpoint backend `/api/v1/prism/live-ips` (polling toutes les 4 s) et fonction analytics `GetLiveIPs` qui joint `logs`, `geoip_cache` et `security_bans` pour classifier chaque événement.
 
 ### Amélioré
