@@ -392,23 +392,26 @@ func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, p
 	fromRev := r.URL.Query().Get("from")
 	toRev := r.URL.Query().Get("to")
 
-	targets, err := coreproxy.ListTargets(ctx, h.DB)
-	if err != nil || len(targets) == 0 {
+	prod, err := h.fetchProd(ctx, proxyID)
+	if errors.Is(err, errNoCore) {
 		writeErr(w, r, http.StatusServiceUnavailable, "api.err.no_core")
 		return
 	}
-	client := coreproxy.NewClient()
-	target := targets[0]
-
-	prod, err := client.Get(ctx, target, proxyID)
 	if err != nil {
 		writeErr(w, r, http.StatusNotFound, "api.err.proxy_not_found")
 		return
 	}
 
-	revisions, err := client.ListRevisions(ctx, target, proxyID)
-	if err != nil {
-		revisions = nil
+	// Chercher les révisions sur le même Core qui a répondu pour prod.
+	targets, _ := coreproxy.ListTargets(ctx, h.DB)
+	client := coreproxy.NewClient()
+	var revisions []*proxystore.Envelope
+	for _, t := range targets {
+		rv, err := client.ListRevisions(ctx, t, proxyID)
+		if err == nil {
+			revisions = rv
+			break
+		}
 	}
 
 	resolve := func(ref string, fallbackProd bool) *proxystore.Envelope {
