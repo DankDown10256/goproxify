@@ -1,318 +1,318 @@
-# Fonctionnalités GoProxify
+# GoProxify Features
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-GoProxify est un **reverse proxy distribué et sécurisé**, compilé en un **binaire Go unique** sans dépendance runtime. La personnalité de l'instance est déterminée au démarrage par la sous-commande CLI ou la variable d'environnement `GOPROXIFY_MODE`.
+GoProxify is a **distributed, secure reverse proxy** compiled as a **single Go binary** with zero runtime dependency. The instance personality is determined at startup by the CLI subcommand or the `GOPROXIFY_MODE` environment variable.
 
-Le produit se décline en **trois personnalités complémentaires** :
+The product comes in **three complementary personalities**:
 
-| Composant | Rôle | Persistance | Ports exposés |
+| Component | Role | Persistence | Exposed ports |
 |---|---|---|---|
-| **Core** | Data Plane — moteur de routage haute performance + hub WS (+ Access optionnel) | RAM + cache chiffré | `:80`, `:443` TCP+UDP, `:8000` interne + WS ; Access `:2222` / `:8444` si activé |
-| **Administration** | Control Plane — UI, API, MCP, alerting, Access | SQLite | `:9443` |
-| **Agent** | Discovery & Telemetry — sidecar Docker | Volatile | `:9191` Prometheus, `:51820` WireGuard (pas de port entrant pour le plan de contrôle) |
+| **Core** | Data Plane — high-performance routing engine + WS hub (+ optional Access) | RAM + encrypted cache | `:80`, `:443` TCP+UDP, `:8000` internal + WS; Access `:2222` / `:8444` if enabled |
+| **Admin** | Control Plane — UI, API, MCP, alerting, Access | SQLite | `:9443` |
+| **Agent** | Discovery & Telemetry — Docker sidecar | Volatile | `:9191` Prometheus, `:51820` WireGuard (no inbound port for control plane) |
 
 ---
 
 ## 2. Core — Data Plane
 
-### Protocoles supportés
+### Supported protocols
 
-| Protocole | Détails |
+| Protocol | Details |
 |---|---|
-| HTTP/1.1 | Reverse proxy complet avec gestion des en-têtes |
-| HTTP/2 | Multiplexage de flux, négociation ALPN |
-| HTTP/3 QUIC | Transport UDP, négociation `Alt-Svc` |
-| WebSocket | Upgrade HTTP → WS géré nativement |
-| gRPC | Proxy transparent sur HTTP/2 |
-| TCP L4 | Stream pur : port local → host:port distant, SSL passthrough natif, load balancing L4 |
-| UDP L4 | Tunnel pur, métriques bytes in/out |
+| HTTP/1.1 | Full reverse proxy with header management |
+| HTTP/2 | Stream multiplexing, ALPN negotiation |
+| HTTP/3 QUIC | UDP transport, `Alt-Svc` negotiation |
+| WebSocket | HTTP → WS upgrade handled natively |
+| gRPC | Transparent proxy over HTTP/2 |
+| TCP L4 | Pure stream: local port → remote host:port, native SSL passthrough, L4 load balancing |
+| UDP L4 | Pure tunnel, bytes in/out metrics |
 
 ### TLS
 
-- **Terminaison TLS** : certificats poussés en RAM uniquement via `GetCertificate` — jamais écrits sur disque
-- **SSL Passthrough SNI** : détection passive par lecture des 5 premiers octets du Client Hello (sans déchiffrement)
-- **Négociation ALPN** : `h2` et `http/1.1`
-- **mTLS client** : validation de certificats clients (Jalon 5)
-- **Délégation inter-Cores** : un Core d'entrée peut transférer un domaine vers un autre Core — modes **Passthrough** (tunnel TLS brut) ou **Terminate** (TLS sur l'entrée + proxy HTTP(S) + `X-Forwarded-For`). Voir [docs/delegation.md](delegation.md).
+- **TLS termination**: certificates pushed into RAM only via `GetCertificate` — never written to disk
+- **SNI Passthrough**: passive detection by reading the first 5 bytes of the Client Hello (no decryption)
+- **ALPN negotiation**: `h2` and `http/1.1`
+- **mTLS client**: client certificate validation (Milestone 5)
+- **Inter-Core delegation**: an entry Core can forward a domain to another Core — **Passthrough** (raw TLS tunnel) or **Terminate** (TLS at entry + HTTP(S) proxy + `X-Forwarded-For`) modes. See [docs/delegation.md](delegation.md).
 
-### Autonomie sans Administration
+### Autonomous operation without Admin
 
-Le Core peut fonctionner **de façon autonome** si l'Administration est temporairement injoignable :
+The Core can operate **autonomously** if the Admin is temporarily unreachable:
 
-- Sauvegarde automatique de la table de routage et des certificats dans un **cache local chiffré** (`/etc/goproxify/core-cache.gpx`)
-- Déclenchement à chaque push reçu depuis l'Admin + intervalle configurable
-- Au démarrage sans Administration joignable : chargement automatique depuis le cache
-- **Reconnexion automatique** dès que l'Administration redevient disponible → mise à jour du cache
-- Log explicite indiquant le mode de démarrage (live / cache local)
+- Automatic backup of the routing table and certificates in an **encrypted local cache** (`/etc/goproxify/core-cache.gpx`)
+- Triggered on each push received from Admin + configurable interval
+- On startup without reachable Admin: automatic load from cache
+- **Automatic reconnect** as soon as Admin becomes available again → cache update
+- Explicit log indicating startup mode (live / local cache)
 
 ### Performance
 
-- `sync.Map` pour la table de routage : mises à jour atomiques **sans interruption de connexion**
-- `sync.Pool` de buffers réseau : stabilité P99 sous charge, pression GC réduite
-- Compression Gzip configurable
-- Cache proxy sur disque (prévu)
+- `sync.Map` for routing table: atomic updates **with no connection interruption**
+- Network buffer `sync.Pool`: stable P99 under load, reduced GC pressure
+- Configurable Gzip compression
+- Disk proxy cache (planned)
 
-### Sécurité
+### Security
 
-| Fonctionnalité | Détails |
+| Feature | Details |
 |---|---|
-| Filtrage IP/CIDR | Profils intégrés : Cloudflare, Tor, Bogons, plages personnalisées |
-| Géo-IP | Autorisation ou blocage par pays (MaxMind GeoLite2 ; auto-download au démarrage) |
-| Rate limiting | Token bucket par IP ou utilisateur authentifié — champ `key_by` : `ip` (défaut), `jwt_sub`, `jwt_email`, `jwt_claim:<nom>` |
-| Headers de sécurité HTTP | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
-| CORS | Origines, méthodes et en-têtes configurables |
-| Masquage du fingerprint serveur | Suppression des en-têtes révélateurs (`Server`, `X-Powered-By`) |
-| WAF | Moteur natif Go, 13 jeux de règles OWASP CRS-4, inspection requête **et réponse**, detect/block mode, règles custom hot-reload — voir [docs/security.md](security.md#waf-web-application-firewall) |
-| Sentinel | Détection comportementale par IP : fenêtre glissante, ban immédiat sur signal, anti-DDoS global RPS — voir [docs/security.md](security.md#sentinel-moteur-de-détection-comportementale) |
-| Fail2Ban natif Go | Bannissement automatique après N échecs, sans dépendance externe |
-| CrowdSec | Bouncer LAPI stream → bans poussés au Core (403), compatible Docker |
-| Moteur de règles automatiques | Conditions pilotées (CVE critique, pic de bans, moteur silencieux, taux d'erreur, IP récidiviste) → actions (désactiver proxy, bannir IP, alerte, mode strict) ; cooldown, dry-run, historique — voir [docs/security.md](security.md#moteur-de-règles-automatiques) |
+| IP/CIDR filtering | Built-in profiles: Cloudflare, Tor, Bogons, custom ranges |
+| Geo-IP | Allow or block by country (MaxMind GeoLite2; auto-download at startup) |
+| Rate limiting | Token bucket per IP or authenticated user — `key_by` field: `ip` (default), `jwt_sub`, `jwt_email`, `jwt_claim:<name>` |
+| HTTP security headers | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
+| CORS | Configurable origins, methods and headers |
+| Server fingerprint masking | Removal of revealing headers (`Server`, `X-Powered-By`) |
+| WAF | Native Go engine, 13 OWASP CRS-4 rule sets, request **and** response inspection, detect/block mode, custom rules hot-reload — see [docs/security.md](security.md#waf) |
+| Sentinel | Per-IP behavioral detection: sliding window, immediate ban on signal, global anti-DDoS RPS — see [docs/security.md](security.md#sentinel) |
+| Native Go Fail2Ban | Automatic banning after N failures, no external dependency |
+| CrowdSec | LAPI stream bouncer → bans pushed to Core (403), Docker compatible |
+| Automatic rules engine | Event-driven conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP) → actions (disable proxy, ban IP, alert, strict mode); cooldown, dry-run, history — see [docs/security.md](security.md#automatic-rules-engine) |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
-| JWT validation | JWKS (prévue) |
+| JWT validation | JWKS (planned) |
 
-### Pipeline de transformation de requête
+### Request transformation pipeline
 
-Chaque route peut déclarer un bloc `RequestTransform` (UI Admin → proxy → onglet **Transform**) :
+Each route can declare a `RequestTransform` block (Admin UI → proxy → **Transform** tab):
 
-| Champ | Description |
+| Field | Description |
 |---|---|
-| `rewrite_from` / `rewrite_to` | Réécriture de préfixe URL (ex : `/api/v1` → `/v1`) |
-| `add_request_headers` | En-têtes à injecter dans la requête upstream |
-| `remove_request_headers` | En-têtes à supprimer de la requête upstream |
-| `add_response_headers` | En-têtes à injecter dans la réponse cliente |
-| `remove_response_headers` | En-têtes à supprimer de la réponse cliente |
+| `rewrite_from` / `rewrite_to` | URL prefix rewrite (e.g. `/api/v1` → `/v1`) |
+| `add_request_headers` | Headers to inject into the upstream request |
+| `remove_request_headers` | Headers to strip from the upstream request |
+| `add_response_headers` | Headers to inject into the client response |
+| `remove_response_headers` | Headers to strip from the client response |
 
-Le middleware s'applique en premier dans la chaîne, avant le WAF et le routage upstream. Hot-reload sans redémarrage du Core.
+The middleware applies first in the chain, before WAF and upstream routing. Hot-reload without Core restart.
 
-### Tunnel L4 mTLS Core↔Core
+### L4 mTLS Core↔Core tunnel
 
-Le package `internal/core/tunnel` fournit un canal TCP chiffré persistant entre deux Cores (trafic L4 inter-datacenter, relay de backends inaccessibles depuis le Core d'entrée).
+The `internal/core/tunnel` package provides a persistent encrypted TCP channel between two Cores (inter-datacenter L4 traffic, relay for backends unreachable from the entry Core).
 
-**Architecture :**
+**Architecture:**
 ```
-Core A (client)          Core B (serveur)
+Core A (client)          Core B (server)
    │                          │
    ├─ mTLS TLS 1.3 ──────────▶│:9443
-   │   CONNECT-like :          │
+   │   CONNECT-like:           │
    │   "host:port\n"  ──────▶  │ dial TCP target
-   │   ◀── "OK\n"              │ pipe bidirectionnel
-   │   [flux L4]     ◁────────▶│
+   │   ◀── "OK\n"              │ bidirectional pipe
+   │   [L4 stream]   ◁────────▶│
 ```
 
-- **Manager** (côté client) : pool de pairs `PeerConfig{Name, Addr, CACert, CertPEM, KeyPEM}`, reconnexion automatique, failover vers les autres pairs enregistrés
-- **Serve** (côté serveur) : listener mTLS `RequireAndVerifyClientCert`, TLS 1.3 min, protocole CONNECT-like sur une ligne ASCII
-- Utilisation : `Manager.Dial(peerName, targetAddr)` retourne un `net.Conn` prêt à l'emploi pour le proxy ou l'accès L4
+- **Manager** (client side): peer pool `PeerConfig{Name, Addr, CACert, CertPEM, KeyPEM}`, automatic reconnect, failover to other registered peers
+- **Serve** (server side): mTLS listener `RequireAndVerifyClientCert`, TLS 1.3 min, CONNECT-like protocol on one ASCII line
+- Usage: `Manager.Dial(peerName, targetAddr)` returns a ready-to-use `net.Conn` for proxying or L4 access
 
-### Résilience
+### Resilience
 
-- **Load balancing** : Round Robin, Weighted, **Adaptatif** (CPU×0.5 + mem×0.3 + IO disque×0.2 via métriques Agent WS)
-- **Health checks actifs configurables** : `HealthCheckConfig` par route — `path`, `interval`, `timeout`, `healthy_threshold`, `unhealthy_threshold` ; `StartChecksFromRoutes` remplace l'appel global à intervalle fixe
-- **Failover** : quarantaine courte + essai du backend suivant sur échec dial/proxy
-- **Circuit Breaker** : thread-safe (mutex), `RecordSuccess`/`RecordFailure` appelés depuis le handler après chaque tentative ; isolation automatique des backends défaillants
-- **Retry policy** avec backoff exponentiel configurable
-- **Sticky sessions** par cookie
-- **Timeouts serveur configurables** : `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurables depuis l'Admin (Sécurité > Paramètres serveur) et propagés aux Cores via WebSocket
+- **Load balancing**: Round Robin, Weighted, **Adaptive** (CPU×0.5 + mem×0.3 + disk IO×0.2 via Agent WS metrics)
+- **Configurable active health checks**: `HealthCheckConfig` per route — `path`, `interval`, `timeout`, `healthy_threshold`, `unhealthy_threshold`; `StartChecksFromRoutes` replaces the global fixed-interval call
+- **Failover**: short quarantine + try next backend on dial/proxy failure
+- **Circuit Breaker**: thread-safe (mutex), `RecordSuccess`/`RecordFailure` called from handler after each attempt; automatic isolation of failing backends
+- **Retry policy** with configurable exponential backoff
+- **Sticky sessions** via cookie
+- **Configurable server timeouts**: `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurable from Admin (Security > Server settings) and propagated to Cores via WebSocket
 
-### Observabilité
+### Observability
 
-- **Access log JSON asynchrone** : IP client, domaine, méthode, code HTTP, durée, upstream, version HTTP
-- **System log JSON structuré** pour tous les composants, avec rotation
-- **Métriques Prometheus** exposées sur `/metrics` — instrumentation complète de tous les services : `gpx_core_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — voir `docs/services.md`
-- **Tracing OpenTelemetry** (prévu)
-- **Audit log JSON** : traçabilité de toutes les opérations
+- **Async JSON access log**: client IP, domain, method, HTTP code, duration, upstream, HTTP version
+- **Structured JSON system log** for all components, with rotation
+- **Prometheus metrics** exposed on `/metrics` — full instrumentation of all services: `gpx_core_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — see `docs/services.md`
+- **OpenTelemetry tracing** (planned)
+- **JSON audit log**: full traceability of all operations
 
-### GoProxify Access (portail SSH / shell)
+### GoProxify Access (SSH / shell portal)
 
-Portail opérateur servi par le **Core** (pas l'Admin) :
+Operator portal served by the **Core** (not Admin):
 
-- **Dual façade** : terminal web (xterm.js) + client `ssh` standard avec jeton UUID (`ssh -p 2222 <uuid>@<core>`)
-- **Cibles** : VM / bare-metal (`sshd`) ou conteneurs Docker (`docker exec` via Agent)
-- **Coffre** : login SSH + mot de passe ou clé privée, chiffrés sur le Core (jamais exposés à l'Admin)
-- **2FA** optionnelle (TOTP / OTP email) ; sessions TTL / one-shot / révocation ; audit métadonnées
-- Config & catalogue poussés depuis l'Admin (voir §3)
+- **Dual façade**: web terminal (xterm.js) + standard `ssh` client with UUID token (`ssh -p 2222 <uuid>@<core>`)
+- **Targets**: VM / bare-metal (`sshd`) or Docker containers (`docker exec` via Agent)
+- **Vault**: SSH login + password or private key, encrypted on the Core (never exposed to Admin)
+- Optional **2FA** (TOTP / OTP email); TTL / one-shot sessions / revocation; metadata audit
+- Config & catalogue pushed from Admin (see §3)
 
 ---
 
-## 3. Administration — Control Plane
+## 3. Admin — Control Plane
 
-### Premier démarrage
+### First start
 
-- Détection automatique de l'absence de base SQLite au premier lancement
-- **Écran d'initialisation guidé** : saisie de l'email et du mot de passe administrateur
-- Génération de la clé ECDSA P-256 pour la signature des tokens JWT
+- Automatic detection of missing SQLite database on first launch
+- **Guided initialization screen**: enter administrator email and password
+- Generation of ECDSA P-256 key for JWT token signing
 
-### API REST
+### REST API
 
-Endpoints sur `:9443` — deux familles :
+Endpoints on `:9443` — two families:
 
-- `/api/v1/` — authentification session JWT (administrateurs humains) **ou** PAT `gpx_pat_*`
-- `/internal/v1/` — authentification par token d'appairage (Cores et Agents, rétrocompat)
+- `/api/v1/` — session JWT authentication (human administrators) **or** PAT `gpx_pat_*`
+- `/internal/v1/` — pairing token authentication (Cores and Agents, backward compat)
 
-| Ressource | Opérations |
+| Resource | Operations |
 |---|---|
-| Proxies (HTTP, TCP, UDP) | CRUD complet + push immédiat vers le(s) Core(s) |
-| Utilisateurs | Création, modification, suppression, réinitialisation mot de passe |
-| Équipes | Organisation des accès par scope |
-| Tokens d'appairage | Génération, liste, révocation (`gpx_core_*`, `gpx_join_*`) |
-| Tokens API utilisateur (PAT) | Self-service `/api/v1/me/tokens` — scopes ressource, expiration optionnelle |
-| Snippets | Profils réutilisables : IP, TLS, CORS, rate-limit, auth providers, DNS providers |
-| Nœuds | Enregistrement, état du cluster, accept/reject pending |
-| Agents | Liste, approbation / révocation (workflow pending → approved) |
-| Declared / bootstrap | Nœuds déclarés wizard ; tickets QR `/i/{token}` + `curl|bash` |
-| Domaines | Apex / wildcards, Core d'entrée, ACME DNS, **délégation** Passthrough ou Terminate vers un autre Core |
-| Sécurité | Bans, menaces CrowdSec, CVE, Fail2Ban, overview |
-| Access | Catalogue destinations, users invite SMTP, templates HTML, options portail par Core, audit |
+| Proxies (HTTP, TCP, UDP) | Full CRUD + immediate push to Core(s) |
+| Users | Create, edit, delete, password reset |
+| Teams | Access organization by scope |
+| Pairing tokens | Generate, list, revoke (`gpx_core_*`, `gpx_join_*`) |
+| User API tokens (PAT) | Self-service `/api/v1/me/tokens` — resource scopes, optional expiry |
+| Snippets | Reusable profiles: IP, TLS, CORS, rate-limit, auth providers, DNS providers |
+| Nodes | Registration, cluster state, accept/reject pending |
+| Agents | List, approve / revoke (pending → approved workflow) |
+| Declared / bootstrap | Wizard declared nodes; QR tickets `/i/{token}` + `curl|bash` |
+| Domains | Apex / wildcards, entry Core, ACME DNS, **delegation** Passthrough or Terminate to another Core |
+| Security | Bans, CrowdSec threats, CVE, Fail2Ban, overview |
+| Access | Destination catalogue, SMTP user invite, HTML templates, portal options per Core, audit |
 
-### Serveur MCP
+### MCP server
 
-Endpoint `https://<admin>:9443/mcp` — protocole MCP `2025-03-26`, JSON-RPC 2.0 + SSE.
+Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 + SSE.
 
-- **Auth :** PAT uniquement (`Authorization: Bearer gpx_pat_…`) — le JWT de session UI est refusé
-- **Scopes :** chaque outil exige un scope (`proxies:read|write|delete`, `nodes:read|write`, `audit:read` pour la sécurité, `portal:read|write` pour Access, …) ∩ droits courants du compte
-- **Lecture :** proxies, nœuds, agents, declared-nodes, alertes, métriques, backups, users, snippets, domaines, certs, logs, teams, audit, bans / menaces / CVE, alert channels/rules, auth providers, IP profiles, Access (config, catalogue, users, templates, audit)
-- **Écriture :** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `create_auth_provider`, `delete_auth_provider`, `create_ip_profile`, `delete_ip_profile`, `create_snippet`, `delete_snippet`, `create_domain`, `renew_domain`, `obtain_cert`, outils Access (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
-- Documentation : [docs/mcp.md](mcp.md)
+- **Auth:** PAT only (`Authorization: Bearer gpx_pat_…`) — UI session JWT is rejected
+- **Scopes:** each tool requires a scope (`proxies:read|write|delete`, `nodes:read|write`, `audit:read` for security, `portal:read|write` for Access, …) ∩ current account rights
+- **Read:** proxies, nodes, agents, declared-nodes, alerts, metrics, backups, users, snippets, domains, certs, logs, teams, audit, bans / threats / CVE, alert channels/rules, auth providers, IP profiles, Access (config, catalogue, users, templates, audit)
+- **Write:** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `create_auth_provider`, `delete_auth_provider`, `create_ip_profile`, `delete_ip_profile`, `create_snippet`, `delete_snippet`, `create_domain`, `renew_domain`, `obtain_cert`, Access tools (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
+- Documentation: [docs/mcp.md](mcp.md)
 
-### Wizard architecture
+### Architecture wizard
 
-L’entrée **Infrastructure → + Ajouter** ouvre une **toile d’architecture** (hôtes + palette) : placement Core / Agent / Admin, options Access / Portainer / K8s, multi-Core et groupe HA. Pour chaque hôte, packs install collables + ticket bootstrap (QR / lien `/i/{token}` / `curl|bash`) ancré au Core. Les nœuds déclarés depuis la toile peuvent être **auto-acceptés** à la connexion. Voir le plan `docs/plans/2026-08-09-001-feat-architecture-wizard-qr-plan.md`.
+The **Infrastructure → + Add** entry opens an **architecture canvas** (hosts + palette): Core / Agent / Admin placement, Access / Portainer / K8s options, multi-Core and HA groups. For each host, copy-paste install packs + bootstrap ticket (QR / `/i/{token}` link / `curl|bash`) anchored to the Core. Nodes declared from the canvas can be **auto-accepted** on connection.
 
-### Délégation multi-Core
+### Multi-Core delegation
 
-Un domaine peut être **délégué** : le Core d'entrée (DNS / IP publique) transfère le trafic vers un Core cible.
+A domain can be **delegated**: the entry Core (DNS / public IP) forwards traffic to a target Core.
 
-| Mode | Comportement | IP client sur le Core cible |
+| Mode | Behavior | Client IP on target Core |
 |---|---|---|
-| **Passthrough** | Tunnel TLS brut (SNI) | IP du Core d'entrée |
-| **Terminate** | TLS terminé à l'entrée + proxy HTTP(S) + `X-Forwarded-For` | IP publique (si vue par l'entrée) |
+| **Passthrough** | Raw TLS tunnel (SNI) | Entry Core's IP |
+| **Terminate** | TLS terminated at entry + HTTP(S) proxy + `X-Forwarded-For` | Public IP (if seen by entry) |
 
-Documentation détaillée : [delegation.md](delegation.md).
+Detailed documentation: [delegation.md](delegation.md).
 
-### Plan de contrôle WebSocket
+### WebSocket control plane
 
-L'Administration maintient une **connexion WS persistante** vers chaque Core enregistré (Admin→Core). Cette connexion remplace les appels HTTP push vers `/internal/v1/*` :
+Admin maintains a **persistent WS connection** to each registered Core (Admin→Core). This connection replaces HTTP push calls to `/internal/v1/*`:
 
-- **Reconnexion automatique** : backoff exponentiel 1 s → 60 s + jitter
-- **Full-sync à la reconnexion** : état complet renvoyé automatiquement
-- **Queue de messages** : les messages émis pendant une déconnexion sont mis en attente et livrés à la reconnexion
-- **Propagation immédiate** : tout changement de config est envoyé en temps réel au Core concerné
+- **Automatic reconnect**: exponential backoff 1s → 60s + jitter
+- **Full-sync on reconnect**: complete state automatically resent
+- **Message queue**: messages emitted during a disconnect are queued and delivered on reconnect
+- **Immediate propagation**: any config change is sent in real time to the affected Core
 
-### Approbation des Agents
+### Agent approval
 
-Les Agents qui se connectent pour la première fois via `JOIN_TOKEN` apparaissent en statut `pending`. L'opérateur approuve via l'UI ou l'API (`POST /api/v1/agents/:id/approve`). Le Core envoie immédiatement le premier `agent_hmac` via WS.
+Agents connecting for the first time via `JOIN_TOKEN` appear in `pending` status. The operator approves via UI or API (`POST /api/v1/agents/:id/approve`). The Core immediately sends the first `agent_hmac` via WS.
 
-### Gestion TLS / ACME DNS-01
+### TLS / ACME DNS-01 management
 
-- Émission de **certificats wildcard Let's Encrypt** via le challenge DNS-01
-- Fournisseurs DNS supportés : **OVH, Cloudflare, Gandi, Route53, Hetzner**
-- Renouvellement automatique 30 jours avant expiration
-- Push des certificats décodés au Core en RAM uniquement (jamais sur disque côté Core)
+- **Wildcard Let's Encrypt certificates** via DNS-01 challenge
+- Supported DNS providers: **OVH, Cloudflare, Gandi, Route53, Hetzner**
+- Automatic renewal 30 days before expiry
+- Push decoded certificates to Core in RAM only (never on disk on Core side)
 
 ### Certificate Hub (v0.8)
 
-Suite de fonctionnalités autour du cycle de vie des certificats TLS.
+Feature suite around the TLS certificate lifecycle.
 
-**Monitoring ACME**
-- Dashboard `/acme-monitor` : statut par cert (`ok` / `warning ≤30j` / `critical ≤7j` / `expired`), KPIs globaux, bouton de renouvellement inline
-- Alertes automatiques : `cert_expiring_soon` (warning ≤30j, critical ≤7j) émises vers le moteur d'alertes existant
-- **Multi-fournisseurs DNS** : gestion de plusieurs providers nommés (ex: `cloudflare-prod`, `ovh-zone2`) via la section "DNS Providers" de la page Monitoring ACME ; chaque provider a un type (`cloudflare`, `ovh`, `gandi`, `hetzner`, `route53`) et des credentials JSON ; CRUD complet via `/api/v1/acme/providers`
+**ACME monitoring**
+- `/acme-monitor` dashboard: status per cert (`ok` / `warning ≤30d` / `critical ≤7d` / `expired`), global KPIs, inline renewal button
+- Automatic alerts: `cert_expiring_soon` (warning ≤30d, critical ≤7d) emitted to the existing alert engine
+- **Multi-DNS providers**: manage multiple named providers (e.g. `cloudflare-prod`, `ovh-zone2`) via the "DNS Providers" section of the ACME Monitoring page; each provider has a type (`cloudflare`, `ovh`, `gandi`, `hetzner`, `route53`) and JSON credentials; full CRUD via `/api/v1/acme/providers`
 
-**Import de certificats externes**
-- `POST /api/v1/certs/import` : upload PEM + clé privée — domaine extrait automatiquement du SAN/CN, upsert en DB, push temps-réel aux Cores
-- Interface modale dans la page `acme-monitor`
+**External certificate import**
+- `POST /api/v1/certs/import`: PEM + private key upload — domain auto-extracted from SAN/CN, upserted in DB, real-time push to Cores
+- Modal interface in the `acme-monitor` page
 
 **Deploy Hub**
-- **Deploy targets** : webhook (POST HMAC-SHA256 signé) ou `ssh_exec` (script exécuté sur la machine cible avec `GPX_CERT_PEM / GPX_KEY_PEM / GPX_DOMAIN`)
-- Déclenchement automatique à chaque renouvellement ACME + déclenchement manuel
-- Historique d'audit par target (`cert_deploy_history`)
-- Alerte `cert_deploy_failed` en cas d'échec
+- **Deploy targets**: webhook (POST HMAC-SHA256 signed) or `ssh_exec` (script executed on target machine with `GPX_CERT_PEM / GPX_KEY_PEM / GPX_DOMAIN`)
+- Automatic trigger on each ACME renewal + manual trigger
+- Audit history per target (`cert_deploy_history`)
+- `cert_deploy_failed` alert on failure
 
 **Pull tokens**
-- Tokens sécurisés (HMAC-SHA256, TTL, max_uses) pour téléchargement en pull via `curl`
-- 7 formats de sortie : `pem`, `key`, `fullchain`, `der`, `der_key`, `pkcs12` (password), `json`
-- Endpoint public `GET /api/v1/cert-bundle?token=…&format=…`
+- Secure tokens (HMAC-SHA256, TTL, max_uses) for pull download via `curl`
+- 7 output formats: `pem`, `key`, `fullchain`, `der`, `der_key`, `pkcs12` (password), `json`
+- Public endpoint `GET /api/v1/cert-bundle?token=…&format=…`
 
-### Alerting granulaire
+### Granular alerting
 
-Modèle inspiré d'Alertmanager : chaque règle définit indépendamment son scope, ses déclencheurs et ses canaux. Un même événement peut notifier plusieurs équipes sur des canaux différents.
+Alertmanager-inspired model: each rule independently defines its scope, triggers and channels. The same event can notify multiple teams on different channels.
 
-**Scope d'une règle** :
-- Node(s) ciblé(s)
-- Pattern de domaine (glob : `infra.*.fr`, `*.prod.*`)
-- Équipe(s)
-- Composant (`core` / `agent` / `admin`)
-- Sévérité minimale (`info` / `warning` / `critical`)
+**Rule scope**:
+- Target node(s)
+- Domain pattern (glob: `infra.*.com`, `*.prod.*`)
+- Team(s)
+- Component (`core` / `agent` / `admin`)
+- Minimum severity (`info` / `warning` / `critical`)
 
-**Déclencheurs configurables** :
-- Node Core/Agent hors ligne
-- Certificat expirant dans < N jours
-- CVE détectée sur un backend
-  - Le scanner HTTP refuse par défaut les cibles privées (RFC1918/ULA), localhost et metadata cloud (anti-SSRF). Pour scanner des backends Docker/LAN : `GPX_VULNSCAN_ALLOW_PRIVATE=true` sur l’Admin, ou via le toggle dans l’UI Admin (Sécurité > Scanner CVE, accès administrateurs uniquement).
-- Nouveau ban Fail2Ban (seuil : N bans/heure)
-- Décision CrowdSec critique
-- Modification de configuration sensible
-- Échec de sauvegarde planifiée
-- Taux d'erreurs HTTP > seuil sur un proxy
-- Latence P95 > seuil sur un proxy
-- N tentatives de connexion admin échouées
+**Configurable triggers**:
+- Core/Agent node offline
+- Certificate expiring in < N days
+- CVE detected on a backend
+  - The HTTP scanner rejects private targets (RFC1918/ULA), localhost and cloud metadata by default (anti-SSRF). To scan Docker/LAN backends: `GPX_VULNSCAN_ALLOW_PRIVATE=true` on Admin, or via the toggle in Admin UI (Security > CVE Scanner, admin-only access).
+- New Fail2Ban ban (threshold: N bans/hour)
+- Critical CrowdSec decision
+- Sensitive configuration change
+- Scheduled backup failure
+- HTTP error rate > threshold on a proxy
+- P95 latency > threshold on a proxy
+- N failed admin login attempts
 
-**Qualité de service** : anti-spam par rate limiting par déclencheur, regroupement d'alertes similaires (cooldown configurable).
+**Quality of service**: anti-spam rate limiting per trigger, grouping of similar alerts (configurable cooldown).
 
-### Sauvegardes planifiées
+### Scheduled backups
 
-- **Core** : snapshot de la table de routage (JSON), versioning par proxy, historique navigable, retour arrière par proxy
-- **Administration** : dump JSON (utilisateurs, équipes, métadonnées tokens sans secrets, snippets) ; secrets rédigés ; chiffrement AES-GCM optionnel via `GPX_BACKUP_KEY`
-- Planification **cron configurable**, rétention configurable (nombre de snapshots)
-- Restauration avec prévisualisation des différences avant application
-- CLI : `goproxify backup create/list/restore`
+- **Core**: routing table snapshot (JSON), per-proxy versioning, navigable history, per-proxy rollback
+- **Admin**: JSON dump (users, teams, token metadata without secrets, snippets); secrets redacted; optional AES-GCM encryption via `GPX_BACKUP_KEY`
+- **Configurable cron** scheduling, configurable retention (number of snapshots)
+- Restore with diff preview before applying
+- CLI: `goproxify backup create/list/restore`
 
-### Import de configurations tierces
+### Third-party config import
 
-Détection automatique du format source. Deux modes : coller le contenu ou importer un/plusieurs fichiers. Prévisualisation avant validation, import partiel possible.
+Automatic source format detection. Two modes: paste content or import one or more files. Preview before validation, partial import possible.
 
-Formats supportés : nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels, Caddy, Zoraxy, BunkerWeb, CSV, JSON natif GoProxify.
+Supported formats: nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels, Caddy, Zoraxy, BunkerWeb, CSV, GoProxify native JSON.
 
-### Mise à jour coordonnée du cluster
+### Coordinated cluster update
 
-- Détection des incohérences de versions entre nœuds (via heartbeat)
-- Alerte si des Cores ou Agents tournent sur des versions différentes
-- Déclenchement depuis l'UI (par nœud ou tout le cluster) ou via CLI
-- Mise à jour progressive configurable (un nœud à la fois, validation entre chaque)
-- Rollback cluster orchestré depuis l'Administration
+- Version inconsistency detection between nodes (via heartbeat)
+- Alert if Cores or Agents run different versions
+- Triggered from UI (per node or entire cluster) or via CLI
+- Configurable rolling update (one node at a time, validation between each)
+- Cluster rollback orchestrated from Admin
 
-### Interface Web
+### Web interface
 
-- Dashboard : état du cluster, métriques temps réel
-- Vue liste unifiée des proxies (HTTP/HTTPS + TCP + UDP) — labels Docker grisés en lecture seule
-- Formulaire création/édition adaptatif selon le type de proxy
-- Générateur de labels Docker Compose interactif (HTTP, TCP, UDP)
-- Gestion certificats TLS, snippets, tokens, utilisateurs, équipes
-- Intégration : Prism (analyse trafic), Dashboard Sécurité, Sauvegardes, Import
-- **Logs** : vue agrégée (access + system + audit), filtres, pagination, mode live via WebSocket
-- **Prism** : KPIs, courbes temporelles, carte GeoIP, codes HTTP, top IPs/chemins/référents, exports CSV/JSON/HTML/PDF
+- Dashboard: cluster state, real-time metrics
+- Unified proxy list view (HTTP/HTTPS + TCP + UDP) — Docker labels greyed out read-only
+- Adaptive create/edit form by proxy type
+- Interactive Docker Compose label generator (HTTP, TCP, UDP)
+- TLS certificate, snippet, token, user, team management
+- Integrations: Prism (traffic analysis), Security dashboard, Backups, Import
+- **Logs**: aggregated view (access + system + audit), filters, pagination, live mode via WebSocket
+- **Prism**: KPIs, time series, GeoIP map, HTTP codes, top IPs/paths/referrers, CSV/JSON/HTML/PDF exports
 
 ---
 
 ## 4. Agent — Discovery & Telemetry
 
-### Découverte Docker
+### Docker discovery
 
-- Écoute des événements Docker via socket Unix (`/var/run/docker.sock`, monté en lecture seule)
-- Détection des labels `goproxify.*` sur les conteneurs au démarrage et en temps réel (start/stop/die)
-- Connexion **à chaud** du Core au réseau bridge Docker privé de l'application (les apps n'exposent aucun port sur l'hôte)
-- Transmission de la configuration réseau à l'Administration (token validé)
-- Proxies découverts marqués `source: "label"` → lecture seule dans l'UI
+- Listens to Docker events via Unix socket (`/var/run/docker.sock`, mounted read-only)
+- Detects `goproxify.*` labels on containers at startup and in real time (start/stop/die)
+- **Hot-connects** the Core to the application's private Docker bridge network (apps expose no port on the host)
+- Transmits network configuration to Admin (validated token)
+- Discovered proxies marked `source: "label"` → read-only in UI
 
-### Labels Docker supportés
+### Supported Docker labels
 
-> Référence complète : [docs/labels.md](labels.md)
+> Full reference: [docs/labels.md](labels.md)
 
-Exemples essentiels :
+Key examples:
 
 ```yaml
 goproxify.enable: "true"
-goproxify.host: "app.example.fr"
+goproxify.host: "app.example.com"
 goproxify.port: "3000"
 goproxify.tls: "true"
 goproxify.waf: "block"
@@ -321,15 +321,15 @@ goproxify.canary: "true"
 goproxify.canary.weight: "10"
 ```
 
-### Découverte Kubernetes
+### Kubernetes discovery
 
-Symétriquement au mode Docker, l'Agent peut découvrir les ressources Kubernetes annotées :
+Symmetrically to Docker mode, the Agent can discover annotated Kubernetes resources:
 
-- Scrute les ressources `Ingress` et `Service` portant les annotations `goproxify.*`
-- Même sémantique d'annotations que les labels Docker (`goproxify.enable`, `goproxify.host`, `goproxify.port`, etc.)
-- Proxies créés en lecture seule dans l'UI (source `k8s`)
-- Nécessite un `ServiceAccount` avec accès `get/watch/list` sur `ingresses` et `services`
-- Compatible avec les déploiements Kubernetes multi-namespaces ; namespace ciblé configurable dans `agent.json`
+- Watches `Ingress` and `Service` resources carrying `goproxify.*` annotations
+- Same annotation semantics as Docker labels (`goproxify.enable`, `goproxify.host`, `goproxify.port`, etc.)
+- Proxies created read-only in UI (source `k8s`)
+- Requires a `ServiceAccount` with `get/watch/list` access on `ingresses` and `services`
+- Compatible with multi-namespace Kubernetes deployments; target namespace configurable in `agent.json`
 
 ```json
 {
@@ -341,222 +341,222 @@ Symétriquement au mode Docker, l'Agent peut découvrir les ressources Kubernete
 }
 ```
 
-### Auto-scaling horizontal
+### Horizontal auto-scaling
 
-- Déclencheurs configurables : CPU conteneur (télémétrie Agent) et/ou taux de requêtes / latence P95 (métriques Core)
-- Décision coordonnée par l'Administration (règles min/max instances)
-- Création/suppression d'instances via `docker compose up --scale` ou `docker run`
-- Ajout à chaud dans la table de routage du Core sans interruption
-- Compatible load balancing resource-weighted adaptatif
-- Cooldown configurable entre deux décisions (anti-flapping)
+- Configurable triggers: container CPU (Agent telemetry) and/or request rate / P95 latency (Core metrics)
+- Coordinated decision by Admin (min/max instance rules)
+- Instance creation/deletion via `docker compose up --scale` or `docker run`
+- Hot-add to Core routing table without interruption
+- Compatible with resource-weighted adaptive load balancing
+- Configurable cooldown between decisions (anti-flapping)
 
 ### Health escalation
 
-Logique de récupération progressive pour les conteneurs `unhealthy` :
+Progressive recovery logic for `unhealthy` containers:
 
-1. **Restart simple** (`docker restart`)
-2. **Recreate** si toujours unhealthy après délai configurable (`docker rm` + `docker run`)
-3. **Rollback** vers l'image précédente
-4. **Quarantaine** : retrait du pool de load balancing + alerte opérateur
+1. **Simple restart** (`docker restart`)
+2. **Recreate** if still unhealthy after configurable delay (`docker rm` + `docker run`)
+3. **Rollback** to previous image
+4. **Quarantine**: removal from LB pool + operator alert
 
-Délais et seuils configurables par conteneur via labels `goproxify.healthcheck.*`.
+Delays and thresholds configurable per container via `goproxify.healthcheck.*` labels.
 
-### Gestion du cycle de vie des images
+### Image lifecycle management
 
-- Détection de mises à jour disponibles (comparaison digest local vs registre)
-- Stratégies par conteneur : `auto`, `scheduled` (cron), `manual`
-- Pull + recréation sans interruption si plusieurs réplicas
-- Rollback automatique si le conteneur ne repasse pas `healthy` dans le délai configuré
-- Prune optionnel après mise à jour réussie
+- Detection of available updates (local vs registry digest comparison)
+- Per-container strategies: `auto`, `scheduled` (cron), `manual`
+- Pull + recreate without interruption if multiple replicas
+- Automatic rollback if container does not return `healthy` within configured delay
+- Optional prune after successful update
 
 ### Log forwarding
 
-- Collecte des logs des conteneurs labellisés (`docker logs --follow`) en opt-in (`goproxify.logs: "true"`)
-- Streaming en temps réel vers l'Administration
-- Corrélation avec les logs Core/Agent/Admin dans la vue Logs
-- Rotation et rétention configurables par conteneur
+- Collection of labelled container logs (`docker logs --follow`) opt-in (`goproxify.logs: "true"`)
+- Real-time streaming to Admin
+- Correlation with Core/Agent/Admin logs in Logs view
+- Configurable rotation and retention per container
 
-### Télémétrie système
+### System telemetry
 
-- Lecture de `/proc/stat` et `/proc/meminfo`
-- Export Prometheus sur `:9191/metrics`
-- Données utilisées par le load balancing adaptatif du Core (host + conteneurs via WS)
+- Reads `/proc/stat` and `/proc/meminfo`
+- Prometheus export on `:9191/metrics`
+- Data used by Core adaptive load balancing (host + containers via WS)
 
-### Connectivité WS persistante
+### Persistent WS connectivity
 
-L'Agent maintient une **connexion WS persistante** vers le Core (Agent→Core). Cette connexion :
+Agent maintains a **persistent WS connection** to the Core (Agent→Core). This connection:
 
-- **Remplace le heartbeat HTTP 30 s** : heartbeat envoyé via WS si connecté, HTTP en fallback
-- **Transmet les conteneurs découverts** en temps réel via message `containers`
-- **Streame les métriques** par conteneur (CPU, mém, latence) via message `metrics` toutes les 10 s
-- **Envoie les événements** de cycle de vie (start, stop, scale, die) via message `event`
-- **Reconnexion automatique** : backoff exponentiel 1 s → 60 s + jitter
-- L'Agent n'expose **aucun port entrant** pour le plan de contrôle
+- **Replaces the HTTP 30s heartbeat**: heartbeat sent via WS if connected, HTTP as fallback
+- **Transmits discovered containers** in real time via `containers` message
+- **Streams per-container metrics** (CPU, mem, latency) via `metrics` message every 10s
+- **Sends lifecycle events** (start, stop, scale, die) via `event` message
+- **Automatic reconnect**: exponential backoff 1s → 60s + jitter
+- The Agent exposes **no inbound port** for the control plane
 
-**Authentification :**
-1. Premier démarrage : `JOIN_TOKEN` (TTL 24 h) → état `pending`
-2. Après approbation Admin : `agent_hmac` rotatif (rotation automatique toutes les heures)
+**Authentication:**
+1. First start: `JOIN_TOKEN` (TTL 24h) → `pending` state
+2. After Admin approval: rotating `agent_hmac` (automatic rotation every hour)
 
-### LB Adaptatif
+### Adaptive LB
 
-Les métriques Docker (**CPU**, **mémoire**, **IO disque**) des conteneurs `goproxify.enable` sont streamées au Core toutes les **10 s** via WS (`metrics`). Score par IP :
+Docker metrics (**CPU**, **memory**, **disk IO**) of `goproxify.enable` containers are streamed to the Core every **10s** via WS (`metrics`). Score per IP:
 
-`cpu×0.5 + mem×0.3 + disk_io×0.2` — le backend au score le plus bas reçoit la requête.
+`cpu×0.5 + mem×0.3 + disk_io×0.2` — lowest score backend receives the request.
 
-- **Pool local** : plusieurs conteneurs avec le même `goproxify.host` → une route `docker-host:…` multi-backends.
-- **Failover** : échec proxy → quarantaine ~15 s → essai d’un autre backend du pool (pas de 502 tant qu’il en reste un sain).
-- **Cross-Core** : si le même host est découvert sur Core A et Core B, sync des peers + tunnel `gateway/tunnel` vers l’IP distante via le Core propriétaire (voir [architecture.md](architecture.md#load-balancing-adaptatif)).
+- **Local pool**: multiple containers with the same `goproxify.host` → one `docker-host:…` multi-backend route.
+- **Failover**: proxy failure → ~15s quarantine → try another pool backend (no 502 as long as one healthy remains).
+- **Cross-Core**: if the same host is discovered on Core A and Core B, peer sync + `gateway/tunnel` tunnel to the remote IP via the owner Core (see [architecture.md](architecture.md#adaptive-load-balancing)).
 
-Latence P95 / error_rate : champs prévus dans le payload, non utilisés dans le score v1.
+P95 latency / error_rate: fields planned in payload, not used in v1 score.
 
-### Canary et Shadow Mirror
+### Canary and Shadow Mirror
 
-Configuration **manuelle** sur le proxy (UI / API) : `CanaryConfig` (poids %, header, cookie) et `ShadowConfig` (miroir fire-and-forget).
+**Manual** configuration on the proxy (UI / API): `CanaryConfig` (weight %, header, cookie) and `ShadowConfig` (fire-and-forget mirror).
 
-Labels Docker `goproxify.canary` / `goproxify.shadow` : détection automatique via la discovery Agent — le Core active `CanaryConfig` / `ShadowConfig` sur la route `docker-host:` sans config manuelle. Le conteneur canary/shadow reste hors du pool LB (même `goproxify.host` que les backends normaux).
+Docker labels `goproxify.canary` / `goproxify.shadow`: automatic detection via Agent discovery — the Core activates `CanaryConfig` / `ShadowConfig` on the `docker-host:` route without manual config. The canary/shadow container stays outside the LB pool (same `goproxify.host` as normal backends).
 
-### Connectivité réseau
+### Network connectivity
 
-- Tunnels **WireGuard** optionnels pour la communication inter-nœuds (port `:51820` UDP)
+- Optional **WireGuard** tunnels for inter-node communication (port `:51820` UDP)
 
 ---
 
-## 5. Canaux d'alerte
+## 5. Alert channels
 
-Tous les canaux sont cumulables dans une même règle.
+All channels can be combined in the same rule.
 
-| Canal | Description |
+| Channel | Description |
 |---|---|
-| **Email** | SMTP configurable, notification directe aux opérateurs |
-| **Webhook** | Webhook générique — compatible Slack, Discord, Teams, n8n, etc. |
-| **ntfy.sh** | Push mobile, instance self-hosted ou publique |
-| **Gotify** | Push mobile, self-hosted |
-| **Jira** | Création automatique d'issue dans un projet Jira |
-| **Linear** | Création automatique d'issue dans Linear |
-| **GitHub Issues** | Ouverture d'issue dans un dépôt GitHub |
-| **GitLab Issues** | Ouverture d'issue dans un projet GitLab |
-| **Zammad** | Création de ticket dans le système de ticketing open-source Zammad |
-| **GLPI** | Création de ticket via l'API REST de GLPI |
+| **Email** | Configurable SMTP, direct notification to operators |
+| **Webhook** | Generic webhook — compatible with Slack, Discord, Teams, n8n, etc. |
+| **ntfy.sh** | Mobile push, self-hosted or public instance |
+| **Gotify** | Mobile push, self-hosted |
+| **Jira** | Automatic issue creation in a Jira project |
+| **Linear** | Automatic issue creation in Linear |
+| **GitHub Issues** | Issue opened in a GitHub repository |
+| **GitLab Issues** | Issue opened in a GitLab project |
+| **Zammad** | Ticket creation in the Zammad open-source ticketing system |
+| **GLPI** | Ticket creation via the GLPI REST API |
 
-Chaque canal dispose d'un bouton "Tester" dans l'interface d'administration.
+Each channel has a "Test" button in the admin interface.
 
 ---
 
-## 6. Import de configurations
+## 6. Config import
 
 | Format | Notes |
 |---|---|
-| **nginx** | Blocs `server {}` |
-| **HAProxy** | Sections `frontend` / `backend` |
-| **Traefik YAML** | Routes, middlewares, configuration TLS |
-| **Traefik TOML** | Équivalent TOML |
-| **Traefik Labels** | Guide interactif de conversion vers la config GoProxify |
+| **nginx** | `server {}` blocks |
+| **HAProxy** | `frontend` / `backend` sections |
+| **Traefik YAML** | Routes, middlewares, TLS configuration |
+| **Traefik TOML** | TOML equivalent |
+| **Traefik Labels** | Interactive conversion guide to GoProxify config |
 | **Caddy** | Caddyfile |
-| **Zoraxy** | JSON natif Zoraxy |
-| **BunkerWeb** | Configuration BunkerWeb |
-| **CSV** | Colonnes : domaine, backend, options |
-| **JSON** | Format natif GoProxify ou JSON générique |
+| **Zoraxy** | Native Zoraxy JSON |
+| **BunkerWeb** | BunkerWeb configuration |
+| **CSV** | Columns: domain, backend, options |
+| **JSON** | GoProxify native format or generic JSON |
 
 ---
 
 ## 7. CLI
 
 ```
-goproxify <commande> [options]
+goproxify <command> [options]
 ```
 
-| Commande | Rôle |
+| Command | Role |
 |---|---|
-| `admin` | Démarre l’Administration (Control Plane + Web UI) |
-| `core` | Démarre le Core (Data Plane — Reverse Proxy) |
-| `agent` | Démarre l’Agent (Discovery & Télémétrie) |
-| `token create/list/revoke` | Tokens d’appairage Core/Agent (API Admin) |
-| `backup create/list/restore` | Snapshots Admin + export routage (API Admin) |
+| `admin` | Start Admin (Control Plane + Web UI) |
+| `core` | Start Core (Data Plane — Reverse Proxy) |
+| `agent` | Start Agent (Discovery & Telemetry) |
+| `token create/list/revoke` | Core/Agent pairing tokens (Admin API) |
+| `backup create/list/restore` | Admin snapshots + routing export (Admin API) |
 | `import` | Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote) |
-| `proxy list/get/enable/disable/delete` | Gestion des routes proxy |
-| `cert list/obtain/delete` | Certificats TLS |
-| `user list/get/create/update/passwd/delete` | Comptes utilisateurs Admin |
-| `audit list/export` | Journal d’audit des actions |
-| `logs list/export` | Logs d’accès et système |
-| `alert channels/rules/test` | Canaux et règles d’alerte |
-| `snippet list/get/create/update/delete` | Snippets middleware réutilisables |
-| `domain list/get/create/renew/delete` | Domaines ACME gérés |
-| `agent-mgmt list/get/approve/revoke/delete` | Agents Docker enregistrés (gestion) |
-| `settings smtp/mfa` | Config Admin : SMTP, MFA (SMS, WebAuthn) |
-| `auth-provider list/get/create/update/enable/disable/delete` | Fournisseurs auth externe (OIDC, SAML…) |
-| `teams list/get/create/update/delete + members` | Équipes RBAC |
-| `workspaces list/get/create/update/delete + members + resources` | Espaces de travail (multi-tenant) |
-| `ip-profile list/get/create/update/delete` | Profils IP (allowlist/blocklist CIDR, GeoIP) |
-| `containers list` | Conteneurs Docker découverts (lecture seule) |
-| `me get/update/passwd + me tokens` | Profil courant + tokens API personnels (PAT) |
-| `security threat/bans/waf` | Sécurité : Sentinel, bans IP, WAF par proxy |
-| `status` | État du cluster (nœuds, versions, santé) |
+| `proxy list/get/enable/disable/delete` | Proxy route management |
+| `cert list/obtain/delete` | TLS certificates |
+| `user list/get/create/update/passwd/delete` | Admin user accounts |
+| `audit list/export` | Action audit log |
+| `logs list/export` | Access and system logs |
+| `alert channels/rules/test` | Alert channels and rules |
+| `snippet list/get/create/update/delete` | Reusable middleware snippets |
+| `domain list/get/create/renew/delete` | Managed ACME domains |
+| `agent-mgmt list/get/approve/revoke/delete` | Registered Docker agents (management) |
+| `settings smtp/mfa` | Admin config: SMTP, MFA (SMS, WebAuthn) |
+| `auth-provider list/get/create/update/enable/disable/delete` | External auth providers (OIDC, SAML…) |
+| `teams list/get/create/update/delete + members` | RBAC teams |
+| `workspaces list/get/create/update/delete + members + resources` | Workspaces (multi-tenant) |
+| `ip-profile list/get/create/update/delete` | IP profiles (CIDR allowlist/blocklist, GeoIP) |
+| `containers list` | Discovered Docker containers (read-only) |
+| `me get/update/passwd + me tokens` | Current profile + personal API tokens (PAT) |
+| `security threat/bans/waf` | Security: Sentinel, IP bans, WAF per proxy |
+| `status` | Cluster state (nodes, versions, health) |
 | `access` | GoProxify Access (config, catalogue, users, templates, audit) |
-| `nodes` | Liste / accept / reject des nœuds (Infrastructure) |
-| `declared` | Nœuds déclarés du wizard architecture |
-| `bootstrap` | Tickets QR / curl\|bash d’intégration d’hôtes |
-| `core cache show/refresh/export/clear` | Gestion du cache local du Core |
-| `update check/apply/rollback` | Mises à jour d’images Docker (via Agent) |
-| `version` | Affiche la version du binaire |
-| `help` | Affiche l’aide |
+| `nodes` | List / accept / reject nodes (Infrastructure) |
+| `declared` | Architecture wizard declared nodes |
+| `bootstrap` | QR / curl\|bash host integration tickets |
+| `core cache show/refresh/export/clear` | Core local cache management |
+| `update check/apply/rollback` | Docker image updates (via Agent) |
+| `version` | Display binary version |
+| `help` | Display help |
 
-Options communes : `-config <chemin>`, `-admin-url <url>`, `-token <token>` (ou `GPX_CONTROLPLANE_ADMIN_ENDPOINT` / `GPX_CONTROLPLANE_AUTH_TOKEN`).
-
----
-
-## 8. Haute Disponibilité
-
-### Core — Groupes indépendants
-
-- Les Cores s'organisent en **groupes** (par datacenter, région, client...)
-- Chaque groupe élit son **coordinateur via l'algorithme Raft** (majorité requise)
-- Toute modification de config est validée par la majorité du groupe avant application
-- Si le réseau partitionne un groupe, seule la moitié majoritaire peut élire un coordinateur
-- En cas de perte d'accès à l'Administration, chaque Core bascule sur son **cache local chiffré**
-
-### Administration — rqlite
-
-- **3 instances d'Administration** synchronisées en permanence via rqlite (SQLite distribué sur Raft)
-- Les écritures passent par le **nœud leader**, les lectures sur n'importe quel nœud
-- Si une instance tombe, les deux autres continuent sans interruption
-- Bascule automatique de leader en quelques secondes
-
-### Connectivité inter-nœuds
-
-- Tunnels WireGuard gérés par l'Agent pour la communication sécurisée entre groupes
-- Load balancing adaptatif basé sur les métriques remontées par les Agents
+Common options: `-config <path>`, `-admin-url <url>`, `-token <token>` (or `GPX_CONTROLPLANE_ADMIN_ENDPOINT` / `GPX_CONTROLPLANE_AUTH_TOKEN`).
 
 ---
 
-## 9. Déploiement
+## 8. High Availability
 
-| Mode | Détails |
+### Core — independent groups
+
+- Cores organize into **groups** (by datacenter, region, customer…)
+- Each group elects its **coordinator via the Raft algorithm** (majority required)
+- Any config change is validated by the group majority before applying
+- If the network partitions a group, only the majority half can elect a coordinator
+- On loss of Admin access, each Core falls back to its **encrypted local cache**
+
+### Admin — rqlite
+
+- **3 Admin instances** continuously synchronized via rqlite (distributed SQLite over Raft)
+- Writes go through the **leader node**, reads on any node
+- If one instance goes down, the other two continue without interruption
+- Automatic leader failover in seconds
+
+### Inter-node connectivity
+
+- WireGuard tunnels managed by the Agent for secure communication between groups
+- Adaptive load balancing based on metrics reported by Agents
+
+---
+
+## 9. Deployment
+
+| Mode | Details |
 |---|---|
-| **Docker Compose** | `docker compose up -d` — recommandé, fichiers `docker-compose.yml` et `docker-compose-dev.yml` fournis |
-| **Bare-metal** | Script interactif `setup.sh` — sélection des modules (Admin / Core / Agent) |
-| **systemd** | Service hardened (unités systemd avec sandboxing) |
-| **setcap** | `setcap cap_net_bind_service` pour écouter sur les ports < 1024 sans root |
+| **Docker Compose** | `docker compose up -d` — recommended, `docker-compose.yml` and `docker-compose-dev.yml` files provided |
+| **Bare-metal** | Interactive `setup.sh` script — module selection (Admin / Core / Agent) |
+| **systemd** | Hardened service (systemd units with sandboxing) |
+| **setcap** | `setcap cap_net_bind_service` to listen on ports < 1024 without root |
 
-Configuration : fichiers JSON dans `config/` (`admin.json`, `core.json`, `agent.json`) + variables d'environnement préfixées `GPX_*` (priorité prod).
+Configuration: JSON files in `config/` (`admin.json`, `core.json`, `agent.json`) + `GPX_*` prefixed environment variables (production priority).
 
 ---
 
-## 10. Stack technique
+## 10. Tech stack
 
-| Domaine | Choix |
+| Domain | Choice |
 |---|---|
-| Langage | Go — binaire unique, zéro dépendance runtime |
-| Protocoles | HTTP/1.1, HTTP/2, HTTP/3 QUIC (UDP), WebSocket, gRPC, TCP/UDP L4 |
-| **Plan de contrôle** | **WebSocket persistant (nhooyr.io/websocket) — Admin→Core(WS), Agent→Core(WS)** |
-| TLS | `crypto/tls` + `GetCertificate` (RAM uniquement), passthrough SNI passif, ACME DNS-01 wildcard |
-| Table de routage | `sync.Map` — mises à jour atomiques sans interruption |
-| Persistance | SQLite embarqué `modernc.org/sqlite` (CGO-free) — Administration uniquement |
-| HA Administration | rqlite (SQLite distribué, 3 nœuds, Raft) |
-| HA Core | Algorithme Raft par groupe, cache local chiffré |
-| Configuration | Viper — JSON + surcharge `GPX_*` env vars |
-| Discovery | Docker Engine API via socket Unix (`/var/run/docker.sock`) |
-| Métriques | Prometheus (`/metrics`), OpenTelemetry |
-| Auth | JWT ECDSA P-256, bcrypt mots de passe, HMAC-SHA256 plan de contrôle WS, JOIN_TOKEN lifecycle, PAT `gpx_pat_*` (API + MCP) |
-| Sécurité applicative | Fail2Ban natif Go, CrowdSec bouncer LAPI, WAF natif Go (OWASP CRS-4, 13 règles) |
-| Intégrations LLM | Serveur MCP JSON-RPC 2.0 + SSE (`/mcp`, auth PAT) |
-| Déploiement | Binaire unique · Docker Compose · systemd (hardening) · `setcap cap_net_bind_service` |
+| Language | Go — single binary, zero runtime dependency |
+| Protocols | HTTP/1.1, HTTP/2, HTTP/3 QUIC (UDP), WebSocket, gRPC, TCP/UDP L4 |
+| **Control plane** | **Persistent WebSocket (nhooyr.io/websocket) — Admin→Core(WS), Agent→Core(WS)** |
+| TLS | `crypto/tls` + `GetCertificate` (RAM only), passive SNI passthrough, ACME DNS-01 wildcard |
+| Routing table | `sync.Map` — atomic updates without interruption |
+| Persistence | Embedded SQLite `modernc.org/sqlite` (CGO-free) — Admin only |
+| Admin HA | rqlite (distributed SQLite, 3 nodes, Raft) |
+| Core HA | Raft algorithm per group, encrypted local cache |
+| Configuration | Viper — JSON + `GPX_*` env var override |
+| Discovery | Docker Engine API via Unix socket (`/var/run/docker.sock`) |
+| Metrics | Prometheus (`/metrics`), OpenTelemetry |
+| Auth | JWT ECDSA P-256, bcrypt passwords, HMAC-SHA256 WS control plane, JOIN_TOKEN lifecycle, PAT `gpx_pat_*` (API + MCP) |
+| App security | Native Go Fail2Ban, CrowdSec LAPI bouncer, native Go WAF (OWASP CRS-4, 13 rules) |
+| LLM integrations | MCP server JSON-RPC 2.0 + SSE (`/mcp`, PAT auth) |
+| Deployment | Single binary · Docker Compose · systemd (hardening) · `setcap cap_net_bind_service` |
