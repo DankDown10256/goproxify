@@ -6,17 +6,25 @@
 [![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fvincamok%2Fgoproxify-black)](https://github.com/Vincamok/goproxify/pkgs/container/goproxify%2Fadmin)
 [![Release](https://img.shields.io/github/v/release/Vincamok/goproxify?display_name=tag&sort=semver)](https://github.com/Vincamok/goproxify/releases)
 
-> **Préversion (non production).** GoProxify est en **0.x / preview**.  
-> Toute utilisation se fait **à vos seuls risques**. Aucune garantie ; les
-> auteurs **déclinents toute responsabilité** liée à l’usage (pertes, sécurité,
-> interruption, etc.). Détail : [DISCLAIMER.md](DISCLAIMER.md) · licence
-> [Apache-2.0](LICENSE) (« AS IS »).
+**GoProxify est un reverse proxy distribué en un seul binaire Go** — pensé pour gérer plusieurs serveurs depuis une interface centrale, sans agent lourd ni configuration dispersée sur chaque machine.
 
-Reverse proxy distribué compilé en un seul binaire Go. Un même exécutable joue trois rôles selon son mode de démarrage : **Core** (data plane), **Admin** (control plane) ou **Agent** (discovery Docker).
+Tu as plusieurs VPS, des conteneurs Docker sur différents hôtes, et tu veux router le trafic, gérer les certificats TLS et garder la main sur tout depuis un seul endroit ? C'est exactement ce à quoi GoProxify répond.
 
-Le **Core est la source de vérité** — il porte ses routes, certificats et configuration localement. L'Admin est une interface de gestion qui peut être reconstruite à partir des Cores. Un Core démarre et route le trafic même si l'Admin est injoignable.
+### Ce qui le distingue
 
-Images officielles : `ghcr.io/vincamok/goproxify/{admin,core,agent}` — quickstart en tag flottant **`preview`** (pas de `:latest`) ; SemVer optionnel via `versions.json`. Contribuer : [CONTRIBUTING.md](CONTRIBUTING.md) · Support : [Discussions](https://github.com/Vincamok/goproxify/discussions) · Roadmap : [suivi/roadmap-public.md](suivi/roadmap-public.md).
+- **Un seul binaire, trois rôles** — le même exécutable démarre en mode Core (proxy), Admin (interface de gestion) ou Agent (découverte Docker)
+- **Le Core est autonome** — il démarre et route le trafic même si l'Admin est injoignable ; routes et certificats sont portés localement, en RAM
+- **HTTP/1.1, HTTP/2, HTTP/3 QUIC, TCP/UDP L4** — un seul outil couvre tous les protocoles
+- **WAF OWASP CRS-4 intégré** — 13 jeux de règles (SQLi, XSS, Log4Shell…) sans plugin externe
+- **Accès SSH et Docker depuis l'UI** — terminal web, `ssh` UUID vers VMs et `docker exec` vers conteneurs, directement depuis le navigateur
+- **Discovery Docker automatique** — l'Agent lit les labels `goproxify.*` sur tes conteneurs et pousse les routes en temps réel
+- **Alerting vers 10 canaux** — Email, Webhook, ntfy.sh, Jira, Linear, GitHub Issues, et plus
+
+---
+
+> **Préversion (0.x).** À utiliser à vos risques. Détail : [DISCLAIMER.md](DISCLAIMER.md) · licence [Apache-2.0](LICENSE).
+
+Contribuer : [CONTRIBUTING.md](CONTRIBUTING.md) · Support : [Discussions](https://github.com/Vincamok/goproxify/discussions) · Roadmap : [suivi/roadmap-public.md](suivi/roadmap-public.md).
 
 ---
 
@@ -154,21 +162,21 @@ Pour générer un `JOIN_TOKEN` : Admin UI → Tokens → Créer → rôle `agent
 goproxify <commande> [options]
 
 Commandes de service :
-  admin    Démarre l’Administration (Control Plane + Web UI)
+  admin    Démarre l'Administration (Control Plane + Web UI)
   core     Démarre le Core (Data Plane — Reverse Proxy)
-  agent    Démarre l’Agent (Discovery Docker)
+  agent    Démarre l'Agent (Discovery Docker)
   landing  Démarre la landing page (optionnel)
 
-Commandes opérationnelles (parlent à l’Admin via HTTP) :
-  token      Tokens d’appairage Core/Agent
+Commandes opérationnelles (parlent à l'Admin via HTTP) :
+  token      Tokens d'appairage Core/Agent
   backup     Sauvegardes et restauration
   import     Import nginx / Traefik / Caddy / HAProxy
-  alert      Test des canaux d’alerte
+  alert      Test des canaux d'alerte
   status     État du cluster
   access     GoProxify Access (config, catalogue, users, templates, audit)
   nodes      Nœuds Infrastructure (list / accept / reject)
   declared   Nœuds déclarés wizard architecture
-  bootstrap  Tickets QR / curl|bash d’intégration d’hôtes
+  bootstrap  Tickets QR / curl|bash d'intégration d'hôtes
   update     Mise à jour des images Docker (via Agent)
 
   version  Version du binaire
@@ -202,7 +210,7 @@ Référence complète → **[docs/cli.md](docs/cli.md)**
 
 - **Interface web + API REST** — CRUD proxies, snippets, tokens, utilisateurs
 - **GoProxify Access** — catalogue destinations (vue globale / par Core), invite users par email (SMTP), tags, templates HTML Access, options portail par Core
-- **Tokens API utilisateur (PAT)** — `gpx_pat_*` self-service à scopes (`proxies:read`, …) pour scripts et clients MCP ; distincts des tokens d’appairage Core/Agent
+- **Tokens API utilisateur (PAT)** — `gpx_pat_*` self-service à scopes (`proxies:read`, …) pour scripts et clients MCP ; distincts des tokens d'appairage Core/Agent
 - **Serveur MCP** — JSON-RPC 2.0 + SSE ; authentification **PAT uniquement** (pas de JWT de session)
 - **Wizard architecture** — toile hôtes + palette, multi-Core/HA, tickets QR / `curl|bash` pour intégrer un hôte
 - **Premier démarrage guidé** — wizard de configuration initiale
@@ -303,4 +311,4 @@ Voir `.env.example` pour la liste complète.
 | [Signalement de vulnérabilités](SECURITY.md) | Responsible disclosure |
 | [Licence](LICENSE) | Apache License 2.0 |
 | [NOTICE](NOTICE) | Copyright et notices tierces |
-| [Avertissement](DISCLAIMER.md) | Préversion, sans garantie ni responsabilité d’usage |
+| [Avertissement](DISCLAIMER.md) | Préversion, sans garantie ni responsabilité d'usage |
