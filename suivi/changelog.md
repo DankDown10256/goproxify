@@ -11,6 +11,11 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 - **UI Monitoring ACME** : la page affiche désormais le fournisseur DNS associé à chaque certificat (via jointure avec la table `domains`), avec un badge coloré par provider (Cloudflare, OVH, Gandi, Hetzner, Route 53). Ajout d'un panneau "Configuration ACME" en haut permettant de visualiser et modifier la config globale (activé, email, provider, directory URL). Ajout du bouton "Supprimer" par certificat. Nouveau panel détail latéral (clic sur une ligne) avec lien vers la section Domaines. Toutes les modales utilisent `document.body` pour éviter les problèmes de stacking context.
 
+### Ajouté
+
+- **UI Modale sécurité proxy — section WAF** : indicateur d'héritage Core (bannière verte "Hérite de la config WAF du Core"), détection automatique de plateforme depuis l'URL upstream (WordPress, Drupal, Nextcloud, DokuWiki, cPanel), liste manuelle de plateformes avec cases à cocher, bouton "↩ Hériter du Core" pour réinitialiser. Champ `exclude_platforms` persisté dans la config WAF du proxy.
+- **API / Modèle** : champ `exclude_platforms []string` ajouté à `WAFConfig` dans `route.go` — plateformes applicatives pour lesquelles les règles WAF générant des faux positifs seront exclues automatiquement (union avec `ExcludeIDs`).
+
 ### Corrigé
 
 - **UI Sentinel (sécurité Core)** : clés i18n `page.core-security-sentinel` et `common.active`/`common.inactive` manquantes dans les 4 locales — les étiquettes affichaient le nom de clé brut. Icônes améliorées pour Fail2Ban (stylo/édition), CrowdSec (bouclier avec alerte) et Sentinel (œil de surveillance).

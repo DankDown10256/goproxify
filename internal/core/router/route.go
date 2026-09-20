@@ -354,6 +354,12 @@ type WAFConfig struct {
 	// sont acceptés pour déterminer l'IP réelle du client.
 	// Vide = pas de confiance (on utilise RemoteAddr directement).
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
+
+	// ExcludePlatforms : plateformes applicatives derrière ce proxy.
+	// Valeurs possibles : wordpress, drupal, nextcloud, dokuwiki, cpanel.
+	// Les règles WAF connues pour générer des faux positifs sur ces plateformes
+	// sont exclues automatiquement (union avec ExcludeIDs).
+	ExcludePlatforms []string `json:"exclude_platforms,omitempty"`
 }
 
 // CustomRule est une règle WAF définie par l'utilisateur.

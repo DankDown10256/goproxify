@@ -303,6 +303,20 @@ window.openProxySecModal = async function(id, initialTab) {
   const resolvedCfg = resolveCfgWithSnippets(cfg, allSnippets, selectedSnippetIds);
   const scored = computeProxyHeaderScore(resolvedCfg);
   const wafCfg = scored.wafCfg;
+  // Détection heuristique de plateforme depuis l'URL upstream
+  const _upstream = (cfg.upstream || cfg.backend || cfg.target || '').toLowerCase();
+  const _detectPlatform = () => {
+    if (/wordpress|wp-content|wp-admin|woocommerce/.test(_upstream)) return 'wordpress';
+    if (/drupal/.test(_upstream)) return 'drupal';
+    if (/nextcloud|owncloud/.test(_upstream)) return 'nextcloud';
+    if (/dokuwiki/.test(_upstream)) return 'dokuwiki';
+    if (/cpanel|whm/.test(_upstream)) return 'cpanel';
+    return null;
+  };
+  const _detectedPlatform = _detectPlatform();
+  const _activePlatforms = new Set(Array.isArray(wafCfg?.exclude_platforms) ? wafCfg.exclude_platforms : []);
+  // True si le proxy a une config WAF propre (pas seulement héritage Core)
+  const _hasOwnWaf = !!(cfg.waf?.enabled !== undefined || cfg.waf?.mode || cfg.waf?.exclude_platforms?.length);
   const botCfg = scored.botCfg;
   const jwtCfg = scored.jwtCfg;
   const hdrCfg = cfg.headers || {};
@@ -494,10 +508,19 @@ window.openProxySecModal = async function(id, initialTab) {
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
               <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">WAF</div>
-              <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
+              <div style="display:flex;gap:6px;align-items:center;">
+                ${_hasOwnWaf ? `<button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--text3);" onclick="psecResetWafToCore('${esc(id)}')">↩ Hériter du Core</button>` : ''}
+                <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
+              </div>
             </div>
+            ${!_hasOwnWaf ? `
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:color-mix(in srgb,var(--green) 8%,transparent);border:1px solid color-mix(in srgb,var(--green) 25%,var(--border));border-radius:6px;font-size:11.5px;color:var(--text2);margin-bottom:10px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--green);flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Hérite de la config WAF du Core — <button type="button" onclick="psecActivateOwnWaf()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;">Personnaliser pour ce proxy</button></span>
+            </div>` : ''}
+            <div id="psec-waf-own" style="display:${_hasOwnWaf?'block':'none'}">
             <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:10px;">
               <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding-top:2px;">
                 <label class="toggle"><input type="checkbox" id="psec-waf-enabled" ${wafCfg?.enabled?'checked':''}><span class="toggle-slider"></span></label>
@@ -511,8 +534,32 @@ window.openProxySecModal = async function(id, initialTab) {
                 </select>
               </div>
             </div>
+            <!-- Exclusions plateforme -->
+            <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);">Plateforme applicative</div>
+                ${_detectedPlatform ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));">✦ Détecté : ${_detectedPlatform}</span>` : ''}
+              </div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Sélectionnez le CMS — les règles WAF générant des faux positifs connus seront exclues automatiquement.</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="psec-waf-platforms">
+                ${[
+                  { id: 'wordpress', name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
+                  { id: 'drupal',    name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
+                  { id: 'nextcloud', name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
+                  { id: 'dokuwiki',  name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
+                  { id: 'cpanel',    name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
+                ].map(p => {
+                  const active = _activePlatforms.has(p.id) || _detectedPlatform === p.id && !_activePlatforms.size;
+                  return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
+                    <input type="checkbox" name="psec-platform" value="${p.id}" ${active?'checked':''} style="margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
+                    <div><div style="font-size:12px;font-weight:500;">${p.name}</div><div style="font-size:10px;color:var(--text3);line-height:1.3;">${p.desc}</div></div>
+                  </label>`;
+                }).join('')}
+              </div>
+            </div>
+            </div>
             <!-- Paramètres avancés WAF -->
-            <div id="psec-waf-advanced" style="display:none;border-top:1px solid var(--border);padding-top:12px;flex-direction:column;gap:10px;">
+            <div id="psec-waf-advanced" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:4px;flex-direction:column;gap:10px;">
               <div class="form-row" style="gap:8px;">
                 <div class="field" style="flex:1;margin:0;">
                   <label class="field-label" style="font-size:11px">Score anomalie (0 = premier match)</label>
@@ -560,6 +607,7 @@ window.openProxySecModal = async function(id, initialTab) {
                 </div>
               </div>
             </div>
+            </div><!-- /psec-waf-own -->
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:12px;">Protection bot</div>
@@ -779,6 +827,37 @@ window.psecToggleWAFAdvanced = function() {
   const el = document.getElementById('psec-waf-advanced');
   if (!el) return;
   el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+};
+
+window.psecActivateOwnWaf = function() {
+  const own = document.getElementById('psec-waf-own');
+  if (own) own.style.display = 'block';
+  const banner = own?.previousElementSibling;
+  // cache le bandeau héritage
+  document.querySelectorAll('#psec-tabs ~ div [style*="Hérite de la config WAF"]').forEach(el => el.remove());
+  const inheritBanner = document.querySelector('[onclick*="psecActivateOwnWaf"]')?.closest('div[style*="background"]');
+  if (inheritBanner) inheritBanner.style.display = 'none';
+};
+
+window.psecTogglePlatform = function(id, label) {
+  const card = document.getElementById('psec-pcard-' + id);
+  const cb = card?.querySelector('input[type=checkbox]');
+  if (!card || !cb) return;
+  const active = cb.checked;
+  card.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+  card.style.background = active ? 'color-mix(in srgb,var(--accent) 6%,transparent)' : 'transparent';
+};
+
+window.psecResetWafToCore = async function(id) {
+  if (!confirm('Supprimer la config WAF propre de ce proxy et hériter du Core ?')) return;
+  try {
+    const existing = await api('GET', `/proxies/${encodeURIComponent(id)}`);
+    let cfg = existing ? (typeof existing.config === 'string' ? tryJSON(existing.config) : existing.config || existing) : {};
+    delete cfg.waf;
+    await api('PUT', `/proxies/${encodeURIComponent(id)}`, { ...existing, config: cfg });
+    toast('Config WAF réinitialisée — héritage Core actif', 'success');
+    openProxySecModal(id, 'params');
+  } catch(e) { toast(e.message, 'error'); }
 };
 
 window.psecParseCustomRules = function(text) {
@@ -1025,6 +1104,7 @@ window.saveProxySec = async function(id) {
   const wafBehaviorWindow = parseInt(document.getElementById('psec-waf-behavior-window')?.value || '60', 10) || 60;
   const wafBehaviorThreshold = parseInt(document.getElementById('psec-waf-behavior-threshold')?.value || '8', 10) || 8;
   const wafTrustedProxies = (document.getElementById('psec-waf-trusted-proxies')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  const wafPlatforms = [...document.querySelectorAll('input[name="psec-platform"]:checked')].map(cb => cb.value);
   const sentinelWhitelist = (document.getElementById('psec-sentinel-whitelist')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
   const hsts = document.getElementById('psec-hsts')?.checked;
   const hideServer = document.getElementById('psec-hide-server')?.checked;
@@ -1061,6 +1141,7 @@ window.saveProxySec = async function(id) {
         behavior_window_s: wafBehaviorEnabled ? wafBehaviorWindow : undefined,
         behavior_threshold: wafBehaviorEnabled ? wafBehaviorThreshold : undefined,
         trusted_proxies: wafTrustedProxies.length ? wafTrustedProxies : undefined,
+        exclude_platforms: wafPlatforms.length ? wafPlatforms : undefined,
       } : undefined,
       bot: botEnabled ? {
         enabled: true,
