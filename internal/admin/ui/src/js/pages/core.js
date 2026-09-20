@@ -1159,22 +1159,26 @@ pages['core-health'] = async function(content) {
       api('GET', '/api/v1/proxies').catch(() => []),
     ]);
     const backends = health.backends || {};
-    const proxyMap = {};
-    (Array.isArray(proxies) ? proxies : []).forEach(p => { proxyMap[p.id] = p; });
 
-    // group backends by proxy id (url format: contains proxy id or name)
+    // Construire un index url → proxy via les backends de chaque proxy
+    const urlToProxy = {};
+    (Array.isArray(proxies) ? proxies : []).forEach(p => {
+      (p.backends || []).forEach(b => { if (b.url) urlToProxy[b.url] = p; });
+    });
+
+    // Grouper les backends par proxy (fallback : '__ungrouped__')
     const groups = {};
+    const groupProxy = {};
     Object.entries(backends).forEach(([url, status]) => {
-      // url may be like "https://core-host/proxy/<id>/backend/<backend>"
-      const m = url.match(/\/proxy\/([^/]+)\//);
-      const key = m ? m[1] : '__ungrouped__';
-      if (!groups[key]) groups[key] = [];
+      const proxy = urlToProxy[url];
+      const key = proxy ? proxy.id : '__ungrouped__';
+      if (!groups[key]) { groups[key] = []; groupProxy[key] = proxy || null; }
       groups[key].push({ url, status });
     });
 
     const dot = s => {
       const c = s === 'up' ? 'var(--green)' : s === 'down' ? 'var(--red)' : 'var(--text3)';
-      return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px"></span>`;
+      return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};flex-shrink:0"></span>`;
     };
 
     if (Object.keys(backends).length === 0) {
@@ -1189,21 +1193,25 @@ pages['core-health'] = async function(content) {
     </div>`;
 
     Object.entries(groups).forEach(([key, entries]) => {
-      const proxy = proxyMap[key];
-      const label = proxy ? (proxy.name || proxy.host || key) : key === '__ungrouped__' ? 'Non groupé' : key;
+      const proxy = groupProxy[key];
+      const label = proxy ? (proxy.name || proxy.host || key) : 'Non groupé';
       const up = entries.filter(e => e.status === 'up').length;
       const total = entries.length;
+      const allUp = up === total, allDown = up === 0;
       const hc = proxy?.health_check;
-      const hcInfo = hc ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(hc.path || '/')} · ${hc.interval || '?'}s / timeout ${hc.timeout || '?'}s · seuils ${hc.healthy_threshold || 2}↑ ${hc.unhealthy_threshold || 3}↓</span>` : '';
+      const hcInfo = hc?.path ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(hc.path)} · ${hc.interval||'30s'} / ${hc.timeout||'5s'} · ${hc.healthy_threshold||2}↑ ${hc.unhealthy_threshold||3}↓</span>` : '';
       html += `<div style="border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
           <strong style="font-size:14px">${esc(label)}</strong>${hcInfo}
-          <span style="margin-left:auto;font-size:12px;color:${up===total?'var(--green)':up===0?'var(--red)':'var(--orange)'}">${up}/${total} up</span>
+          <span style="margin-left:auto;font-size:12px;font-weight:600;color:${allUp?'var(--green)':allDown?'var(--red)':'var(--orange)'}">${up}/${total} up</span>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:4px 8px">Backend</th><th style="padding:4px 8px">Statut</th></tr></thead>
-          <tbody>${entries.map(e => `<tr><td style="padding:4px 8px;font-family:monospace;font-size:12px">${esc(e.url)}</td><td style="padding:4px 8px">${dot(e.status)}${esc(e.status)}</td></tr>`).join('')}</tbody>
-        </table>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${entries.map(e => `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg2);border-radius:6px;font-size:12px">
+            ${dot(e.status)}
+            <code style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.url)}</code>
+            <span style="flex-shrink:0;color:${e.status==='up'?'var(--green)':e.status==='down'?'var(--red)':'var(--text3)'}">${esc(e.status)}</span>
+          </div>`).join('')}
+        </div>
       </div>`;
     });
 
