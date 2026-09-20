@@ -15,10 +15,10 @@ import (
 
 // ProviderEntry est un fournisseur DNS nommé persisté sur disque.
 type ProviderEntry struct {
-	ID     string            `yaml:"id"`
-	Name   string            `yaml:"name"`
-	Type   string            `yaml:"type"`
-	Params map[string]string `yaml:"params"`
+	ID     string            `yaml:"id"     json:"id"`
+	Name   string            `yaml:"name"   json:"name"`
+	Type   string            `yaml:"type"   json:"type"`
+	Params map[string]string `yaml:"params" json:"params"`
 }
 
 // ProviderStore persiste les fournisseurs DNS nommés dans un fichier YAML.
