@@ -190,7 +190,7 @@ window.openUserModal = async function(id) {
           </div>`;
 
   document.getElementById('user-modal-container').innerHTML = `
-    <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(560px,96vw);max-width:none;max-height:92vh;overflow:auto;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('users.edit_user') : t('users.new_user')}</div>
@@ -334,7 +334,7 @@ window.openTeamModal = async function(id) {
       #tm-ac-list .ac-item:hover, #tm-ac-list .ac-item.ac-active { background:var(--accent,#3a86ff22); }
       #tm-sc-wrap { position:relative;flex:1;min-width:120px; }
     </style>
-    <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(520px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('users.edit_team') : t('users.new_team')}</div>

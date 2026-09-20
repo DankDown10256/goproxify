@@ -848,7 +848,7 @@ async function renderTraficPage(ctx) {
     window.openNewProxyModal  = () => openProxyModal();
     window.openNewStreamModal = () => {
       document.getElementById('trafic-modal-container').innerHTML = `
-        <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+        <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
           <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(420px,94vw);">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
             <div class="dialog-title">${t('trafic.new_stream')}</div>
@@ -985,7 +985,7 @@ async function renderTraficPage(ctx) {
           return `<button class="btn btn-secondary blueprint" onclick="window._tim.step=1;window._tim.format=null;window._tim.text='';window._tim.files=[];window._tim.proxies=[];window._tim_render()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.new_import')}</button><button class="btn btn-primary blueprint" onclick="window._timClose();refreshProxies()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.see_proxies')}</button>`;
         })();
         document.getElementById('trafic-modal-container').innerHTML = `
-          <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);">
+          <div class="dialog-backdrop" style="background:rgba(0,0,0,0.6);">
             <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(680px,96vw);max-height:90vh;display:flex;flex-direction:column">
               <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
               <div class="dialog-title" style="display:flex;align-items:center;gap:16px;flex-shrink:0">

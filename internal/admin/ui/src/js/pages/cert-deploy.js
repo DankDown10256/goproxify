@@ -52,7 +52,8 @@ window.openCertDeployPanel = async function(certID, domain) {
   panel.innerHTML = '';
 
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,0.45);display:flex;align-items:flex-start;justify-content:flex-end;';
+  overlay.className = 'dialog-backdrop';
+  overlay.style.cssText = 'align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.45);';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
   const drawer = document.createElement('div');

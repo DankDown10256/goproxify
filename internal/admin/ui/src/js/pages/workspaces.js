@@ -72,7 +72,7 @@ window.openWorkspaceModal = async function(id) {
     try { ws = await api('GET', `/workspaces/${id}`); } catch {}
   }
   document.getElementById('workspace-modal-container').innerHTML = `
-    <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(460px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('workspaces.edit') : t('workspaces.new')}</div>

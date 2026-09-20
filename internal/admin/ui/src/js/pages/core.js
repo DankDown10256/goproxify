@@ -540,7 +540,7 @@ pages['core-ipfilter'] = async function() {
     };
     window.openIpRuleModal = function() {
       document.getElementById('ip-rule-modal-container').innerHTML = `
-        <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);">
+        <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
           <div class="dialog blueprint" role="dialog" aria-modal="true">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
             <div class="dialog-title">${t('corepage.ipfilter.modal_title')}</div>
