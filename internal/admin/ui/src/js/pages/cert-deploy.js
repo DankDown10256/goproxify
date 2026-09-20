@@ -1,7 +1,7 @@
 // ── Certificate Deploy Hub ─────────────────────────────────────────────────
 
 pages['cert-deploy'] = async function() {
-  const content = document.getElementById('page-content');
+  const content = document.getElementById('content');
   content.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
 
   const certs = await api('GET', '/certs').catch(() => []);

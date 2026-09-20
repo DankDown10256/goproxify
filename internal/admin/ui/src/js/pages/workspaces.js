@@ -1,5 +1,5 @@
 pages.workspaces = async function() {
-  const content = document.getElementById('page-content');
+  const content = document.getElementById('content');
   content.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
   try {
     const [workspaces, proxies, nodes, teams, users] = await Promise.all([

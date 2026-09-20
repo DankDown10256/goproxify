@@ -5,7 +5,7 @@ let _acmeRefreshTimer = null;
 
 pages['acme-monitor'] = async function () {
   if (_acmeRefreshTimer) { clearInterval(_acmeRefreshTimer); _acmeRefreshTimer = null; }
-  const root = document.getElementById('page-content');
+  const root = document.getElementById('content');
   root.innerHTML = `
     <div style="padding:24px 28px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
@@ -31,7 +31,7 @@ pages['acme-monitor'] = async function () {
       obs.disconnect();
     }
   });
-  obs.observe(document.getElementById('page-content'), { childList: true });
+  obs.observe(document.getElementById('content'), { childList: true });
 };
 
 window.acmeMonitorLoad = async function () {

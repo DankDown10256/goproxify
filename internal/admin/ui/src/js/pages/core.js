@@ -1148,6 +1148,7 @@ pages['core-http-timeouts'] = async function() {
 
 // ── B1 : Health checks par route ─────────────────────────────────────────────
 pages['core-health'] = async function(content) {
+  content = content || document.getElementById('content');
   const spin = `<div class="spinner"></div>`;
   content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Health checks</h1>${spin}`;
 
@@ -1216,10 +1217,11 @@ pages['core-health'] = async function(content) {
 
 // ── B2 : Tunnel L4 mTLS Core↔Core ────────────────────────────────────────────
 pages['core-tunnel'] = async function(content) {
+  content = content || document.getElementById('content');
   const spin = `<div class="spinner"></div>`;
   content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Tunnel L4 mTLS</h1>${spin}`;
 
-  const coreId = window._selectedCore?.id;
+  const coreId = (state.selectedCore || window._selectedCore)?.id;
   if (!coreId) {
     content.innerHTML = `<h1 style="margin:0 0 20px;font-size:24px;font-family:var(--font-heading);font-weight:600">Tunnel L4 mTLS</h1><p style="color:var(--text2)">Aucun Core sélectionné.</p>`;
     return;

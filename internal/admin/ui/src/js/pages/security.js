@@ -3215,7 +3215,7 @@ window.showBanHistory = async function(ip) {
 // ── WAF Profils comportementaux ──────────────────────────────────────────────
 
 async function renderWAFBehaviorProfiles(ctx) {
-  const el = document.getElementById('page-content');
+  const el = document.getElementById('content');
   if (!el) return;
 
   const coreCtx = ctx?.mode === 'core' ? ctx : null;
