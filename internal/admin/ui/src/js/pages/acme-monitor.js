@@ -12,6 +12,31 @@ const PROVIDER_COLORS = {
   hetzner: '#d50000', gandi: '#ff6600',
 };
 
+// Champs attendus par provider type (label, clé params, required, placeholder)
+const PROVIDER_FIELDS = {
+  cloudflare: [
+    { key: 'api_token',  label: 'API Token',  required: true,  ph: 'Bearer token Cloudflare' },
+    { key: 'zone_id',    label: 'Zone ID',     required: false, ph: 'Optionnel — résolu automatiquement si vide' },
+  ],
+  ovh: [
+    { key: 'endpoint',     label: 'Endpoint',        required: false, ph: 'https://eu.api.ovh.com/1.0' },
+    { key: 'app_key',      label: 'Application Key', required: true,  ph: '' },
+    { key: 'app_secret',   label: 'Application Secret', required: true, ph: '' },
+    { key: 'consumer_key', label: 'Consumer Key',    required: true,  ph: '' },
+    { key: 'zone',         label: 'Zone DNS',        required: true,  ph: 'example.com' },
+  ],
+  gandi: [
+    { key: 'api_key', label: 'API Key', required: true, ph: 'Clé API Gandi LiveDNS' },
+  ],
+  hetzner: [
+    { key: 'api_token', label: 'API Token', required: true,  ph: 'Token Hetzner DNS' },
+    { key: 'zone_id',   label: 'Zone ID',   required: true,  ph: 'ID de la zone Hetzner' },
+  ],
+  route53: [
+    { key: 'hosted_zone_id', label: 'Hosted Zone ID', required: true, ph: 'Z1234567890' },
+  ],
+};
+
 pages['acme-monitor'] = async function () {
   if (_acmeRefreshTimer) { clearInterval(_acmeRefreshTimer); _acmeRefreshTimer = null; }
   const root = document.getElementById('content');
@@ -23,12 +48,17 @@ pages['acme-monitor'] = async function () {
           <p style="margin:4px 0 0;font-size:13px;opacity:0.55;">${t('acme_monitor.subtitle')}</p>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary" style="font-size:12px;" onclick="openImportCertModal()">${t('acme_monitor.import_btn')}</button>
+          <button class="btn btn-primary" style="font-size:12px;" onclick="openNewCertModal()">${t('acme_monitor.new_cert_btn')}</button>
+          <button class="btn btn-ghost" style="font-size:12px;" onclick="openImportCertModal()">${t('acme_monitor.import_btn')}</button>
           <button class="btn btn-ghost" style="font-size:12px;" onclick="acmeMonitorLoad()">↻ ${t('common.refresh')}</button>
         </div>
       </div>
-      <div id="acme-config-section" style="margin-bottom:24px;"></div>
-      <div id="acme-providers-section" style="margin-bottom:24px;"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+        <div id="acme-config-section"></div>
+        <div id="acme-providers-section"></div>
+      </div>
+
       <div id="acme-kpis" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;"></div>
       <div id="acme-table-wrap"></div>
     </div>`;
@@ -36,37 +66,38 @@ pages['acme-monitor'] = async function () {
   _acmeRefreshTimer = setInterval(acmeMonitorLoad, 60_000);
   const obs = new MutationObserver(() => {
     if (!document.getElementById('acme-kpis')) {
-      clearInterval(_acmeRefreshTimer);
-      _acmeRefreshTimer = null;
-      obs.disconnect();
+      clearInterval(_acmeRefreshTimer); _acmeRefreshTimer = null; obs.disconnect();
     }
   });
   obs.observe(document.getElementById('content'), { childList: true });
 };
 
-// ── ACME config section ──────────────────────────────────────────────────────
+// ── Config ACME (email + CA) ─────────────────────────────────────────────────
 
 window.acmeConfigLoad = async function () {
   const el = document.getElementById('acme-config-section');
   if (!el) return;
   const cfg = await api('GET', '/settings/acme').catch(() => null);
   if (!cfg) { el.innerHTML = ''; return; }
-  const pLabel = PROVIDER_LABELS[cfg.dns_type] || cfg.dns_type || t('acme_monitor.config_not_set');
-  const pColor = PROVIDER_COLORS[cfg.dns_type];
   el.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:6px;">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;height:100%;box-sizing:border-box;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${cfg.enabled ? '#22c55e' : '#6b7280'};flex-shrink:0;"></span>
           <span style="font-size:13px;font-weight:600;">${t('acme_monitor.config_title')}</span>
         </div>
-        <div style="font-size:12px;opacity:0.65;">${t('acme_monitor.config_email')} : <strong>${cfg.email || '—'}</strong></div>
-        <div style="font-size:12px;opacity:0.65;">${t('acme_monitor.config_provider')} :
-          ${pColor ? `<span style="background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">${pLabel}</span>` : `<strong>${pLabel}</strong>`}
-        </div>
-        ${cfg.directory_url ? `<div style="font-size:11px;opacity:0.4;font-family:monospace;">${esc(cfg.directory_url)}</div>` : ''}
+        <button class="btn btn-ghost" style="font-size:11px;" onclick="openAcmeConfigModal()">${t('acme_monitor.config_edit')}</button>
       </div>
-      <button class="btn btn-ghost" style="font-size:12px;" onclick="openAcmeConfigModal()">${t('acme_monitor.config_edit')}</button>
+      <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="opacity:0.55;">${t('acme_monitor.config_email')}</span>
+          <strong>${cfg.email || '—'}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="opacity:0.55;">CA</span>
+          <span style="opacity:0.7;font-family:monospace;font-size:10px;">${cfg.directory_url || 'Let\'s Encrypt (prod)'}</span>
+        </div>
+      </div>
     </div>`;
 };
 
@@ -75,7 +106,7 @@ window.openAcmeConfigModal = async function () {
   document.getElementById('acme-config-modal-backdrop')?.remove();
   document.body.insertAdjacentHTML('beforeend', `
     <div id="acme-config-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
-      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(520px,96vw);max-width:none;">
+      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(480px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${t('acme_monitor.config_title')}</div>
         <div class="dialog-body" style="display:flex;flex-direction:column;gap:14px;">
@@ -88,17 +119,6 @@ window.openAcmeConfigModal = async function () {
             <input class="input" id="acme-cfg-email" type="email" placeholder="admin@example.com" value="${esc(cfg.email||'')}">
           </div>
           <div class="field">
-            <label>${t('acme_monitor.config_provider')}</label>
-            <select class="input" id="acme-cfg-dns-type" onchange="acmeCfgProviderChange()">
-              <option value="" ${!cfg.dns_type?'selected':''}>— ${t('acme_monitor.provider_none')} —</option>
-              <option value="cloudflare" ${cfg.dns_type==='cloudflare'?'selected':''}>Cloudflare</option>
-              <option value="ovh" ${cfg.dns_type==='ovh'?'selected':''}>OVH</option>
-              <option value="gandi" ${cfg.dns_type==='gandi'?'selected':''}>Gandi</option>
-              <option value="hetzner" ${cfg.dns_type==='hetzner'?'selected':''}>Hetzner DNS</option>
-              <option value="route53" ${cfg.dns_type==='route53'?'selected':''}>AWS Route 53</option>
-            </select>
-          </div>
-          <div class="field">
             <label>${t('acme_monitor.config_dir')} <span style="opacity:0.5;font-size:11px;">(${t('common.optional')})</span></label>
             <input class="input" id="acme-cfg-dir" placeholder="https://acme-v02.api.letsencrypt.org/directory" value="${esc(cfg.directory_url||'')}">
             <p style="margin:4px 0 0;font-size:11px;opacity:0.45;">Laisser vide pour Let's Encrypt production.</p>
@@ -106,23 +126,21 @@ window.openAcmeConfigModal = async function () {
         </div>
         <div class="dialog-footer">
           <button class="btn btn-secondary" onclick="document.getElementById('acme-config-modal-backdrop').remove()">${t('common.cancel')}</button>
-          <button class="btn btn-primary blueprint" onclick="saveAcmeConfig()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('acme_monitor.config_save')}</button>
+          <button class="btn btn-primary blueprint" onclick="saveAcmeConfig()">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            ${t('acme_monitor.config_save')}
+          </button>
         </div>
       </div>
     </div>`);
 };
 
-window.acmeCfgProviderChange = function () {
-  // Placeholder : pourrait afficher des champs de credentials inline
-};
-
 window.saveAcmeConfig = async function () {
   const enabled = document.getElementById('acme-cfg-enabled')?.checked || false;
   const email = document.getElementById('acme-cfg-email')?.value?.trim() || '';
-  const dns_type = document.getElementById('acme-cfg-dns-type')?.value || '';
   const directory_url = document.getElementById('acme-cfg-dir')?.value?.trim() || '';
   try {
-    await api('PUT', '/settings/acme', { enabled, email, dns_type, directory_url });
+    await api('PUT', '/settings/acme', { enabled, email, dns_type: '', directory_url });
     document.getElementById('acme-config-modal-backdrop')?.remove();
     toast(t('acme_monitor.config_saved'), 'success');
     acmeConfigLoad();
@@ -131,7 +149,7 @@ window.saveAcmeConfig = async function () {
   }
 };
 
-// ── Providers section ────────────────────────────────────────────────────────
+// ── Providers DNS ─────────────────────────────────────────────────────────────
 
 window.acmeProvidersLoad = async function () {
   const el = document.getElementById('acme-providers-section');
@@ -146,49 +164,51 @@ window.acmeProvidersLoad = async function () {
       ? `<span style="background:${pColor}22;color:${pColor};border:1px solid ${pColor}44;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;">${pLabel}</span>`
       : `<span style="font-size:11px;opacity:0.6;">${esc(pLabel)}</span>`;
     return `<tr>
-      <td style="padding:8px 10px;font-weight:500;">${esc(p.name)}</td>
-      <td style="padding:8px 10px;">${badge}</td>
-      <td style="text-align:right;padding:8px 10px;">
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;"
+      <td style="padding:6px 8px;font-size:12px;font-weight:500;">${esc(p.name)}</td>
+      <td style="padding:6px 8px;">${badge}</td>
+      <td style="text-align:right;padding:6px 8px;white-space:nowrap;">
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 6px;"
           onclick="openAcmeProviderModal(${JSON.stringify(p).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})">${t('acme_monitor.providers_edit')}</button>
-        <button class="btn btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--red);"
+        <button class="btn btn-ghost" style="font-size:11px;padding:3px 6px;color:var(--red);"
           onclick="deleteAcmeProvider('${esc(p.id)}','${esc(p.name)}')">${t('acme_monitor.providers_delete')}</button>
       </td>
     </tr>`;
   }).join('');
 
   el.innerHTML = `
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-        <div>
-          <div style="font-size:13px;font-weight:600;">${t('acme_monitor.providers_title')}</div>
-          <div style="font-size:11px;opacity:0.55;margin-top:2px;">${t('acme_monitor.providers_subtitle')}</div>
-        </div>
-        <button class="btn btn-ghost" style="font-size:12px;" onclick="openAcmeProviderModal(null)">${t('acme_monitor.providers_add')}</button>
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 20px;height:100%;box-sizing:border-box;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:13px;font-weight:600;">${t('acme_monitor.providers_title')}</span>
+        <button class="btn btn-ghost" style="font-size:11px;" onclick="openAcmeProviderModal(null)">${t('acme_monitor.providers_add')}</button>
       </div>
       ${providers.length === 0
-        ? `<p style="margin:0;font-size:12px;opacity:0.5;text-align:center;padding:12px 0;">${t('acme_monitor.providers_empty')}</p>`
-        : `<table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border);opacity:0.6;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;">
-                <th style="text-align:left;padding:6px 10px;">${t('acme_monitor.providers_col_name')}</th>
-                <th style="text-align:left;padding:6px 10px;">${t('acme_monitor.providers_col_type')}</th>
-                <th></th>
-              </tr>
-            </thead>
+        ? `<p style="margin:0;font-size:12px;opacity:0.5;text-align:center;padding:16px 0;">${t('acme_monitor.providers_empty')}</p>`
+        : `<table style="width:100%;border-collapse:collapse;">
             <tbody>${rows}</tbody>
           </table>`
       }
     </div>`;
 };
 
+// Rendu des champs dynamiques selon le type de provider
+function providerFieldsHTML(type, params) {
+  const fields = PROVIDER_FIELDS[type] || [];
+  if (!fields.length) return `<p style="font-size:12px;opacity:0.5;">${t('acme_monitor.providers_no_fields')}</p>`;
+  return fields.map(f => `
+    <div class="field">
+      <label>${esc(f.label)}${f.required ? '' : ` <span style="opacity:0.5;font-size:11px;">(${t('common.optional')})</span>`}</label>
+      <input class="input" id="pf-${esc(f.key)}" type="${f.key.includes('secret') || f.key.includes('token') || f.key.includes('key') ? 'password' : 'text'}"
+        autocomplete="off" placeholder="${esc(f.ph)}" value="${esc(params?.[f.key]||'')}">
+    </div>`).join('');
+}
+
 window.openAcmeProviderModal = function (provider) {
   const isEdit = !!provider;
-  const paramsStr = provider?.params ? JSON.stringify(provider.params, null, 2) : '{}';
+  const currentType = provider?.type || 'cloudflare';
   document.getElementById('acme-provider-modal-backdrop')?.remove();
   document.body.insertAdjacentHTML('beforeend', `
     <div id="acme-provider-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
-      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(520px,96vw);max-width:none;">
+      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(500px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${isEdit ? t('acme_monitor.providers_modal_edit') : t('acme_monitor.providers_modal_create')}</div>
         <div class="dialog-body" style="display:flex;flex-direction:column;gap:14px;">
@@ -198,19 +218,14 @@ window.openAcmeProviderModal = function (provider) {
           </div>
           <div class="field">
             <label>${t('acme_monitor.providers_type')}</label>
-            <select class="input" id="prov-type">
-              <option value="cloudflare" ${provider?.type==='cloudflare'?'selected':''}>Cloudflare</option>
-              <option value="ovh"        ${provider?.type==='ovh'?'selected':''}>OVH</option>
-              <option value="gandi"      ${provider?.type==='gandi'?'selected':''}>Gandi</option>
-              <option value="hetzner"    ${provider?.type==='hetzner'?'selected':''}>Hetzner DNS</option>
-              <option value="route53"    ${provider?.type==='route53'?'selected':''}>AWS Route 53</option>
+            <select class="input" id="prov-type" onchange="acmeProviderTypeChange(${JSON.stringify(provider?.params||null).replace(/</g,'\\u003c')})">
+              ${['cloudflare','ovh','gandi','hetzner','route53'].map(v =>
+                `<option value="${v}" ${currentType===v?'selected':''}>${PROVIDER_LABELS[v]||v}</option>`
+              ).join('')}
             </select>
           </div>
-          <div class="field">
-            <label>${t('acme_monitor.providers_credentials')}</label>
-            <textarea class="input" id="prov-params" rows="6" style="font-family:monospace;font-size:11px;resize:vertical;"
-              placeholder="${esc(t('acme_monitor.providers_credentials_ph'))}">${esc(paramsStr)}</textarea>
-            <p style="margin:4px 0 0;font-size:11px;opacity:0.45;">${t('acme_monitor.providers_credentials_hint')}</p>
+          <div id="prov-fields">
+            ${providerFieldsHTML(currentType, provider?.params)}
           </div>
         </div>
         <div class="dialog-footer">
@@ -224,14 +239,25 @@ window.openAcmeProviderModal = function (provider) {
     </div>`);
 };
 
+window.acmeProviderTypeChange = function (existingParams) {
+  const type = document.getElementById('prov-type')?.value;
+  const el = document.getElementById('prov-fields');
+  if (el) el.innerHTML = providerFieldsHTML(type, existingParams);
+};
+
 window.saveAcmeProvider = async function (id) {
   const name = document.getElementById('prov-name')?.value?.trim() || '';
   const type = document.getElementById('prov-type')?.value || '';
-  const paramsRaw = document.getElementById('prov-params')?.value?.trim() || '{}';
-  let params;
-  try { params = JSON.parse(paramsRaw); } catch {
-    toast('Invalid JSON in credentials.', 'error');
-    return;
+  if (!name || !type) { toast(t('acme_monitor.providers_name_required'), 'error'); return; }
+  // Collecte les champs dynamiques
+  const params = {};
+  for (const f of (PROVIDER_FIELDS[type] || [])) {
+    const val = document.getElementById(`pf-${f.key}`)?.value?.trim() || '';
+    if (val) params[f.key] = val;
+    else if (f.required) {
+      toast(`${f.label} ${t('common.required')}`, 'error');
+      return;
+    }
   }
   try {
     if (id) {
@@ -258,7 +284,66 @@ window.deleteAcmeProvider = async function (id, name) {
   }
 };
 
-// ── Monitor table ────────────────────────────────────────────────────────────
+// ── Nouveau certificat ────────────────────────────────────────────────────────
+
+window.openNewCertModal = async function () {
+  const providers = await api('GET', '/acme/providers').catch(() => []);
+  document.getElementById('acme-new-cert-backdrop')?.remove();
+  const provOptions = providers.length
+    ? providers.map(p => {
+        const pColor = PROVIDER_COLORS[p.type];
+        return `<option value="${esc(p.id)}">${esc(p.name)} (${PROVIDER_LABELS[p.type]||p.type})</option>`;
+      }).join('')
+    : `<option value="" disabled selected>${t('acme_monitor.new_cert_no_provider')}</option>`;
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="acme-new-cert-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+      <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(460px,96vw);max-width:none;">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <div class="dialog-title">${t('acme_monitor.new_cert_title')}</div>
+        <div class="dialog-body" style="display:flex;flex-direction:column;gap:14px;">
+          ${!providers.length ? `
+          <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;">
+            ${t('acme_monitor.new_cert_provider_hint')}
+          </div>` : ''}
+          <div class="field">
+            <label>${t('acme_monitor.new_cert_domain')}</label>
+            <input class="input" id="nc-domain" placeholder="*.example.com ou example.com">
+            <p style="margin:4px 0 0;font-size:11px;opacity:0.45;">${t('acme_monitor.new_cert_domain_hint')}</p>
+          </div>
+          <div class="field">
+            <label>${t('acme_monitor.new_cert_provider')}</label>
+            <select class="input" id="nc-provider">
+              ${provOptions}
+            </select>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn btn-secondary" onclick="document.getElementById('acme-new-cert-backdrop').remove()">${t('common.cancel')}</button>
+          <button class="btn btn-primary blueprint" onclick="submitNewCert()" ${!providers.length?'disabled':''}>
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            ${t('acme_monitor.new_cert_submit')}
+          </button>
+        </div>
+      </div>
+    </div>`);
+};
+
+window.submitNewCert = async function () {
+  const domain = document.getElementById('nc-domain')?.value?.trim() || '';
+  const providerId = document.getElementById('nc-provider')?.value || '';
+  if (!domain) { toast(t('acme_monitor.new_cert_domain_required'), 'error'); return; }
+  try {
+    await api('POST', '/certs', { domain, acme_provider_id: providerId });
+    document.getElementById('acme-new-cert-backdrop')?.remove();
+    toast(t('acme_monitor.renew_started').replace('{domain}', domain), 'success');
+    setTimeout(acmeMonitorLoad, 2000);
+  } catch (e) {
+    toast(e.message || t('common.error'), 'error');
+  }
+};
+
+// ── Monitor table ─────────────────────────────────────────────────────────────
 
 window.acmeMonitorLoad = async function () {
   const data = await api('GET', '/certs/acme-monitor').catch(() => null);
@@ -296,13 +381,10 @@ window.acmeMonitorLoad = async function () {
     const provBadge = provColor
       ? `<span style="background:${provColor}22;color:${provColor};border:1px solid ${provColor}44;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600;">${provLabel}</span>`
       : `<span style="font-size:11px;opacity:0.5;">${provLabel}</span>`;
-    const methodBadge = c.cert_method
-      ? `<span style="font-size:10px;opacity:0.55;padding:1px 5px;border:1px solid var(--border);border-radius:3px;">${esc(c.cert_method)}</span>`
-      : '';
     return `<tr style="cursor:pointer;" onclick="openAcmeCertDetail(${JSON.stringify(c).replace(/</g,'\\u003c').replace(/>/g,'\\u003e')})">
       <td style="font-weight:500;padding:10px 10px;">${esc(c.domain)}</td>
       <td style="padding:10px 10px;"><span style="font-size:11px;opacity:0.65;">${esc(c.issuer)}</span></td>
-      <td style="padding:10px 10px;">${provBadge} ${methodBadge}</td>
+      <td style="padding:10px 10px;">${provBadge}</td>
       <td style="padding:10px 10px;">${exp}</td>
       <td style="padding:10px 10px;">${upd}</td>
       <td style="text-align:center;padding:10px 10px;">${badge}</td>
@@ -334,60 +416,37 @@ window.acmeMonitorLoad = async function () {
     </div>`;
 };
 
-// ── Detail panel ─────────────────────────────────────────────────────────────
+// ── Detail panel ──────────────────────────────────────────────────────────────
 
 window.openAcmeCertDetail = function (cert) {
   document.getElementById('acme-cert-detail-backdrop')?.remove();
   const provLabel = PROVIDER_LABELS[cert.dns_provider] || cert.dns_provider || '—';
   const provColor = PROVIDER_COLORS[cert.dns_provider];
   const exp = new Date(cert.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  const hasDomain = !!(cert.dns_provider || cert.cert_method);
 
   document.body.insertAdjacentHTML('beforeend', `
     <div id="acme-cert-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('acme-cert-detail-backdrop').remove()">
-      <div style="width:min(440px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
+      <div style="width:min(400px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <div>
-            <h2 style="margin:0 0 4px;font-size:18px;font-weight:700;">${esc(cert.domain)}</h2>
+            <h2 style="margin:0 0 4px;font-size:17px;font-weight:700;">${esc(cert.domain)}</h2>
             <p style="margin:0;font-size:12px;opacity:0.5;">${t('acme_monitor.detail_title')}</p>
           </div>
-          <button class="btn btn-ghost btn-icon" onclick="document.getElementById('acme-cert-detail-backdrop').remove()">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
+          <button class="btn btn-ghost btn-icon" onclick="document.getElementById('acme-cert-detail-backdrop').remove()">✕</button>
         </div>
-
-        <div style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
-          <div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--bg2);border-radius:8px;">
-            <span style="opacity:0.6;">${t('acme_monitor.col_status')}</span>
-            <span>${statusBadge(cert.status, cert.days_left)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--bg2);border-radius:8px;">
-            <span style="opacity:0.6;">${t('acme_monitor.col_issuer')}</span>
-            <span>${esc(cert.issuer)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--bg2);border-radius:8px;">
-            <span style="opacity:0.6;">${t('acme_monitor.col_expires')}</span>
-            <span>${exp}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg2);border-radius:8px;">
-            <span style="opacity:0.6;">${t('acme_monitor.detail_provider')}</span>
-            <span>${provColor
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;">
+          ${[
+            [t('acme_monitor.col_status'),   statusBadge(cert.status, cert.days_left)],
+            [t('acme_monitor.col_issuer'),   esc(cert.issuer)],
+            [t('acme_monitor.col_expires'),  exp],
+            [t('acme_monitor.detail_provider'), provColor
               ? `<span style="background:${provColor}22;color:${provColor};border:1px solid ${provColor}44;padding:2px 9px;border-radius:4px;font-size:11px;font-weight:600;">${provLabel}</span>`
-              : provLabel
-            }</span>
-          </div>
-          ${cert.cert_method ? `
-          <div style="display:flex;justify-content:space-between;padding:10px 12px;background:var(--bg2);border-radius:8px;">
-            <span style="opacity:0.6;">${t('acme_monitor.detail_method')}</span>
-            <span style="font-size:12px;padding:1px 7px;border:1px solid var(--border);border-radius:4px;">${esc(cert.cert_method)}</span>
-          </div>` : ''}
+              : provLabel],
+          ].map(([k,v]) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--bg2);border-radius:8px;">
+              <span style="opacity:0.6;">${k}</span><span>${v}</span>
+            </div>`).join('')}
         </div>
-
-        ${!hasDomain ? `
-        <div style="margin-top:20px;padding:12px;border:1px dashed var(--border);border-radius:8px;font-size:12px;opacity:0.6;text-align:center;">
-          ${t('acme_monitor.detail_no_domain')}
-        </div>` : ''}
-
         <div style="margin-top:24px;display:flex;flex-direction:column;gap:8px;">
           <button class="btn btn-primary blueprint" style="width:100%;" onclick="acmeRenew('${esc(cert.domain)}')">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
@@ -404,7 +463,7 @@ window.openAcmeCertDetail = function (cert) {
     </div>`);
 };
 
-// ── Actions ──────────────────────────────────────────────────────────────────
+// ── Actions ───────────────────────────────────────────────────────────────────
 
 function statusBadge(status, daysLeft) {
   const styles = {
@@ -463,12 +522,15 @@ window.openImportCertModal = function () {
           </div>
           <div class="field">
             <label>${t('acme_monitor.import_issuer_label')} <span style="opacity:0.5;font-size:11px;">${t('common.optional')}</span></label>
-            <input class="input" id="imp-issuer" placeholder="custom" style="font-size:13px;">
+            <input class="input" id="imp-issuer" placeholder="custom">
           </div>
         </div>
         <div class="dialog-footer">
           <button class="btn btn-secondary" onclick="document.getElementById('acme-import-modal-backdrop').remove()">${t('common.cancel')}</button>
-          <button class="btn btn-primary blueprint" onclick="submitImportCert()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('acme_monitor.import_submit')}</button>
+          <button class="btn btn-primary blueprint" onclick="submitImportCert()">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            ${t('acme_monitor.import_submit')}
+          </button>
         </div>
       </div>
     </div>`);
@@ -478,10 +540,7 @@ window.submitImportCert = async function () {
   const certPEM = document.getElementById('imp-cert')?.value.trim() || '';
   const keyPEM  = document.getElementById('imp-key')?.value.trim() || '';
   const issuer  = document.getElementById('imp-issuer')?.value.trim() || '';
-  if (!certPEM || !keyPEM) {
-    toast(t('acme_monitor.import_missing'), 'error');
-    return;
-  }
+  if (!certPEM || !keyPEM) { toast(t('acme_monitor.import_missing'), 'error'); return; }
   try {
     const res = await api('POST', '/certs/import', { cert_pem: certPEM, key_pem: keyPEM, issuer });
     document.getElementById('acme-import-modal-backdrop')?.remove();
