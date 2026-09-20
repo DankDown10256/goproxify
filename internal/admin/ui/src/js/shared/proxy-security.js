@@ -671,13 +671,13 @@ window.openProxySecModal = async function(id, initialTab) {
                 <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);">Plateforme applicative</div>
                 ${_detectedPlatform ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--blue);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));">✦ Détecté : ${_detectedPlatform}</span>` : ''}
               </div>
-              <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Sélectionnez le CMS — les règles WAF générant des faux positifs connus seront exclues automatiquement.</div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Optionnel — sélectionner un CMS exclut les règles WAF connues pour générer des faux positifs sur cette plateforme. Ne rien sélectionner = toutes les règles actives.</div>
               <div style="margin-bottom:8px;">
                 <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid ${_autoMode?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${_autoMode?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};" id="psec-pcard-auto" onclick="psecToggleAutoPlatform(this)">
                   <input type="checkbox" name="psec-platform-auto" id="psec-platform-auto" ${_autoMode?'checked':''} style="accent-color:var(--accent);">
                   <div>
-                    <div style="font-size:12px;font-weight:500;">Auto-détection${_detectedPlatform ? ` <span style="font-size:10px;color:var(--blue);">(${_detectedPlatform} détecté)</span>` : ''}</div>
-                    <div style="font-size:10px;color:var(--text3);line-height:1.3;">Applique automatiquement les exclusions selon l'URL upstream</div>
+                    <div style="font-size:12px;font-weight:500;">Auto-détection${_detectedPlatform ? ` <span style="font-size:10px;color:var(--blue);">(${_detectedPlatform} détecté)</span>` : ' <span style="font-size:10px;color:var(--text3);">(aucune plateforme détectée)</span>'}</div>
+                    <div style="font-size:10px;color:var(--text3);line-height:1.3;">Détermine automatiquement les exclusions depuis l'URL upstream</div>
                   </div>
                 </label>
               </div>
