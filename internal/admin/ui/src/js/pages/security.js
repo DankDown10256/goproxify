@@ -1720,7 +1720,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Scénarios déclenchés -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title">&#x1f4cb; Scénarios déclenchés</span></div>
+        <div class="card-header"><span class="card-title">&#x1f6a8; Scénarios déclenchés</span></div>
         <div style="padding:0 16px 16px">
           ${scenarios.length === 0 ? noData :
             `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1761,7 +1761,7 @@ async function renderSentinelDashboard({ mode }) {
           </div>
         </div>
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title">&#x1f4ca; Top IPs par menaces</span></div>
+          <div class="card-header"><span class="card-title">&#x1f3af; Top IPs par menaces</span></div>
           <div style="padding:0 16px 16px">
             ${topIPs.length === 0 ? noData :
               `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1784,7 +1784,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Listes de détection -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title">&#x1f4cb; Listes de détection</span></div>
+        <div class="card-header"><span class="card-title">&#x1f6e1; Listes de détection</span></div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px 16px 16px">
           ${listItems.map(li => `
             <div style="padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid ${li.enabled ? 'var(--green)' : 'var(--border)'}">
