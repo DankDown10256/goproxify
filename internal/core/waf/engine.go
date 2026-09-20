@@ -414,6 +414,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 	behaviorThreshold := 8
 	behaviorWindowSec := 60
 	var trustedNets []*net.IPNet
+	var wafWhitelistNets []*net.IPNet
 	if cfg != nil {
 		anomalyThreshold = cfg.AnomalyThreshold
 		behaviorEnabled = cfg.BehaviorEnabled
@@ -424,6 +425,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			behaviorWindowSec = cfg.BehaviorWindowSec
 		}
 		trustedNets = parseTrustedProxies(cfg.TrustedProxies)
+		wafWhitelistNets = parseTrustedProxies(cfg.WAFWhitelistIPs)
 	}
 
 	// Vérifier si des règles TargetResponse existent pour décider de bufferiser les réponses.
@@ -432,6 +434,13 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		ip := realIP(r, trustedNets)
+
+		// Bypass WAF complet pour les IPs/CIDRs en whitelist (Fail2Ban/Sentinel restent actifs).
+		if len(wafWhitelistNets) > 0 && ipMatchesNets(ip, wafWhitelistNets) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		wafRequestsTotal.WithLabelValues(host).Inc()
 
 		// ── Étape 1 : vérification comportementale PRÉ-requête ────────────
@@ -713,6 +722,15 @@ func ipInNets(ip net.IP, nets []*net.IPNet) bool {
 	return false
 }
 
+// ipMatchesNets vérifie si l'adresse IP (string) est couverte par l'un des réseaux.
+func ipMatchesNets(ipStr string, nets []*net.IPNet) bool {
+	parsed := net.ParseIP(ipStr)
+	if parsed == nil {
+		return false
+	}
+	return ipInNets(parsed, nets)
+}
+
 // parseTrustedProxies compile une liste de CIDRs en []*net.IPNet.
 func parseTrustedProxies(cidrs []string) []*net.IPNet {
 	out := make([]*net.IPNet, 0, len(cidrs))
@@ -830,4 +848,52 @@ func targetName(t Target) string {
 		return "response"
 	}
 	return "unknown"
+}
+
+// WatchCustomRulesFile surveille path et recharge les règles custom dès que le fichier change.
+// path doit pointer vers un fichier JSON contenant un tableau de router.CustomRule.
+// Le watcher tourne jusqu'à l'annulation du contexte.
+// Les règles standards OWASP restent actives — seules les custom sont remplacées.
+func (e *Engine) WatchCustomRulesFile(ctx context.Context, path string) {
+	var lastMod time.Time
+	reload := func() {
+		info, err := os.Stat(path)
+		if err != nil || info.ModTime().Equal(lastMod) {
+			return
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			e.log.Error("waf: lecture fichier règles custom", "path", path, "err", err)
+			return
+		}
+		var defs []router.CustomRule
+		if err := json.Unmarshal(data, &defs); err != nil {
+			e.log.Error("waf: fichier règles custom invalide", "path", path, "err", err)
+			return
+		}
+		compiled, err := CompileCustomRules(defs)
+		if err != nil {
+			e.log.Error("waf: compilation règles custom", "path", path, "err", err)
+			return
+		}
+		e.mu.Lock()
+		// Conserver uniquement les règles non-custom (DefaultRules) puis ajouter les nouvelles.
+		base := DefaultRules()
+		e.rules = append(base, compiled...)
+		e.mu.Unlock()
+		lastMod = info.ModTime()
+		e.log.Info("waf: règles custom rechargées depuis fichier", "path", path, "count", len(defs))
+	}
+
+	reload() // chargement initial
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			reload()
+		}
+	}
 }

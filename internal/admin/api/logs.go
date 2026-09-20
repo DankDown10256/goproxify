@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -19,11 +20,17 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/logs"
 )
 
+// LogsSettingsPusher pousse les settings de logging vers les Cores.
+type LogsSettingsPusher interface {
+	PushIPAnonymize(ctx context.Context, enabled bool)
+}
+
 // LogsHandler gère la consultation statique, l'export et le streaming SSE.
 type LogsHandler struct {
-	Log   *slog.Logger
-	Store *logs.Store
-	DB    *sql.DB
+	Log    *slog.Logger
+	Store  *logs.Store
+	DB     *sql.DB
+	Pusher LogsSettingsPusher
 }
 
 func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -155,9 +162,11 @@ func (h *LogsHandler) getSettings(w http.ResponseWriter, r *http.Request) {
 		return n
 	}
 	accessDays, systemDays := h.Store.RetentionInfo()
+	ipAnonymize := admindb.GetSetting(h.DB, "logs.ip_anonymize", "false") == "true"
 	jsonOK(w, map[string]any{
-		"retention_access_days":  parseInt("logs.retention_access_days", accessDays),
-		"retention_system_days":  parseInt("logs.retention_system_days", systemDays),
+		"retention_access_days": parseInt("logs.retention_access_days", accessDays),
+		"retention_system_days": parseInt("logs.retention_system_days", systemDays),
+		"ip_anonymize":          ipAnonymize,
 		"defaults": map[string]any{
 			"access_days": logs.DefaultRetentionAccessDays,
 			"system_days": logs.DefaultRetentionSystemDays,
@@ -167,8 +176,9 @@ func (h *LogsHandler) getSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RetentionAccessDays int `json:"retention_access_days"`
-		RetentionSystemDays int `json:"retention_system_days"`
+		RetentionAccessDays int   `json:"retention_access_days"`
+		RetentionSystemDays int   `json:"retention_system_days"`
+		IPAnonymize         *bool `json:"ip_anonymize,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json")
@@ -185,6 +195,16 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 		admindb.SetSetting(h.DB, "logs.retention_system_days", strconv.Itoa(body.RetentionSystemDays)) //nolint:errcheck
 	}
 	h.Store.SetRetention(body.RetentionAccessDays, body.RetentionSystemDays)
+	if body.IPAnonymize != nil {
+		val := "false"
+		if *body.IPAnonymize {
+			val = "true"
+		}
+		admindb.SetSetting(h.DB, "logs.ip_anonymize", val) //nolint:errcheck
+		if h.Pusher != nil {
+			h.Pusher.PushIPAnonymize(r.Context(), *body.IPAnonymize)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

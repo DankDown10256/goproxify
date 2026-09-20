@@ -52,6 +52,9 @@ type AccessLogger struct {
 
 	proxyTapMu sync.RWMutex
 	proxyTap   func(domain string, status int)
+
+	anonymizeMu sync.RWMutex
+	anonymize   bool
 }
 
 type accessEntry struct {
@@ -124,21 +127,6 @@ func (a *AccessLogger) drain() {
 		a.mu.Unlock()
 
 		// Tap Fail2Ban Core (non-bloquant).
-		a.f2bTapMu.RLock()
-		tap := a.f2bTap
-		a.f2bTapMu.RUnlock()
-		if tap != nil {
-			tap(e.RemoteIP, e.Status)
-		}
-
-		// Tap moteur de règles (domain + status, non-bloquant).
-		a.proxyTapMu.RLock()
-		ptap := a.proxyTap
-		a.proxyTapMu.RUnlock()
-		if ptap != nil {
-			ptap(e.Host, e.Status)
-		}
-
 		// Transfert non-bloquant vers le shipper Admin.
 		select {
 		case a.shipCh <- e:
@@ -275,6 +263,34 @@ func (a *AccessLogger) SetF2BTap(fn func(ip string, status int)) {
 	a.f2bTapMu.Unlock()
 }
 
+// SetIPAnonymize active ou désactive l'anonymisation des IPs dans les logs.
+// IPv4 : dernier octet remplacé par 0 (x.x.x.0).
+// IPv6 : 80 derniers bits masqués (préfixe /48 conservé).
+// Les taps Fail2Ban/Sentinel reçoivent toujours l'IP réelle avant anonymisation.
+func (a *AccessLogger) SetIPAnonymize(enabled bool) {
+	a.anonymizeMu.Lock()
+	a.anonymize = enabled
+	a.anonymizeMu.Unlock()
+}
+
+// anonymizeIP tronque une IP pour la conformité RGPD.
+func anonymizeIP(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		v4[3] = 0
+		return v4.String()
+	}
+	// IPv6 : conserver les 48 premiers bits, zéroïser les 80 suivants.
+	v6 := parsed.To16()
+	for i := 6; i < 16; i++ {
+		v6[i] = 0
+	}
+	return v6.String()
+}
+
 // SetRemote configure (ou désactive si url == "") l'envoi HTTP vers l'Admin.
 // Utilisé en secours si aucun SetForwarder n'est défini.
 func (a *AccessLogger) SetRemote(adminURL, token string) {
@@ -322,6 +338,7 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 		}
 
 		ip := RealIP(r)
+
 		a.wafExtMu.RLock()
 		ext := a.wafExt
 		a.wafExtMu.RUnlock()
@@ -336,6 +353,29 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 		if tExt != nil {
 			threatSignal = tExt(r)
 		}
+
+		// Les taps sécurité reçoivent l'IP réelle avant toute anonymisation.
+		a.f2bTapMu.RLock()
+		tap := a.f2bTap
+		a.f2bTapMu.RUnlock()
+		if tap != nil {
+			tap(ip, rw.status)
+		}
+		a.proxyTapMu.RLock()
+		ptap := a.proxyTap
+		a.proxyTapMu.RUnlock()
+		if ptap != nil {
+			ptap(stripHostPort(r.Host), rw.status)
+		}
+
+		logIP := ip
+		a.anonymizeMu.RLock()
+		anon := a.anonymize
+		a.anonymizeMu.RUnlock()
+		if anon {
+			logIP = anonymizeIP(ip)
+		}
+
 		select {
 		case a.ch <- accessEntry{
 			Time:         start.UTC().Format(time.RFC3339Nano),
@@ -346,7 +386,7 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 			Status:       rw.status,
 			BytesSent:    rw.written,
 			DurationMs:   time.Since(start).Milliseconds(),
-			RemoteIP:     ip,
+			RemoteIP:     logIP,
 			UserAgent:    r.UserAgent(),
 			Referrer:     r.Referer(),
 			WAFMatches:   wafMatches,

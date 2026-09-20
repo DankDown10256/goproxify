@@ -116,6 +116,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 
 	log := corelog.New(cfg.Engine.LogLevel, cfg.Engine.LogFormat, cfg.Engine.SystemLogPath)
 	accessLog := corelog.NewAccessLogger(cfg.Engine.AccessLogPath)
+	accessLog.SetIPAnonymize(cfg.Engine.IPAnonymize)
 
 	secret := corecache.ResolveSecret(cfg.ControlPlane.AuthToken)
 	cachePath := "/etc/goproxify/core-cache.gpx"
@@ -356,6 +357,10 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 func (s *Server) Start(ctx context.Context) error {
 	if err := s.loadFromAdminOrCache(ctx); err != nil {
 		return err
+	}
+
+	if p := s.cfg.Engine.WAFCustomRulesPath; p != "" {
+		go s.wafEngine.WatchCustomRulesFile(ctx, p)
 	}
 
 	// API interne (push de routes depuis l'Admin)

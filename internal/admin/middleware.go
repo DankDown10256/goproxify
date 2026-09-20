@@ -85,13 +85,18 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 
 // runtimeSettings construit les settings runtime poussés aux Cores.
 func (s *Server) runtimeSettings() corews.Settings {
-	return corews.Settings{
+	settings := corews.Settings{
 		TracingEndpoint: s.cfg.App.TracingEndpoint,
 		LogLevel:        s.cfg.CoreDefaults.LogLevel,
 		LogFormat:       s.cfg.CoreDefaults.LogFormat,
 		AccessLogPath:   s.cfg.CoreDefaults.AccessLogPath,
 		AdminPublicURL:  s.resolveAdminPublicURL(),
 	}
+	if v := admindb.GetSetting(s.db, "logs.ip_anonymize", ""); v != "" {
+		anon := v == "true"
+		settings.IPAnonymize = &anon
+	}
+	return settings
 }
 
 // resolveAdminPublicURL retourne l'origine publique de l'Admin (env > settings > webauthn).

@@ -365,6 +365,16 @@ type WAFConfig struct {
 	// Admin: cpanel.
 	// Le moteur WAF résout chaque plateforme en IDs à exclure (union avec ExcludeIDs).
 	ExcludePlatforms []string `json:"exclude_platforms,omitempty"`
+
+	// CustomRulesPath : chemin vers un fichier JSON de règles custom sur le Core.
+	// Surveillé en temps réel — toute modification recharge les règles sans redémarrage.
+	// Format : tableau de CustomRule (même schéma que custom_rules dans la config).
+	// Exemple : /etc/goproxify/waf-custom-rules.json
+	CustomRulesPath string `json:"custom_rules_path,omitempty"`
+
+	// WAFWhitelistIPs : IPs/CIDRs exemptes du WAF pour cette route.
+	// La protection Fail2Ban/Sentinel reste active.
+	WAFWhitelistIPs []string `json:"waf_whitelist_ips,omitempty"`
 }
 
 // CustomRule est une règle WAF définie par l'utilisateur.

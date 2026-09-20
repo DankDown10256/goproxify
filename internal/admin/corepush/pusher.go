@@ -245,6 +245,9 @@ type Settings struct {
 	LogFormat       string `json:"log_format,omitempty"`
 	AccessLogPath   string `json:"access_log_path,omitempty"`
 	AdminPublicURL  string `json:"admin_public_url,omitempty"`
+	// IPAnonymize : quand true, le Core tronque les IPs dans les access logs (RGPD).
+	// La config locale core.json a toujours la priorité si ip_anonymize y est défini à true.
+	IPAnonymize *bool `json:"ip_anonymize,omitempty"`
 }
 
 // PushSettings envoie les paramètres runtime à tous les Cores.

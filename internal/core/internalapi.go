@@ -806,6 +806,7 @@ type pushedSettings struct {
 	LogFormat       string `json:"log_format"`
 	AccessLogPath   string `json:"access_log_path"`
 	AdminPublicURL  string `json:"admin_public_url"`
+	IPAnonymize     *bool  `json:"ip_anonymize,omitempty"`
 }
 
 // handlePushSettings reçoit les paramètres runtime poussés par Admin.
@@ -848,6 +849,13 @@ func (s *Server) applyPushedSettings(payload pushedSettings) {
 	if s.cfg.Engine.AccessLogPath == "" && payload.AccessLogPath != "" {
 		s.accessLog.Reopen(payload.AccessLogPath)
 		s.log.Info("settings: access log redirigé depuis Admin", "path", payload.AccessLogPath)
+	}
+
+	// IP anonymisation — Admin pousse la valeur ; la config locale core.json a la priorité
+	// (si ip_anonymize = true en local, il reste true indépendamment de ce que dit l'Admin).
+	if payload.IPAnonymize != nil && !s.cfg.Engine.IPAnonymize {
+		s.accessLog.SetIPAnonymize(*payload.IPAnonymize)
+		s.log.Info("settings: anonymisation IP access logs", "enabled", *payload.IPAnonymize)
 	}
 
 	// URL publique Admin — pour les liens des pages d'erreur (sauf override env local).

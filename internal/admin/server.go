@@ -331,7 +331,7 @@ func (s *Server) Start(ctx context.Context) error {
 	auditH := &api.AuditHandler{DB: s.db, Log: s.log, Auditor: s.auditor}
 	channelsH := &api.ChannelsHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
 	rulesH := &api.RulesHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
-	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db}
+	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db, Pusher: manager}
 	f2bEngine := fail2ban.New(s.db, s.log)
 	vsScanner := vulnscan.New(s.db, s.log, "")
 	csBouncer := crowdsec.New(s.db, s.log)

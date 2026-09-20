@@ -9,6 +9,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Ajouté
 
+- **Anonymisation IP dans les access logs** : option `engine.ip_anonymize` dans `core.json` (et toggle Admin UI → Logs → Settings). IPv4 : dernier octet remplacé par 0 ; IPv6 : 80 derniers bits masqués. Fail2Ban et Sentinel reçoivent toujours l'IP réelle. Propagé en temps réel aux Cores via WS `push_settings`.
+- **WAF — whitelist IP par route** : champ `waf_whitelist_ips` (tableau CIDRs) dans `WAFConfig`. Les IPs correspondantes bypassent complètement le WAF pour cette route (Fail2Ban/Sentinel restent actifs).
+- **WAF — hot-reload depuis fichier externe** : champ `engine.waf_custom_rules_path` dans `core.json`. Le Core surveille le fichier toutes les 10 s et recharge les règles custom sans redémarrage.
+- **Doc RGPD** : `docs/rgpd.md` — inventaire complet des données collectées, options de minimisation (anonymisation, rétention, droit à l'effacement), checklist opérateur, mesures de sécurité.
+- **Benchmark** : `docs/benchmark.md` — méthodologie k6, résultats HTTP/1.1 passthrough et WAF vs Nginx/Caddy, instructions pour reproduire.
+
+### Ajouté
+
 - **Monitoring ACME — multi-fournisseurs** : la page "Monitoring ACME" peut désormais gérer plusieurs fournisseurs DNS nommés (ex: "cloudflare-prod", "ovh-zone2"). Nouvelle table `acme_providers` (id, name, type, params JSON). Nouveaux endpoints CRUD `/api/v1/acme/providers`. Section "DNS Providers" dans l'UI avec liste des providers configurés, badges colorés, formulaire d'ajout/édition (nom, type, credentials JSON) et suppression par provider.
 
 - **Prism — carte live** : en mode Live, la carte monde affiche désormais des points pulsants animés par pays au fil des connexions entrantes (bleu = visite, rouge = ban, orange = erreur). Un flux "Connexions temps réel" scrollant apparaît sous la carte avec IP, pays, domaine, statut et horodatage. Nouveau endpoint backend `/api/v1/prism/live-ips` (polling toutes les 4 s) et fonction analytics `GetLiveIPs` qui joint `logs`, `geoip_cache` et `security_bans` pour classifier chaque événement.
