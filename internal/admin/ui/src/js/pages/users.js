@@ -125,8 +125,7 @@ async function refreshUsers(content) {
           </div>`}
         </div>
       </div>
-      <div id="user-modal-container"></div>
-      <div id="team-modal-container"></div>`;
+`;
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 }
 
@@ -189,8 +188,9 @@ window.openUserModal = async function(id) {
             </div>
           </div>`;
 
-  document.getElementById('user-modal-container').innerHTML = `
-    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+  document.getElementById('user-modal-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="user-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(560px,96vw);max-width:none;max-height:92vh;overflow:auto;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('users.edit_user') : t('users.new_user')}</div>
@@ -231,7 +231,7 @@ window.openUserModal = async function(id) {
           </div>` : ''}
         </div>
         <div class="dialog-actions">
-          <button class="btn btn-secondary blueprint" onclick="document.getElementById('user-modal-container').innerHTML=''"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
+          <button class="btn btn-secondary blueprint" onclick="document.getElementById('user-modal-backdrop').remove()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
           <button class="btn btn-primary blueprint" onclick="saveUser('${esc(id||'')}', ${isSuper})"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${id ? t('common.save') : t('common.create')}</button>
         </div>
       </div>
@@ -288,7 +288,7 @@ window.saveUser = async function(id, isSuper) {
     }
 
     toast(t('users.saved'), 'success');
-    document.getElementById('user-modal-container').innerHTML = '';
+    document.getElementById('user-modal-backdrop')?.remove();
     refreshUsers();
   } catch(e) { toast(e.message, 'error'); }
 };
@@ -327,14 +327,16 @@ window.openTeamModal = async function(id) {
     if (el) el.innerHTML = grantListHtml(window._scopes || scopes, 'tm-scopes-list', 'window._removeScope');
   };
 
-  document.getElementById('team-modal-container').innerHTML = `
-    <style>
-      #tm-ac-list { position:absolute;z-index:10001;background:var(--card-bg,#1a1a2e);border:1px solid var(--border);border-top:none;max-height:160px;overflow-y:auto;width:100%;box-sizing:border-box;display:none; }
-      #tm-ac-list .ac-item { padding:6px 10px;font-size:12.5px;cursor:pointer;font-family:monospace; }
-      #tm-ac-list .ac-item:hover, #tm-ac-list .ac-item.ac-active { background:var(--accent,#3a86ff22); }
-      #tm-sc-wrap { position:relative;flex:1;min-width:120px; }
-    </style>
-    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+  document.getElementById('team-modal-backdrop')?.remove();
+  // inject autocomplete styles once
+  if (!document.getElementById('tm-ac-style')) {
+    const s = document.createElement('style');
+    s.id = 'tm-ac-style';
+    s.textContent = '#tm-ac-list{position:absolute;z-index:10001;background:var(--card-bg,#1a1a2e);border:1px solid var(--border);border-top:none;max-height:160px;overflow-y:auto;width:100%;box-sizing:border-box;display:none}#tm-ac-list .ac-item{padding:6px 10px;font-size:12.5px;cursor:pointer;font-family:monospace}#tm-ac-list .ac-item:hover,#tm-ac-list .ac-item.ac-active{background:var(--accent,#3a86ff22)}#tm-sc-wrap{position:relative;flex:1;min-width:120px}';
+    document.head.appendChild(s);
+  }
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="team-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(520px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('users.edit_team') : t('users.new_team')}</div>
@@ -366,7 +368,7 @@ window.openTeamModal = async function(id) {
           </div>
         </div>
         <div class="dialog-actions">
-          <button class="btn btn-secondary blueprint" onclick="document.getElementById('team-modal-container').innerHTML=''"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
+          <button class="btn btn-secondary blueprint" onclick="document.getElementById('team-modal-backdrop').remove()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
           <button class="btn btn-primary blueprint" onclick="saveTeam('${esc(id||'')}')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${id ? t('common.save') : t('common.create')}</button>
         </div>
       </div>
@@ -480,7 +482,7 @@ window.saveTeam = async function(id) {
     }
 
     toast(t('users.team_saved'), 'success');
-    document.getElementById('team-modal-container').innerHTML = '';
+    document.getElementById('team-modal-backdrop')?.remove();
     refreshUsers();
   } catch(e) { toast(e.message, 'error'); }
 };

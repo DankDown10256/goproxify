@@ -707,7 +707,7 @@ async function renderTraficPage(ctx) {
           <div id="trafic-containers-content"><p style="color:var(--text2);font-size:13px;">${t('common.loading')}</p></div>
         </div>
       </div>
-      <div id="trafic-modal-container"></div>`;
+`;
 
     // ── renderPage (re-render sections) ──────────────────────────────────────
     const renderPage = () => {
@@ -847,8 +847,9 @@ async function renderTraficPage(ctx) {
 
     window.openNewProxyModal  = () => openProxyModal();
     window.openNewStreamModal = () => {
-      document.getElementById('trafic-modal-container').innerHTML = `
-        <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+      document.getElementById('trafic-modal-backdrop')?.remove();
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="trafic-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
           <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(420px,94vw);">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
             <div class="dialog-title">${t('trafic.new_stream')}</div>
@@ -868,11 +869,11 @@ async function renderTraficPage(ctx) {
               </div>
             </div>
             <div class="dialog-actions">
-              <button class="btn btn-secondary blueprint" onclick="document.getElementById('trafic-modal-container').innerHTML=''"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
+              <button class="btn btn-secondary blueprint" onclick="document.getElementById('trafic-modal-backdrop').remove()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
               <button class="btn btn-primary blueprint" onclick="traficCreateStream()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.create')}</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
     };
     window.traficCreateStream = async () => {
       const name   = (document.getElementById('ns2-name')?.value || '').trim();
@@ -891,7 +892,7 @@ async function renderTraficPage(ctx) {
           const config = { type: proto, host, listen_port: port, backends: [{ url: target }] };
           await api('POST', '/proxies', { config, enabled: true });
         }
-        document.getElementById('trafic-modal-container').innerHTML = '';
+        document.getElementById('trafic-modal-backdrop')?.remove();
         toast(protos.length > 1 ? t('trafic.streams_created', { n: protos.length }) : t('trafic.stream_created'), 'success');
         await refreshProxies();
       } catch(e) { toast(e.message || t('trafic.create_error'), 'error'); }
@@ -901,7 +902,7 @@ async function renderTraficPage(ctx) {
     window.openTraficImport = function() {
       const tim = { step: 1, format: null, text: '', files: [], proxies: [], result: null };
       const STEPS = [t('trafic.step_format'), t('trafic.step_config'), t('trafic.step_select'), t('trafic.step_result')];
-      const close = () => document.getElementById('trafic-modal-container').innerHTML = '';
+      const close = () => document.getElementById('trafic-modal-backdrop')?.remove();
       const stepsBar = () => STEPS.map((s,i) => {
         const n=i+1, active=n===tim.step, done=n<tim.step;
         return `<div style="display:flex;align-items:center;gap:6px">
@@ -984,8 +985,9 @@ async function renderTraficPage(ctx) {
           if (tim.step === 3) return `<button class="btn btn-secondary blueprint" onclick="window._timClose()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button><button class="btn btn-secondary blueprint" onclick="window._tim.step=2;window._tim_render()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.back')}</button><button class="btn btn-primary blueprint" onclick="window._timApply()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.import_go')}</button>`;
           return `<button class="btn btn-secondary blueprint" onclick="window._tim.step=1;window._tim.format=null;window._tim.text='';window._tim.files=[];window._tim.proxies=[];window._tim_render()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.new_import')}</button><button class="btn btn-primary blueprint" onclick="window._timClose();refreshProxies()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.see_proxies')}</button>`;
         })();
-        document.getElementById('trafic-modal-container').innerHTML = `
-          <div class="dialog-backdrop" style="background:rgba(0,0,0,0.6);">
+        document.getElementById('trafic-modal-backdrop')?.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+          <div id="trafic-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.6);">
             <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(680px,96vw);max-height:90vh;display:flex;flex-direction:column">
               <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
               <div class="dialog-title" style="display:flex;align-items:center;gap:16px;flex-shrink:0">
@@ -996,7 +998,7 @@ async function renderTraficPage(ctx) {
               <div class="dialog-body" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px">${body}</div>
               <div class="dialog-actions" style="flex-shrink:0">${actions}</div>
             </div>
-          </div>`;
+          </div>`);
       };
       window._tim = tim; window._tim_render = render; window._timClose = close;
       window._timLoadFiles = (fileList) => {

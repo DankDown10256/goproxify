@@ -476,7 +476,7 @@ pages['core-ipfilter'] = async function() {
         </div>
       </div>
 
-      <div id="ip-rule-modal-container"></div>`;
+`;
 
     try { psecGeoInit(geoCodes, 'core-geo-picker'); } catch (e) { console.warn('core geo init', e); }
     window._coreGeoSnippetId = geoSnippets[0]?.id || null;
@@ -539,8 +539,9 @@ pages['core-ipfilter'] = async function() {
       </tr>`).join('') : '<tr><td colspan="4" class="empty"><p>' + t('corepage.ipfilter.no_rules') + '</p></td></tr>';
     };
     window.openIpRuleModal = function() {
-      document.getElementById('ip-rule-modal-container').innerHTML = `
-        <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+      document.getElementById('ip-rule-modal-backdrop')?.remove();
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="ip-rule-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
           <div class="dialog blueprint" role="dialog" aria-modal="true">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
             <div class="dialog-title">${t('corepage.ipfilter.modal_title')}</div>
@@ -553,11 +554,11 @@ pages['core-ipfilter'] = async function() {
               <div class="field"><label>${t('common.note')}</label><input class="input" id="nr-note" placeholder="${t('corepage.ipfilter.note_ph')}"></div>
             </div>
             <div class="dialog-actions">
-              <button class="btn btn-secondary blueprint" onclick="document.getElementById('ip-rule-modal-container').innerHTML=''"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
+              <button class="btn btn-secondary blueprint" onclick="document.getElementById('ip-rule-modal-backdrop').remove()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('common.cancel')}</button>
               <button class="btn btn-primary blueprint" onclick="createIpRule()"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('corepage.ipfilter.add_rule')}</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
     };
     window.createIpRule = function() {
       const cidr = document.getElementById('nr-cidr')?.value;
@@ -565,7 +566,7 @@ pages['core-ipfilter'] = async function() {
       const note = document.getElementById('nr-note')?.value;
       if (!cidr) return;
       window._ipRules.push({ cidr, type, note });
-      document.getElementById('ip-rule-modal-container').innerHTML = '';
+      document.getElementById('ip-rule-modal-backdrop')?.remove();
       renderIpRules();
     };
     window.removeIpRule = function(i) { window._ipRules.splice(i,1); renderIpRules(); };

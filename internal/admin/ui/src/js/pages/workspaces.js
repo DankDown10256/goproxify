@@ -32,9 +32,7 @@ pages.workspaces = async function() {
             <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:12px;opacity:0.4;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             <p>${t('workspaces.empty')}</p>
           </div>`}
-      </div>
-      <div id="workspace-modal-container"></div>
-      <div id="workspace-detail-container"></div>`;
+      </div>`;
   } catch(e) {
     content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`;
   }
@@ -67,12 +65,13 @@ function workspaceCard(ws) {
 }
 
 window.openWorkspaceModal = async function(id) {
+  document.getElementById('ws-modal-backdrop')?.remove();
   let ws = null;
   if (id) {
     try { ws = await api('GET', `/workspaces/${id}`); } catch {}
   }
-  document.getElementById('workspace-modal-container').innerHTML = `
-    <div class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="ws-modal-backdrop" class="dialog-backdrop" style="background:rgba(0,0,0,0.55);">
       <div class="dialog blueprint" role="dialog" aria-modal="true" style="width:min(460px,96vw);max-width:none;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="dialog-title">${id ? t('workspaces.edit') : t('workspaces.new')}</div>
@@ -81,11 +80,11 @@ window.openWorkspaceModal = async function(id) {
           <div class="field"><label>${t('workspaces.desc_lbl')}</label><textarea class="input" id="ws-desc" rows="2" style="resize:vertical;">${esc(ws?.description||'')}</textarea></div>
         </div>
         <div class="dialog-footer">
-          <button class="btn btn-secondary" onclick="document.getElementById('workspace-modal-container').innerHTML=''">${t('common.cancel')}</button>
+          <button class="btn btn-secondary" onclick="document.getElementById('ws-modal-backdrop').remove()">${t('common.cancel')}</button>
           <button class="btn btn-primary blueprint" onclick="saveWorkspace('${esc(id||'')}')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${id ? t('common.save') : t('common.create')}</button>
         </div>
       </div>
-    </div>`;
+    </div>`);
 };
 
 window.saveWorkspace = async function(id) {
@@ -98,7 +97,7 @@ window.saveWorkspace = async function(id) {
     } else {
       await api('POST', '/workspaces', { name, description: desc });
     }
-    document.getElementById('workspace-modal-container').innerHTML = '';
+    document.getElementById('ws-modal-backdrop')?.remove();
     pages.workspaces();
   } catch(e) { alert(e.message); }
 };
@@ -109,23 +108,23 @@ window.deleteWorkspace = function(id) {
 };
 
 window.openWorkspaceDetail = async function(id) {
-  const container = document.getElementById('workspace-detail-container');
-  container.innerHTML = `<div class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);">
+  document.getElementById('ws-detail-backdrop')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);">
     <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;">
       <p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>
     </div>
-  </div>`;
+  </div>`);
   try {
     const ws = await api('GET', `/workspaces/${id}`);
     _renderWorkspacePanel(ws);
   } catch(e) {
-    container.innerHTML = '';
+    document.getElementById('ws-detail-backdrop')?.remove();
     alert(e.message);
   }
 };
 
 function _renderWorkspacePanel(ws) {
-  const container = document.getElementById('workspace-detail-container');
+  const container = document.getElementById('ws-detail-backdrop');
   const teams = window._wsTeams || [];
   const users = window._wsUsers || [];
   const proxies = window._wsProxies || [];
@@ -143,14 +142,14 @@ function _renderWorkspacePanel(ws) {
   ].join('');
 
   container.innerHTML = `
-    <div class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('workspace-detail-container').innerHTML=''">
+    <div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('ws-detail-backdrop').remove()">
       <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <div>
             <h2 style="margin:0 0 4px;font-size:20px;font-weight:700;">${esc(ws.name)}</h2>
             ${ws.description ? `<p style="margin:0;font-size:13px;opacity:0.6;">${esc(ws.description)}</p>` : ''}
           </div>
-          <button class="btn btn-ghost btn-icon" onclick="document.getElementById('workspace-detail-container').innerHTML=''"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          <button class="btn btn-ghost btn-icon" onclick="document.getElementById('ws-detail-backdrop').remove()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
         </div>
 
         <!-- Membres -->

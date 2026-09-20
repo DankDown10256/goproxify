@@ -48,10 +48,10 @@ function certDeployCard(c) {
 }
 
 window.openCertDeployPanel = async function(certID, domain) {
-  const panel = document.getElementById('cert-deploy-panel');
-  panel.innerHTML = '';
+  document.getElementById('cert-deploy-overlay')?.remove();
 
   const overlay = document.createElement('div');
+  overlay.id = 'cert-deploy-overlay';
   overlay.className = 'dialog-backdrop';
   overlay.style.cssText = 'align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.45);';
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
@@ -64,7 +64,7 @@ window.openCertDeployPanel = async function(certID, domain) {
         <h2 style="margin:0 0 2px;font-size:18px;font-weight:600;">${esc(domain)}</h2>
         <p style="margin:0;font-size:12px;opacity:0.55;">Déploiements & tokens de pull</p>
       </div>
-      <button class="btn btn-ghost btn-icon" onclick="this.closest('.cert-deploy-overlay').remove()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      <button class="btn btn-ghost btn-icon" onclick="document.getElementById('cert-deploy-overlay').remove()"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
 
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;" id="cdtabs">
@@ -73,9 +73,9 @@ window.openCertDeployPanel = async function(certID, domain) {
     </div>
     <div id="cd-tab-content" style="flex:1;"></div>`;
 
-  drawer.classList.add('cert-deploy-overlay');
+  drawer.classList.add('cert-deploy-drawer');
   overlay.appendChild(drawer);
-  panel.appendChild(overlay);
+  document.body.appendChild(overlay);
 
   await cdLoadTargets(certID, domain);
 };
