@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté
+
+- **Prism — carte live** : en mode Live, la carte monde affiche désormais des points pulsants animés par pays au fil des connexions entrantes (bleu = visite, rouge = ban, orange = erreur). Un flux "Connexions temps réel" scrollant apparaît sous la carte avec IP, pays, domaine, statut et horodatage. Nouveau endpoint backend `/api/v1/prism/live-ips` (polling toutes les 4 s) et fonction analytics `GetLiveIPs` qui joint `logs`, `geoip_cache` et `security_bans` pour classifier chaque événement.
+
 ### Amélioré
 
 - **UI Monitoring ACME** : la page affiche désormais le fournisseur DNS associé à chaque certificat (via jointure avec la table `domains`), avec un badge coloré par provider (Cloudflare, OVH, Gandi, Hetzner, Route 53). Ajout d'un panneau "Configuration ACME" en haut permettant de visualiser et modifier la config globale (activé, email, provider, directory URL). Ajout du bouton "Supprimer" par certificat. Nouveau panel détail latéral (clic sur une ligne) avec lien vers la section Domaines. Toutes les modales utilisent `document.body` pour éviter les problèmes de stacking context.

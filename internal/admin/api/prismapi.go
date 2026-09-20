@@ -56,6 +56,8 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.bansBySource(w, r)
 	case r.Method == http.MethodGet && path == "bans/top-ips":
 		h.bansTopIPs(w, r)
+	case r.Method == http.MethodGet && path == "live-ips":
+		h.liveIPs(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -158,6 +160,27 @@ func (h *PrismHandler) agents(w http.ResponseWriter, r *http.Request) {
 func (h *PrismHandler) proxies(w http.ResponseWriter, r *http.Request) {
 	opts := analytics.GetProxies(h.DB, r.URL.Query().Get("node_name"))
 	jsonOK(w, opts)
+}
+
+func (h *PrismHandler) liveIPs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	since := time.Now().Add(-10 * time.Second)
+	if s := q.Get("since"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			since = t
+		} else if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			since = t
+		}
+	}
+	limit := 100
+	if l, err := strconv.Atoi(q.Get("limit")); err == nil && l > 0 {
+		limit = l
+	}
+	events := analytics.GetLiveIPs(h.DB, since, q.Get("proxy"), q.Get("node_name"), limit)
+	if events == nil {
+		events = []analytics.LiveIPEvent{}
+	}
+	jsonOK(w, events)
 }
 
 func (h *PrismHandler) geo(w http.ResponseWriter, r *http.Request) {

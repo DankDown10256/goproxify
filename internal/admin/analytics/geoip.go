@@ -271,6 +271,96 @@ func GetGeoBreakdown(db *sql.DB, p Params) []GeoEntry {
 	return out
 }
 
+// LiveIPEvent représente un événement IP récent pour la vue live de la carte.
+type LiveIPEvent struct {
+	IP          string `json:"ip"`
+	CountryCode string `json:"country_code"`
+	CountryName string `json:"country_name"`
+	Kind        string `json:"kind"` // "visit" | "error" | "banned"
+	Status      int    `json:"status"`
+	Domain      string `json:"domain"`
+	Ts          string `json:"ts"`
+}
+
+// GetLiveIPs retourne les événements IP récents pour la vue live de la carte.
+// since : timestamp ISO8601 depuis lequel récupérer ; limit : max 200.
+func GetLiveIPs(db *sql.DB, since time.Time, proxy, nodeName string, limit int) []LiveIPEvent {
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	sinceStr := since.UTC().Format(time.RFC3339)
+
+	var conds []string
+	var args []any
+	conds = append(conds, "l.ts >= ?")
+	args = append(args, sinceStr)
+	conds = append(conds, "l.status > 0")
+	if proxy != "" {
+		conds = append(conds, "l.domain = ?")
+		args = append(args, proxy)
+	}
+	if nodeName != "" {
+		conds = append(conds, "l.node_name = ?")
+		args = append(args, nodeName)
+	}
+
+	w := "WHERE " + strings.Join(conds, " AND ")
+
+	// Charge les IPs bannies actives pour annoter kind=banned
+	bannedIPs := activeBannedIPSet(db)
+
+	rows, err := db.Query(fmt.Sprintf(
+		`SELECT l.ip,
+		        COALESCE(g.country_code,'?') AS cc,
+		        COALESCE(g.country_name,'Unknown') AS cn,
+		        l.status,
+		        l.domain,
+		        l.ts
+		 FROM logs l
+		 LEFT JOIN geoip_cache g ON g.ip = l.ip
+		 %s
+		 ORDER BY l.ts DESC
+		 LIMIT ?`, w), append(args, limit)...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var out []LiveIPEvent
+	for rows.Next() {
+		var ev LiveIPEvent
+		_ = rows.Scan(&ev.IP, &ev.CountryCode, &ev.CountryName, &ev.Status, &ev.Domain, &ev.Ts)
+		switch {
+		case bannedIPs[ev.IP]:
+			ev.Kind = "banned"
+		case ev.Status >= 400:
+			ev.Kind = "error"
+		default:
+			ev.Kind = "visit"
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// activeBannedIPSet retourne l'ensemble des IPs actives dans security_bans.
+func activeBannedIPSet(db *sql.DB) map[string]bool {
+	rows, err := db.Query(
+		`SELECT ip FROM security_bans
+		 WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	m := map[string]bool{}
+	for rows.Next() {
+		var ip string
+		_ = rows.Scan(&ip)
+		m[ip] = true
+	}
+	return m
+}
+
 // geoBannedIPs retourne le nombre d'IPs bannies actives par country_code.
 func geoBannedIPs(db *sql.DB) map[string]int64 {
 	rows, err := db.Query(

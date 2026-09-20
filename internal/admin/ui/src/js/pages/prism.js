@@ -240,6 +240,7 @@ async function renderPrismPage() {
     liveMode = false;
     liveStartedAt = null;
     if (_prismLiveTimer) { clearInterval(_prismLiveTimer); _prismLiveTimer = null; }
+    if (_liveMapTimer)  { clearInterval(_liveMapTimer);   _liveMapTimer = null; }
   }
 
   function syncFilterLiveState() {
@@ -292,6 +293,7 @@ async function renderPrismPage() {
   function toggleLiveMode() {
     if (liveMode) {
       stopLiveMode();
+      stopLiveMap();
       syncFilterLiveState();
       return;
     }
@@ -308,6 +310,7 @@ async function renderPrismPage() {
     };
     tick();
     _prismLiveTimer = setInterval(tick, LIVE_INTERVAL_MS);
+    startLiveMap();
   }
 
   function prismBodyHtml(kpis, timeline, status) {
@@ -770,20 +773,38 @@ async function renderPrismPage() {
       </table>`;
   }
 
+  // Live map : état
+  let _liveMapLastTs = null;       // dernier timestamp ISO poolé
+  let _liveMapTimer  = null;       // setInterval live map
+  let _liveMapFeed   = [];         // buffer des événements récents (50 max)
+  const LIVE_MAP_INTERVAL_MS = 4000;
+  const LIVE_MAP_FEED_MAX = 50;
+
   // Mode actif de la choroplèthe : 'requests' | 'error_rate' | 'banned_ips'
   let geoViewMode = 'requests';
 
   function geoHtml(geo) {
+    const liveFeedHtml = liveMode ? `
+      <div id="prism-live-feed-wrap" style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="logs-live-dot"></span>
+          <span style="font-size:11px;font-weight:600;color:var(--text2)">Connexions temps réel</span>
+        </div>
+        <div id="prism-live-feed" style="max-height:200px;overflow-y:auto;font-size:11px">
+          <div style="color:var(--text3);font-size:12px;padding:8px 0">En attente de trafic…</div>
+        </div>
+      </div>` : '';
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <span class="prism-panel-title" style="margin:0">Trafic par pays</span>
+        <span class="prism-panel-title" style="margin:0">Trafic par pays${liveMode ? ' <span class="logs-live-dot" style="margin-left:6px"></span>' : ''}</span>
         <div class="btn-group" role="group" aria-label="Vue">
           <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='requests'?'active':''}" data-geo-mode="requests">Requêtes</button>
           <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='error_rate'?'active':''}" data-geo-mode="error_rate">Tx erreurs</button>
           <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='banned_ips'?'active':''}" data-geo-mode="banned_ips">IPs bannies</button>
         </div>
       </div>
-      <div id="prism-geo-map" class="wm-wrap" style="min-height:200px"><div class="spinner" style="margin:80px auto"></div></div>`;
+      <div id="prism-geo-map" class="wm-wrap" style="min-height:200px"><div class="spinner" style="margin:80px auto"></div></div>
+      ${liveFeedHtml}`;
   }
 
   const GEO_PALETTES = {
@@ -863,6 +884,109 @@ async function renderPrismPage() {
       </table>`;
     container.appendChild(tableWrap);
   }
+
+  // ── Live map ────────────────────────────────────────────────────────────
+
+  function startLiveMap() {
+    _liveMapLastTs = new Date().toISOString();
+    _liveMapFeed = [];
+    if (_liveMapTimer) clearInterval(_liveMapTimer);
+    _liveMapTimer = setInterval(tickLiveMap, LIVE_MAP_INTERVAL_MS);
+    tickLiveMap();
+  }
+
+  function stopLiveMap() {
+    if (_liveMapTimer) { clearInterval(_liveMapTimer); _liveMapTimer = null; }
+    _liveMapFeed = [];
+    _liveMapLastTs = null;
+    // Retirer les dots animés restants
+    const svgEl = document.querySelector('#prism-geo-map svg');
+    if (svgEl) svgEl.querySelectorAll('.live-dot').forEach(d => d.remove());
+    renderLiveFeed([]);
+  }
+
+  async function tickLiveMap() {
+    if (!liveMode) return;
+    const since = _liveMapLastTs || new Date(Date.now() - LIVE_MAP_INTERVAL_MS * 2).toISOString();
+    const q = new URLSearchParams({ since, limit: '100' });
+    if (selProxy)   q.set('proxy', selProxy);
+    if (selNode)    q.set('node_name', selNode);
+    try {
+      const events = await api('GET', '/prism/live-ips?' + q.toString()).catch(() => []);
+      if (!Array.isArray(events) || !events.length) return;
+      // Ne conserver que les events plus récents que since (tri desc, on prend le plus récent comme prochain since)
+      _liveMapLastTs = events[0].ts || new Date().toISOString();
+      // Filtrer les doublons déjà dans le feed
+      const newEvts = events.filter(e => !_liveMapFeed.some(f => f.ip === e.ip && f.ts === e.ts));
+      if (!newEvts.length) return;
+      _liveMapFeed = [...newEvts, ..._liveMapFeed].slice(0, LIVE_MAP_FEED_MAX);
+      renderLiveFeed(_liveMapFeed);
+      placeLiveDots(newEvts);
+    } catch { /* ignore */ }
+  }
+
+  function placeLiveDots(events) {
+    const svgEl = document.querySelector('#prism-geo-map svg');
+    if (!svgEl) return;
+    const viewBox = svgEl.viewBox?.baseVal;
+    if (!viewBox) return;
+
+    const seenCC = new Set();
+    for (const ev of events) {
+      const cc = ev.country_code;
+      if (!cc || cc === '?' || cc === 'XX' || seenCC.has(cc)) continue;
+      seenCC.add(cc);
+      const path = svgEl.querySelector(`.wm-countries path[id="${cc}"]`);
+      if (!path) continue;
+      try {
+        const bb = path.getBBox();
+        if (!bb || bb.width === 0 || bb.height === 0) continue;
+        const cx = bb.x + bb.width / 2;
+        const cy = bb.y + bb.height / 2;
+        const color = ev.kind === 'banned' ? '#ef4444'
+                    : ev.kind === 'error'  ? '#f59e0b'
+                    :                         '#3b82f6';
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        dot.classList.add('live-dot');
+        dot.innerHTML = `
+          <circle cx="${cx}" cy="${cy}" r="4" fill="${color}" opacity="0.9"/>
+          <circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${color}" stroke-width="2" opacity="0.7">
+            <animate attributeName="r" from="4" to="14" dur="1.2s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" from="0.7" to="0" dur="1.2s" repeatCount="indefinite"/>
+          </circle>`;
+        svgEl.appendChild(dot);
+        // Retirer après 6 s
+        setTimeout(() => { if (dot.parentNode) dot.remove(); }, 6000);
+      } catch { /* ignore getBBox errors */ }
+    }
+  }
+
+  function renderLiveFeed(events) {
+    const container = document.getElementById('prism-live-feed');
+    if (!container) return;
+    if (!events.length) {
+      container.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px 0">En attente de trafic…</div>';
+      return;
+    }
+    const flag = cc => {
+      if (!cc || cc.length !== 2 || cc === 'XX' || cc === '?') return '🌐';
+      try { return String.fromCodePoint(0x1F1E6+cc.charCodeAt(0)-65, 0x1F1E6+cc.charCodeAt(1)-65); } catch { return '🌐'; }
+    };
+    const kindColor = k => k === 'banned' ? 'var(--red)' : k === 'error' ? 'var(--yellow)' : 'var(--accent)';
+    const kindLabel = k => k === 'banned' ? 'BAN' : k === 'error' ? 'ERR' : 'OK';
+    container.innerHTML = events.slice(0, 20).map(ev => {
+      const ts = ev.ts ? ev.ts.replace('T',' ').slice(11,19) : '';
+      return `<div class="live-feed-row">
+        <span class="live-feed-kind" style="color:${kindColor(ev.kind)}">${kindLabel(ev.kind)}</span>
+        <span class="live-feed-flag">${flag(ev.country_code)}</span>
+        <code class="live-feed-ip">${esc(ev.ip)}</code>
+        <span class="live-feed-domain" title="${esc(ev.domain)}">${esc(ev.domain)}</span>
+        <span class="live-feed-ts">${ts}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Fin Live map ─────────────────────────────────────────────────────────
 
   async function renderChoropleth(geo) {
     _lastGeoData = geo;
