@@ -66,25 +66,78 @@ pages['core-waf'] = async function() {
       joomla:      [941100, 941110, 942100, 942110],
       magento:     [941100, 941110, 942100, 942110, 942120],
       prestashop:  [941100, 942100, 942110],
-      nextjs:      [942100, 942110],
+      ghost:       [941100, 941110, 941120],
+      strapi:      [941100, 942100, 942110],
+      nextjs:      [942100, 942110, 934200, 934210],
       laravel:     [942100, 942110, 942120],
+      symfony:     [942100, 942110, 942120],
+      django:      [942100, 942110],
       nextcloud:   [941100, 930100, 930110],
       dokuwiki:    [941100, 941110],
+      mattermost:  [941100, 942100],
+      discourse:   [941100, 941110, 941120],
+      rocketchat:  [941100, 942100],
+      gitea:       [941100, 941110, 942100, 930100],
+      forgejo:     [941100, 941110, 942100, 930100],
+      portainer:   [932100, 942100],
+      proxmox:     [932100, 932110, 933100],
+      grafana:     [942100, 942110],
+      zabbix:      [942100, 942110],
+      odoo:        [942100, 942110, 941100],
+      n8n:         [934200, 942100, 941100],
+      keycloak:    [942100, 920100],
+      jellyfin:    [930100, 930110],
+      immich:      [930100, 941100],
+      vaultwarden: [942100, 941110],
       cpanel:      [941100, 941110, 920100],
     };
 
-    const PLATFORMS = [
-      { id: 'wordpress',  name: 'WordPress',   desc: "Éditeur Gutenberg, REST API, xmlrpc, WooCommerce — supprime les faux positifs sur XSS/SQLi/form tokens." },
-      { id: 'drupal',     name: 'Drupal',      desc: "Form tokens, AJAX handlers, éditeur de contenu riche — supprime les faux positifs sur XSS/SQLi/path." },
-      { id: 'joomla',     name: 'Joomla',      desc: "Éditeur JCE, composants com_*, form tokens — supprime les faux positifs sur XSS/SQLi/path." },
-      { id: 'magento',    name: 'Magento',     desc: "Catalogue produits, checkout, API REST — supprime les faux positifs sur SQLi/XSS/form tokens." },
-      { id: 'prestashop', name: 'PrestaShop',  desc: "Boutique, back-office, modules — supprime les faux positifs sur XSS/SQLi/descriptions produits." },
-      { id: 'nextjs',     name: 'Next.js',     desc: "API routes, Server Actions, JSON payloads — supprime les faux positifs sur paramètres et corps de requête." },
-      { id: 'laravel',    name: 'Laravel',     desc: "CSRF tokens, Eloquent, API Sanctum/Passport — supprime les faux positifs sur form tokens et query params." },
-      { id: 'nextcloud',  name: 'Nextcloud',   desc: "APIs WebDAV, PROPFIND/MKCOL, opérations fichiers — supprime les faux positifs sur path et headers." },
-      { id: 'dokuwiki',   name: 'DokuWiki',    desc: "Syntaxe wiki, upload de médias, namespaces — supprime les faux positifs sur XSS et parameter pollution." },
-      { id: 'cpanel',     name: 'cPanel',      desc: "Interface cPanel/WHM : gestion DNS, comptes email, zones — supprime les faux positifs sur headers et path." },
+    const PLATFORM_CATEGORIES = [
+      { label: 'CMS & E-commerce', platforms: [
+        { id: 'wordpress',  name: 'WordPress',  desc: "Gutenberg, REST API, WooCommerce — XSS/SQLi/form tokens." },
+        { id: 'drupal',     name: 'Drupal',     desc: "Form tokens, AJAX, éditeur riche — XSS/SQLi/path." },
+        { id: 'joomla',     name: 'Joomla',     desc: "Éditeur JCE, composants com_* — XSS/SQLi." },
+        { id: 'magento',    name: 'Magento',    desc: "Catalogue, checkout, API REST — SQLi/XSS." },
+        { id: 'prestashop', name: 'PrestaShop', desc: "Boutique, back-office, modules — XSS/SQLi." },
+        { id: 'ghost',      name: 'Ghost',      desc: "Éditeur Mobiledoc/Lexical, API Content — XSS." },
+        { id: 'strapi',     name: 'Strapi',     desc: "CMS headless, rich content JSON — XSS/SQLi." },
+      ]},
+      { label: 'Frameworks', platforms: [
+        { id: 'nextjs',   name: 'Next.js',  desc: "API routes, Server Actions, JSON — SQLi/NodeJS injection." },
+        { id: 'laravel',  name: 'Laravel',  desc: "CSRF, Eloquent, Sanctum/Passport — SQLi/form tokens." },
+        { id: 'symfony',  name: 'Symfony',  desc: "Forms, Doctrine, API Platform — SQLi/form tokens." },
+        { id: 'django',   name: 'Django',   desc: "ORM, forms, DRF — SQLi/form tokens." },
+      ]},
+      { label: 'Collaboration & fichiers', platforms: [
+        { id: 'nextcloud',  name: 'Nextcloud',   desc: "WebDAV, PROPFIND, partage fichiers — LFI/path." },
+        { id: 'dokuwiki',   name: 'DokuWiki',    desc: "Syntaxe wiki, upload médias — XSS." },
+        { id: 'mattermost', name: 'Mattermost',  desc: "Messages riches, code snippets — XSS/SQLi." },
+        { id: 'discourse',  name: 'Discourse',   desc: "Éditeur Markdown, BBCode — XSS." },
+        { id: 'rocketchat', name: 'Rocket.Chat', desc: "Messages, fichiers joints — XSS/SQLi." },
+      ]},
+      { label: 'DevOps & Infra', platforms: [
+        { id: 'gitea',     name: 'Gitea',     desc: "Diffs, commits, code dans l'UI — XSS/SQLi/LFI." },
+        { id: 'forgejo',   name: 'Forgejo',   desc: "Fork Gitea, même profil de faux positifs." },
+        { id: 'portainer', name: 'Portainer', desc: "Commandes Docker, env vars — RCE/SQLi." },
+        { id: 'proxmox',   name: 'Proxmox',   desc: "Shell VMs, config — RCE/PHP injection." },
+        { id: 'grafana',   name: 'Grafana',   desc: "PromQL, SQL-like queries — SQLi." },
+        { id: 'zabbix',    name: 'Zabbix',    desc: "Triggers SQL-like, items — SQLi." },
+      ]},
+      { label: 'Outils métier', platforms: [
+        { id: 'odoo',     name: 'Odoo',     desc: "ERP, formulaires, ORM — SQLi/XSS." },
+        { id: 'n8n',      name: 'n8n',      desc: "Workflows JSON, expressions JS — NodeJS/SQLi." },
+        { id: 'keycloak', name: 'Keycloak', desc: "SSO, tokens OIDC — SQLi/protocol." },
+      ]},
+      { label: 'Médias & Selfhosted', platforms: [
+        { id: 'jellyfin',    name: 'Jellyfin',    desc: "Chemins médias, API — LFI." },
+        { id: 'immich',      name: 'Immich',      desc: "Upload photos, EXIF metadata — LFI/XSS." },
+        { id: 'vaultwarden', name: 'Vaultwarden', desc: "Champs password, JSON vault — SQLi/XSS." },
+      ]},
+      { label: 'Administration', platforms: [
+        { id: 'cpanel',   name: 'cPanel',   desc: "DNS, comptes email, zones WHM — XSS/protocol." },
+      ]},
     ];
+    const PLATFORMS = PLATFORM_CATEGORIES.flatMap(c => c.platforms);
 
     const RULES = [
       { id: 'sqli',       name: 'SQL Injection',               category: 'OWASP CRS-4', ids: '942100–942999', desc: "Détecte ' OR 1=1, UNION SELECT, --, xp_cmdshell, blind SQLi temporelle et encodages SQL alternatifs." },
@@ -142,15 +195,21 @@ pages['core-waf'] = async function() {
       <div style="margin-bottom:20px;">
         <h6 style="margin:0 0 4px;">Exclusions plateforme</h6>
         <p style="margin:0 0 12px;font-size:12px;opacity:0.6;">Sélectionnez le CMS ou la plateforme derrière ce proxy — les règles générant des faux positifs connus seront exclues automatiquement.</p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr));gap:8px;">
-          ${PLATFORMS.map(p => `
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s;" class="platform-card" id="platform-card-${p.id}">
-            <input type="checkbox" name="platform-exclusion" value="${p.id}" ${activePlatforms.has(p.id)?'checked':''} style="margin-top:2px;flex-shrink:0;" onchange="togglePlatformCard('${p.id}',this.checked)">
-            <div>
-              <div style="font-weight:500;font-size:13px;">${esc(p.name)}</div>
-              <div style="font-size:11.5px;opacity:0.55;margin-top:2px;line-height:1.4;">${esc(p.desc)}</div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${PLATFORM_CATEGORIES.map(cat => `
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:8px;">${esc(cat.label)}</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr));gap:6px;">
+              ${cat.platforms.map(p => `
+              <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .15s;" class="platform-card" id="platform-card-${p.id}">
+                <input type="checkbox" name="platform-exclusion" value="${p.id}" ${activePlatforms.has(p.id)?'checked':''} style="margin-top:2px;flex-shrink:0;" onchange="togglePlatformCard('${p.id}',this.checked)">
+                <div>
+                  <div style="font-weight:500;font-size:13px;">${esc(p.name)}</div>
+                  <div style="font-size:11px;opacity:0.55;margin-top:2px;line-height:1.4;">${esc(p.desc)}</div>
+                </div>
+              </label>`).join('')}
             </div>
-          </label>`).join('')}
+          </div>`).join('')}
         </div>
       </div>
       <div>

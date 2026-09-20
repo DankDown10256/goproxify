@@ -356,8 +356,13 @@ type WAFConfig struct {
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
 
 	// ExcludePlatforms : plateformes applicatives derrière ce proxy.
-	// Valeurs possibles : wordpress, drupal, joomla, magento, prestashop,
-	// nextjs, laravel, nextcloud, dokuwiki, cpanel.
+	// CMS: wordpress, drupal, joomla, magento, prestashop, ghost, strapi.
+	// Frameworks: nextjs, laravel, symfony, django.
+	// Collab: nextcloud, dokuwiki, mattermost, discourse, rocketchat.
+	// DevOps: gitea, forgejo, portainer, proxmox, grafana, zabbix.
+	// Métier: odoo, n8n, keycloak.
+	// Médias: jellyfin, immich, vaultwarden.
+	// Admin: cpanel.
 	// Le moteur WAF résout chaque plateforme en IDs à exclure (union avec ExcludeIDs).
 	ExcludePlatforms []string `json:"exclude_platforms,omitempty"`
 }

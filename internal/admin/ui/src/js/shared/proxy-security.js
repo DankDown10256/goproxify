@@ -311,10 +311,29 @@ window.openProxySecModal = async function(id, initialTab) {
     if (/joomla|com_content|com_users/.test(_upstream)) return 'joomla';
     if (/magento|mage|adminhtml/.test(_upstream)) return 'magento';
     if (/prestashop|presta/.test(_upstream)) return 'prestashop';
-    if (/\/_next\/|__nextjs|next\.js/.test(_upstream)) return 'nextjs';
+    if (/ghost/.test(_upstream)) return 'ghost';
+    if (/strapi/.test(_upstream)) return 'strapi';
+    if (/\/_next\/|__nextjs/.test(_upstream)) return 'nextjs';
     if (/laravel/.test(_upstream)) return 'laravel';
+    if (/symfony/.test(_upstream)) return 'symfony';
+    if (/django/.test(_upstream)) return 'django';
     if (/nextcloud|owncloud/.test(_upstream)) return 'nextcloud';
     if (/dokuwiki/.test(_upstream)) return 'dokuwiki';
+    if (/mattermost/.test(_upstream)) return 'mattermost';
+    if (/discourse/.test(_upstream)) return 'discourse';
+    if (/rocket\.chat|rocketchat/.test(_upstream)) return 'rocketchat';
+    if (/gitea/.test(_upstream)) return 'gitea';
+    if (/forgejo/.test(_upstream)) return 'forgejo';
+    if (/portainer/.test(_upstream)) return 'portainer';
+    if (/proxmox/.test(_upstream)) return 'proxmox';
+    if (/grafana/.test(_upstream)) return 'grafana';
+    if (/zabbix/.test(_upstream)) return 'zabbix';
+    if (/odoo/.test(_upstream)) return 'odoo';
+    if (/n8n/.test(_upstream)) return 'n8n';
+    if (/keycloak/.test(_upstream)) return 'keycloak';
+    if (/jellyfin/.test(_upstream)) return 'jellyfin';
+    if (/immich/.test(_upstream)) return 'immich';
+    if (/vaultwarden|bitwarden/.test(_upstream)) return 'vaultwarden';
     if (/cpanel|whm/.test(_upstream)) return 'cpanel';
     return null;
   };
@@ -686,25 +705,64 @@ window.openProxySecModal = async function(id, initialTab) {
                   </div>
                 </label>
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="psec-waf-platforms">
+              <div id="psec-waf-platforms" style="display:flex;flex-direction:column;gap:12px;">
                 ${[
-                  { id: 'wordpress',  name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
-                  { id: 'drupal',     name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
-                  { id: 'joomla',     name: 'Joomla',     desc: 'Éditeur JCE, composants com_*' },
-                  { id: 'magento',    name: 'Magento',    desc: 'Catalogue, checkout, API REST' },
-                  { id: 'prestashop', name: 'PrestaShop', desc: 'Boutique, back-office, modules' },
-                  { id: 'nextjs',     name: 'Next.js',    desc: 'API routes, Server Actions, JSON' },
-                  { id: 'laravel',    name: 'Laravel',    desc: 'CSRF, Eloquent, Sanctum/Passport' },
-                  { id: 'nextcloud',  name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
-                  { id: 'dokuwiki',   name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
-                  { id: 'cpanel',     name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
-                ].map(p => {
-                  const active = _activePlatforms.has(p.id);
-                  return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
-                    <input type="checkbox" name="psec-platform" value="${p.id}" ${active?'checked':''} style="margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
-                    <div><div style="font-size:12px;font-weight:500;">${p.name}</div><div style="font-size:10px;color:var(--text3);line-height:1.3;">${p.desc}</div></div>
-                  </label>`;
-                }).join('')}
+                  { label: 'CMS & E-commerce', platforms: [
+                    { id: 'wordpress',  name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
+                    { id: 'drupal',     name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
+                    { id: 'joomla',     name: 'Joomla',     desc: 'Éditeur JCE, composants com_*' },
+                    { id: 'magento',    name: 'Magento',    desc: 'Catalogue, checkout, API REST' },
+                    { id: 'prestashop', name: 'PrestaShop', desc: 'Boutique, back-office, modules' },
+                    { id: 'ghost',      name: 'Ghost',      desc: 'Éditeur Mobiledoc/Lexical, API Content' },
+                    { id: 'strapi',     name: 'Strapi',     desc: 'CMS headless, rich content JSON' },
+                  ]},
+                  { label: 'Frameworks', platforms: [
+                    { id: 'nextjs',  name: 'Next.js', desc: 'API routes, Server Actions, JSON' },
+                    { id: 'laravel', name: 'Laravel', desc: 'CSRF, Eloquent, Sanctum/Passport' },
+                    { id: 'symfony', name: 'Symfony', desc: 'Forms, Doctrine, API Platform' },
+                    { id: 'django',  name: 'Django',  desc: 'ORM, forms, DRF' },
+                  ]},
+                  { label: 'Collaboration & fichiers', platforms: [
+                    { id: 'nextcloud',  name: 'Nextcloud',   desc: 'WebDAV, PROPFIND, partage fichiers' },
+                    { id: 'dokuwiki',   name: 'DokuWiki',    desc: 'Syntaxe wiki, upload médias' },
+                    { id: 'mattermost', name: 'Mattermost',  desc: 'Messages riches, code snippets' },
+                    { id: 'discourse',  name: 'Discourse',   desc: 'Éditeur Markdown, BBCode' },
+                    { id: 'rocketchat', name: 'Rocket.Chat', desc: 'Messages, fichiers joints' },
+                  ]},
+                  { label: 'DevOps & Infra', platforms: [
+                    { id: 'gitea',     name: 'Gitea',     desc: 'Diffs, commits, code dans l\'UI' },
+                    { id: 'forgejo',   name: 'Forgejo',   desc: 'Fork Gitea, même profil' },
+                    { id: 'portainer', name: 'Portainer', desc: 'Commandes Docker, env vars' },
+                    { id: 'proxmox',   name: 'Proxmox',   desc: 'Shell VMs, config hyperviseur' },
+                    { id: 'grafana',   name: 'Grafana',   desc: 'PromQL, SQL-like queries' },
+                    { id: 'zabbix',    name: 'Zabbix',    desc: 'Triggers SQL-like, items' },
+                  ]},
+                  { label: 'Outils métier', platforms: [
+                    { id: 'odoo',     name: 'Odoo',     desc: 'ERP, formulaires complexes, ORM' },
+                    { id: 'n8n',      name: 'n8n',      desc: 'Workflows JSON, expressions JS' },
+                    { id: 'keycloak', name: 'Keycloak', desc: 'SSO, tokens OIDC, auth flows' },
+                  ]},
+                  { label: 'Médias & Selfhosted', platforms: [
+                    { id: 'jellyfin',    name: 'Jellyfin',    desc: 'Chemins médias, API streaming' },
+                    { id: 'immich',      name: 'Immich',      desc: 'Upload photos, EXIF metadata' },
+                    { id: 'vaultwarden', name: 'Vaultwarden', desc: 'Champs password, JSON vault' },
+                  ]},
+                  { label: 'Administration', platforms: [
+                    { id: 'cpanel', name: 'cPanel', desc: 'DNS, comptes email, zones WHM' },
+                  ]},
+                ].map(cat => `
+                  <div>
+                    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:6px;">${cat.label}</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                      ${cat.platforms.map(p => {
+                        const active = _activePlatforms.has(p.id);
+                        return `<label style="display:flex;align-items:flex-start;gap:8px;padding:7px 9px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
+                          <input type="checkbox" name="psec-platform" value="${p.id}" ${active?'checked':''} style="margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
+                          <div><div style="font-size:11.5px;font-weight:500;">${p.name}</div><div style="font-size:10px;color:var(--text3);line-height:1.3;">${p.desc}</div></div>
+                        </label>`;
+                      }).join('')}
+                    </div>
+                  </div>`).join('')}
               </div>
             </div>
             <!-- Paramètres avancés WAF -->

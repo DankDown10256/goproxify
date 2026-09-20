@@ -197,16 +197,42 @@ func (e *Engine) UpdateConfig(cfg *router.WAFConfig) {
 // platformExcludeIDs mappe chaque plateforme applicative vers les IDs de règles
 // qui génèrent des faux positifs sur elle.
 var platformExcludeIDs = map[string][]int{
+	// CMS & E-commerce
 	"wordpress":  {941100, 941110, 941120, 942100, 942110, 942120},
 	"drupal":     {941100, 941110, 942100, 942110},
 	"joomla":     {941100, 941110, 942100, 942110},
 	"magento":    {941100, 941110, 942100, 942110, 942120},
 	"prestashop": {941100, 942100, 942110},
-	"nextjs":     {942100, 942110},
-	"laravel":    {942100, 942110, 942120},
-	"nextcloud":  {941100, 930100, 930110},
-	"dokuwiki":   {941100, 941110},
-	"cpanel":     {941100, 941110, 920100},
+	"ghost":      {941100, 941110, 941120},
+	"strapi":     {941100, 942100, 942110},
+	// Frameworks
+	"nextjs":   {942100, 942110, 934200, 934210},
+	"laravel":  {942100, 942110, 942120},
+	"symfony":  {942100, 942110, 942120},
+	"django":   {942100, 942110},
+	// Collaboration & fichiers
+	"nextcloud":   {941100, 930100, 930110},
+	"dokuwiki":    {941100, 941110},
+	"mattermost":  {941100, 942100},
+	"discourse":   {941100, 941110, 941120},
+	"rocketchat":  {941100, 942100},
+	// DevOps & Infra
+	"gitea":     {941100, 941110, 942100, 930100},
+	"forgejo":   {941100, 941110, 942100, 930100},
+	"portainer": {932100, 942100},
+	"proxmox":   {932100, 932110, 933100},
+	"grafana":   {942100, 942110},
+	"zabbix":    {942100, 942110},
+	// Outils métier
+	"odoo":     {942100, 942110, 941100},
+	"n8n":      {934200, 942100, 941100},
+	"keycloak": {942100, 920100},
+	// Médias & Selfhosted
+	"jellyfin":    {930100, 930110},
+	"immich":      {930100, 941100},
+	"vaultwarden": {942100, 941110},
+	// Administration
+	"cpanel": {941100, 941110, 920100},
 }
 
 func (e *Engine) reload(cfg *router.WAFConfig) {
