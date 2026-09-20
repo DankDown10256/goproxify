@@ -1155,8 +1155,8 @@ pages['core-health'] = async function(content) {
   let timer = null;
   async function refresh() {
     const [health, proxies] = await Promise.all([
-      api('GET', '/api/v1/backends/health').catch(() => ({ backends: {} })),
-      api('GET', '/api/v1/proxies').catch(() => []),
+      api('GET', '/backends/health').catch(() => ({ backends: {} })),
+      api('GET', '/proxies').catch(() => []),
     ]);
     const backends = health.backends || {};
 

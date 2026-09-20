@@ -1555,7 +1555,7 @@ window.openProxyDiffModal = async function(proxyId, proxyName) {
 
   const renderDiff = async (from, to) => {
     body.innerHTML = '<p style="color:var(--text2);font-size:13px">' + t('common.loading') + '</p>';
-    const data = await api('GET', `/api/v1/proxies/${proxyId}/revisions/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).catch(() => null);
+    const data = await api('GET', `/proxies/${proxyId}/revisions/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).catch(() => null);
     if (!data) {
       body.innerHTML = '<p style="color:var(--red);font-size:13px;margin:0">Erreur lors du chargement du diff.</p>';
       return;
