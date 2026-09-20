@@ -7,6 +7,11 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **UI Workspaces** : padding et bordure manquants dans le footer du modal "Nouvel espace" — la classe CSS `dialog-footer` n'était pas définie (alias vers `dialog-actions` ajouté)
+
+
 ### Ajouté — MCP server étendu : outils Certificate Hub (`admin`)
 
 - **`get_cert_status`** : statut d'expiration de tous les certs avec KPIs (ok/warning/critical/expired) + filtre domaine optionnel ; resource URI `goproxify://certs/monitor`
