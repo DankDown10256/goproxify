@@ -61,19 +61,29 @@ pages['core-waf'] = async function() {
     const activePlatforms = new Set(Array.isArray(wafPrimary.exclude_platforms) ? wafPrimary.exclude_platforms : []);
 
     const PLATFORM_IDS = {
-      wordpress:  [941100, 941110, 941120, 941130, 941160, 942100, 942110, 942200, 942260, 942330, 942340, 920230, 920272, 921180],
-      drupal:     [941100, 941110, 941160, 942100, 942110, 942200, 942260, 921180, 930120],
-      nextcloud:  [920230, 920272, 921180, 930120, 941100, 941160],
-      dokuwiki:   [941100, 941110, 941160, 921180],
-      cpanel:     [920230, 920272, 941100, 941110, 930120],
+      wordpress:   [941100, 941110, 941120, 941130, 941160, 942100, 942110, 942200, 942260, 942330, 942340, 920230, 920272, 921180],
+      drupal:      [941100, 941110, 941160, 942100, 942110, 942200, 942260, 921180, 930120],
+      nextcloud:   [920230, 920272, 921180, 930120, 941100, 941160],
+      dokuwiki:    [941100, 941110, 941160, 921180],
+      cpanel:      [920230, 920272, 941100, 941110, 930120],
+      joomla:      [941100, 941110, 941160, 942100, 942200, 942260, 921180, 930120, 920230],
+      magento:     [941100, 941110, 942100, 942110, 942200, 942260, 942330, 942340, 920230, 921180],
+      prestashop:  [941100, 942100, 942200, 942260, 920230, 921180],
+      nextjs:      [920230, 921180, 942100, 942110],
+      laravel:     [942100, 942110, 942200, 942260, 921180, 920230],
     };
 
     const PLATFORMS = [
-      { id: 'wordpress',  name: 'WordPress',  desc: "Éditeur Gutenberg, REST API, xmlrpc, WooCommerce — supprime les faux positifs sur XSS/SQLi/form tokens." },
-      { id: 'drupal',     name: 'Drupal',     desc: "Form tokens, AJAX handlers, éditeur de contenu riche — supprime les faux positifs sur XSS/SQLi/path." },
-      { id: 'nextcloud',  name: 'Nextcloud',  desc: "APIs WebDAV, PROPFIND/MKCOL, opérations fichiers — supprime les faux positifs sur path et headers." },
-      { id: 'dokuwiki',   name: 'DokuWiki',   desc: "Syntaxe wiki, upload de médias, namespaces — supprime les faux positifs sur XSS et parameter pollution." },
-      { id: 'cpanel',     name: 'cPanel',     desc: "Interface cPanel/WHM : gestion DNS, comptes email, zones — supprime les faux positifs sur headers et path." },
+      { id: 'wordpress',  name: 'WordPress',   desc: "Éditeur Gutenberg, REST API, xmlrpc, WooCommerce — supprime les faux positifs sur XSS/SQLi/form tokens." },
+      { id: 'drupal',     name: 'Drupal',      desc: "Form tokens, AJAX handlers, éditeur de contenu riche — supprime les faux positifs sur XSS/SQLi/path." },
+      { id: 'joomla',     name: 'Joomla',      desc: "Éditeur JCE, composants com_*, form tokens — supprime les faux positifs sur XSS/SQLi/path." },
+      { id: 'magento',    name: 'Magento',     desc: "Catalogue produits, checkout, API REST — supprime les faux positifs sur SQLi/XSS/form tokens." },
+      { id: 'prestashop', name: 'PrestaShop',  desc: "Boutique, back-office, modules — supprime les faux positifs sur XSS/SQLi/descriptions produits." },
+      { id: 'nextjs',     name: 'Next.js',     desc: "API routes, Server Actions, JSON payloads — supprime les faux positifs sur paramètres et corps de requête." },
+      { id: 'laravel',    name: 'Laravel',     desc: "CSRF tokens, Eloquent, API Sanctum/Passport — supprime les faux positifs sur form tokens et query params." },
+      { id: 'nextcloud',  name: 'Nextcloud',   desc: "APIs WebDAV, PROPFIND/MKCOL, opérations fichiers — supprime les faux positifs sur path et headers." },
+      { id: 'dokuwiki',   name: 'DokuWiki',    desc: "Syntaxe wiki, upload de médias, namespaces — supprime les faux positifs sur XSS et parameter pollution." },
+      { id: 'cpanel',     name: 'cPanel',      desc: "Interface cPanel/WHM : gestion DNS, comptes email, zones — supprime les faux positifs sur headers et path." },
     ];
 
     const RULES = [

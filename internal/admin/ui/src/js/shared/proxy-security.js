@@ -308,6 +308,11 @@ window.openProxySecModal = async function(id, initialTab) {
   const _detectPlatform = () => {
     if (/wordpress|wp-content|wp-admin|woocommerce/.test(_upstream)) return 'wordpress';
     if (/drupal/.test(_upstream)) return 'drupal';
+    if (/joomla|com_content|com_users/.test(_upstream)) return 'joomla';
+    if (/magento|mage|adminhtml/.test(_upstream)) return 'magento';
+    if (/prestashop|presta/.test(_upstream)) return 'prestashop';
+    if (/\/_next\/|__nextjs|next\.js/.test(_upstream)) return 'nextjs';
+    if (/laravel/.test(_upstream)) return 'laravel';
     if (/nextcloud|owncloud/.test(_upstream)) return 'nextcloud';
     if (/dokuwiki/.test(_upstream)) return 'dokuwiki';
     if (/cpanel|whm/.test(_upstream)) return 'cpanel';
@@ -683,11 +688,16 @@ window.openProxySecModal = async function(id, initialTab) {
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;" id="psec-waf-platforms">
                 ${[
-                  { id: 'wordpress', name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
-                  { id: 'drupal',    name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
-                  { id: 'nextcloud', name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
-                  { id: 'dokuwiki',  name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
-                  { id: 'cpanel',    name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
+                  { id: 'wordpress',  name: 'WordPress',  desc: 'Gutenberg, REST API, WooCommerce' },
+                  { id: 'drupal',     name: 'Drupal',     desc: 'Form tokens, AJAX, éditeur riche' },
+                  { id: 'joomla',     name: 'Joomla',     desc: 'Éditeur JCE, composants com_*' },
+                  { id: 'magento',    name: 'Magento',    desc: 'Catalogue, checkout, API REST' },
+                  { id: 'prestashop', name: 'PrestaShop', desc: 'Boutique, back-office, modules' },
+                  { id: 'nextjs',     name: 'Next.js',    desc: 'API routes, Server Actions, JSON' },
+                  { id: 'laravel',    name: 'Laravel',    desc: 'CSRF, Eloquent, Sanctum/Passport' },
+                  { id: 'nextcloud',  name: 'Nextcloud',  desc: 'WebDAV, PROPFIND, partage fichiers' },
+                  { id: 'dokuwiki',   name: 'DokuWiki',   desc: 'Syntaxe wiki, upload médias' },
+                  { id: 'cpanel',     name: 'cPanel',     desc: 'DNS, comptes email, zones WHM' },
                 ].map(p => {
                   const active = _activePlatforms.has(p.id);
                   return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:7px;cursor:pointer;background:${active?'color-mix(in srgb,var(--accent) 6%,transparent)':'transparent'};transition:border-color .15s;" id="psec-pcard-${p.id}" onclick="psecTogglePlatform('${p.id}',this)">
