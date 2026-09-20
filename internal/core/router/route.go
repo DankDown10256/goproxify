@@ -356,9 +356,9 @@ type WAFConfig struct {
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
 
 	// ExcludePlatforms : plateformes applicatives derrière ce proxy.
-	// Valeurs possibles : wordpress, drupal, nextcloud, dokuwiki, cpanel.
-	// Les règles WAF connues pour générer des faux positifs sur ces plateformes
-	// sont exclues automatiquement (union avec ExcludeIDs).
+	// Valeurs possibles : wordpress, drupal, joomla, magento, prestashop,
+	// nextjs, laravel, nextcloud, dokuwiki, cpanel.
+	// Le moteur WAF résout chaque plateforme en IDs à exclure (union avec ExcludeIDs).
 	ExcludePlatforms []string `json:"exclude_platforms,omitempty"`
 }
 

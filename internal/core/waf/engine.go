@@ -194,12 +194,32 @@ func (e *Engine) UpdateConfig(cfg *router.WAFConfig) {
 	e.reload(cfg)
 }
 
+// platformExcludeIDs mappe chaque plateforme applicative vers les IDs de règles
+// qui génèrent des faux positifs sur elle.
+var platformExcludeIDs = map[string][]int{
+	"wordpress":  {941100, 941110, 941120, 942100, 942110, 942120},
+	"drupal":     {941100, 941110, 942100, 942110},
+	"joomla":     {941100, 941110, 942100, 942110},
+	"magento":    {941100, 941110, 942100, 942110, 942120},
+	"prestashop": {941100, 942100, 942110},
+	"nextjs":     {942100, 942110},
+	"laravel":    {942100, 942110, 942120},
+	"nextcloud":  {941100, 930100, 930110},
+	"dokuwiki":   {941100, 941110},
+	"cpanel":     {941100, 941110, 920100},
+}
+
 func (e *Engine) reload(cfg *router.WAFConfig) {
 	exclude := make(map[int]bool)
 	rules := DefaultRules()
 	if cfg != nil {
 		for _, id := range cfg.ExcludeIDs {
 			exclude[id] = true
+		}
+		for _, p := range cfg.ExcludePlatforms {
+			for _, id := range platformExcludeIDs[p] {
+				exclude[id] = true
+			}
 		}
 		if len(cfg.CustomRules) > 0 {
 			custom, err := CompileCustomRules(cfg.CustomRules)
