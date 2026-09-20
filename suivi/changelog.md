@@ -95,6 +95,11 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Export CSV bans** : bouton "CSV" sur la page Bans + endpoint `GET /api/v1/security/bans/export?format=csv|json` (10 000 bans max, fichier `bans-export-<ts>.csv`)
 - **Export CSV bans dans Prism** : lien "Export CSV" dans le panneau Bans de Prism
 
+### Documentation
+
+- **README translated to English**: `README.md` is now in English, with a user-centered introduction (value proposition, concrete use case, 7 differentiators). The French version is preserved as `README.fr.md`.
+- **Docs translated to English**: `docs/faq.md`, `docs/architecture.md`, `docs/fonctionnalites.md` fully translated from French to English for an international audience.
+
 ---
 
 ## [0.4.0] — 2026-09-19
@@ -397,19 +402,19 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - `WriteProd` supprime automatiquement le `.json` legacy après écriture `.yaml`
 - Panneau YAML de l'éditeur proxy repositionné dans la zone de contenu (corrige décalage visuel)
 
-### Corrigé — Labels Docker multi-hôtes / chemins d’URL
+### Corrigé — Labels Docker multi-hôtes / chemins d'URL
 
-- `goproxify.host` CSV : un seul proxy (premier hostname + aliases) au lieu d’une route par entrée — les pages hors `/` fonctionnent sur tous les domaines
+- `goproxify.host` CSV : un seul proxy (premier hostname + aliases) au lieu d'une route par entrée — les pages hors `/` fonctionnent sur tous les domaines
 - Normalisation `https://`, port, casse ; un chemin (`https://app.example.fr/admin`) devient une location avec strip-prefix
 - Repli des anciennes routes `docker-host:` du même conteneur en aliases
 
 ### Ajouté — Wizard architecture + tickets bootstrap (Admin `0.2.35`)
 
-- Toile d’architecture (hôtes + palette) : Core, Agent, Admin, Access-sur-Core, Portainer/K8s, multi-Core / groupe HA
+- Toile d'architecture (hôtes + palette) : Core, Agent, Admin, Access-sur-Core, Portainer/K8s, multi-Core / groupe HA
 - Packs install par hôte + tickets QR / lien `/i/{token}` + one-liner `curl|bash` (`POST /api/v1/bootstrap-tickets`)
 - Auto-accept des nœuds déclarés issus du wizard ; reprise des nœuds existants ; région / autoscale / domaines-TLS
 - Ancien wizard Infrastructure scénarisé retiré (entrée « + Ajouter » = toile)
-- Landing : présentation de l’assistant d’architecture
+- Landing : présentation de l'assistant d'architecture
 - Plan : `docs/plans/2026-08-09-001-feat-architecture-wizard-qr-plan.md`
 
 ### Ajouté — MCP + CLI Infrastructure / bootstrap
@@ -432,8 +437,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - Secret GHCR dédié `github_ghcr_token` (séparé de `github_publish_token` / droits repo)
 - Tags quickstart / landing / release-notes réalignés sur `versions.json` (admin 0.2.28 / core 0.3.17 / agent 0.3.13)
 - Scrub surface publique : defaults GHCR (Admin UI / Helm), IPs doc RFC5737 dans tests ; materialize+validate OK
-- Publication GitHub/GHCR : reste volontairement **privée** pour l’instant (passage Public différé)
-- `DISCLAIMER.md` : préversion 0.x, refus de garantie et de responsabilité d’usage
+- Publication GitHub/GHCR : reste volontairement **privée** pour l'instant (passage Public différé)
+- `DISCLAIMER.md` : préversion 0.x, refus de garantie et de responsabilité d'usage
 - Site vitrine : **goproxify.dev** sur Cloudflare Pages (plus de `.io`)
 - Runbook : `docs/audits/publication/host-runbook.md`, `ci/prepublish-host.sh`
 
@@ -486,12 +491,12 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 ### Clarifié — Roadmap produit finalisée
 
 - Jalons 0–22 clos ; versions Admin `0.2.13` / Core `0.3.1` / Agent `0.3.0` / Webapp `0.3.0`
-- Backlog produit réduit à l’hygiène CI optionnelle ; dette technique WS/P95 isolée en bas de `suivi/roadmap.md`
+- Backlog produit réduit à l'hygiène CI optionnelle ; dette technique WS/P95 isolée en bas de `suivi/roadmap.md`
 
 ### Corrigé — Générateur Labels Docker/K8s
 
-- Champ « URL backend » remplacé par « Port » (`goproxify.port`) — l’Agent construit l’URL depuis l’IP du conteneur / ClusterIP
-- Snippets : sélection par toggles depuis la bibliothèque Admin (plus de saisie libre d’IDs) ; résolution Core par nom ou ID
+- Champ « URL backend » remplacé par « Port » (`goproxify.port`) — l'Agent construit l'URL depuis l'IP du conteneur / ClusterIP
+- Snippets : sélection par toggles depuis la bibliothèque Admin (plus de saisie libre d'IDs) ; résolution Core par nom ou ID
 - Labels sécurité complets : GeoIP, IP filter, CORS, rate burst, WAF block/detect, HTTPS backend, passthrough, canary/shadow, prune ; auth via liste déroulante
 - Préremplissage Trafic : host + aliases → `goproxify.host` CSV
 - Snippets : plus de doublon WAF/Bot/GeoIP/… (réservés aux champs Sécurité natifs) ; webapp `0.3.1`
@@ -596,7 +601,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Amélioré — Interactions Logs ↔ Prism
 
-- Bouton **Corréler** remplacé par une icône (délégation d’événements) : corrigé le `onclick` cassé par les guillemets JSON
+- Bouton **Corréler** remplacé par une icône (délégation d'événements) : corrigé le `onclick` cassé par les guillemets JSON
 - Corrélation élargie : logs Agent/système (±30 s) via domaine, message, ou nom de conteneur (variantes dots→tirets)
 - Logs : cellules cliquables (IP, domaine, code, méthode, chemin) + chips de filtres actifs (Maj+clic pour cumuler)
 - Logs → Prism : icône analyse sur chaque ligne ; Prism → Logs : icône / clic depuis Top IPs, chemins, codes HTTP, backends
@@ -619,22 +624,22 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 - Primitive unifiée : grant `(type, valeur, read|write)` sur **user** et/ou **équipe**
 - Rôle plateforme réduit à `admin` / `user` (plus de plafond operator/viewer pour les proxies)
-- Membership d’équipe sans rôle : héritage intégral des grants de l’équipe
+- Membership d'équipe sans rôle : héritage intégral des grants de l'équipe
 - Migration B' : équipes mixtes operator/viewer scindées en équipe write + `… (lecture)`
-- UI Utilisateurs : éditeur de grants personnels et d’équipe
+- UI Utilisateurs : éditeur de grants personnels et d'équipe
 
-### Amélioré — Clarification rôle global vs droits d’équipe (UI Utilisateurs)
+### Amélioré — Clarification rôle global vs droits d'équipe (UI Utilisateurs)
 
-- Libellés distincts : niveau de compte (plafond) vs droit d’équipe (« Peut modifier » / « Lecture seule »)
+- Libellés distincts : niveau de compte (plafond) vs droit d'équipe (« Peut modifier » / « Lecture seule »)
 - Aide conditionnelle selon admin / operator / viewer ; empty state corrigé (sans équipe → aucun proxy pour operator/viewer)
 
 ### Amélioré — Profils IP persistés sur le volume Core
 
 - Snapshot runtime écrit sous `/etc/goproxify/ip-profiles/profiles.json` à chaque push / full_sync
 - Chargé au démarrage Core (survit à un redémarrage sans Admin)
-- Config + refresh feeds restent dans l’Admin (SQLite) ; surcharge chemin : `GPX_IP_PROFILES_PATH`
+- Config + refresh feeds restent dans l'Admin (SQLite) ; surcharge chemin : `GPX_IP_PROFILES_PATH`
 
-### Amélioré — Formats d’import unifiés + onglets Import / Restore
+### Amélioré — Formats d'import unifiés + onglets Import / Restore
 
 - `CONFIG_FORMATS` / `CONFIG_FORMAT_SVG` centralisés dans `shared/config-formats.js` (Trafic, Import, onboarding, proxy-form)
 - Helper `configFormatPickerHtml` / `configFormatMeta` pour un rendu unique des cartes format
@@ -643,18 +648,18 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 ### Corrigé — Bans actifs vides + icônes Importer (Trafic)
 
 - Cause bans : `security.Ban.ID` était `int64` alors que la table utilise des UUID `TEXT` → Scan échouait en silence
-- UI : `deleteBan` quote correctement l’id string
-- Importer Trafic : cartes format avec `CONFIG_FORMAT_SVG` (icônes manquantes à l’étape 1)
+- UI : `deleteBan` quote correctement l'id string
+- Importer Trafic : cartes format avec `CONFIG_FORMAT_SVG` (icônes manquantes à l'étape 1)
 
 ### Supprimé — Pipeline UI `build.sh` / `dist/`
 
-- L’Admin sert uniquement `src/` via `go:embed` : suppression de `build.sh`, `dist/index.html`, `shell.html`
+- L'Admin sert uniquement `src/` via `go:embed` : suppression de `build.sh`, `dist/index.html`, `shell.html`
 - Dockerfile admin : plus de copie vers `/etc/goproxify/storage/webapp/`
 - Découpage `pages-all.js` en modules dédiés (proxy, infra, onboarding, sécurité, core, logs, prism)
 
 ### Corrigé — Horloge admin absente (embed `src/`)
 
-- L’Admin sert l’UI via `go:embed src`, pas `dist/` : l’horloge était dans `shell.html`/`dist` mais manquait dans `src/index.html`
+- L'Admin sert l'UI via `go:embed src`, pas `dist/` : l'horloge était dans `shell.html`/`dist` mais manquait dans `src/index.html`
 
 ### Corrigé — Fuseau horaire (TZ) effectif sur Core / Admin / Agent
 
@@ -662,14 +667,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - Fix : embed `time/tzdata` dans le binaire ; `apk add tzdata` sur Admin/Agent ; `TZ` ajouté au chart Helm (`global.timezone`)
 - Horloge dans la topbar admin (fuseau serveur via `/api/v1/health` → `timezone` / `time`)
 - Timeline Prism : buckets SQLite en heure locale (`strftime(..., 'localtime')`)
-- `fmtDate` UI aligne l’affichage sur le TZ serveur
+- `fmtDate` UI aligne l'affichage sur le TZ serveur
 
 ### Changé — Chemin GeoIP MaxMind sur le volume Core
 
 - Défaut UI : `/etc/goproxify/geoip/GeoLite2-Country.mmdb` (au lieu de `/usr/share/GeoIP/...`)
-- Le Core crée `/etc/goproxify/geoip` au démarrage et **télécharge** `GeoLite2-Country.mmdb` s’il est absent
+- Le Core crée `/etc/goproxify/geoip` au démarrage et **télécharge** `GeoLite2-Country.mmdb` s'il est absent
 - Config Core `geoip.db_url` / `geoip.db_path` / `geoip.auto_download` (défaut miroir P3TERX) — surcharge env `GPX_GEOIP_*`
-- Les snippets / configs existants avec l’ancien `db_path` restent inchangés : mettre à jour le champ « Base MaxMind » puis ré-enregistrer
+- Les snippets / configs existants avec l'ancien `db_path` restent inchangés : mettre à jour le champ « Base MaxMind » puis ré-enregistrer
 
 ### Fait — Phase B : unification headers runtime
 
@@ -689,10 +694,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - Récap / `computeProxyHeaderScore` : le contrôle « Filtrage IP » (+5) compte aussi GeoIP (`countries` / `blocked_countries`) et les snippets déjà résolus (`ip_filter` / `geo_ip`)
 - Miroir Go `ComputeHeaderScore` + normalisation `blocked_countries` → `countries` à la résolution de snippets
 
-### Corrigé — Catalogue pays GeoIP non chargé dans l’UI Admin
+### Corrigé — Catalogue pays GeoIP non chargé dans l'UI Admin
 
-- L’Admin sert `src/` (go:embed), pas `dist/` : `countries-geo.js` n’était pas référencé dans `src/index.html`
-- Ajout du `<script src="js/data/countries-geo.js">` avant `pages-all.js` — la liste pays / regroupements s’affiche dans Paramètres → Filtrage IP → GeoIP
+- L'Admin sert `src/` (go:embed), pas `dist/` : `countries-geo.js` n'était pas référencé dans `src/index.html`
+- Ajout du `<script src="js/data/countries-geo.js">` avant `pages-all.js` — la liste pays / regroupements s'affiche dans Paramètres → Filtrage IP → GeoIP
 
 ### Amélioré — Phase A : Sécurité proxy centralisée dans la modale Trafic
 
@@ -701,7 +706,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - Page Sécurité : grille « Posture par proxy » en lecture ; Détails/Corriger ouvrent la modale proxy
 - Alertes bouclier Trafic alignées sur le même score
 
-### Clarifié — Domaines : Tokens = droits, Core d’entrée = routage (Admin `0.2.11`)
+### Clarifié — Domaines : Tokens = droits, Core d'entrée = routage (Admin `0.2.11`)
 
 - « Core responsable » renommé **Core d'entrée** (routage / délégation / ACME) — ne confère pas les droits
 - Notices UI Domaines + Tokens : périmètres token = droits de réception routes/certs
@@ -731,23 +736,23 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé — Sans périmètre = tous les domaines (Admin `0.2.7`)
 
-- Ne plus préférer / basculer vers un token jumeau qui a des scopes : admin sans `token_scopes` retrouve l’accès global
+- Ne plus préférer / basculer vers un token jumeau qui a des scopes : admin sans `token_scopes` retrouve l'accès global
 
 ### Corrigé — Périmètres Core réellement appliqués (Admin `0.2.6`)
 
-- Résolution token : préfère l’UUID avec endpoint (évite doublons `node_name` / `id=node_name`)
-- Push WS / full_sync / certs : scopes lus sur le token de l’entrée WS (`LoadCoreAccess`)
+- Résolution token : préfère l'UUID avec endpoint (évite doublons `node_name` / `id=node_name`)
+- Push WS / full_sync / certs : scopes lus sur le token de l'entrée WS (`LoadCoreAccess`)
 - `Register` : un seul client par `node_name` ; refuse `id=node_name` (fail-open historique `ConnectFromEnv`)
 - Wildcards DNS à un seul label (`*.example.com` ≠ `app.dev.example.com`) — aligné `ByHost`
-- UI Trafic Core : résout l’UUID token avant `?core=`
+- UI Trafic Core : résout l'UUID token avant `?core=`
 - **Sans périmètre domaine** (scopes vides) + admin → **tous les domaines** (pas de bascule vers un jumeau scopé)
 
 ### Corrigé — Périmètres Core / proxies (Admin)
 
 - `GET /api/v1/proxies?core=` filtre la liste selon les `token_scopes` du Core (même règle que le push runtime)
-- Ajout / retrait d’un périmètre token → re-push immédiat des routes et certificats aux Cores
+- Ajout / retrait d'un périmètre token → re-push immédiat des routes et certificats aux Cores
 - Matching domaine RBAC : aliases + `HostCoveredByPattern` (aligné délégation)
-- Page Trafic mode Core : n’affiche plus tous les proxies globaux
+- Page Trafic mode Core : n'affiche plus tous les proxies globaux
 - `build.sh` réinclut `js/pages/trafic.js` dans `dist/index.html`
 
 ### Ajouté — Tokens API utilisateur (PAT)
@@ -755,8 +760,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 **Admin**
 - Table `user_api_tokens` / `user_api_token_scopes` — PAT `gpx_pat_*` hashés (SHA-256), aperçu UI, expiration optionnelle, révocation immédiate
 - API self-service (session JWT) : `GET/POST /api/v1/me/tokens`, `DELETE /api/v1/me/tokens/:id`, `GET /api/v1/me/tokens/scopes`
-- Middleware `RequireAuth` (JWT ou PAT) sur l’API REST ; `EnforcePATScope` borne les appels PAT aux scopes ressource
-- Middleware `RequirePAT` sur `/mcp` — le JWT de session UI n’est plus accepté pour le MCP
+- Middleware `RequireAuth` (JWT ou PAT) sur l'API REST ; `EnforcePATScope` borne les appels PAT aux scopes ressource
+- Middleware `RequirePAT` sur `/mcp` — le JWT de session UI n'est plus accepté pour le MCP
 - Scopes catalogue v1 partagés API + MCP (`proxies:read|write|delete`, `nodes:read`, `users:read`, …) ; autorisation = scopes PAT ∩ droits courants du compte (rôle)
 - Audit : acteur `userID via pat:<id>`
 
