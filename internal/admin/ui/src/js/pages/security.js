@@ -1720,7 +1720,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Scénarios déclenchés -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Scénarios déclenchés</span></div>
+        <div class="card-header"><span class="card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>Scénarios déclenchés</span></div>
         <div style="padding:0 16px 16px">
           ${scenarios.length === 0 ? noData :
             `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1745,7 +1745,7 @@ async function renderSentinelDashboard({ mode }) {
       <!-- Décisions récentes + Top IPs -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title">&#x23f1; Décisions récentes</span></div>
+          <div class="card-header"><span class="card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Décisions récentes</span></div>
           <div style="padding:0 16px 16px">
             ${recentDecisions.length === 0 ? noData :
               `<div style="display:flex;flex-direction:column;gap:5px;margin-top:8px">
@@ -1761,7 +1761,7 @@ async function renderSentinelDashboard({ mode }) {
           </div>
         </div>
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>Top IPs par menaces</span></div>
+          <div class="card-header"><span class="card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>Top IPs par menaces</span></div>
           <div style="padding:0 16px 16px">
             ${topIPs.length === 0 ? noData :
               `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1784,7 +1784,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Listes de détection -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 6 4 7 6 5"/><polyline points="3 12 4 13 6 11"/><polyline points="3 18 4 19 6 17"/></svg>Listes de détection</span></div>
+        <div class="card-header"><span class="card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/></svg>Listes de détection</span></div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px 16px 16px">
           ${listItems.map(li => `
             <div style="padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid ${li.enabled ? 'var(--green)' : 'var(--border)'}">
