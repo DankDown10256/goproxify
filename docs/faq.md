@@ -1,147 +1,147 @@
-# FAQ — Goproxify
+# FAQ — GoProxify
 
-Base de connaissances incidents utilisateurs et questions fréquentes.
+Knowledge base for common incidents and frequently asked questions.
 
 ---
 
-## Démarrage & Initialisation
+## Getting started & initialization
 
-**Q : L'interface d'administration affiche un écran d'initialisation au premier lancement, est-ce normal ?**
-Oui. Goproxify détecte l'absence de base SQLite et force la configuration du compte administrateur initial. Renseignez un email et un mot de passe fort, puis validez.
+**Q: The admin interface shows an initialization screen on first launch — is that normal?**
+Yes. GoProxify detects the absence of a SQLite database and forces initial admin account setup. Enter an email and a strong password, then confirm.
 
-**Q : J'ai perdu le mot de passe administrateur. Comment le réinitialiser ?**
-Utilisez la CLI directement sur le serveur (accès direct à la SQLite, sans passer par l'API) :
+**Q: I lost the admin password. How do I reset it?**
+Use the CLI directly on the server (direct SQLite access, bypasses the API):
 ```bash
-goproxify admin -reset-password -email "admin@example.fr" -password "nouveauMdp123!"
+goproxify admin -reset-password -email "admin@example.com" -password "newPassword123!"
 ```
 
 ---
 
-## Proxies & Routage
+## Proxies & routing
 
-**Q : Pourquoi certains proxies apparaissent-ils grisés et non modifiables dans l'UI ?**
-Ces proxies ont été découverts automatiquement via les **labels Docker** par un Agent. Ils sont en lecture seule pour éviter toute désynchronisation entre la configuration déclarative (Compose) et l'Administration. Pour les modifier, mettez à jour les labels dans votre fichier Docker Compose.
+**Q: Why are some proxies greyed out and read-only in the UI?**
+These proxies were automatically discovered via **Docker labels** by an Agent. They are read-only to prevent desync between the declarative configuration (Compose) and the Admin. To modify them, update the labels in your Docker Compose file.
 
-**Q : Comment configurer un proxy via Docker Compose ?**
-Ajoutez des labels à votre service. Utilisez l'onglet "Générateur de Labels" dans l'UI pour vous guider. Exemple minimal :
+**Q: How do I configure a proxy via Docker Compose?**
+Add labels to your service. Use the "Label Generator" tab in the UI for guidance. Minimal example:
 ```yaml
 services:
-  monapp:
-    image: monapp:latest
+  myapp:
+    image: myapp:latest
     labels:
       goproxify.enable: "true"
-      goproxify.host: "monapp.example.fr"
+      goproxify.host: "myapp.example.com"
       goproxify.port: "8080"
       goproxify.tls: "true"
-      # Optionnel — sécurité (snippets / auth Admin, ou inline)
+      # Optional — security (Admin snippets / auth, or inline)
       # goproxify.snippets: "headers-secure,rate-api"
       # goproxify.auth_provider: "authentik-prod"
       # goproxify.waf: "block"
-    # Pas de ports: - "8080:8080" — le Core se connecte au réseau interne
+    # No ports: - "8080:8080" — Core connects via internal network
     networks:
-      - mon_reseau_app
+      - my_app_network
 
 networks:
-  mon_reseau_app:
+  my_app_network:
 ```
 
-**Q : Mon application n'est pas accessible après le déploiement. Que vérifier ?**
-1. L'Agent est-il démarré et connecté au Core (`GET /api/v1/agents`) ? Statut `online` attendu.
-2. Si l'Agent est en statut `pending` : avez-vous approuvé l'Agent dans l'UI ?
-3. Le conteneur du Core a-t-il été connecté au réseau Docker de l'app (vérifiez `docker network inspect`) ?
-4. Le certificat TLS a-t-il été acquis (`GET /api/v1/certs`) ?
-5. Les logs de l'Agent (`/etc/goproxify/logs/agent.log`) indiquent-ils une erreur ?
+**Q: My application is not accessible after deployment. What should I check?**
+1. Is the Agent started and connected to the Core (`GET /api/v1/agents`)? Expected status: `online`.
+2. If the Agent is in `pending` status: have you approved it in the UI?
+3. Has the Core container been connected to the app's Docker network (check `docker network inspect`)?
+4. Has the TLS certificate been issued (`GET /api/v1/certs`)?
+5. Do the Agent logs (`/etc/goproxify/logs/agent.log`) show any errors?
 
 ---
 
-## TLS & Certificats
+## TLS & certificates
 
-**Q : Goproxify supporte-t-il les certificats Wildcard ?**
-Oui, via ACME DNS-01 (Let's Encrypt). Un certificat `*.example.fr` couvre tous les sous-domaines sans configuration individuelle. Configurez votre provider DNS dans les snippets (`dns_providers`).
+**Q: Does GoProxify support wildcard certificates?**
+Yes, via ACME DNS-01 (Let's Encrypt). A `*.example.com` certificate covers all subdomains without individual configuration. Configure your DNS provider in the snippets (`dns_providers`).
 
-**Q : Les certificats sont-ils rechargés sans interruption ?**
-Oui. L'Administration pousse les certificats décodés directement en RAM dans le Core via la fonction `GetCertificate` du TLS natif Go. Aucun rechargement (`reload`) n'est nécessaire.
+**Q: Are certificates reloaded without interruption?**
+Yes. The Admin pushes decoded certificates directly into the Core's RAM via Go's native TLS `GetCertificate` function. No reload is required.
 
-**Q : Quels providers DNS sont supportés pour ACME DNS-01 ?**
+**Q: Which DNS providers are supported for ACME DNS-01?**
 OVH, Cloudflare, Gandi, Route53 (AWS), Hetzner DNS.
 
 ---
 
-## Performance & Stabilité
+## Performance & stability
 
-**Q : Le Core peut-il être mis à jour sans interrompre les connexions HTTP/3 QUIC ou WebSocket ?**
-Oui. La table de routage est stockée dans un `sync.Map` — les mises à jour sont atomiques et ne coupent pas les connexions existantes.
+**Q: Can the Core be updated without interrupting HTTP/3 QUIC or WebSocket connections?**
+Yes. The routing table is stored in a `sync.Map` — updates are atomic and do not drop existing connections.
 
-**Q : Qu'est-ce que le "P99 plat" mentionné dans la documentation ?**
-Grâce à un pool de buffers (`sync.Pool`), le Core recycle les allocations réseau au lieu de les soumettre au ramasse-miettes Go. Cela évite les pics de latence (GC pauses) sous charge intensive, maintenant le 99e percentile de latence stable.
+**Q: What is the "flat P99" mentioned in the documentation?**
+Thanks to a buffer pool (`sync.Pool`), the Core recycles network allocations instead of submitting them to the Go garbage collector. This avoids latency spikes (GC pauses) under heavy load, keeping the 99th percentile latency stable.
 
 ---
 
-## Sécurité & Tokens
+## Security & tokens
 
-**Q : Le scanner CVE marque tous les backends « Injoignable — adresse IP interdite (SSRF) ». Que faire ?**
-C’est le comportement attendu. Le scanner (processus Admin) sonde directement les URLs `backends[].url` des proxies, pas le domaine public. Par défaut, les IPs privées (RFC1918/ULA : `192.168.x`, `10.x`, `172.16–31.x`), localhost et les endpoints metadata cloud sont refusés (anti-SSRF).
+**Q: The CVE scanner marks all backends as "Unreachable — forbidden IP address (SSRF)". What should I do?**
+This is expected behavior. The scanner (Admin process) probes the `backends[].url` URLs of proxies directly, not the public domain. By default, private IPs (RFC1918/ULA: `192.168.x`, `10.x`, `172.16–31.x`), localhost, and cloud metadata endpoints are blocked (anti-SSRF).
 
-Pour scanner des backends Docker / LAN joignables depuis l’Admin, activez l’opt-in sur l’Admin puis redémarrez-le :
+To scan Docker / LAN backends reachable from the Admin, enable the opt-in on the Admin and restart it:
 
 ```bash
 GPX_VULNSCAN_ALLOW_PRIVATE=true
 ```
 
-(Helm : `admin.config.vulnscanAllowPrivate: true`.) Localhost et metadata restent bloqués. Vérifiez aussi que l’Admin peut joindre ces IPs sur le réseau ; sinon le refus SSRF sera remplacé par une erreur réseau.
+(Helm: `admin.config.vulnscanAllowPrivate: true`.) Localhost and metadata remain blocked. Also verify that the Admin can reach those IPs on the network; otherwise the SSRF refusal will be replaced by a network error.
 
-Ne mettez pas l’URL publique du proxy dans `backends[].url` pour contourner le blocage : cela casserait le routage et le scan ne verrait pas les headers du vrai backend.
+Do not put the proxy's public URL in `backends[].url` to bypass the block: this would break routing and the scan would not see the real backend's headers.
 
-**Q : Que faire si un token d'appairage est compromis ?**
-Révoquez-le immédiatement via l'UI (`DELETE /api/v1/tokens/:id`) ou la CLI, puis générez-en un nouveau pour le node concerné. Le Core ou l'Agent concerné se déconnectera et devra être redémarré avec le nouveau token.
+**Q: What should I do if a pairing token is compromised?**
+Revoke it immediately via the UI (`DELETE /api/v1/tokens/:id`) or the CLI, then generate a new one for the affected node. The Core or Agent will disconnect and must be restarted with the new token.
 
-**Q : Les tokens ont-ils une durée de vie limitée ?**
-Par défaut, les tokens générés via `goproxify token` sont permanents. Vous pouvez spécifier un TTL (`-ttl 24h`) pour des tokens éphémères lors de déploiements CI/CD.
+**Q: Do tokens have a limited lifetime?**
+By default, tokens generated via `goproxify token` are permanent. You can specify a TTL (`-ttl 24h`) for ephemeral tokens in CI/CD deployments.
 
-**Q : Qu'est-ce que le `JOIN_TOKEN` et à quoi sert-il ?**
-Le `JOIN_TOKEN` (variable `GPX_CONTROL_PLANE_JOIN_TOKEN`) est un token éphémère (TTL 24 h) utilisé par l'Agent pour initier sa première connexion WebSocket vers le Core. Il identifie l'Agent et déclenche le workflow d'approbation :
+**Q: What is the `JOIN_TOKEN` and what is it for?**
+The `JOIN_TOKEN` (variable `GPX_CONTROL_PLANE_JOIN_TOKEN`) is an ephemeral token (TTL 24h) used by the Agent to initiate its first WebSocket connection to the Core. It identifies the Agent and triggers the approval workflow:
 
-1. L'Agent se connecte avec le `JOIN_TOKEN` → état `pending`
-2. L'opérateur approuve dans l'UI ou via `POST /api/v1/agents/:id/approve`
-3. Le Core envoie un `agent_hmac` (secret HMAC-SHA256) via WS → état `approved`
-4. Les connexions WS suivantes utilisent l'`agent_hmac` (rotatif toutes les heures)
+1. Agent connects with the `JOIN_TOKEN` → `pending` state
+2. Operator approves in the UI or via `POST /api/v1/agents/:id/approve`
+3. Core sends an `agent_hmac` (HMAC-SHA256 secret) via WS → `approved` state
+4. Subsequent WS connections use the `agent_hmac` (rotated every hour)
 
-**Q : Pourquoi l'Agent n'a-t-il plus besoin de port entrant pour le plan de contrôle ?**
-La nouvelle architecture WS inverse le modèle de connexion : c'est l'Agent qui initie la connexion vers le Core (tunnel WS persistant Agent→Core). Le Core est le seul hub de connexion. L'Agent n'écoute donc plus sur un port entrant pour recevoir des commandes — elles sont poussées via le tunnel WS établi par l'Agent.
+**Q: Why does the Agent no longer need an inbound port for the control plane?**
+The new WS architecture inverts the connection model: the Agent initiates the connection to the Core (persistent WS tunnel Agent→Core). The Core is the only connection hub. The Agent therefore no longer listens on an inbound port to receive commands — they are pushed via the WS tunnel established by the Agent.
 
-Le port `:8001` (ancienne API interne Agent) est conservé temporairement pour la rétrocompatibilité mais disparaîtra après la migration complète.
+Port `:8001` (former Agent internal API) is kept temporarily for backward compatibility but will be removed after the full migration.
 
-**Q : Comment ré-appairer un Agent après rotation ou expiration du `agent_hmac` ?**
-Si l'`agent_hmac` est perdu (redémarrage de l'Agent sans persistance), générez un nouveau `JOIN_TOKEN` dans l'UI (Admin → Tokens → Créer → rôle `agent`), et configurez-le dans `GPX_CONTROL_PLANE_JOIN_TOKEN` avant de redémarrer l'Agent. L'Admin recevra à nouveau une notification `agent_pending` et une approbation sera requise.
+**Q: How do I re-pair an Agent after rotation or expiry of the `agent_hmac`?**
+If the `agent_hmac` is lost (Agent restart without persistence), generate a new `JOIN_TOKEN` in the UI (Admin → Tokens → Create → role `agent`), and configure it in `GPX_CONTROL_PLANE_JOIN_TOKEN` before restarting the Agent. The Admin will receive an `agent_pending` notification again and approval will be required.
 
-**Q : Comment fonctionne la rotation automatique du `agent_hmac` ?**
-Toutes les heures, le Core génère un nouveau secret HMAC-SHA256 et l'envoie à l'Agent via le message WS `rotate_hmac`. L'Agent adopte immédiatement le nouveau secret pour ses connexions futures. Si la connexion est perdue durant la rotation, l'Agent se reconnecte avec l'ancien HMAC (toujours valide jusqu'à la prochaine connexion établie) — le Core le met à jour dès la reconnexion.
+**Q: How does automatic `agent_hmac` rotation work?**
+Every hour, the Core generates a new HMAC-SHA256 secret and sends it to the Agent via the `rotate_hmac` WS message. The Agent immediately adopts the new secret for future connections. If the connection is lost during rotation, the Agent reconnects with the old HMAC (still valid until the next established connection) — the Core updates it upon reconnection.
 
 ---
 
-## Domaines & délégation multi-Core
+## Domains & multi-Core delegation
 
-**Q : Quelle est la différence entre Passthrough et Terminate ?**
-- **Passthrough** : le Core d'entrée forward le flux TLS sans le déchiffrer. Le Core cible voit l'IP du Core d'entrée dans ses logs.
-- **Terminate** : le Core d'entrée termine le TLS, puis proxy HTTP(S) vers le Core cible avec `X-Forwarded-For` / `X-Real-IP`. Le Core cible peut logger l'IP publique du client.
+**Q: What is the difference between Passthrough and Terminate?**
+- **Passthrough**: the entry Core forwards the TLS stream without decrypting it. The target Core sees the entry Core's IP in its logs.
+- **Terminate**: the entry Core terminates TLS, then proxies HTTP(S) to the target Core with `X-Forwarded-For` / `X-Real-IP`. The target Core can log the client's public IP.
 
-Détails, prérequis et schémas : [delegation.md](delegation.md).
+Details, prerequisites and diagrams: [delegation.md](delegation.md).
 
-**Q : En délégation, le Core cible ne loggue que l'IP du Core d'entrée — est-ce normal ?**
-Oui en mode **Passthrough** (tunnel TCP). Passez en **Terminate** si vous avez besoin de l'IP client sur le Core cible (et que le Core d'entrée voit déjà des IPs publiques).
+**Q: In delegation mode, the target Core only logs the entry Core's IP — is that normal?**
+Yes in **Passthrough** mode (TCP tunnel). Switch to **Terminate** if you need the client IP on the target Core (and the entry Core already sees public IPs).
 
-**Q : Terminate renvoie 502 / « aucun certificat » sur le Core cible ?**
-Le Core d'entrée doit se reconnecter en HTTPS avec le **SNI = domaine** (pas l'IP de l'endpoint). C'est le comportement attendu depuis le correctif SNI vhost ; redéployez le Core d'entrée et re-poussez les délégations. Vérifiez aussi que le Core d'entrée a bien le certificat du domaine (périmètres token).
+**Q: Terminate returns 502 / "no certificate" on the target Core?**
+The entry Core must reconnect in HTTPS with the **SNI = domain** (not the endpoint IP). This is expected behavior since the SNI vhost fix; redeploy the entry Core and re-push the delegations. Also verify that the entry Core has the domain's certificate (token scopes).
 
-**Q : Core d'entrée vs droits sur un domaine ?**
-Le Core d'entrée définit **qui reçoit le trafic** (routage / délégation / ACME). Les **droits** (qui reçoit routes et certificats) se gèrent via les **périmètres domaine** du token Core — les deux sont indépendants.
+**Q: Entry Core vs domain rights?**
+The entry Core defines **who receives traffic** (routing / delegation / ACME). **Rights** (who receives routes and certificates) are managed via the Core token's **domain scopes** — the two are independent.
 
 ---
 
 ## Agent & Docker
 
-**Q : L'application doit-elle obligatoirement exposer ses ports sur l'hôte ?**
-Non — c'est précisément l'intérêt du modèle Agent. L'Agent connecte à chaud le conteneur Core au réseau bridge privé de l'application. Aucun port n'est publié sur l'hôte physique (`-p` ou `ports:` dans Compose).
+**Q: Does the application need to expose its ports on the host?**
+No — that's precisely the point of the Agent model. The Agent hot-connects the Core container to the application's private bridge network. No port is published on the physical host (`-p` or `ports:` in Compose).
 
-**Q : L'Agent fonctionne-t-il avec Podman ?**
-Podman expose une API compatible Docker sur un socket Unix. Pointez `AGENT_DOCKER_SOCKET` vers le socket Podman (ex: `/run/user/1000/podman/podman.sock`). Le support est expérimental.
+**Q: Does the Agent work with Podman?**
+Podman exposes a Docker-compatible API on a Unix socket. Point `AGENT_DOCKER_SOCKET` to the Podman socket (e.g. `/run/user/1000/podman/podman.sock`). Support is experimental.
