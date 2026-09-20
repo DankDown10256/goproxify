@@ -408,9 +408,9 @@ async function renderSecurityOverview(ctx) {
           </div>
           <div class="card blueprint" style="padding:14px 16px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">WAF comportemental</div>
-            <div style="font-size:20px;font-weight:700">${wafProfiles} <span style="font-size:12px;font-weight:400;opacity:.5">profils</span></div>
-            <div style="font-size:11px;opacity:.5;margin-top:4px">IPs suivies en mémoire</div>
+            <div style="font-size:10px;opacity:.5;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">IPs sous surveillance</div>
+            <div style="font-size:20px;font-weight:700">${wafProfiles} <span style="font-size:12px;font-weight:400;opacity:.5">IPs</span></div>
+            <div style="font-size:11px;opacity:.5;margin-top:4px" title="IPs ayant déclenché des signaux WAF encore dans la fenêtre de surveillance Sentinel">Comportements suspects actifs</div>
           </div>
           <div class="card blueprint" style="padding:14px 16px">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
