@@ -827,7 +827,7 @@ window.openProxySecModal = async function(id, initialTab) {
     const el = document.getElementById('psec-timeline-content');
     if (!el) return;
     const rootDom = host.split('.').slice(-2).join('.');
-    const filtered = (events || []).filter(e => !host || !e.domain || e.domain === host || e.domain.endsWith('.' + rootDom));
+    const filtered = (events || []).filter(e => e.domain && (e.domain === host || e.domain.endsWith('.' + rootDom)));
     if (!filtered.length) {
       el.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:24px 0;text-align:center;">Aucun événement de sécurité pour ce proxy</div>';
       return;
