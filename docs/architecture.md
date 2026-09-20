@@ -1,91 +1,91 @@
-# Architecture Goproxify
+# GoProxify Architecture
 
-## Vue d'ensemble
+## Overview
 
-Goproxify se déploie via un **binaire Go unique**. La personnalité de l'instance est déterminée au démarrage par `GOPROXIFY_MODE` (ou la sous-commande CLI).
+GoProxify deploys as a **single Go binary**. The instance personality is determined at startup by `GOPROXIFY_MODE` (or the CLI subcommand).
 
 ```
   ┌──────────────────────────────────────────────────────────┐
   │  ADMIN  (Control Plane)                                  │
-  │  UI Web · API REST · :9443                               │
+  │  Web UI · REST API · :9443                               │
   │  SQLite · ACME · Alerting                                │
   └────────────────────────┬─────────────────────────────────┘
-                           │  WS persistant (Admin initie)
+                           │  persistent WS (Admin initiates)
                            │  HMAC-SHA256
                            ▼
   ┌──────────────────────────────────────────────────────────┐
-  │  CORE  (Data Plane — Hub WS central)                     │
+  │  CORE  (Data Plane — central WS hub)                     │
   │  HTTP/1·2·3 QUIC · TCP/UDP L4                            │
-  │  TLS en RAM · cache AES-256 local                        │
-  │  :80 :443 :443/UDP  :8000 (hub WS interne)               │
+  │  TLS in RAM · AES-256 local cache                        │
+  │  :80 :443 :443/UDP  :8000 (internal WS hub)              │
   └────────────────────────▲─────────────────────────────────┘
-                           │  WS persistant (Agent initie)
-                           │  JOIN_TOKEN → HMAC rotatif
+                           │  persistent WS (Agent initiates)
+                           │  JOIN_TOKEN → rotating HMAC
   ┌──────────────────────────────────────────────────────────┐
   │  AGENT  (Docker Discovery)                               │
-  │  Lit docker.sock · labels goproxify.*                    │
-  │  Streame métriques CPU/mém/IO disque via WS (LB adaptatif) │
+  │  Reads docker.sock · goproxify.* labels                  │
+  │  Streams CPU/mem/disk IO metrics via WS (adaptive LB)    │
   │  Prometheus :9191/metrics                                │
   └──────────────────────────────────────────────────────────┘
 ```
 
-Le Core est le **hub de connexion unique** — seul lui a besoin d'un port accessible. Admin et Agent initialisent la connexion WS de leur côté ; le Core n'effectue aucun appel sortant vers eux.
+The Core is the **single connection hub** — only it needs an accessible port. Admin and Agent initiate the WS connection from their side; the Core makes no outbound calls to them.
 
 ---
 
-## Composants
+## Components
 
 ### Core (Data Plane)
 
-**Responsabilité :** Moteur réseau haute performance. Ne persiste rien sur disque.
+**Responsibility:** High-performance network engine. Persists nothing to disk.
 
-**Points clés :**
-- Table de routage `sync.Map` — mises à jour atomiques sans coupure de connexion
-- Certificats TLS poussés en RAM via `GetCertificate` (pas de rechargement)
-- `sync.Pool` pour les buffers réseau — P99 stable sous charge
-- Passthrough SNI par détection passive (décode 5 bytes du Client Hello, pas le payload)
+**Key points:**
+- `sync.Map` routing table — atomic updates with no connection drops
+- TLS certificates pushed into RAM via `GetCertificate` (no reload)
+- `sync.Pool` for network buffers — stable P99 under load
+- Passive SNI detection (decodes 5 bytes of the Client Hello, not the payload)
 
-**Ports :** `:80` (HTTP), `:443` (HTTPS + HTTP/3 UDP)
+**Ports:** `:80` (HTTP), `:443` (HTTPS + HTTP/3 UDP)
 
-### Administration (Control Plane)
+### Admin (Control Plane)
 
-**Responsabilité :** Orchestrateur central. Persistance Admin (config, utilisateurs, tokens) en SQLite ; proxies en **fichiers YAML** sur le Core (`proxies/*.yaml`).
+**Responsibility:** Central orchestrator. Admin persistence (config, users, tokens) in SQLite; proxies as **YAML files** on the Core (`proxies/*.yaml`).
 
-**Points clés :**
-- Détecte l'absence de SQLite au premier lancement → écran d'initialisation obligatoire
-- Deux sources de config : Manuelle (UI/API) et Déclarative (labels Docker via Agent)
-- Les proxies issus de labels apparaissent en **lecture seule** (grisés) dans l'UI
-- Acquiert les certificats Wildcard via ACME DNS-01 et les pousse décodés au Core
-- Génère les tokens cryptographiques d'appairage (`gpx_core_*`, `gpx_join_*`)
-- Maintient une **connexion WS sortante** vers chaque Core — aucun port entrant requis côté Admin
+**Key points:**
+- Detects absence of SQLite on first launch → mandatory initialization screen
+- Two config sources: Manual (UI/API) and Declarative (Docker labels via Agent)
+- Proxies from labels appear **read-only** (greyed out) in the UI
+- Acquires wildcard certificates via ACME DNS-01 and pushes them decoded to the Core
+- Generates cryptographic pairing tokens (`gpx_core_*`, `gpx_join_*`)
+- Maintains an **outbound WS connection** to each Core — no inbound port required on the Admin side
 
-**Port :** `:9443`
+**Port:** `:9443`
 
-**Wizard architecture :** l’UI compose une topologie (hôtes + services), dérive les packs d’install et émet des tickets bootstrap (`/i/{token}`) ancrés au Core. Admin reste l’interface ; le Core est la cible d’intégration.
+**Architecture wizard:** the UI composes a topology (hosts + services), derives install packages and emits bootstrap tickets (`/i/{token}`) anchored to the Core. Admin stays the interface; Core is the integration target.
 
 ### Agent (Discovery & Telemetry)
 
-**Responsabilité :** Traducteur Docker local. Ultra-léger, sans état persistant.
+**Responsibility:** Local Docker translator. Ultra-lightweight, no persistent state.
 
-**Points clés :**
-- Scrute `/var/run/docker.sock` — les apps n'exposent **aucun port** sur l'hôte
-- Connecte à chaud le conteneur Core au réseau bridge privé de l'application
-- Lit `/proc/stat` et `/proc/meminfo` (heartbeat) et les stats Docker par conteneur (CPU / mémoire / IO disque) pour le LB adaptatif
-- Streame les métriques via WS (`metrics`, toutes les 10 s) vers le Core
-- Labels Canary / Shadow : configuration manuelle proxy (auto-détection labels prévue)
-- Export Prometheus sur `:9191/metrics`
-- **Aucun port entrant requis** — l'Agent initie la connexion WS vers Core
+**Key points:**
+- Watches `/var/run/docker.sock` — apps expose **no port** on the host
+- Hot-connects the Core container to the application's private bridge network
+- Reads `/proc/stat` and `/proc/meminfo` (heartbeat) and per-container Docker stats (CPU / memory / disk IO) for adaptive LB
+- Streams metrics via WS (`metrics`, every 10s) to the Core
+- Canary / Shadow labels: manual proxy configuration (auto-detection via labels planned)
+- Prometheus export on `:9191/metrics`
+- **No inbound port required** — the Agent initiates the WS connection to the Core
 
-**Portainer multi-hôtes :**
+**Portainer multi-host:**
 
-L'Agent peut scruter une API Portainer distante pour découvrir les conteneurs de plusieurs hôtes sans déployer d'Agent sur chacun. Options avancées dans `agent.json` → section `portainer` :
+The Agent can watch a remote Portainer API to discover containers across multiple hosts without deploying an Agent on each. Advanced options in `agent.json` → `portainer` section:
 
-| Champ | Type | Description |
+| Field | Type | Description |
 |-------|------|-------------|
-| `skip_endpoints` | `[]string` | Noms d'endpoints Portainer à ignorer lors de la découverte |
-| `endpoint_cores` | `map[string]{ core_endpoint, auth_token }` | Routage des routes d'un endpoint vers un Core GoProxify alternatif |
+| `skip_endpoints` | `[]string` | Portainer endpoint names to skip during discovery |
+| `endpoint_cores` | `map[string]{ core_endpoint, auth_token }` | Route an endpoint's routes to an alternate GoProxify Core |
 
-Exemple :
+Example:
 ```json
 {
   "portainer": {
@@ -102,141 +102,141 @@ Exemple :
 }
 ```
 
-Les routes découvertes sur `edge-dc2` sont relayées vers `core-dc2` (relay Core→Core via l'endpoint interne `:8000`) plutôt que vers le Core par défaut de l'Agent.
+Routes discovered on `edge-dc2` are relayed to `core-dc2` (Core→Core relay via internal endpoint `:8000`) rather than to the Agent's default Core.
 
 ---
 
-## Load balancing adaptatif
+## Adaptive load balancing
 
-Le mode `lb: adaptive` (UI : « Adaptatif ») choisit le backend le **moins chargé** à chaque requête, d’après les métriques Agent — pas des poids fixes.
+`lb: adaptive` mode (UI: "Adaptive") picks the **least loaded** backend on each request, based on Agent metrics — not fixed weights.
 
 ### Score
 
-Pour chaque IP de conteneur (et en secours l’IP hôte Agent) :
+For each container IP (and fallback to the Agent host IP):
 
 ```
-score = cpu×0.5 + mem×0.3 + disk_io×0.2   # 0–100, le plus bas gagne
+score = cpu×0.5 + mem×0.3 + disk_io×0.2   # 0–100, lowest wins
 ```
 
-- **Agent** : `GET /containers/{id}/stats?stream=false` pour les conteneurs `goproxify.enable=true`, puis message WS `metrics`.
-- **Core** : `AgentMetricsStore` alimenté par WS (plus de poll Admin HTTP pour le LB).
+- **Agent**: `GET /containers/{id}/stats?stream=false` for `goproxify.enable=true` containers, then WS `metrics` message.
+- **Core**: `AgentMetricsStore` fed by WS (no more Admin HTTP polling for LB).
 
-### Pool local (même Core)
+### Local pool (same Core)
 
-Plusieurs conteneurs avec le **même** `goproxify.host`, découverts par un ou plusieurs Agents branchés sur **ce** Core, sont fusionnés en une route `docker-host:<hostname>` multi-backends (`LBAdaptive` par défaut).
+Multiple containers with the **same** `goproxify.host`, discovered by one or more Agents attached to **this** Core, are merged into a `docker-host:<hostname>` multi-backend route (`LBAdaptive` by default).
 
 ```
 Agent(s) ──containers──▶ Core
-                              └── route docker-host:app.example.fr
+                              └── route docker-host:app.example.com
                                     backends: [IP_A:port, IP_B:port]
                                     lb: adaptive
 ```
 
-Le Core joint les IP Docker via le réseau bridge (ports **non** publiés sur l’hôte).
+The Core reaches Docker IPs via the bridge network (ports **not** published on the host).
 
-### Failover immédiat
+### Immediate failover
 
-Si le dial / proxy vers un backend échoue :
+If dial / proxy to a backend fails:
 
-1. quarantaine courte (~15 s) de ce backend ;
-2. essai du **suivant** dans le pool (préférence adaptive, puis les autres) ;
-3. 502 seulement si **tous** les backends du pool ont échoué.
+1. short quarantine (~15s) of that backend;
+2. try the **next** backend in the pool (adaptive preference, then others);
+3. 502 only if **all** backends in the pool have failed.
 
-Sans ≥ 2 backends, pas de bascule possible.
+Without ≥ 2 backends, no failover is possible.
 
 ### Cross-Core (Agent A / Core A + Agent B / Core B)
 
-Objectif : le **même site** joignable via un conteneur derrière chaque stack, sans mesh VXLAN produit.
+Goal: the **same site** reachable via a container behind each stack, without a production VXLAN mesh.
 
 ```
-                    ┌─ dial local ──────────────▶ conteneur A (IP Docker)
+                    ┌─ dial local ──────────────▶ container A (Docker IP)
  Client ──▶ Core A ─┤
-                    └─ OwnerCoreEndpoint=B ──tunnel──▶ Core B ──▶ conteneur B
+                    └─ OwnerCoreEndpoint=B ──tunnel──▶ Core B ──▶ container B
 ```
 
-1. **Admin** pousse `push_gateway_peers` : liste `{name, endpoint, token}` de chaque Core.
-2. Chaque Core **synchronise** (~15 s) `GET /internal/v1/agent/containers` et `GET /internal/v1/lb/scores` chez ses pairs.
-3. Si le même host existe en local **et** chez un pair → backends distants annotés `owner_core_endpoint`.
-4. Dial distant : `POST /internal/v1/gateway/tunnel` `{target:"IP:port"}` (Bearer du Core owner) → pipe TCP. Seules les IP **possédées localement** par l’owner sont autorisées.
+1. **Admin** pushes `push_gateway_peers`: list `{name, endpoint, token}` for each Core.
+2. Each Core **syncs** (~15s) `GET /internal/v1/agent/containers` and `GET /internal/v1/lb/scores` from its peers.
+3. If the same host exists locally **and** at a peer → remote backends annotated `owner_core_endpoint`.
+4. Remote dial: `POST /internal/v1/gateway/tunnel` `{target:"IP:port"}` (Bearer of the owner Core) → TCP pipe. Only IPs **locally owned** by the owner are allowed.
 
-Prérequis : endpoints internes `:8000` joignables entre Cores ; tokens Core enregistrés dans l’Admin.
+Prerequisites: internal `:8000` endpoints reachable between Cores; Core tokens registered in Admin.
 
-Ce mécanisme est **distinct** de la [délégation de domaine](delegation.md) (entrée DNS → un Core cible pour tout un domaine).
+This mechanism is **distinct** from [domain delegation](delegation.md) (DNS entry → one target Core for an entire domain).
 
 ---
 
-## Flux réseau : déploiement par labels
+## Network flow: label-based deployment
 
 ```
-1. App démarre avec labels    →  2. Agent détecte (socket Unix)
-   (ports non publiés)
+1. App starts with labels    →  2. Agent detects (Unix socket)
+   (ports not published)
                                            ↓
-5. Requête HTTPS routée       ←  4. Core reçoit config + cert (RAM)
-   (réseau Docker privé)              ↑
-                                  3. Admin valide, ACME DNS-01, push
+5. HTTPS request routed      ←  4. Core receives config + cert (RAM)
+   (private Docker network)           ↑
+                                  3. Admin validates, ACME DNS-01, push
 ```
 
-Exemple de labels Docker Compose :
+Docker Compose label example:
 ```yaml
 labels:
   goproxify.enable: "true"
-  goproxify.host: "monapp.example.fr"
+  goproxify.host: "myapp.example.com"
   goproxify.port: "8080"
   goproxify.tls: "true"
-  goproxify.snippets: "headers-secure"   # IDs snippets Admin
+  goproxify.snippets: "headers-secure"   # Admin snippet IDs
   goproxify.waf: "block"
 ```
 
 ---
 
-## Ports et réseaux
+## Ports and networks
 
-| Port | Protocole | Composant | Exposition | Usage |
+| Port | Protocol | Component | Exposure | Usage |
 |---|---|---|---|---|
-| 80 | TCP | Core | Publique | HTTP (redirect ou plaintext) |
-| 443 | TCP | Core | Publique | HTTPS (TLS termination) |
-| 443 | UDP | Core | Publique | HTTP/3 QUIC |
-| 8000 | TCP | Core | Interne uniquement | Hub WS + API interne — reçoit les connexions WS d'Admin et Agent |
-| 9443 | TCP | Administration | Opérateur | API REST + Interface Web |
-| 9191 | TCP | Agent | Interne uniquement | Métriques Prometheus |
-| 51820 | UDP | Agent | Interne uniquement | WireGuard (optionnel) |
+| 80 | TCP | Core | Public | HTTP (redirect or plaintext) |
+| 443 | TCP | Core | Public | HTTPS (TLS termination) |
+| 443 | UDP | Core | Public | HTTP/3 QUIC |
+| 8000 | TCP | Core | Internal only | WS hub + internal API — receives WS connections from Admin and Agent |
+| 9443 | TCP | Admin | Operator | REST API + Web UI |
+| 9191 | TCP | Agent | Internal only | Prometheus metrics |
+| 51820 | UDP | Agent | Internal only | WireGuard (optional) |
 
-> **Règle d'or :** seul le port 8000 du Core doit être accessible depuis les réseaux Admin et Agent. Admin et Agent n'ont aucun port entrant requis pour le plan de contrôle.
+> **Golden rule:** only port 8000 of the Core needs to be reachable from Admin and Agent networks. Admin and Agent require no inbound port for the control plane.
 
 ---
 
-## Délégation inter-Cores
+## Inter-Core delegation
 
-Plusieurs Cores peuvent se partager les domaines. Le **Core d'entrée** reçoit le trafic public ; le **Core cible** héberge les proxies applicatifs.
+Multiple Cores can share domains. The **entry Core** receives public traffic; the **target Core** hosts the application proxies.
 
-Deux modes (page Domaines dans l'Admin) :
+Two modes (Domains page in Admin):
 
-| Mode | Flux | Certificat client | Logs IP sur le Core cible |
+| Mode | Flow | Client certificate | Client IP on target Core |
 |---|---|---|---|
-| **Passthrough** | Tunnel TCP TLS (SNI) | Core cible | IP du Core d'entrée |
-| **Terminate** | TLS sur l'entrée → proxy HTTPS vers la cible | Core d'entrée | IP client via `X-Forwarded-For` |
+| **Passthrough** | TCP TLS tunnel (SNI) | Target Core | Entry Core's IP |
+| **Terminate** | TLS at entry → HTTPS proxy to target | Entry Core | Client IP via `X-Forwarded-For` |
 
-Guide complet : [delegation.md](delegation.md).
+Full guide: [delegation.md](delegation.md).
 
 ---
 
-## Arborescence `/etc/goproxify/`
+## `/etc/goproxify/` directory layout
 
-Admin et Core ont **chacun** un volume Docker monté sur `/etc/goproxify` (conteneurs distincts). Les JSON proxies ne sont **pas** sur l’Admin.
+Admin and Core each have a Docker volume mounted at `/etc/goproxify/` (separate containers). Proxy JSON files are **not** on the Admin.
 
 ```
-# Volume Admin (goproxify_admin_data)
+# Admin volume (goproxify_admin_data)
 /etc/goproxify/
 ├── database/
 │   └── goproxify.db
-├── storage/                      # pages d'erreur, assets Admin
+├── storage/                      # error pages, Admin assets
 └── logs/
     └── admin.log
 
-# Volume Core (goproxify_core_data) — seul endroit où chercher les fichiers proxies
+# Core volume (goproxify_core_data) — only place to look for proxy files
 /etc/goproxify/
-├── proxies/                      # prod (1 JSON plat / proxy) — créé au boot Core
-│   └── app.example.fr.json
+├── proxies/                      # prod (1 flat JSON / proxy) — created at Core boot
+│   └── app.example.com.json
 ├── proxies-revisions/            # pending → dry-run → promote
 │   └── <proxy-id>--<rev>.json
 ├── core-cache.gpx
@@ -250,29 +250,29 @@ Admin et Core ont **chacun** un volume Docker monté sur `/etc/goproxify` (conte
 
 ---
 
-## Formats de logs
+## Log formats
 
-### Log système (`admin.log`, `agent.log`, `core_system.log`)
+### System log (`admin.log`, `agent.log`, `core_system.log`)
 
 ```json
 {
   "time": "2026-07-15T23:54:12.456Z",
   "level": "INFO",
   "component": "administration",
-  "msg": "Nouveau certificat wildcard Let's Encrypt généré",
-  "domain": "*.example.fr",
+  "msg": "New wildcard Let's Encrypt certificate generated",
+  "domain": "*.example.com",
   "provider": "ovh"
 }
 ```
 
-### Log d'accès HTTP (`core_access.log`)
+### HTTP access log (`core_access.log`)
 
 ```json
 {
   "time": "2026-07-15T23:55:01.123Z",
   "component": "core-router",
   "client_ip": "193.56.21.10",
-  "host": "termix.example.fr",
+  "host": "app.example.com",
   "method": "GET",
   "path": "/api/v1/status",
   "status": 200,
@@ -286,57 +286,57 @@ Admin et Core ont **chacun** un volume Docker monté sur `/etc/goproxify` (conte
 
 ---
 
-## Plan de contrôle WebSocket
+## WebSocket control plane
 
-### Protocole de messages
+### Message protocol
 
-Tous les messages WS utilisent une enveloppe JSON :
+All WS messages use a JSON envelope:
 ```json
 { "seq": 42, "type": "push_routes", "payload": { ... } }
 ```
 
-Le champ `seq` est un compteur croissant par émetteur. Un trou dans la séquence déclenche un `full_sync` automatique.
+The `seq` field is an incrementing counter per sender. A gap in the sequence triggers an automatic `full_sync`.
 
-### Flux Admin → Core
+### Admin → Core flow
 
-1. Admin ouvre `GET ws://core:8000/ws/admin` avec header `X-Goproxify-Signature: hmac-sha256 <timestamp>.<sig>`
-2. Core valide le HMAC-SHA256 et accepte la connexion
-3. Core répond immédiatement par un `full_sync` pour aligner l'état
-4. Admin envoie des messages au fil des changements de configuration : `push_routes`, `push_cert`, `delete_route`…
-5. Si la connexion est perdue : Admin reconnecte en backoff exponentiel 1 s → 60 s + jitter
+1. Admin opens `GET ws://core:8000/ws/admin` with header `X-Goproxify-Signature: hmac-sha256 <timestamp>.<sig>`
+2. Core validates the HMAC-SHA256 and accepts the connection
+3. Core immediately replies with a `full_sync` to align state
+4. Admin sends messages as configuration changes occur: `push_routes`, `push_cert`, `delete_route`…
+5. If the connection is lost: Admin reconnects with exponential backoff 1s → 60s + jitter
 
-### Flux Agent → Core
+### Agent → Core flow
 
-1. Premier démarrage : Agent présente son `JOIN_TOKEN` (généré par l'UI Admin, TTL 24 h) en header WS upgrade
-2. Core crée l'entrée Agent en état `pending` et notifie Admin via la connexion WS Admin
-3. Opérateur approuve dans l'UI → Core envoie un message `approve` avec le premier `agent_hmac`
-4. Agent stocke le `agent_hmac` et l'utilise pour toutes les reconnexions futures
-5. Core émet un message `rotate_hmac` toutes les heures ; l'Agent adopte le nouveau secret sans interruption
-6. Agent streame en continu : `heartbeat` (30 s), `containers` (au changement), `metrics` (10 s), `event`, `log`
-7. Core → Agent : `command` (restart, update), `rescan`
+1. First start: Agent presents its `JOIN_TOKEN` (generated by Admin UI, TTL 24h) in the WS upgrade header
+2. Core creates the Agent entry in `pending` state and notifies Admin via the Admin WS connection
+3. Operator approves in the UI → Core sends an `approve` message with the first `agent_hmac`
+4. Agent stores the `agent_hmac` and uses it for all future reconnections
+5. Core emits a `rotate_hmac` message every hour; the Agent adopts the new secret without interruption
+6. Agent streams continuously: `heartbeat` (30s), `containers` (on change), `metrics` (10s), `event`, `log`
+7. Core → Agent: `command` (restart, update), `rescan`
 
-### Résilience
+### Resilience
 
-- Ping/pong applicatif toutes les 30 s ; 3 pings sans réponse → reconnexion
-- Déconnexion Admin → Core conserve le cache ; zéro interruption trafic
-- Déconnexion Agent → backends marqués `unhealthy` après 90 s d'absence
+- Application-level ping/pong every 30s; 3 unanswered pings → reconnect
+- Admin disconnect → Core preserves cache; zero traffic interruption
+- Agent disconnect → backends marked `unhealthy` after 90s of absence
 
 ---
 
-## Sécurité par tokens
+## Token security
 
 ```
-Administration  ─HMAC-SHA256──►  Core (ws/admin)
-                                      │
-                                      │  message: approve
-                                      ▼
-                Agent (JOIN_TOKEN) ──►  Core (ws/agent)  ──► agent_hmac rotatif (1h)
+Admin  ─HMAC-SHA256──►  Core (ws/admin)
+                              │
+                              │  message: approve
+                              ▼
+        Agent (JOIN_TOKEN) ──►  Core (ws/agent)  ──► rotating agent_hmac (1h)
 ```
 
-| Token | Format | Usage | Durée |
-|-------|--------|-------|-------|
-| `gpx_join_*` | Opaque aléatoire | Première connexion Agent → Core | 24 h (usage unique) |
-| `agent_hmac` | HMAC-SHA256 secret | Reconnexions Agent → Core | Rotation 1 h |
-| `admin_hmac_secret` | Clé symétrique | Handshake Admin → Core | Statique, configurable |
-| JWT ECDSA P-256 | JWT signé | Sessions UI Admin | 8 h |
-| `gpx_api_*` | Opaque révocable | Accès API externe | Permanent ou TTL configuré |
+| Token | Format | Usage | Lifetime |
+|-------|--------|-------|----------|
+| `gpx_join_*` | Random opaque | Agent first connection → Core | 24h (single use) |
+| `agent_hmac` | HMAC-SHA256 secret | Agent reconnections → Core | Rotated every 1h |
+| `admin_hmac_secret` | Symmetric key | Admin → Core handshake | Static, configurable |
+| JWT ECDSA P-256 | Signed JWT | Admin UI sessions | 8h |
+| `gpx_api_*` | Revocable opaque | External API access | Permanent or configured TTL |
