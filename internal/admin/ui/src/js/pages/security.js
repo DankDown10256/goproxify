@@ -1720,7 +1720,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Scénarios déclenchés -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title">&#x1f6a8; Scénarios déclenchés</span></div>
+        <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Scénarios déclenchés</span></div>
         <div style="padding:0 16px 16px">
           ${scenarios.length === 0 ? noData :
             `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1761,7 +1761,7 @@ async function renderSentinelDashboard({ mode }) {
           </div>
         </div>
         <div class="card blueprint">
-          <div class="card-header"><span class="card-title">&#x1f3af; Top IPs par menaces</span></div>
+          <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>Top IPs par menaces</span></div>
           <div style="padding:0 16px 16px">
             ${topIPs.length === 0 ? noData :
               `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -1784,7 +1784,7 @@ async function renderSentinelDashboard({ mode }) {
 
       <!-- Listes de détection -->
       <div class="card blueprint" style="margin-bottom:20px">
-        <div class="card-header"><span class="card-title">&#x1f6e1; Listes de détection</span></div>
+        <div class="card-header"><span class="card-title"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 6 4 7 6 5"/><polyline points="3 12 4 13 6 11"/><polyline points="3 18 4 19 6 17"/></svg>Listes de détection</span></div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:12px 16px 16px">
           ${listItems.map(li => `
             <div style="padding:10px 12px;border-radius:8px;background:var(--bg2);border:1px solid ${li.enabled ? 'var(--green)' : 'var(--border)'}">
