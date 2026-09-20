@@ -109,12 +109,14 @@ func (h *CertsHandler) obtain(w http.ResponseWriter, r *http.Request) {
 
 // certMonitorRow enrichit certRow avec le statut d'expiration calculé.
 type certMonitorRow struct {
-	ID        string `json:"id"`
-	Domain    string `json:"domain"`
-	Issuer    string `json:"issuer"`
-	ExpiresAt string `json:"expires_at"`
-	UpdatedAt string `json:"updated_at"`
-	DaysLeft  int    `json:"days_left"`
+	ID          string `json:"id"`
+	Domain      string `json:"domain"`
+	Issuer      string `json:"issuer"`
+	ExpiresAt   string `json:"expires_at"`
+	UpdatedAt   string `json:"updated_at"`
+	DaysLeft    int    `json:"days_left"`
+	DNSProvider string `json:"dns_provider"`
+	CertMethod  string `json:"cert_method"`
 	// ok | warning (≤30j) | critical (≤7j) | expired
 	Status string `json:"status"`
 }
@@ -130,7 +132,11 @@ type acmeMonitorResponse struct {
 
 func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, domain, issuer, expires_at, updated_at FROM certs ORDER BY expires_at ASC`)
+		`SELECT c.id, c.domain, c.issuer, c.expires_at, c.updated_at,
+		        COALESCE(d.dns_provider,''), COALESCE(d.cert_method,'')
+		 FROM certs c
+		 LEFT JOIN domains d ON d.domain = c.domain
+		 ORDER BY c.expires_at ASC`)
 	if err != nil {
 		if !isCtxErr(err) {
 			h.Log.Error("certs: monitor", "err", err)
@@ -144,7 +150,8 @@ func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 	resp := acmeMonitorResponse{Certs: make([]certMonitorRow, 0)}
 	for rows.Next() {
 		var c certRow
-		if err := rows.Scan(&c.ID, &c.Domain, &c.Issuer, &c.ExpiresAt, &c.UpdatedAt); err != nil {
+		var dnsProv, certMethod string
+		if err := rows.Scan(&c.ID, &c.Domain, &c.Issuer, &c.ExpiresAt, &c.UpdatedAt, &dnsProv, &certMethod); err != nil {
 			continue
 		}
 		daysLeft := int(c.ExpiresAt.Sub(now).Hours() / 24)
@@ -159,13 +166,15 @@ func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 			status = "warning"
 		}
 		resp.Certs = append(resp.Certs, certMonitorRow{
-			ID:        c.ID,
-			Domain:    c.Domain,
-			Issuer:    c.Issuer,
-			ExpiresAt: c.ExpiresAt.UTC().Format(time.RFC3339),
-			UpdatedAt: c.UpdatedAt.UTC().Format(time.RFC3339),
-			DaysLeft:  daysLeft,
-			Status:    status,
+			ID:          c.ID,
+			Domain:      c.Domain,
+			Issuer:      c.Issuer,
+			ExpiresAt:   c.ExpiresAt.UTC().Format(time.RFC3339),
+			UpdatedAt:   c.UpdatedAt.UTC().Format(time.RFC3339),
+			DaysLeft:    daysLeft,
+			DNSProvider: dnsProv,
+			CertMethod:  certMethod,
+			Status:      status,
 		})
 		resp.Total++
 		switch status {

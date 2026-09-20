@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Amélioré
+
+- **UI Monitoring ACME** : la page affiche désormais le fournisseur DNS associé à chaque certificat (via jointure avec la table `domains`), avec un badge coloré par provider (Cloudflare, OVH, Gandi, Hetzner, Route 53). Ajout d'un panneau "Configuration ACME" en haut permettant de visualiser et modifier la config globale (activé, email, provider, directory URL). Ajout du bouton "Supprimer" par certificat. Nouveau panel détail latéral (clic sur une ligne) avec lien vers la section Domaines. Toutes les modales utilisent `document.body` pour éviter les problèmes de stacking context.
+
 ### Corrigé
 
 - **UI modales (transparence)** : tous les backdrops `position:fixed` rendus dans `#content` échappaient à la fenêtre si le conteneur parent créait un nouveau contexte d'empilement — modales déplacées directement dans `document.body` (`insertAdjacentHTML('beforeend')`) dans `workspaces.js`, `cert-deploy.js`, `users.js`, `trafic.js` et `core.js`
