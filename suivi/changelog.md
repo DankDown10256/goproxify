@@ -894,3 +894,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - ...
 
 -->
+
+### Corrigé (suite)
+
+- **Diff config proxy** : double préfixe `/api/v1` dans l'appel JS → 404 systématique (corrigé)
+- **Diff config proxy** : `revisionsDiff` n'essayait que `targets[0]` — proxy non trouvé si sur un autre Core ; utilise désormais `fetchProd()` qui parcourt tous les Cores
