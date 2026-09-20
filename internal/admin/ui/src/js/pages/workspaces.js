@@ -110,7 +110,7 @@ window.deleteWorkspace = function(id) {
 
 window.openWorkspaceDetail = async function(id) {
   const container = document.getElementById('workspace-detail-container');
-  container.innerHTML = `<div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9998;display:flex;align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);">
+  container.innerHTML = `<div class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);">
     <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;">
       <p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>
     </div>
@@ -143,7 +143,7 @@ function _renderWorkspacePanel(ws) {
   ].join('');
 
   container.innerHTML = `
-    <div class="dialog-backdrop" style="position:fixed;inset:0;z-index:9998;display:flex;align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('workspace-detail-container').innerHTML=''">
+    <div class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('workspace-detail-container').innerHTML=''">
       <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <div>

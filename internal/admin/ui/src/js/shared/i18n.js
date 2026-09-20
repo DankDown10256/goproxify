@@ -310,6 +310,7 @@ const GPX_I18N_MESSAGES = {
     'settings.item.onboarding_desc': 'Relaunch the initial setup guide',
 
     'common.create': 'Create',
+    'common.add': 'Add',
     'common.refresh': 'Refresh',
     'common.none': 'None',
     'common.view_all': 'See all →',
@@ -2698,6 +2699,7 @@ const GPX_I18N_MESSAGES = {
     'settings.item.onboarding_desc': 'Relancer le guide de configuration initiale',
 
     'common.create': 'Créer',
+    'common.add': 'Ajouter',
     'common.refresh': 'Rafraîchir',
     'common.none': 'Aucun',
     'common.view_all': 'Voir tout →',
@@ -4992,6 +4994,7 @@ const GPX_I18N_MESSAGES = {
     'settings.item.import_desc': 'Importar desde Nginx, Caddy, Traefik; restaurar instantánea',
     'settings.item.onboarding_desc': 'Relanzar la guía de configuración inicial',
     'common.create': 'Crear',
+    'common.add': 'Añadir',
     'common.refresh': 'Actualizar',
     'common.none': 'Ninguno',
     'common.view_all': 'Ver todo →',
@@ -7163,6 +7166,7 @@ const GPX_I18N_MESSAGES = {
     'settings.item.import_desc': 'Import aus Nginx, Caddy, Traefik; Snapshot-Wiederherstellung',
     'settings.item.onboarding_desc': 'Ersteinrichtungsassistent erneut starten',
     'common.create': 'Erstellen',
+    'common.add': 'Hinzufügen',
     'common.refresh': 'Aktualisieren',
     'common.none': 'Keine',
     'common.view_all': 'Alle anzeigen →',
