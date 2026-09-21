@@ -36,6 +36,10 @@ type Settings struct {
 	AccessLogPath   string `json:"access_log_path,omitempty"`
 	// AdminPublicURL : origine publique de l'UI Admin (liens pages d'erreur → Logs).
 	AdminPublicURL string `json:"admin_public_url,omitempty"`
+	// IPAnonymize : quand true, le Core tronque les IPs dans les access logs (RGPD).
+	IPAnonymize *bool `json:"ip_anonymize,omitempty"`
+	// IPPseudonymize : quand true, le Core tronque l'IP dans son fichier log mais envoie l'IP réelle à l'Admin pour chiffrement AES-GCM.
+	IPPseudonymize *bool `json:"ip_pseudonymize,omitempty"`
 }
 
 // coreEntry associe un coreID (token UUID) à son client WS et ses métadonnées.
@@ -458,6 +462,12 @@ func (m *Manager) HandleCoreMessage(msg coreWS.Message) {
 		m.handlePortalAudit(msg.Payload)
 	case coreWS.TypeThreatBan:
 		m.handleThreatBan(msg.Payload)
+	case coreWS.TypeF2BBan:
+		m.handleF2BBan(msg.Payload)
+	case coreWS.TypeCrowdSecDecisions:
+		m.handleCrowdSecDecisions(msg.Payload)
+	case coreWS.TypeRuleFired:
+		m.handleRuleFired(msg.Payload)
 	case coreWS.TypeBackendDown:
 		m.handleBackendDown(msg.Payload)
 	case coreWS.TypeWAFReloaded:
@@ -508,6 +518,37 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	if m.alertEngine != nil {
 		m.alertEngine.Emit(alerting.Event{
 			Trigger:  alerting.TriggerSentinelBan,
+			Severity: alerting.SevWarning,
+			NodeName: p.NodeName,
+			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
+		})
+	}
+}
+
+func (m *Manager) handleF2BBan(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.F2BBanPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.IP == "" {
+		return
+	}
+	var expiresAt any
+	if p.ExpiresAt != "" {
+		expiresAt = p.ExpiresAt
+	}
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at)
+		 VALUES (?, ?, '', ?, 'fail2ban', ?)
+		 ON CONFLICT(id) DO NOTHING`,
+		p.ID, p.IP, p.Reason, expiresAt,
+	)
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id) VALUES (?,?,'banned',?,?,?)`,
+		p.IP, "", p.Reason, "fail2ban", p.ID)
+	if m.alertEngine != nil {
+		m.alertEngine.Emit(alerting.Event{
+			Trigger:  alerting.TriggerFail2BanBan,
 			Severity: alerting.SevWarning,
 			NodeName: p.NodeName,
 			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
@@ -950,6 +991,34 @@ func (m *Manager) PushSettings(ctx context.Context, s Settings) {
 	}
 }
 
+// PushIPAnonymize pousse uniquement le toggle d'anonymisation IP vers tous les Cores.
+// Implémente api.LogsSettingsPusher.
+func (m *Manager) PushIPAnonymize(ctx context.Context, enabled bool) {
+	partial := Settings{IPAnonymize: &enabled}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushSettings, partial); err != nil {
+				m.log.Warn("corews/manager: push ip_anonymize", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// PushIPPseudonymize pousse le toggle de pseudonymisation IP vers tous les Cores.
+// Implémente api.LogsSettingsPusher.
+func (m *Manager) PushIPPseudonymize(ctx context.Context, enabled bool) {
+	partial := Settings{IPPseudonymize: &enabled}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushSettings, partial); err != nil {
+				m.log.Warn("corews/manager: push ip_pseudonymize", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
 // PushClusterPeers envoie la topologie Raft à chaque Core.
 func (m *Manager) PushClusterPeers(ctx context.Context) {
 	// Construire la map peers depuis les Cores enregistrés (besoin du raft_endpoint)
@@ -1274,6 +1343,18 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *coreEntry, s Settings) 
 		}
 	}()
 
+	// Règles automatiques — poussées après le full_sync
+	go m.PushAutoRules(ctx)
+
+	// Config tunnel peers — poussée si présente
+	go func() {
+		var nodeUUID string
+		if err := m.db.QueryRowContext(ctx,
+			`SELECT id FROM nodes WHERE node_name=?`, e.nodeName).Scan(&nodeUUID); err == nil {
+			m.PushTunnelConfig(ctx, nodeUUID)
+		}
+	}()
+
 	m.log.Info("corews/manager: full_sync envoyé", "core", e.nodeName)
 }
 
@@ -1563,6 +1644,232 @@ func (m *Manager) PushServerConfig(ctx context.Context, cfg any) {
 				m.log.Warn("corews: push server config", "core", e.nodeName, "err", err)
 			}
 		}()
+	}
+}
+
+// PushF2BConfig envoie la config Fail2Ban à un Core spécifique (ou tous si coreRef vide).
+func (m *Manager) PushF2BConfig(ctx context.Context, coreRef string, cfg any) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	entries := m.allEntries()
+	for _, e := range entries {
+		if coreRef != "" && e.nodeName != coreRef && e.id != coreRef {
+			continue
+		}
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushF2BConfig, json.RawMessage(body)); err != nil {
+				m.log.Warn("corews: push f2b config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// handleCrowdSecDecisions reçoit les nouvelles décisions CrowdSec de Core et les persiste en DB.
+func (m *Manager) handleCrowdSecDecisions(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.CrowdSecDecisionsPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	for _, d := range p.Added {
+		if d.Value == "" {
+			continue
+		}
+		banID := "crowdsec:" + d.Value
+		m.db.Exec( //nolint:errcheck
+			`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at)
+			 VALUES (?, ?, '', ?, 'crowdsec', NULL)
+			 ON CONFLICT(id) DO NOTHING`,
+			banID, d.Value, d.Scenario,
+		)
+		m.db.Exec( //nolint:errcheck
+			`INSERT OR IGNORE INTO security_threats (ip, scenario, origin, type, scope, node_name)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			d.Value, d.Scenario, d.Origin, d.Type, d.Scope, p.NodeName,
+		)
+	}
+	for _, d := range p.Deleted {
+		if d.Value == "" {
+			continue
+		}
+		banID := "crowdsec:" + d.Value
+		m.db.Exec(`DELETE FROM security_bans WHERE id=?`, banID)           //nolint:errcheck
+		m.db.Exec(`DELETE FROM security_threats WHERE ip=? AND scenario=?`, //nolint:errcheck
+			d.Value, d.Scenario)
+	}
+}
+
+// PushCrowdSecConfig envoie la config CrowdSec à un Core spécifique (ou tous si coreRef vide).
+func (m *Manager) PushCrowdSecConfig(ctx context.Context, coreRef string, cfg any) {
+	body, err := json.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	for _, e := range m.allEntries() {
+		if coreRef != "" && e.nodeName != coreRef && e.id != coreRef {
+			continue
+		}
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushCrowdSecConfig, json.RawMessage(body)); err != nil {
+				m.log.Warn("corews: push crowdsec config", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// handleRuleFired reçoit un ExecLog de règle automatique depuis Core et le persiste en DB.
+func (m *Manager) handleRuleFired(raw json.RawMessage) {
+	if m.db == nil || len(raw) == 0 {
+		return
+	}
+	var p coreWS.RuleFiredPayload
+	if err := json.Unmarshal(raw, &p); err != nil || p.RuleID == "" {
+		return
+	}
+	detail, _ := json.Marshal(p.Detail)
+	matched, taken := 0, 0
+	if p.CondResult {
+		matched = 1
+	}
+	if p.ActionTaken {
+		taken = 1
+	}
+	m.db.Exec( //nolint:errcheck
+		`INSERT INTO rules_engine_history (rule_id, cond_result, action_taken, detail, error)
+		 VALUES (?, ?, ?, ?, ?)`,
+		p.RuleID, matched, taken, string(detail), p.Error,
+	)
+	if p.CondResult && p.ActionTaken {
+		m.db.Exec( //nolint:errcheck
+			`UPDATE rules_engine_rules SET last_fired_at=CURRENT_TIMESTAMP,
+			 fire_count=fire_count+1 WHERE id=?`, p.RuleID,
+		)
+		// Si l'action est un ban IP, persister dans security_bans pour agrégation.
+		if p.ActionType == "ban_ip" && p.Detail != nil {
+			if ip, _ := p.Detail["ip"].(string); ip != "" {
+				reason, _ := p.Detail["ban_reason"].(string)
+				expiresAt, _ := p.Detail["ban_expires_at"].(string)
+				node := p.NodeName
+				if node == "" {
+					node = "core"
+				}
+				source := "rules_engine:" + node
+				banID := "re:" + node + ":" + ip
+				if expiresAt != "" {
+					m.db.Exec( //nolint:errcheck
+						`INSERT OR REPLACE INTO security_bans (id, ip, domain, reason, source, expires_at)
+						 VALUES (?, ?, '', ?, ?, ?)`,
+						banID, ip, reason, source, expiresAt,
+					)
+				} else {
+					m.db.Exec( //nolint:errcheck
+						`INSERT OR REPLACE INTO security_bans (id, ip, domain, reason, source)
+						 VALUES (?, ?, '', ?, ?)`,
+						banID, ip, reason, source,
+					)
+				}
+				m.db.Exec( //nolint:errcheck
+					`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id)
+					 VALUES (?, '', 'banned', ?, ?, ?)`,
+					ip, reason, source, banID,
+				)
+			}
+		}
+	}
+}
+
+// PushAutoRules envoie toutes les règles automatiques actives à tous les Cores.
+func (m *Manager) PushAutoRules(ctx context.Context) {
+	rows, err := m.db.QueryContext(ctx,
+		`SELECT id, name, description, enabled, condition_json, action_json, cooldown_sec
+		 FROM rules_engine_rules ORDER BY created_at`)
+	if err != nil {
+		m.log.Error("corews/manager: lecture règles automatiques", "err", err)
+		return
+	}
+	defer rows.Close()
+
+	type ruleRow struct {
+		ID          string          `json:"id"`
+		Name        string          `json:"name"`
+		Description string          `json:"description,omitempty"`
+		Enabled     bool            `json:"enabled"`
+		Condition   json.RawMessage `json:"condition"`
+		Action      json.RawMessage `json:"action"`
+		CooldownSec int             `json:"cooldown_sec"`
+	}
+	var rules []ruleRow
+	for rows.Next() {
+		var r ruleRow
+		var condJSON, actionJSON string
+		var enabled int
+		if err := rows.Scan(&r.ID, &r.Name, &r.Description, &enabled, &condJSON, &actionJSON, &r.CooldownSec); err != nil {
+			continue
+		}
+		r.Enabled = enabled == 1
+		r.Condition = json.RawMessage(condJSON)
+		r.Action = json.RawMessage(actionJSON)
+		rules = append(rules, r)
+	}
+	if rules == nil {
+		rules = []ruleRow{}
+	}
+	for _, e := range m.allEntries() {
+		e := e
+		go func() {
+			if err := e.client.PushJSON(coreWS.TypePushAutoRules, rules); err != nil {
+				m.log.Warn("corews/manager: push auto_rules", "core", e.nodeName, "err", err)
+			}
+		}()
+	}
+}
+
+// PushTunnelConfig envoie la config peers tunnel mTLS au Core identifié par son node UUID (table nodes).
+func (m *Manager) PushTunnelConfig(ctx context.Context, nodeID string) {
+	// Résoudre le node_name depuis l'UUID de la table nodes
+	var nodeName string
+	if err := m.db.QueryRowContext(ctx,
+		`SELECT node_name FROM nodes WHERE id=?`, nodeID).Scan(&nodeName); err != nil {
+		return
+	}
+	// Lire la config tunnel
+	var raw string
+	if err := m.db.QueryRowContext(ctx,
+		`SELECT config FROM node_tunnel_configs WHERE node_id=?`, nodeID).Scan(&raw); err != nil {
+		return // pas de config → rien à pousser
+	}
+	type tunnelPeer struct {
+		Name string `json:"name"`
+		Addr string `json:"addr"`
+	}
+	type tunnelCfg struct {
+		Peers []tunnelPeer `json:"peers"`
+	}
+	var cfg tunnelCfg
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return
+	}
+	// Trouver l'entrée WS par node_name
+	m.mu.RLock()
+	var target *coreEntry
+	for _, e := range m.cores {
+		if e.nodeName == nodeName {
+			target = e
+			break
+		}
+	}
+	m.mu.RUnlock()
+	if target == nil || target.client == nil {
+		return
+	}
+	if err := target.client.PushJSON(coreWS.TypePushTunnelConfig, cfg); err != nil {
+		m.log.Warn("corews/manager: push tunnel_config", "core", target.nodeName, "err", err)
 	}
 }
 
