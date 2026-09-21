@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **HA — Core backup ne recevait jamais le `full_sync` Admin** : `GPX_CORE_EXTRA_ENDPOINTS` était documenté mais non implémenté. `ConnectFromEnv` supporte désormais cette variable (format CSV `name=http://host:port`). L'Admin se connecte à chaque Core extra au démarrage et pousse le `full_sync`. (Admin `0.10.1`)
+
 ### Ajouté
 
 - **Pseudonymisation IP RGPD + scope `gdpr:reveal`** : nouveau mode `ip_pseudonymize` dans les settings Logs. Le Core tronque l'IP dans son fichier local ; l'Admin reçoit l'IP réelle et la chiffre en AES-GCM 256 bits (clé générée à la table `gdpr_keys`). Nouveau scope RBAC `gdpr:reveal` (super-admin par défaut, délégable). Endpoint `POST /api/v1/logs/reveal-ip` : révèle l'IP d'une entrée avec motif obligatoire, crée une entrée d'audit `gdpr_reveal_ip`. Commande CLI `goproxify logs reveal-ip --entry-id xxx --reason "…"`. Documentation dans `docs/rgpd.md` §3 bis.

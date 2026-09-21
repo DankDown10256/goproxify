@@ -60,6 +60,9 @@ services:
       # Hostname/IP joignable du Core (Docker DNS ou IP multi-machine).
       # Distinct de l'identité heartbeat du Core : même valeur recommandée en mono-node.
       - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      # Cores supplémentaires HA/multi-Core — format CSV "name=http://host:port"
+      # Exemple : GPX_CORE_EXTRA_ENDPOINTS=core-backup=http://10.0.0.2:8000
+      - GPX_CORE_EXTRA_ENDPOINTS=${GPX_CORE_EXTRA_ENDPOINTS:-}
 
       # ── Optionnel ──────────────────────────────────────────────────────────
       - GPX_SERVER_API_PORT=9443
