@@ -123,7 +123,7 @@ type StatusResponse struct {
 // HandleStatus expose l'état HA en HTTP.
 func (m *Manager) HandleStatus(w http.ResponseWriter, _ *http.Request) {
 	resp := StatusResponse{
-		NodeID:   m.node.LeaderID(), // utilise leaderID stocké
+		NodeID:   m.node.ID(),
 		IsLeader: m.IsLeader(),
 		LeaderID: m.LeaderID(),
 	}

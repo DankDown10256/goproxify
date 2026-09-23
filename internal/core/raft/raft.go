@@ -76,6 +76,9 @@ func (n *Node) Stop() {
 	close(n.stopCh)
 }
 
+// ID retourne l'identifiant de ce nœud.
+func (n *Node) ID() string { return n.cfg.ID }
+
 // State retourne l'état courant du nœud.
 func (n *Node) State() State {
 	n.mu.Lock()
