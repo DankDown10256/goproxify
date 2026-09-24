@@ -88,6 +88,36 @@ func ScopeCatalog() []ScopeMeta {
 	return out
 }
 
+// mcpTools liste les outils MCP connus, dans un ordre stable, pour dériver
+// la carte scope → outils sans dupliquer ToolRequiredScope.
+var mcpTools = []string{
+	"list_proxies", "get_proxy", "create_proxy", "update_proxy", "set_proxy_enabled", "delete_proxy",
+	"list_nodes", "list_agents", "list_declared_nodes",
+	"approve_agent", "revoke_agent", "create_declared_node", "delete_declared_node",
+	"create_bootstrap_ticket", "accept_node", "reject_node",
+	"list_alerts", "get_metrics", "list_backups", "list_users", "list_snippets",
+	"list_domains", "list_certs", "list_logs", "list_teams",
+	"get_audit_log", "get_security_overview", "list_security_bans", "list_security_threats", "list_security_cves",
+	"create_security_ban", "delete_security_ban",
+	"get_portal_config", "list_portal_destinations", "preview_portal_destinations",
+	"list_portal_users", "list_portal_audit", "list_portal_templates", "get_portal_template",
+	"update_portal_config", "push_portal",
+	"create_portal_destination", "update_portal_destination", "delete_portal_destination",
+	"invite_portal_user", "update_portal_user", "delete_portal_user", "resend_portal_invite",
+	"upsert_portal_template", "delete_portal_template", "push_portal_templates",
+}
+
+// ToolsForScope retourne, pour l'UI, la liste des outils MCP couverts par un scope donné.
+func ToolsForScope(scope string) []string {
+	var out []string
+	for _, tool := range mcpTools {
+		if ToolRequiredScope(tool) == scope {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
 // IsKnownScope indique si le scope fait partie du catalogue v1.
 func IsKnownScope(scope string) bool {
 	for _, s := range AllPATScopes {

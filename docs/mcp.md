@@ -9,6 +9,8 @@ Le serveur MCP (Model Context Protocol) de Goproxify expose l'Administration à 
 
 Les scopes du PAT (`proxies:read`, `nodes:read`, …) bornent les outils MCP ; l’autorisation effective est toujours l’intersection avec les droits actuels du compte.
 
+**Vue d'ensemble admin :** la page **Accès → Accès MCP** (`/mcp-access`, admin uniquement) affiche le catalogue de scopes avec, pour chacun, les outils MCP qu'il couvre, ainsi que la liste des PAT actifs sur l'instance (tous porteurs confondus). C'est une vue en lecture seule — la création et le choix des scopes d'un PAT restent self-service depuis **Paramètres → Mes tokens API**.
+
 ---
 
 ## Connexion depuis Claude Desktop

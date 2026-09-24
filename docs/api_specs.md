@@ -544,6 +544,28 @@ Historique des exécutions. Paramètre : `limit`.
 
 Liste les descripteurs de types de conditions disponibles (nom, paramètres, descriptions).
 
+### `GET /api/v1/rules-engine/templates`
+
+Store de règles préconfigurées. Réponse : tableau `Template[]` (`id, category, name, description, cooldown_sec, condition, action`).
+
+### `POST /api/v1/rules-engine/templates/:id/install`
+
+Installe un template : crée une `Rule` concrète à partir de ses valeurs par défaut. Corps optionnel : `{ name, enabled }` (nom personnalisé, activée par défaut). Réponse : `{ id }` (201).
+
+---
+
+## Accès MCP (admin)
+
+Vue d'ensemble en lecture seule, admin uniquement (`RequireAdmin`).
+
+### `GET /api/v1/mcp-access/scopes`
+
+Catalogue des scopes PAT avec les outils MCP couverts par chacun. Réponse : tableau `{ id, description, tools[] }`.
+
+### `GET /api/v1/mcp-access/tokens`
+
+Liste tous les PAT actifs (non révoqués) sur l'instance, tous porteurs confondus, avec leurs scopes. Réponse : tableau `{ id, label, owner_email, scopes[], expires_at?, last_used_at?, created_at }`. La gestion (création/révocation) reste self-service sur `/api/v1/me/tokens` — un PAT est personnel.
+
 ---
 
 ## Santé

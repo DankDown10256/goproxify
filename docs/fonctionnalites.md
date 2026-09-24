@@ -173,6 +173,17 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 - **Read:** proxies, nodes, agents, declared-nodes, alerts, metrics, backups, users, snippets, domains, certs, logs, teams, audit, bans / threats / CVE, alert channels/rules, auth providers, IP profiles, Access (config, catalogue, users, templates, audit)
 - **Write:** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `create_auth_provider`, `delete_auth_provider`, `create_ip_profile`, `delete_ip_profile`, `create_snippet`, `delete_snippet`, `create_domain`, `renew_domain`, `obtain_cert`, Access tools (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
 - Documentation: [docs/mcp.md](mcp.md)
+- **Admin visibility (`/mcp-access`, admin only):** read-only overview of the exposed scope catalogue (each scope's covered MCP tools) and of every active PAT on the instance across all owners. Scope selection at issuance stays self-service on `/api-tokens` (a PAT is personal to its holder).
+
+### Automation menu
+
+`Automatisation` groups three sub-pages, all admin-only:
+
+| Page | Route | Content |
+|------|-------|---------|
+| Automatic rules | `security-rules` | Rules engine CRUD, dry-run, execution history (see [docs/security.md](security.md#automatic-rules-engine)) |
+| Alert channels | `alert-channels` | Notification channels (email, webhook, ntfy, gotify) |
+| Rule store | `rules-store` | 5 preconfigured rule templates (`GET /api/v1/rules-engine/templates`), one-click install via `POST /api/v1/rules-engine/templates/{id}/install` |
 
 ### Architecture wizard
 

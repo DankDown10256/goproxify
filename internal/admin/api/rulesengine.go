@@ -48,6 +48,11 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.listHistory(w, r)
 	case r.Method == http.MethodGet && sub == "condition-types":
 		h.conditionTypes(w, r)
+	case r.Method == http.MethodGet && sub == "templates" && id == "":
+		h.listTemplates(w, r)
+	case r.Method == http.MethodPost && sub == "templates" && strings.HasSuffix(id, "/install"):
+		tplID := strings.TrimSuffix(id, "/install")
+		h.installTemplate(w, r, tplID)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
@@ -224,6 +229,50 @@ func (h *RulesEngineHandler) listHistory(w http.ResponseWriter, r *http.Request)
 		logs = append(logs, l)
 	}
 	jsonOK(w, logs)
+}
+
+func (h *RulesEngineHandler) listTemplates(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, rulesengine.Templates())
+}
+
+type installTemplateBody struct {
+	Name    string `json:"name"`
+	Enabled *bool  `json:"enabled"`
+}
+
+func (h *RulesEngineHandler) installTemplate(w http.ResponseWriter, r *http.Request, tplID string) {
+	tpl, ok := rulesengine.TemplateByID(tplID)
+	if !ok {
+		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
+		return
+	}
+	var body installTemplateBody
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = tpl.Name
+	}
+	condJSON, _ := json.Marshal(tpl.Condition)
+	actionJSON, _ := json.Marshal(tpl.Action)
+	id := uuid.New().String()
+	enabled := 1
+	if body.Enabled != nil && !*body.Enabled {
+		enabled = 0
+	}
+	_, err := h.DB.ExecContext(r.Context(), `
+		INSERT INTO rules_engine_rules
+		  (id, name, description, enabled, condition_json, action_json, cooldown_sec)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, tpl.Description, enabled,
+		string(condJSON), string(actionJSON), tpl.CooldownSec,
+	)
+	if err != nil {
+		h.Log.Error("rulesengine: install template", "err", err, "template", tplID)
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	jsonOK(w, map[string]string{"id": id})
 }
 
 func (h *RulesEngineHandler) conditionTypes(w http.ResponseWriter, r *http.Request) {
