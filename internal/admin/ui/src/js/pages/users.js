@@ -235,7 +235,7 @@ window.openUserModal = async function(id) {
           <button class="btn btn-primary blueprint" onclick="saveUser('${esc(id||'')}', ${isSuper})"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${id ? t('common.save') : t('common.create')}</button>
         </div>
       </div>
-    </div>`;
+    </div>`);
   renderUserScopes();
   window._addUserScope = function() {
     const type = document.getElementById('um-sc-type')?.value || 'domain';
@@ -372,7 +372,7 @@ window.openTeamModal = async function(id) {
           <button class="btn btn-primary blueprint" onclick="saveTeam('${esc(id||'')}')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${id ? t('common.save') : t('common.create')}</button>
         </div>
       </div>
-    </div>`;
+    </div>`);
 
   window._scopes = scopes;
   renderScopes();
