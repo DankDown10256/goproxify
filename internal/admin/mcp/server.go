@@ -23,7 +23,6 @@ import (
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/coreproxy"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/admin/internalca"
 	"github.com/vincamok/goproxify/internal/admin/mcpaccess"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/core/proxystore"
@@ -58,8 +57,7 @@ type Handler struct {
 	ResolvePublicURL func(r *http.Request) string
 	// RulesEngine (optionnel) — moteur de règles automatiques pour l'outil run_rule.
 	RulesEngine  RulesEvaluator
-	CertDeployer CertDeployerIface   // optionnel — déclenche les déploiements de certs
-	InternalCA   *internalca.Manager // optionnel — CA interne (émission de certs hors ACME)
+	CertDeployer CertDeployerIface // optionnel — déclenche les déploiements de certs
 }
 
 // RulesEvaluator est implémenté par rulesengine.Engine (évite l'import direct).
@@ -407,41 +405,6 @@ var tools = []map[string]any{
 		),
 	},
 	{
-		"name":        "create_internal_ca",
-		"description": "Crée une nouvelle autorité de certification interne (CA racine auto-signée) pour émettre des certificats serveur/client hors ACME.",
-		"inputSchema": schema(
-			req("name", "string", "Nom de la CA (identifiant lisible)"),
-			req("common_name", "string", "Common Name du certificat racine"),
-			opt("validity_years", "number", "Durée de validité en années (défaut: 10)"),
-		),
-	},
-	{
-		"name":        "list_internal_cas",
-		"description": "Liste les autorités de certification internes avec leur subject et date d'expiration.",
-		"inputSchema": schema(),
-	},
-	{
-		"name":        "issue_internal_cert",
-		"description": "Émet un certificat serveur ou client signé par une CA interne.",
-		"inputSchema": schema(
-			req("ca_id", "string", "ID de la CA interne émettrice"),
-			req("common_name", "string", "Common Name du certificat"),
-			opt("sans", "array", "Noms alternatifs (DNS ou IP)"),
-			opt("usage", "string", "server ou client (défaut: server)"),
-			opt("validity_days", "number", "Durée de validité en jours (défaut: 397)"),
-		),
-	},
-	{
-		"name":        "list_internal_certs",
-		"description": "Liste les certificats émis par une CA interne donnée.",
-		"inputSchema": schema(req("ca_id", "string", "ID de la CA interne")),
-	},
-	{
-		"name":        "revoke_internal_cert",
-		"description": "Révoque un certificat émis par une CA interne.",
-		"inputSchema": schema(req("cert_id", "string", "ID du certificat émis")),
-	},
-	{
 		"name":        "list_rules",
 		"description": "Liste les règles du moteur de règles automatiques (conditions, actions, état, statistiques).",
 		"inputSchema": schema(opt("enabled_only", "boolean", "Si true, uniquement les règles activées")),
@@ -691,18 +654,6 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolTriggerCertDeploy(r, targetID)
 	case "import_cert":
 		result, toolErr = h.toolImportCert(r, p.Arguments)
-	case "create_internal_ca":
-		result, toolErr = h.toolCreateInternalCA(r, p.Arguments)
-	case "list_internal_cas":
-		result, toolErr = h.toolListInternalCAs(r)
-	case "issue_internal_cert":
-		result, toolErr = h.toolIssueInternalCert(r, p.Arguments)
-	case "list_internal_certs":
-		caID, _ := p.Arguments["ca_id"].(string)
-		result, toolErr = h.toolListInternalCerts(r, caID)
-	case "revoke_internal_cert":
-		certID, _ := p.Arguments["cert_id"].(string)
-		result, toolErr = h.toolRevokeInternalCert(r, certID)
 	default:
 		return errResp(req.ID, -32601, "outil inconnu: "+p.Name)
 	}
@@ -1330,10 +1281,10 @@ func (h *Handler) toolGetSecurityOverview(r *http.Request) (any, error) {
 	_ = h.DB.QueryRowContext(r.Context(),
 		`SELECT COUNT(*) FROM certs WHERE expires_at <= datetime('now', '+30 days')`).Scan(&expiringCerts)
 	return map[string]any{
-		"active_bans":    activeBans,
-		"threats":        threats,
-		"open_cves":      openCVEs,
-		"expiring_certs": expiringCerts,
+		"active_bans":     activeBans,
+		"threats":         threats,
+		"open_cves":       openCVEs,
+		"expiring_certs":  expiringCerts,
 	}, nil
 }
 
@@ -1645,91 +1596,6 @@ func (h *Handler) toolImportCert(r *http.Request, args map[string]any) (any, err
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "import_cert", "domain:"+domain, "")
 	return map[string]any{"domain": domain, "issuer": issuer, "expires_at": leaf.NotAfter.UTC().Format(time.RFC3339), "status": "imported"}, nil
-}
-
-func (h *Handler) toolCreateInternalCA(r *http.Request, args map[string]any) (any, error) {
-	if h.InternalCA == nil {
-		return nil, fmt.Errorf("CA interne non configurée")
-	}
-	name, _ := args["name"].(string)
-	commonName, _ := args["common_name"].(string)
-	if name == "" || commonName == "" {
-		return nil, fmt.Errorf("name et common_name requis")
-	}
-	years := 10
-	if v, ok := args["validity_years"].(float64); ok && v > 0 {
-		years = int(v)
-	}
-	ca, err := h.InternalCA.CreateCA(r.Context(), name, commonName, time.Duration(years)*365*24*time.Hour)
-	if err != nil {
-		return nil, err
-	}
-	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "create_internal_ca", "ca:"+ca.ID, "")
-	return ca, nil
-}
-
-func (h *Handler) toolListInternalCAs(r *http.Request) (any, error) {
-	if h.InternalCA == nil {
-		return nil, fmt.Errorf("CA interne non configurée")
-	}
-	return h.InternalCA.ListCAs(r.Context())
-}
-
-func (h *Handler) toolIssueInternalCert(r *http.Request, args map[string]any) (any, error) {
-	if h.InternalCA == nil {
-		return nil, fmt.Errorf("CA interne non configurée")
-	}
-	caID, _ := args["ca_id"].(string)
-	commonName, _ := args["common_name"].(string)
-	usage, _ := args["usage"].(string)
-	if caID == "" || commonName == "" {
-		return nil, fmt.Errorf("ca_id et common_name requis")
-	}
-	if usage == "" {
-		usage = "server"
-	}
-	var sans []string
-	if raw, ok := args["sans"].([]any); ok {
-		for _, s := range raw {
-			if str, ok := s.(string); ok {
-				sans = append(sans, str)
-			}
-		}
-	}
-	days := 397
-	if v, ok := args["validity_days"].(float64); ok && v > 0 {
-		days = int(v)
-	}
-	cert, err := h.InternalCA.IssueCert(r.Context(), caID, commonName, sans, usage, time.Duration(days)*24*time.Hour)
-	if err != nil {
-		return nil, err
-	}
-	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "issue_internal_cert", "cert:"+cert.ID, "")
-	return cert, nil
-}
-
-func (h *Handler) toolListInternalCerts(r *http.Request, caID string) (any, error) {
-	if h.InternalCA == nil {
-		return nil, fmt.Errorf("CA interne non configurée")
-	}
-	if caID == "" {
-		return nil, fmt.Errorf("ca_id requis")
-	}
-	return h.InternalCA.ListCerts(r.Context(), caID)
-}
-
-func (h *Handler) toolRevokeInternalCert(r *http.Request, certID string) (any, error) {
-	if h.InternalCA == nil {
-		return nil, fmt.Errorf("CA interne non configurée")
-	}
-	if certID == "" {
-		return nil, fmt.Errorf("cert_id requis")
-	}
-	if err := h.InternalCA.RevokeCert(r.Context(), certID); err != nil {
-		return nil, err
-	}
-	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "revoke_internal_cert", "cert:"+certID, "")
-	return map[string]any{"cert_id": certID, "status": "revoked"}, nil
 }
 
 func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) (any, error) {

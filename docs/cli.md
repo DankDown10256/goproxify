@@ -220,30 +220,6 @@ goproxify cert delete old.example.fr
 
 ---
 
-### `goproxify internal-ca`
-
-Génère et gère une autorité de certification (CA) interne, pour émettre des certificats serveur/client internes hors ACME (services internes sans exposition publique).
-
-```
-goproxify internal-ca create-ca -name <nom> -cn <common-name> [-years N]
-goproxify internal-ca list-ca
-goproxify internal-ca issue -ca <id> -cn <cn> [-sans a,b] [-usage server|client] [-days N]
-goproxify internal-ca list-certs -ca <id>
-goproxify internal-ca revoke -ca <id> <certID>
-```
-
-Exemples :
-
-```bash
-goproxify internal-ca create-ca -name root -cn "GoProxify Internal Root" -years 10
-goproxify internal-ca list-ca
-goproxify internal-ca issue -ca abc123 -cn svc.internal.local -sans svc.internal.local,10.0.0.5 -usage server
-goproxify internal-ca list-certs -ca abc123
-goproxify internal-ca revoke -ca abc123 cert456
-```
-
----
-
 ### `goproxify user`
 
 Gestion des utilisateurs de l'Administration.
