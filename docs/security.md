@@ -381,33 +381,3 @@ gpx_bans_active_total
 ```
 
 L'access log JSON inclut les décisions WAF (`waf_matches`, `waf_score`) sur chaque requête. La page **Prism** permet d'analyser le trafic par IP, code HTTP et domaine, avec accès direct aux bans depuis la table des IPs.
-
----
-
-## Proxies de confiance (`GPX_TRUSTED_PROXIES`)
-
-Le Core lit l'IP réelle du client depuis `X-Forwarded-For`, `X-Real-IP` ou `CF-Connecting-IP` **uniquement si la connexion directe provient d'un proxy de confiance**. Sans cette restriction, n'importe quel client pourrait forger ces headers et contourner les bans IP, le rate-limit et la pseudonymisation RGPD.
-
-**Défaut** : loopback (`127.0.0.0/8`, `::1`) + réseaux privés RFC1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`).
-
-**Risque derrière un load balancer public** : si votre LB est à une IP publique (AWS ALB, GCP LB, HAProxy sur VPS...) mais se connecte au Core depuis une IP privée (10.x, 172.x...), la valeur par défaut est trop permissive — n'importe quelle IP du même sous-réseau privé peut usurper `X-Real-IP`. Le Core émet un avertissement au démarrage si `GPX_TRUSTED_PROXIES` n'est pas défini explicitement.
-
-**Configuration** (variable d'environnement du Core) :
-
-```bash
-# Un seul LB
-GPX_TRUSTED_PROXIES=203.0.113.10
-
-# Plusieurs LB ou plage
-GPX_TRUSTED_PROXIES=203.0.113.10,198.51.100.0/24
-
-# Cloudflare (plages officielles à vérifier sur https://www.cloudflare.com/ips/)
-GPX_TRUSTED_PROXIES=103.21.244.0/22,103.22.200.0/22,...
-
-# "*" — tout croire (déconseillé, brise toute protection IP)
-GPX_TRUSTED_PROXIES=*
-```
-
-**Règle par route** : `goproxify.waf.trusted_proxies` (labels Docker / snippet) surcharge les défauts pour une route spécifique dans le contexte WAF. `GPX_TRUSTED_PROXIES` contrôle l'extraction de l'IP cliente pour les logs, le rate-limit et les bans.
-
-**Vérification** : dans les logs d'access, le champ `ip` doit afficher l'IP publique du visiteur, pas l'IP interne du LB. Si `ip` vaut l'IP du LB, le Core n'a pas reçu de header d'IP client valide (header absent ou proxye non de confiance).

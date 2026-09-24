@@ -105,7 +105,7 @@ Ressources du Core pendant la saturation (`docker stats`, CPU exprimé par rappo
 | Section « Admin API » d'`attacks.sh` | Elle génère 25 échecs de connexion réels sur l'Admin de production. Exécutée **une fois, involontairement**, avec l'ancien script (avant `LAB_SAFE`) : accès sans jeton → 401, JWT `alg=none` → 401, frein anti brute-force → 429 après 25 essais, traversal API → 301 (nettoyage de chemin). Non rejouée dans ce passage. |
 | `spike`, `stress`, `baseline`, `soak`, `mixed` | Chargeraient le Core de production et la VM partagée. À réserver à un environnement isolé ou à une fenêtre de maintenance. |
 | ZAP, Nuclei (`lab-juice`) | Mode local uniquement (non disponible via `docker exec` distant) ; cible vulnérable non déployée. |
-| TLS, HTTP/3 | ~~Routes du labo en HTTP uniquement.~~ **Ajoutés** : `lab-tls.lab.test` et `lab-h3.lab.test` avec cert auto-signé importé via `tls.sh`. HTTP/2 et mTLS hors périmètre. |
+| TLS, HTTP/2, HTTP/3, mTLS | Routes du labo en HTTP uniquement. |
 | Cluster Raft, WebSocket en charge | Hors périmètre du labo actuel. |
 
 ## 8. Constats
@@ -115,15 +115,15 @@ Ressources du Core pendant la saturation (`docker stats`, CPU exprimé par rappo
 | 1 | **WAF : corps de requête tronqué au-delà de `max_body_mb`** (le WAF remplaçait le corps par ses seuls premiers octets : 502 ou données corrompues, y compris pour les uploads légitimes plus gros que la limite, 10 Mo par défaut). Cause : `readBody`. | Moyenne | Corrigé (Core `0.7.0`, test de non-régression) ; **vérifié en production** |
 | 2 | **`TRACE` transmis au backend** (200) | Faible | Corrigé : 405 sur `TRACE`/`TRACK` ; **vérifié** |
 | 3 | **Aucune limite de taille d'en-têtes** (64 Ko acceptés ; défaut Go 1 Mo) | Faible | Corrigé : `timeouts.max_header_kb`, défaut 32 Ko, 431 au-delà ; **vérifié**. Attention : des en-têtes légitimes de plus de 32 Ko doivent relever cette valeur |
-| 4 | **Pages d'erreur exposant l'URL publique de l'Admin** et un lien vers les logs (via `GPX_ADMIN_PUBLIC_URL`), visibles de tout visiteur | Info | **Corrigé (Core `0.8.0`)** : `Render()` n'insère plus de lien `<a href>` vers l'Admin ; le `request_id` reste affiché. `buildLogURL` conservé pour les templates custom opérateur via `{{log_url}}`. |
+| 4 | **Pages d'erreur exposant l'URL publique de l'Admin** et un lien vers les logs (via `GPX_ADMIN_PUBLIC_URL`), visibles de tout visiteur | Info | Comportement documenté ; **ouvert** : vider la variable si l'adresse de l'Admin ne doit pas être exposée |
 
 ## 9. Recommandations
 
-1. ~~**Environnement isolé**~~ **Fait** : `tests/lab/docker-compose.isolated.yml` fournit Admin + Core de test dans un réseau `lab_isolated_net` sans lien avec la production. `lab.sh --isolated` pilote cet environnement ; il bloque `stress`, `spike`, `soak`, `baseline`, `mixed` en mode normal pour éviter tout lancement accidentel sur la production.
-2. **Exécuter `moderate` à débit imposé** (300 req/s) pour obtenir la latence de service, et rejouer `saturation` sur l'environnement isolé pour comparaison hors concurrence VM. Commandes : `tests/lab/lab.sh --isolated up-all && tests/lab/lab.sh --isolated load moderate`. **À faire sur le prochain passage en environnement isolé.**
-3. ~~**Décider du constat n° 4**~~ Corrigé : l'URL Admin n'est plus exposée dans les pages d'erreur publiques (Core `0.8.0`).
-4. ~~**Vérifier `GPX_TRUSTED_PROXIES`**~~ **Traité** : le Core émet désormais un `WARN` au démarrage si `GPX_TRUSTED_PROXIES` n'est pas défini explicitement, rappelant de le restreindre derrière un LB public. La variable est documentée dans `docker-compose.yml` et `docs/security.md` (§ Proxies de confiance). **À faire côté opérateur** : définir `GPX_TRUSTED_PROXIES=<ip-du-lb>` sur chaque déploiement derrière un load balancer.
-5. ~~**Ajouter TLS/HTTP3 au labo**~~ **Fait** : `tls.sh` génère un cert auto-signé EC P-256 pour `*.lab.test`, l'importe dans l'Admin (`POST /api/v1/certs/import`), crée les routes `lab-tls.lab.test` et `lab-h3.lab.test` avec `tls_enabled:true`, puis vérifie HTTPS, HSTS et l'annonce HTTP/3 (`Alt-Svc`). Scénario k6 `tls-smoke` pour la charge TLS. Cluster : hors périmètre.
+1. **Environnement isolé** pour `stress`, `spike` et `soak` (Admin et Core de test, réseau séparé), afin de mesurer la capacité maximale et la stabilité mémoire sans risque.
+2. **Exécuter `moderate` à débit imposé** (300 req/s) pour obtenir la latence de service, et rejouer `saturation` sur un environnement isolé pour comparer le débit hors concurrence avec les autres services.
+3. **Décider du constat n° 4** (exposition de l'URL de l'Admin dans les pages d'erreur).
+4. **Vérifier `GPX_TRUSTED_PROXIES`** en production : derrière un load balancer à IP publique, la valeur par défaut (réseaux privés de confiance) doit être adaptée.
+5. **Ajouter TLS/HTTP3 au labo** et éventuellement un test de cluster.
 6. **Nettoyer** : supprimer les routes `lab-*` (`cleanup.sh`), révoquer le PAT du labo, supprimer le stack lab.
 
 ## 10. Reproduire

@@ -35,24 +35,22 @@ func TestBuildLogURLAbsoluteToAdmin(t *testing.T) {
 	}
 }
 
-func TestRenderDoesNotExposeAdminURL(t *testing.T) {
+func TestRenderLinkUsesAdminHost(t *testing.T) {
 	SetAdminBaseURL("http://203.0.113.90:9443")
 	defer SetAdminBaseURL("")
 
 	html := Render(502, "api.example.com", "req-xyz", "en")
-	// L'URL Admin ne doit jamais apparaître dans la page publique.
-	if strings.Contains(html, "203.0.113.90") {
-		t.Fatalf("l'URL Admin ne doit pas être exposée dans la page d'erreur publique, html=%s", html)
+	if strings.Contains(html, `href="/api/v1/logs`) {
+		t.Fatal("ne doit plus générer de lien relatif /api/v1/logs")
 	}
-	if strings.Contains(html, `href=`) {
-		t.Fatal("aucun lien href ne doit apparaître dans la page d'erreur publique")
+	if !strings.Contains(html, `href="http://203.0.113.90:9443/?`) {
+		t.Fatalf("attendu lien absolu Admin, html=%s", html)
 	}
-	// Le reqID doit rester affiché (utile support).
-	if !strings.Contains(html, "req-xyz") {
-		t.Fatal("le request ID doit rester visible")
+	if !strings.Contains(html, "search=req-xyz") {
+		t.Fatal("attendu search=req-xyz dans le lien")
 	}
 	if !strings.Contains(html, `lang="en"`) {
-		t.Fatal("attendu lang=en")
+		t.Fatal("attendu lang=en par défaut / Accept-Language en")
 	}
 	if !strings.Contains(html, "Bad gateway") {
 		t.Fatal("attendu titre EN Bad gateway")

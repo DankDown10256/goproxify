@@ -146,13 +146,6 @@ services:
 
       # ── Optionnel ──────────────────────────────────────────────────────────
       - GPX_ENGINE_LOG_LEVEL=${LOG_LEVEL:-info}
-      # Proxies de confiance pour X-Forwarded-For / X-Real-IP (CSV d'IP/CIDR).
-      # Par défaut : loopback + RFC1918 (10/8, 172.16/12, 192.168/16).
-      # Derrière un load balancer public, restreindre à l'IP du LB :
-      #   GPX_TRUSTED_PROXIES=203.0.113.10
-      # Plusieurs LB ou plage : GPX_TRUSTED_PROXIES=203.0.113.10,198.51.100.0/24
-      # "*" = tout croire (déconseillé, usage legacy uniquement).
-      - GPX_TRUSTED_PROXIES=${GPX_TRUSTED_PROXIES:-}
       # GeoIP : voir geoip.* dans services/core/config.json (surcharge env optionnelle)
       # - GPX_GEOIP_AUTO_DOWNLOAD=false
       # - GPX_GEOIP_DB_PATH=/etc/goproxify/geoip/GeoLite2-Country.mmdb

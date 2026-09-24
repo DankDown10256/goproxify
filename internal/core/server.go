@@ -165,7 +165,6 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		tunnelManager:   tunnel.New(log.Logger()),
 	}
 	s.initProxyStore()
-	corelog.WarnIfDefaultTrustedProxies(log.Logger())
 	if u := os.Getenv("GPX_ADMIN_PUBLIC_URL"); u != "" {
 		errorpages.SetAdminBaseURL(u)
 		log.Logger().Info("errorpages: URL publique Admin (env)", "url", errorpages.GetAdminBaseURL())
