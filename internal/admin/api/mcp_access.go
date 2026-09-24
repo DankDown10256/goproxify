@@ -5,11 +5,13 @@ package api
 
 import (
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/mcpaccess"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 )
 
@@ -31,6 +33,10 @@ func (h *McpAccessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.scopes(w, r)
 	case r.Method == http.MethodGet && path == "tokens":
 		h.tokens(w, r)
+	case r.Method == http.MethodGet && path == "allowed-ips":
+		h.getAllowedIPs(w, r)
+	case r.Method == http.MethodPut && path == "allowed-ips":
+		h.putAllowedIPs(w, r)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
@@ -109,4 +115,38 @@ func (h *McpAccessHandler) tokens(w http.ResponseWriter, r *http.Request) {
 		out = append(out, tok)
 	}
 	jsonOK(w, out)
+}
+
+func (h *McpAccessHandler) getAllowedIPs(w http.ResponseWriter, r *http.Request) {
+	ips := mcpaccess.AllowedIPs(h.DB)
+	if ips == nil {
+		ips = []string{}
+	}
+	jsonOK(w, map[string]any{"ips": ips})
+}
+
+func (h *McpAccessHandler) putAllowedIPs(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IPs []string `json:"ips"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	for _, entry := range body.IPs {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if !mcpaccess.IsValidIPOrCIDR(entry) {
+			writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+			return
+		}
+	}
+	if err := mcpaccess.SetAllowedIPs(h.DB, body.IPs); err != nil {
+		h.Log.Error("mcp_access: set allowed ips", "err", err)
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

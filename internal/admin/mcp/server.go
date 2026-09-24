@@ -23,6 +23,7 @@ import (
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/coreproxy"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/mcpaccess"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/core/proxystore"
 )
@@ -108,6 +109,11 @@ func okResp(id any, result any) rpcResponse {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/mcp")
 	path = strings.TrimPrefix(path, "/")
+
+	if !mcpaccess.Allowed(h.DB, r) {
+		http.Error(w, "IP non autorisée pour le MCP", http.StatusForbidden)
+		return
+	}
 
 	if r.Method == http.MethodGet && path == "sse" {
 		h.serveSSE(w, r)

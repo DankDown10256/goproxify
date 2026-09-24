@@ -556,15 +556,23 @@ Installe un template : crée une `Rule` concrète à partir de ses valeurs par d
 
 ## Accès MCP (admin)
 
-Vue d'ensemble en lecture seule, admin uniquement (`RequireAdmin`).
+Périmètre d'accès du serveur MCP, admin uniquement (`RequireAdmin`).
 
-### `GET /api/v1/mcp-access/scopes`
+### `GET /api/v1/mcp-access/allowed-ips`
 
-Catalogue des scopes PAT avec les outils MCP couverts par chacun. Réponse : tableau `{ id, description, tools[] }`.
+Allowlist d'IP/CIDR sources autorisées à appeler `/mcp`. Réponse : `{ ips: string[] }`. Liste vide = aucune restriction (comportement historique).
+
+### `PUT /api/v1/mcp-access/allowed-ips`
+
+Remplace l'allowlist. Corps : `{ ips: string[] }` — chaque entrée est une IP (`203.0.113.4`) ou un CIDR (`10.0.0.0/24`), validée côté serveur (400 si invalide). Appliquée immédiatement par `internal/admin/mcp.Handler.ServeHTTP` (403 pour toute requête `/mcp` hors liste, avant même l'authentification PAT).
 
 ### `GET /api/v1/mcp-access/tokens`
 
-Liste tous les PAT actifs (non révoqués) sur l'instance, tous porteurs confondus, avec leurs scopes. Réponse : tableau `{ id, label, owner_email, scopes[], expires_at?, last_used_at?, created_at }`. La gestion (création/révocation) reste self-service sur `/api/v1/me/tokens` — un PAT est personnel.
+Liste tous les PAT actifs (non révoqués) sur l'instance, tous porteurs confondus, avec leurs scopes — la vue "quels utilisateurs peuvent utiliser le MCP". Réponse : tableau `{ id, label, owner_email, scopes[], expires_at?, last_used_at?, created_at }`. La gestion (création/révocation) reste self-service sur `/api/v1/me/tokens` — un PAT est personnel.
+
+### `GET /api/v1/mcp-access/scopes`
+
+Catalogue des scopes PAT avec les outils MCP couverts par chacun, pour référence. Réponse : tableau `{ id, description, tools[] }`.
 
 ---
 

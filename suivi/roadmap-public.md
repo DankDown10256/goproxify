@@ -11,7 +11,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Sentinel** : moteur de détection comportementale stateful par IP — fenêtre glissante, ban immédiat sur signal, paramètres anti-DDoS configurables depuis l’UI (GlobalRPS, rate_window, rate_ban_threshold), detect mode, listes custom allowlist/denylist
 - **Moteur de règles automatiques** : conditions pilotées (CVE critique, pic de bans, moteur silencieux, taux d’erreur, IP récidiviste) → actions (désactiver proxy, bannir IP, alerte, mode strict F2B) ; cooldown par règle, test dry-run, historique d’exécution
 - **Menu Automatisation restructuré** : sous-menus Règles automatiques / Canaux d'alerte / Store de règles préconfigurées (5 templates installables en un clic)
-- **Page admin "Accès MCP"** : vue d'ensemble du périmètre d'accès MCP (catalogue de scopes ↔ outils, PAT actifs sur l'instance)
+- **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp`, vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
 - **Page Bans** refonte : tuiles KPI + 3 onglets (actifs / CrowdSec / historique)
 - **Moteurs IPS** : page unifiée Fail2Ban / CrowdSec avec configuration in-place
 - **Timeouts serveur HTTP/QUIC** : ReadHeader, Read, Write, Idle configurables depuis l’Admin et propagés aux Cores
