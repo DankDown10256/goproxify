@@ -105,7 +105,7 @@ Ressources du Core pendant la saturation (`docker stats`, CPU exprimé par rappo
 | Section « Admin API » d'`attacks.sh` | Elle génère 25 échecs de connexion réels sur l'Admin de production. Exécutée **une fois, involontairement**, avec l'ancien script (avant `LAB_SAFE`) : accès sans jeton → 401, JWT `alg=none` → 401, frein anti brute-force → 429 après 25 essais, traversal API → 301 (nettoyage de chemin). Non rejouée dans ce passage. |
 | `spike`, `stress`, `baseline`, `soak`, `mixed` | Chargeraient le Core de production et la VM partagée. À réserver à un environnement isolé ou à une fenêtre de maintenance. |
 | ZAP, Nuclei (`lab-juice`) | Mode local uniquement (non disponible via `docker exec` distant) ; cible vulnérable non déployée. |
-| TLS, HTTP/2, HTTP/3, mTLS | Routes du labo en HTTP uniquement. |
+| TLS, HTTP/3 | ~~Routes du labo en HTTP uniquement.~~ **Ajoutés** : `lab-tls.lab.test` et `lab-h3.lab.test` avec cert auto-signé importé via `tls.sh`. HTTP/2 et mTLS hors périmètre. |
 | Cluster Raft, WebSocket en charge | Hors périmètre du labo actuel. |
 
 ## 8. Constats
@@ -123,7 +123,7 @@ Ressources du Core pendant la saturation (`docker stats`, CPU exprimé par rappo
 2. **Exécuter `moderate` à débit imposé** (300 req/s) pour obtenir la latence de service, et rejouer `saturation` sur l'environnement isolé pour comparaison hors concurrence VM. Commandes : `tests/lab/lab.sh --isolated up-all && tests/lab/lab.sh --isolated load moderate`. **À faire sur le prochain passage en environnement isolé.**
 3. ~~**Décider du constat n° 4**~~ Corrigé : l'URL Admin n'est plus exposée dans les pages d'erreur publiques (Core `0.8.0`).
 4. ~~**Vérifier `GPX_TRUSTED_PROXIES`**~~ **Traité** : le Core émet désormais un `WARN` au démarrage si `GPX_TRUSTED_PROXIES` n'est pas défini explicitement, rappelant de le restreindre derrière un LB public. La variable est documentée dans `docker-compose.yml` et `docs/security.md` (§ Proxies de confiance). **À faire côté opérateur** : définir `GPX_TRUSTED_PROXIES=<ip-du-lb>` sur chaque déploiement derrière un load balancer.
-5. **Ajouter TLS/HTTP3 au labo** et éventuellement un test de cluster.
+5. ~~**Ajouter TLS/HTTP3 au labo**~~ **Fait** : `tls.sh` génère un cert auto-signé EC P-256 pour `*.lab.test`, l'importe dans l'Admin (`POST /api/v1/certs/import`), crée les routes `lab-tls.lab.test` et `lab-h3.lab.test` avec `tls_enabled:true`, puis vérifie HTTPS, HSTS et l'annonce HTTP/3 (`Alt-Svc`). Scénario k6 `tls-smoke` pour la charge TLS. Cluster : hors périmètre.
 6. **Nettoyer** : supprimer les routes `lab-*` (`cleanup.sh`), révoquer le PAT du labo, supprimer le stack lab.
 
 ## 10. Reproduire

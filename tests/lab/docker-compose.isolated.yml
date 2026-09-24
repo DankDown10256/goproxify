@@ -21,6 +21,8 @@ x-lab-hosts: &lab-hosts
     - "lab-waf-detect.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
     - "lab-ratelimit.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
     - "lab-chaos.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-tls.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-h3.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
 
 networks:
   lab_net:
@@ -85,6 +87,8 @@ services:
       - GPX_ENGINE_LOG_LEVEL=warn
     ports:
       - "127.0.0.1:8080:80"
+      - "127.0.0.1:8443:443"
+      - "127.0.0.1:8443:443/udp"
     volumes:
       - lab_core_data:/etc/goproxify
     networks:

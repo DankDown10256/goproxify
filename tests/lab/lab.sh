@@ -104,8 +104,9 @@ case "$cmd" in
   seed)   tools seed.sh ;;
   attacks) tools attacks.sh ;;
   chaos)   tools chaos.sh ;;
+  tls)    tools tls.sh ;;
 
-  load)   # smoke | moderate | saturation | baseline | spike | stress | soak | mixed
+  load)   # smoke | moderate | saturation | baseline | spike | stress | soak | mixed | tls-smoke
     s=${1:-smoke}
     if [ "$ISOLATED" != 1 ] && echo "spike stress soak baseline mixed" | grep -qw "$s"; then
       echo "⚠ '$s' est un test à fort impact. Utiliser --isolated pour ne pas affecter la production." >&2
@@ -133,12 +134,14 @@ case "$cmd" in
       "$0" --isolated load moderate
       "$0" --isolated attacks
       "$0" --isolated chaos
+      "$0" --isolated tls
     else
       [ "$REMOTE" = 1 ] || "$0" up
       "$0" seed
       "$0" load smoke
       "$0" attacks
       "$0" chaos
+      "$0" tls
     fi ;;
 
   *) cat <<'X'
@@ -147,7 +150,7 @@ Commandes :
   up-all                            (--isolated) démarre tout et seed
   seed                              crée les routes du labo via l'API Admin
   load <smoke|moderate|saturation|baseline|spike|stress|soak|mixed>   tests de charge (k6)
-  attacks | chaos                   batterie d'attaques / pannes backend
+  attacks | chaos | tls             batterie d'attaques / pannes backend / contrôles TLS
   soak | zap | nuclei               endurance + ressources, scanners
 
 Flags :
