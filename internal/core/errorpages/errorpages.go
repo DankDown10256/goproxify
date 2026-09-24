@@ -76,11 +76,7 @@ func Render(code int, host, reqID, acceptLanguage string) string {
 	details += `<span class="dk">` + esc(i18n.T(loc, "err.label.time")) + `</span><span class="dv">` + ts + `</span>`
 	if reqID != "" {
 		details += `<span class="dk">` + esc(i18n.T(loc, "err.label.request")) + `</span><span class="dv">` + esc(reqID) + `</span>`
-		if logURL := buildLogURL(reqID); logURL != "" {
-			details += `<span class="dk">` + esc(i18n.T(loc, "err.label.log_id")) + `</span><span class="dv"><a href="` + esc(logURL) + `" style="color:inherit;text-decoration:underline">` + esc(reqID) + `</a></span>`
-		} else {
-			details += `<span class="dk">` + esc(i18n.T(loc, "err.label.log_id")) + `</span><span class="dv">` + esc(reqID) + `</span>`
-		}
+		details += `<span class="dk">` + esc(i18n.T(loc, "err.label.log_id")) + `</span><span class="dv">` + esc(reqID) + `</span>`
 	}
 	details += `</div>`
 
