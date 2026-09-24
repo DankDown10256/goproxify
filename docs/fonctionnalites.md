@@ -255,18 +255,6 @@ Feature suite around the TLS certificate lifecycle.
 - 7 output formats: `pem`, `key`, `fullchain`, `der`, `der_key`, `pkcs12` (password), `json`
 - Public endpoint `GET /api/v1/cert-bundle?token=…&format=…`
 
-### Internal CA (internal certificate authority)
-
-Self-signed root CA generation and issuance of internal server/client certificates, outside ACME — for internal services with no public exposure.
-
-- **Root CA generation**: ECDSA P-256 self-signed root, configurable validity (default 10 years); private key persisted on disk under `certs/internal-ca/<ca_id>/`, never in the DB (only the cert PEM and metadata are stored)
-- **Certificate issuance**: server (`ExtKeyUsageServerAuth`) or client (`ExtKeyUsageClientAuth`) leaf certificates signed by a chosen internal CA, with DNS/IP SANs, configurable validity (default 397 days)
-- **Revocation**: certificates can be marked revoked (`internal_ca_certs.revoked`)
-- `GET/POST /api/v1/internal-ca`, `GET/POST /api/v1/internal-ca/{id}/certs`, `DELETE /api/v1/internal-ca/{id}/certs/{certID}`
-- CLI: `goproxify internal-ca create-ca|list-ca|issue|list-certs|revoke`
-- MCP tools: `create_internal_ca`, `list_internal_cas`, `issue_internal_cert`, `list_internal_certs`, `revoke_internal_cert`
-- Admin UI: "Internal CA" section embedded in the "Domains & certificates" page (`/acme-monitor`) — create a CA, list CAs, side panel to issue/revoke certificates per CA
-
 ### Granular alerting
 
 Alertmanager-inspired model: each rule independently defines its scope, triggers and channels. The same event can notify multiple teams on different channels.
