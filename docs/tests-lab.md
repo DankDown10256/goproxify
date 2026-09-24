@@ -2,7 +2,7 @@
 
 Guide d'exécution du labo `tests/lab/` (charge, sécurité, chaos) sur un daemon Docker distant, avec les résultats du premier passage (2026-09-24). Référence rapide : [tests/lab/README.md](../tests/lab/README.md). Rapport de la dernière campagne : [rapport-tests-2026-09-24.md](rapport-tests-2026-09-24.md).
 
-> **Le labo se branche sur la stack existante (`goproxify_net`).** Sur une stack de production, il crée des routes `*.lab.test` dans l'Admin et le Core réels : n'exécuter que les tests « faible impact » (§4) et nettoyer ensuite (§7).
+> **Le labo existe en deux modes** : **normal** (branché sur `goproxify_net`, accès à la production) et **isolé** (`--isolated`, Admin + Core de test dans un réseau séparé). Sur une stack de production, n'exécuter que les tests « faible impact » en mode normal (§4) et réserver `stress`, `spike`, `soak` au mode isolé (§4b).
 
 ## 1. Principe
 
@@ -43,15 +43,36 @@ Attendu : une ligne par route (`lab-fast`, `lab-waf-block`, `lab-waf-detect`, `l
 
 Chaque commande affiche PASS/FAIL ; le code retour de `attacks.sh` et `chaos.sh` est le nombre d'échecs.
 
+### 4a. Tests faible impact (mode normal, stack de production)
+
 | # | Test | Commande | Impact production |
 |---|---|---|---|
-| 1 | Smoke (2 VUs, 15 s) | `docker exec lab-k6 sh -c "sh /hosts.sh && k6 run /scripts/smoke.js"` | Nul |
-| 2 | Attaques sans la section Admin | `docker exec -e LAB_SAFE=1 lab-tools bash /lab/scripts/attacks.sh` | Faible (routes `lab-*`) |
-| 3 | Chaos réseau | `docker exec lab-tools bash /lab/scripts/chaos.sh` | Faible (route `lab-chaos` seule) |
-| 4 | Charge modérée à débit imposé (300 req/s, 1 min ; `RATE` et `DURATION` réglables) | `docker exec lab-k6 sh -c "sh /hosts.sh && k6 run /scripts/moderate.js"` | Modéré (partage le CPU du Core) |
-| 5 | Saturation (50 VUs sans pause, ~1 min) : débit atteint, sans seuil de latence | `docker exec lab-k6 sh -c "sh /hosts.sh && k6 run /scripts/saturation.js"` | Modéré à élevé (sature le CPU de la VM) |
-| — | Attaques complètes (brute-force login Admin) | sans `LAB_SAFE=1` | **Élevé** : échecs de connexion réels sur l'Admin, alertes/audit |
-| — | `spike`, `stress`, `baseline`, `soak`, `mixed` | `k6 run /scripts/<nom>.js` | **Élevé** : à réserver à un environnement isolé ou à une fenêtre de maintenance |
+| 1 | Smoke (2 VUs, 15 s) | `tests/lab/lab.sh load smoke` | Nul |
+| 2 | Attaques sans la section Admin | `LAB_SAFE=1 tests/lab/lab.sh attacks` | Faible (routes `lab-*`) |
+| 3 | Chaos réseau | `tests/lab/lab.sh chaos` | Faible (route `lab-chaos` seule) |
+| 4 | Charge modérée à débit imposé (300 req/s, 1 min) | `tests/lab/lab.sh load moderate` | Modéré (partage le CPU du Core) |
+
+### 4b. Tests à fort impact (mode isolé, réseau séparé de la production)
+
+Pré-requis : images Admin et Core disponibles (`ghcr.io/vincamok/goproxify/admin:preview` et `core:preview`, ou build local).
+
+```bash
+# Démarrer Admin + Core de test + lab (une seule commande)
+tests/lab/lab.sh --isolated up-all
+
+# Exécuter les tests
+tests/lab/lab.sh --isolated load moderate    # latence de service (300 req/s, p95 < 100 ms) — PRIORITÉ 1
+tests/lab/lab.sh --isolated load saturation  # débit atteint sans concurrence VM
+tests/lab/lab.sh --isolated load stress      # point de rupture (arrêt auto à >10 % d'erreurs)
+tests/lab/lab.sh --isolated load spike       # pic 20 → 1 000 VUs en 10 s
+tests/lab/lab.sh --isolated soak             # endurance 30 min (mémoire/goroutines/FD)
+tests/lab/lab.sh --isolated load mixed       # trafic mixte (gros corps, SSE, backend lent)
+
+# Nettoyage
+tests/lab/lab.sh --isolated down
+```
+
+Le flag `--isolated` bloque l'exécution de `stress`, `spike`, `soak`, `baseline`, `mixed` en mode normal pour éviter un déclenchement accidentel sur la production.
 
 Toutes les commandes `docker` s'écrivent avec `sudo` sur la VM.
 

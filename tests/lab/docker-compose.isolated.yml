@@ -1,0 +1,204 @@
+# =============================================================================
+# GOPROXIFY — Labo isolé (Admin + Core + Lab, réseau séparé de la production)
+#
+# Utiliser pour les tests à fort impact (stress, spike, soak) qui ne peuvent
+# pas tourner sur un nœud partagé avec la production.
+#
+# Démarrage : tests/lab/lab.sh --isolated up-all
+# Ou directement : docker compose -f tests/lab/docker-compose.isolated.yml up -d
+#
+# Différences avec docker-compose.lab.yml :
+#   - Réseau isolé lab_net (bridge interne, pas de goproxify_net externe)
+#   - Admin et Core de test embarqués (configuration minimale, pas de TLS)
+#   - k6 et lab-tools résolvent *.lab.test vers le Core isolé
+#   - Aucun accès à la production : seed, attaques et charges sont sans risque
+# =============================================================================
+
+x-lab-hosts: &lab-hosts
+  extra_hosts:
+    - "lab-fast.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-waf-block.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-waf-detect.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-ratelimit.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-chaos.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+
+networks:
+  lab_net:
+    driver: bridge
+    name: lab_isolated_net
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  lab_admin_data:
+    driver: local
+  lab_core_data:
+    driver: local
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Admin isolé — configuration minimale pour les tests
+  # Compte admin créé automatiquement : lab@lab.test / Lab1234!
+  # PAT seed créé par lab-seed au démarrage
+  # ---------------------------------------------------------------------------
+  lab-admin:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/admin:${GOPROXIFY_ADMIN_TAG:-preview}
+    container_name: lab-isolated-admin
+    restart: unless-stopped
+    command: ["admin"]
+    environment:
+      - GPX_SECURITY_JWT_SECRET=lab-jwt-secret-not-for-production-32b
+      - GPX_PAIRING_SECRET=lab-pairing-secret-not-for-production-x
+      - GPX_FIRST_ADMIN_EMAIL=lab@lab.test
+      - GPX_FIRST_ADMIN_PASSWORD=Lab1234!
+      - GPX_IDENTITY_CORE_NODE_NAME=lab-isolated-core
+      - GPX_SERVER_API_PORT=9444
+      - GPX_ENGINE_LOG_LEVEL=warn
+      - GPX_ADMIN_PUBLIC_URL=
+    ports:
+      - "127.0.0.1:9444:9444"
+    volumes:
+      - lab_admin_data:/etc/goproxify
+    networks:
+      lab_net:
+        ipv4_address: 172.30.0.2
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9444/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Core isolé — reverse proxy de test (port 8080, pas de conflit avec la prod)
+  # ---------------------------------------------------------------------------
+  lab-core:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/core:${GOPROXIFY_CORE_TAG:-preview}
+    container_name: lab-isolated-core
+    restart: unless-stopped
+    command: ["core"]
+    environment:
+      - GPX_PAIRING_SECRET=lab-pairing-secret-not-for-production-x
+      - GPX_IDENTITY_CORE_NODE_NAME=lab-isolated-core
+      - GPX_ENGINE_LOG_LEVEL=warn
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - lab_core_data:/etc/goproxify
+    networks:
+      lab_net:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      lab-admin:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Backend contrôlable (même source que docker-compose.lab.yml)
+  # ---------------------------------------------------------------------------
+  lab-backend:
+    image: golang:1.22-alpine
+    container_name: lab-isolated-backend
+    working_dir: /app
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "mkdir -p /app && printf %s \"$$SRC\" > /app/main.go && exec go run /app/main.go"]
+    environment:
+      SRC: |
+        package main
+
+        import (
+        	"encoding/json"
+        	"fmt"
+        	"io"
+        	"math/rand"
+        	"net/http"
+        	"strconv"
+        	"time"
+        )
+
+        func intQ(r *http.Request, k string, def int) int {
+        	if v, err := strconv.Atoi(r.URL.Query().Get(k)); err == nil && v >= 0 {
+        		return v
+        	}
+        	return def
+        }
+
+        func main() {
+        	mux := http.NewServeMux()
+        	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ok") })
+        	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
+        	mux.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
+        		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+        		w.Header().Set("Content-Type", "application/json")
+        		_ = json.NewEncoder(w).Encode(map[string]any{"method": r.Method, "host": r.Host, "headers": r.Header, "body_len": len(body)})
+        	})
+        	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
+        		time.Sleep(time.Duration(intQ(r, "ms", 500)) * time.Millisecond)
+        		fmt.Fprint(w, "ok")
+        	})
+        	mux.HandleFunc("/flaky", func(w http.ResponseWriter, r *http.Request) {
+        		p := float64(intQ(r, "p", 20)) / 100.0
+        		if rand.Float64() < p { w.WriteHeader(503); return }
+        		fmt.Fprint(w, "ok")
+        	})
+        	mux.HandleFunc("/bytes", func(w http.ResponseWriter, r *http.Request) {
+        		n := intQ(r, "n", 1024)
+        		if n > 10<<20 { n = 10 << 20 }
+        		w.Header().Set("Content-Type", "application/octet-stream")
+        		buf := make([]byte, n)
+        		w.Write(buf)
+        	})
+        	http.ListenAndServe(":9000", mux)
+        }
+    networks:
+      lab_net:
+        ipv4_address: 172.30.0.20
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Toxiproxy — injection de pannes réseau
+  # ---------------------------------------------------------------------------
+  lab-toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: lab-isolated-toxiproxy
+    restart: unless-stopped
+    networks:
+      lab_net:
+        ipv4_address: 172.30.0.30
+
+  # ---------------------------------------------------------------------------
+  # Runner bash (attacks, chaos, seed, cleanup) — profil run
+  # ---------------------------------------------------------------------------
+  lab-tools:
+    profiles: ["run"]
+    image: alpine:3.20
+    container_name: lab-isolated-tools
+    <<: *lab-hosts
+    entrypoint: ["sh", "-c", "apk add --no-cache curl netcat-openbsd bash > /dev/null 2>&1 && sleep inf"]
+    environment:
+      - LAB_ADMIN_URL=http://172.30.0.2:9444
+      - LAB_CORE_HOST=172.30.0.10
+      - LAB_SAFE=0
+    networks:
+      - lab_net
+
+  # ---------------------------------------------------------------------------
+  # Runner k6 — tests de charge
+  # Scripts embarqués par gen-compose.sh (lancer après modif load/*.js)
+  # ---------------------------------------------------------------------------
+  lab-k6:
+    profiles: ["run"]
+    image: grafana/k6:latest
+    container_name: lab-isolated-k6
+    <<: *lab-hosts
+    entrypoint: ["sh", "-c", "sleep inf"]
+    volumes:
+      - ./results:/results
+    networks:
+      - lab_net
