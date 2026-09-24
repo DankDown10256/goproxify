@@ -575,6 +575,8 @@ Décisions CrowdSec synchronisées (`security_threats`).
 |-----------|--------|--------|--------------------------------------|
 | `limit`   | number | —      | Défaut 100, max 500                  |
 
+Trié par `last_seen_at` décroissant. Chaque résultat inclut `core_name` (Core d'origine) et `occurrences` (nombre de fois où cette menace ip+scenario a été observée ; `last_seen_at` reflète la plus récente).
+
 ---
 
 ### `list_security_cves`
@@ -585,6 +587,8 @@ CVE détectées sur les backends.
 |-------------------|---------|--------|--------------------------------------|
 | `status`          | string  | —      | `open`, `ignored`, `resolved`        |
 | `critical_only`   | boolean | —      | CVSS ≥ 7 uniquement                  |
+
+Chaque résultat inclut désormais `core_name` — le Core d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne).
 
 ---
 

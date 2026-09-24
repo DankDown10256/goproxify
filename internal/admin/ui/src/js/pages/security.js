@@ -496,6 +496,7 @@ async function renderSecurityBans(ctx) {
     window._secBans = bans;
     window._secBansHistory = bansHistory;
     window._secThreats = threats || [];
+    window._secThreatsShowCore = false;
     window._bansTab = window._bansTab || 'actifs';
 
     const expiringIn1h = bans.filter(b => b.expires_at && (new Date(b.expires_at)-Date.now()) < 3600000 && (new Date(b.expires_at)-Date.now()) > 0).length;
@@ -709,7 +710,7 @@ async function renderSecurityVulns(ctx) {
         <div id="vulns-body">${renderVulnsBody()}</div>
       </div>
 
-      <div class="card blueprint">
+      ${!isAdmin ? `<div class="card blueprint">
         <div class="card-header">
           <span class="card-title">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:6px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -717,13 +718,13 @@ async function renderSecurityVulns(ctx) {
           </span>
           <div style="display:flex;align-items:center;gap:8px">
             ${vsState?.running ? '<span class="tag tag-yellow">' + (t('security.vulnscan.running')||'En cours') + '</span>' : (vsState?.last_scan && vsState.last_scan !== '0001-01-01T00:00:00Z' ? '<span style="font-size:11px;color:var(--text3)">' + (t('security.vulnscan.last_scan')||'Dernier scan') + ' ' + fmtDate(vsState.last_scan) + '</span>' : '')}
-            ${!isAdmin ? `<button id="vulnscan-btn" class="btn btn-primary btn-sm" onclick="triggerVulnscan()" ${vsState?.running?'disabled':''}>${t('security.scan_now')}</button>` : ''}
+            <button id="vulnscan-btn" class="btn btn-primary btn-sm" onclick="triggerVulnscan()" ${vsState?.running?'disabled':''}>${t('security.scan_now')}</button>
           </div>
         </div>
-        <div class="card-body" id="vulnscan-body">${vulnscanPanelV2(vsState, window._vsConfig, !isAdmin)}</div>
-      </div>`;
+        <div class="card-body" id="vulnscan-body">${vulnscanPanelV2(vsState, window._vsConfig, true)}</div>
+      </div>` : ''}`;
 
-    if (vsState?.running) startVulnscanPoll();
+    if (!isAdmin && vsState?.running) startVulnscanPoll();
   } catch(e) { toast(e.message,'error'); }
 }
 
@@ -754,10 +755,13 @@ function cveScoreBadge(score) {
 }
 
 function cveListHTML(cves) {
+  const showCore = window._secMode === 'admin';
+  const cols = showCore ? 7 : 6;
   return `<div class="table-wrap"><table>
     <thead><tr>
       <th>CVE</th><th>CVSS</th>
       <th>${t('security.col.backend')}</th>
+      ${showCore ? `<th>${t('security.col.core')||'Core'}</th>` : ''}
       <th>${t('security.col.description')}</th>
       <th>${t('security.col.status')}</th>
       <th></th>
@@ -767,6 +771,7 @@ function cveListHTML(cves) {
         <td><a href="https://nvd.nist.gov/vuln/detail/${esc(c.cve_id)}" target="_blank" style="color:var(--accent)" onclick="event.stopPropagation()">${esc(c.cve_id)}</a></td>
         <td>${cveScoreBadge(c.cvss_score)}</td>
         <td class="mono" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.backend_url)}">${esc(c.backend_url)}</td>
+        ${showCore ? `<td style="font-size:12px;color:var(--text2)">${esc(c.core_name || '—')}</td>` : ''}
         <td style="font-size:12px;color:var(--text2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.description)}">${esc(c.description)}</td>
         <td><span class="tag ${c.status==='open'?'tag-yellow':c.status==='fixed'?'tag-green':'tag-neutral'}">${esc(c.status)}</span></td>
         <td style="white-space:nowrap">
@@ -776,7 +781,7 @@ function cveListHTML(cves) {
         </td>
       </tr>
       <tr id="cve-detail-${c.id}" style="display:none;background:var(--bg2)">
-        <td colspan="6" style="padding:10px 16px 12px">
+        <td colspan="${cols}" style="padding:10px 16px 12px">
           <div style="font-size:12.5px;color:var(--text1);line-height:1.6;margin-bottom:8px">${esc(c.description)}</div>
           <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text3)">
             <span><b style="color:var(--text2)">${t('security.col.backend')}</b> <span class="mono">${esc(c.backend_url)}</span></span>
@@ -1332,7 +1337,7 @@ async function renderAdminSecurityBans() {
   }
 }
 
-// ── PAGE ADMIN : Timeline menaces tous Cores ──────────────────────────────
+// ── PAGE ADMIN : Menaces CrowdSec tous Cores ──────────────────────────────
 async function renderAdminSecurityThreats() {
   const content = document.getElementById('content');
   const ta = document.getElementById('topbar-actions');
@@ -1341,10 +1346,11 @@ async function renderAdminSecurityThreats() {
   try {
     const [timeline, threats] = await Promise.all([
       api('GET', '/security/timeline?limit=100&source=all').catch(() => []),
-      api('GET', '/security/threats?limit=200').catch(() => []),
+      api('GET', '/security/threats?limit=300').catch(() => []),
     ]);
     const events = timeline || [];
-    const activeThreats = (threats || []).filter(t => t.active);
+    window._secThreats = threats || [];
+    window._secThreatsShowCore = true;
 
     const typeColor = type => {
       if (type === 'ban')    return 'var(--red)';
@@ -1354,21 +1360,13 @@ async function renderAdminSecurityThreats() {
       return 'var(--text2)';
     };
     const eventRows = events.map(e => `<tr style="font-size:12px">
-      <td style="padding:5px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(e.ts ? new Date(e.ts).toLocaleString() : '—')}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${e.created_at ? esc(fmtDate(e.created_at)) : '—'}</td>
       <td style="padding:5px 8px">
         <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,${typeColor(e.type)} 15%,transparent);color:${typeColor(e.type)}">${esc(e.type || '—')}</span>
       </td>
       <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(e.ip || '—')}</td>
       <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(e.source || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(e.core_name || e.core_id || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.reason || e.detail || '')}</td>
-    </tr>`).join('');
-
-    const threatRows = activeThreats.map(t => `<tr style="font-size:12px">
-      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(t.ip || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2)">${esc(t.source || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2)">${esc(t.core_name || t.core_id || '—')}</td>
-      <td style="padding:5px 8px;color:var(--red);font-size:11px">${esc(t.reason || '—')}</td>
+      <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.summary||'')}">${esc(e.summary || '—')}</td>
     </tr>`).join('');
 
     content.innerHTML = `
@@ -1378,24 +1376,15 @@ async function renderAdminSecurityThreats() {
           <div style="font-size:11px;color:var(--text2)">Événements (derniers 100)</div>
         </div>
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${activeThreats.length>0?'var(--red)':'var(--green)'}">${activeThreats.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Menaces actives</div>
+          <div style="font-size:22px;font-weight:700;color:${threats.length>0?'var(--red)':'var(--green)'}">${threats.length}</div>
+          <div style="font-size:11px;color:var(--text2)">Menaces CrowdSec (toutes)</div>
         </div>
       </div>
 
-      ${activeThreats.length > 0 ? `
       <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces actives</div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:5px 8px">IP</th>
-            <th style="text-align:left;padding:5px 8px">Source</th>
-            <th style="text-align:left;padding:5px 8px">Core</th>
-            <th style="text-align:left;padding:5px 8px">Raison</th>
-          </tr></thead>
-          <tbody>${threatRows}</tbody>
-        </table>
-      </div>` : ''}
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces CrowdSec — tous Cores</div>
+        <div id="sec-threats-panel">${threatsPanelHTML()}</div>
+      </div>
 
       <div class="card blueprint" style="padding:14px 16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:10px">Timeline événements — tous Cores</div>
@@ -1406,7 +1395,6 @@ async function renderAdminSecurityThreats() {
             <th style="text-align:left;padding:5px 8px">Type</th>
             <th style="text-align:left;padding:5px 8px">IP</th>
             <th style="text-align:left;padding:5px 8px">Source</th>
-            <th style="text-align:left;padding:5px 8px">Core</th>
             <th style="text-align:left;padding:5px 8px">Détail</th>
           </tr></thead>
           <tbody>${eventRows}</tbody>
@@ -2185,6 +2173,8 @@ function filterSecBansList(bans) {
   return list;
 }
 
+function _threatDate(th) { return th.last_seen_at || th.created_at; }
+
 function filterSecThreatsList(threats) {
   const q = (window._secThreatsQ || '').trim().toLowerCase();
   const type = window._secThreatsType || '';
@@ -2193,7 +2183,7 @@ function filterSecThreatsList(threats) {
 
   if (q) {
     list = list.filter(th => {
-      const hay = `${th.ip || ''} ${th.scenario || ''} ${th.origin || ''} ${th.type || ''}`.toLowerCase();
+      const hay = `${th.ip || ''} ${th.scenario || ''} ${th.origin || ''} ${th.type || ''} ${th.core_name || ''}`.toLowerCase();
       return hay.includes(q);
     });
   }
@@ -2203,11 +2193,13 @@ function filterSecThreatsList(threats) {
     if (sort === 'ip_asc') return _secLocaleCompare(a.ip, b.ip);
     if (sort === 'ip_desc') return _secLocaleCompare(b.ip, a.ip);
     if (sort === 'scenario') return _secLocaleCompare(a.scenario, b.scenario) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'core') return _secLocaleCompare(a.core_name, b.core_name) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'occurrences') return (b.occurrences||0) - (a.occurrences||0) || _secLocaleCompare(a.ip, b.ip);
     if (sort === 'date_asc') {
-      const da = Date.parse(a.created_at) || 0, db = Date.parse(b.created_at) || 0;
+      const da = Date.parse(_threatDate(a)) || 0, db = Date.parse(_threatDate(b)) || 0;
       return da - db || _secLocaleCompare(a.ip, b.ip);
     }
-    const da = Date.parse(a.created_at) || 0, db = Date.parse(b.created_at) || 0;
+    const da = Date.parse(_threatDate(a)) || 0, db = Date.parse(_threatDate(b)) || 0;
     return db - da || _secLocaleCompare(a.ip, b.ip);
   });
   return list;
@@ -2271,6 +2263,8 @@ function threatsToolbarHTML(total, shown, types) {
         <option value="ip_asc" ${sort==='ip_asc'?'selected':''}>${t('security.sort.ip_asc')}</option>
         <option value="ip_desc" ${sort==='ip_desc'?'selected':''}>${t('security.sort.ip_desc')}</option>
         <option value="scenario" ${sort==='scenario'?'selected':''}>${t('security.sort.scenario')}</option>
+        <option value="core" ${sort==='core'?'selected':''}>${t('security.col.core')||'Core'}</option>
+        <option value="occurrences" ${sort==='occurrences'?'selected':''}>${t('security.col.occurrences')||'Occurrences'}</option>
       </select>
     </div>
     <div class="sec-bans-toolbar-row">
@@ -2319,19 +2313,41 @@ function bansTableRows(list) {
   </table></div>`;
 }
 
-function threatsTableRows(list) {
+function threatsTableRows(list, showCore) {
   if (!list.length) {
     const emptyKey = (window._secThreats || []).length ? 'security.no_threat_filter_match' : 'security.no_crowdsec';
     return `<div class="empty"><p>${t(emptyKey)}</p></div>`;
   }
+  const _tsort = window._secThreatsSort || 'date_desc';
+  const _tthStyle = 'cursor:pointer;user-select:none;white-space:nowrap';
+  const _tind = (col, asc, desc) => {
+    const active = _tsort === asc || _tsort === desc || _tsort === col;
+    const arrow = _tsort === asc ? ' ↑' : (_tsort === desc || _tsort === col) ? ' ↓' : '';
+    return { attr: `onclick="setSecThreatsSortCol('${col}')" style="${_tthStyle}${active?';color:var(--accent)':''}" title="${t('common.sort')||'Trier'}"`, arrow };
+  };
+  const ip = _tind('ip', 'ip_asc', 'ip_desc');
+  const scenario = _tind('scenario', 'scenario', 'scenario');
+  const core = _tind('core', 'core', 'core');
+  const occ = _tind('occurrences', 'occurrences', 'occurrences');
+  const date = _tind('date', 'date_asc', 'date_desc');
   return `<div class="table-wrap sec-bans-table-scroll"><table>
-    <thead><tr><th>${t('logs.ip')}</th><th>${t('security.col.scenario')}</th><th>${t('security.col.origin')}</th><th>${t('security.col.type')}</th><th>${t('common.date')}</th></tr></thead>
+    <thead><tr>
+      <th ${ip.attr}>${t('logs.ip')}${ip.arrow}</th>
+      <th ${scenario.attr}>${t('security.col.scenario')}${scenario.arrow}</th>
+      <th>${t('security.col.origin')}</th>
+      <th>${t('security.col.type')}</th>
+      ${showCore ? `<th ${core.attr}>${t('security.col.core')||'Core'}${core.arrow}</th>` : ''}
+      <th ${occ.attr}>${t('security.col.occurrences')||'Occurrences'}${occ.arrow}</th>
+      <th ${date.attr}>${t('common.date')}${date.arrow}</th>
+    </tr></thead>
     <tbody>${list.map(th => `<tr>
       <td class="mono">${esc(th.ip)}</td>
-      <td style="font-size:12px">${esc(th.scenario)}</td>
-      <td style="font-size:12px">${esc(th.origin)}</td>
+      <td style="font-size:12px">${esc(th.scenario||'—')}</td>
+      <td style="font-size:12px">${esc(th.origin||'—')}</td>
       <td><span class="tag tag-red">${esc(th.type)}</span></td>
-      <td style="font-size:11px">${fmtDate(th.created_at)}</td>
+      ${showCore ? `<td style="font-size:12px;color:var(--text2)">${esc(th.core_name||'—')}</td>` : ''}
+      <td style="font-size:12px;text-align:center">${th.occurrences||1}</td>
+      <td style="font-size:11px">${_threatDate(th) ? fmtDate(_threatDate(th)) : '—'}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -2346,7 +2362,8 @@ function threatsPanelHTML() {
   const all = window._secThreats || [];
   const filtered = filterSecThreatsList(all);
   const types = [...new Set(all.map(th => th.type).filter(Boolean))].sort(_secLocaleCompare);
-  return `${threatsToolbarHTML(all.length, filtered.length, types)}<div id="sec-threats-table">${threatsTableRows(filtered)}</div>`;
+  const showCore = window._secThreatsShowCore !== false;
+  return `${threatsToolbarHTML(all.length, filtered.length, types)}<div id="sec-threats-table">${threatsTableRows(filtered, showCore)}</div>`;
 }
 
 function renderSecBansPanel(opts = {}) {
@@ -2389,7 +2406,7 @@ function renderSecThreatsPanel(opts = {}) {
   }
   const table = document.getElementById('sec-threats-table');
   const count = document.getElementById('sec-threats-count');
-  if (table) table.innerHTML = threatsTableRows(filtered);
+  if (table) table.innerHTML = threatsTableRows(filtered, window._secThreatsShowCore !== false);
   if (count) {
     count.textContent = filtered.length === all.length
       ? t('security.threats_count', { n: filtered.length })
@@ -2426,6 +2443,14 @@ window.setSecBansSource = function(v) {
 window.setSecBansExpiry = function(v) {
   window._secBansExpiry = v || '';
   renderSecBansPanel();
+};
+window.setSecThreatsSortCol = function(col) {
+  const sort = window._secThreatsSort || 'date_desc';
+  const ascKey = col === 'ip' ? 'ip_asc' : col === 'date' ? 'date_asc' : col;
+  const descKey = col === 'ip' ? 'ip_desc' : col === 'date' ? 'date_desc' : col;
+  const isAsc = sort === ascKey;
+  window._secThreatsSort = (ascKey === descKey) ? ascKey : (isAsc ? descKey : ascKey);
+  renderSecThreatsPanel();
 };
 window.setSecThreatsSearch = function(v) {
   window._secThreatsQ = v || '';

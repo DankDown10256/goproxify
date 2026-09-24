@@ -1591,22 +1591,23 @@ func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) 
 		}
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, scenario, origin, type, duration, created_at
-		 FROM security_threats ORDER BY created_at DESC LIMIT ?`, limit)
+		`SELECT id, ip, scenario, origin, type, duration, core_name, occurrences, last_seen_at, created_at
+		 FROM security_threats ORDER BY last_seen_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id int
-		var ip, scenario, origin, typ, duration, createdAt string
-		if err := rows.Scan(&id, &ip, &scenario, &origin, &typ, &duration, &createdAt); err != nil {
+		var id, occurrences int
+		var ip, scenario, origin, typ, duration, coreName, lastSeenAt, createdAt string
+		if err := rows.Scan(&id, &ip, &scenario, &origin, &typ, &duration, &coreName, &occurrences, &lastSeenAt, &createdAt); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "ip": ip, "scenario": scenario, "origin": origin,
-			"type": typ, "duration": duration, "created_at": createdAt,
+			"type": typ, "duration": duration, "core_name": coreName,
+			"occurrences": occurrences, "last_seen_at": lastSeenAt, "created_at": createdAt,
 		})
 	}
 	if out == nil {
@@ -1630,7 +1631,7 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, detected_at
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, core_name, detected_at
 		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC LIMIT 200`, qargs...)
 	if err != nil {
 		return nil, err
@@ -1639,14 +1640,14 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 	var out []map[string]any
 	for rows.Next() {
 		var id int
-		var backend, cveID, desc, status, detectedAt string
+		var backend, cveID, desc, status, coreName, detectedAt string
 		var cvss float64
-		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &detectedAt); err != nil {
+		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &coreName, &detectedAt); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "backend_url": backend, "cve_id": cveID, "cvss_score": cvss,
-			"description": desc, "status": status, "detected_at": detectedAt,
+			"description": desc, "status": status, "core_name": coreName, "detected_at": detectedAt,
 		})
 	}
 	if out == nil {

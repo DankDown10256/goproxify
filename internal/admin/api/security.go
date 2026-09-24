@@ -472,7 +472,9 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, scenario, origin, type, duration, strftime('%Y-%m-%dT%H:%M:%SZ', created_at) FROM security_threats ORDER BY created_at DESC LIMIT ?`,
+		`SELECT id, ip, scenario, origin, type, duration, core_name, occurrences,
+		        strftime('%Y-%m-%dT%H:%M:%SZ', last_seen_at), strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
+		 FROM security_threats ORDER BY last_seen_at DESC LIMIT ?`,
 		limit)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -482,10 +484,11 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 	var out []security.Threat
 	for rows.Next() {
 		var t security.Threat
-		var createdAt string
-		if err := rows.Scan(&t.ID, &t.IP, &t.Scenario, &t.Origin, &t.Type, &t.Duration, &createdAt); err != nil {
+		var lastSeenAt, createdAt string
+		if err := rows.Scan(&t.ID, &t.IP, &t.Scenario, &t.Origin, &t.Type, &t.Duration, &t.CoreName, &t.Occurrences, &lastSeenAt, &createdAt); err != nil {
 			continue
 		}
+		t.LastSeenAt, _ = time.Parse(time.RFC3339, lastSeenAt)
 		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 		out = append(out, t)
 	}
@@ -513,7 +516,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, detected_at FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, core_name, detected_at FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
 		args...)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -524,7 +527,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c security.CVE
 		var detectedAt string
-		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &detectedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.CoreName, &detectedAt); err != nil {
 			continue
 		}
 		c.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)

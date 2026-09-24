@@ -200,13 +200,16 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_ban_history_ip ON security_ban_history (ip)`,
 		// Décisions CrowdSec
 		`CREATE TABLE IF NOT EXISTS security_threats (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			ip         TEXT NOT NULL,
-			scenario   TEXT NOT NULL DEFAULT '',
-			origin     TEXT NOT NULL DEFAULT '',
-			type       TEXT NOT NULL DEFAULT 'ban',
-			duration   TEXT NOT NULL DEFAULT '',
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			ip           TEXT NOT NULL,
+			scenario     TEXT NOT NULL DEFAULT '',
+			origin       TEXT NOT NULL DEFAULT '',
+			type         TEXT NOT NULL DEFAULT 'ban',
+			duration     TEXT NOT NULL DEFAULT '',
+			core_name    TEXT NOT NULL DEFAULT '',
+			occurrences  INTEGER NOT NULL DEFAULT 1,
+			last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_threats_ip_scenario ON security_threats (ip, scenario)`,
 		// CVE détectées sur les backends
@@ -217,6 +220,7 @@ func migrate(db *sql.DB) error {
 			cvss_score  REAL NOT NULL DEFAULT 0,
 			description TEXT NOT NULL DEFAULT '',
 			status      TEXT NOT NULL DEFAULT 'open',
+			core_name   TEXT NOT NULL DEFAULT '',
 			detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cves_unique ON security_cves (backend_url, cve_id)`,
@@ -549,6 +553,17 @@ func migrate(db *sql.DB) error {
 	if err := migrateNodeTokenHashes(db); err != nil {
 		return fmt.Errorf("migration token_hash : %w", err)
 	}
+
+	// Vulnérabilités (CVE) — Core d'origine, pour affichage côté Admin (vue agrégée multi-Core).
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN core_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+
+	// Menaces CrowdSec — Core d'origine + dernière observation (une même menace ip+scenario
+	// était ré-émise régulièrement mais ignorée par l'unicité (ip, scenario), sans jamais
+	// rafraîchir la date affichée côté Admin/Core).
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN core_name    TEXT NOT NULL DEFAULT ''`)                    //nolint:errcheck
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN occurrences  INTEGER NOT NULL DEFAULT 1`)                  //nolint:errcheck
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP`)          //nolint:errcheck
+	db.Exec(`UPDATE security_threats SET last_seen_at = created_at WHERE last_seen_at IS NULL`)                 //nolint:errcheck
 
 	// RGPD : rétention individuelle par ligne + effacement par IP ou utilisateur.
 	db.Exec(`ALTER TABLE logs ADD COLUMN user_id       TEXT NOT NULL DEFAULT ''`)          //nolint:errcheck

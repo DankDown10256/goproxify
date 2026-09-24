@@ -39,13 +39,16 @@ type BanEvent struct {
 
 // Threat représente une décision CrowdSec.
 type Threat struct {
-	ID        int64     `json:"id"`
-	IP        string    `json:"ip"`
-	Scenario  string    `json:"scenario"`
-	Origin    string    `json:"origin"`
-	Type      string    `json:"type"`
-	Duration  string    `json:"duration"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          int64     `json:"id"`
+	IP          string    `json:"ip"`
+	Scenario    string    `json:"scenario"`
+	Origin      string    `json:"origin"`
+	Type        string    `json:"type"`
+	Duration    string    `json:"duration"`
+	CoreName    string    `json:"core_name"`
+	Occurrences int       `json:"occurrences"`
+	LastSeenAt  time.Time `json:"last_seen_at"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // CVE représente une vulnérabilité détectée sur un backend.
@@ -56,6 +59,7 @@ type CVE struct {
 	CVSSScore   float64   `json:"cvss_score"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"` // open | ignored | fixed
+	CoreName    string    `json:"core_name"`
 	DetectedAt  time.Time `json:"detected_at"`
 }
 

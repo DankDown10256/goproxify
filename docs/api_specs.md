@@ -478,7 +478,15 @@ Supprime un ban par ID.
 
 ### `GET /api/v1/security/threats`
 
-Liste les menaces CrowdSec (`security_threats`). Paramètre : `limit`.
+Liste les menaces CrowdSec (`security_threats`), triées par `last_seen_at` décroissant. Paramètre : `limit`. Une même menace (`ip`+`scenario`) est dédupliquée : chaque nouvelle occurrence rafraîchit `last_seen_at` et incrémente `occurrences` au lieu de créer une ligne ignorée à date figée. Chaque entrée inclut aussi `core_name` — le Core d'origine, résolu côté serveur depuis le token d'appairage à la réception (vide pour les données antérieures à cette colonne).
+
+### `GET /api/v1/security/cves`
+
+Liste les CVE détectées (`security_cves`). Paramètres : `status` (`open|ignored|fixed`), `critical=true` (CVSS ≥ 7). Chaque entrée inclut `core_name` — le Core d'origine ayant remonté la CVE (résolu côté serveur depuis le token d'appairage à la réception, vide pour les données antérieures à cette colonne). Vue Admin : agrégat de tous les Cores, colonne Core affichée. Vue Core : déjà filtrée sur ce Core via les backends de ses proxies, colonne masquée (redondante).
+
+### `PATCH /api/v1/security/cves/:id`
+
+Change le statut d'une CVE. Corps : `{ "status": "open|ignored|fixed" }`.
 
 ### `GET /api/v1/security/fail2ban` · `PUT /api/v1/security/fail2ban`
 
