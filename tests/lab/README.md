@@ -3,6 +3,8 @@
 Environnement isolé, branché sur la stack Docker existante (`goproxify_net`), pour éprouver le Core
 **sans toucher aux routes réelles** : toutes les routes du labo sont en `*.lab.test`.
 
+> Procédure complète, résultats et dépannage : [docs/tests-lab.md](../../docs/tests-lab.md).
+>
 > Usage strictement local. Ne jamais pointer ces scripts vers un système dont vous n'êtes pas propriétaire.
 
 ## Démarrage

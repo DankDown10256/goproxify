@@ -53,8 +53,9 @@ raw_status() { # requête brute (curl ne sait pas envoyer deux Host)
 expect_in "Host en double (requête brute)" "$(raw_status 'GET / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nHost: evil.test\r\nConnection: close\r\n\r\n')" 400 404 421
 expect_in "TRACE refusé"               "$(code -X TRACE http://lab-fast.lab.test/)"                400 403 405 501
 expect_in "En-tête de 64 Ko"           "$(code -H "X-Big: $(head -c 65536 /dev/zero | tr '\0' a)" http://lab-fast.lab.test/)" 400 431 413
-got=$(head -c 3000000 /dev/zero | curl -s --max-time 30 -X POST --data-binary @- "$B/upload")
-[ "$got" = 3000000 ] && ok "corps 3 Mo (> max_body_mb=1) transmis intact au backend" || ko "corps > max_body_mb tronqué ou refusé : backend a reçu '${got:-rien}' octets sur 3000000"
+st=$(head -c 3000000 /dev/zero | curl -s --max-time 30 -o /tmp/up.out -w '%{http_code}' -X POST --data-binary @- "$B/upload")
+if [ "$st" = 200 ] && [ "$(cat /tmp/up.out)" = 3000000 ]; then ok "corps 3 Mo (> max_body_mb=1) transmis intact au backend"
+else ko "corps 3 Mo (> max_body_mb=1) : HTTP $st, backend a reçu '$(head -c 20 /tmp/up.out | tr -d '\n<')' sur 3000000 octets"; fi
 
 echo "== Request smuggling (CL + TE) =="
 resp=$(printf 'POST / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /admin HTTP/1.1\r\nHost: lab-fast.lab.test\r\n\r\n' \
