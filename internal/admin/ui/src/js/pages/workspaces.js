@@ -136,7 +136,7 @@ window.deleteWorkspace = function(id) {
 window.openWorkspaceDetail = async function(id) {
   document.getElementById('ws-detail-backdrop')?.remove();
   document.body.insertAdjacentHTML('beforeend', `<div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('ws-detail-backdrop').remove()">
-    <div id="ws-detail-panel" style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
+    <div id="ws-detail-panel" style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--bg2);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
       <p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>
     </div>
   </div>`);

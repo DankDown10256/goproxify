@@ -442,7 +442,7 @@ window.openAcmeCertDetail = function (cert) {
 
   document.body.insertAdjacentHTML('beforeend', `
     <div id="acme-cert-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('acme-cert-detail-backdrop').remove()">
-      <div style="width:min(400px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
+      <div style="width:min(400px,98vw);height:100vh;overflow:auto;background:var(--bg2);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <div>
             <h2 style="margin:0 0 4px;font-size:17px;font-weight:700;">${esc(cert.domain)}</h2>

@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **`var(--card-bg)` — variable CSS jamais définie, fond transparent sur 15 usages dans 4 fichiers** : ni `--card-bg` ni `--input-bg` n'existent dans `themes/flat.css`/`industry-ds.css` (seuls `--bg`, `--bg2`, `--bg3` sont définis). Une variable CSS custom non définie et sans valeur de repli statique rend la propriété `background` transparente, laissant la page sous-jacente transparaître à travers le panneau/la carte censée avoir un fond opaque. Le plus visible : le volet détail d'un espace de travail (`workspaces.js`, `#ws-detail-panel`) laissait voir le contenu de la page en dessous (dates, boutons "+ Nouvel espace"/"+ Nouvelle équipe") à travers tout le panneau, pas seulement dans la marge assombrie du backdrop. Même bug dans le volet détail certificat ACME (`acme-monitor.js`), 7 cartes d'info dans `security.js`, et les `<select>` des modales Utilisateur/Équipe (`users.js`, repli sur `--input-bg` tout aussi indéfini). Remplacé par `var(--bg2)` — la variable réellement utilisée partout ailleurs (`.card`) pour les surfaces de carte. (Webapp `0.9.0`)
+
 ### Ajouté
 
 - **"Politiques d'accès" intégré à Gestion d'équipe** : la matrice domaines × sujets (utilisateurs, équipes, tokens Core), purement en lecture seule (aucune action d'écriture, juste deux raccourcis de navigation), devient une 3ᵉ section de la page, après Utilisateurs & équipes et Espaces de travail. Son entrée sidebar dans Accès est retirée ; la tuile Paramètres (`settings.js`) et `pages['access-policies']` restent accessibles en direct (rendu identique, plein écran). La redirection de l'entrée parente "Accès" (clic sur le groupe lui-même) pointe désormais vers `workspaces` au lieu de `users`, cohérent avec le nouveau contenu. (Webapp `0.9.0`)

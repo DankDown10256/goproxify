@@ -202,14 +202,14 @@ window.openUserModal = async function(id) {
             <label>${t('users.personal_grants')}</label>
             <div id="um-scopes-list" style="display:flex;flex-direction:column;gap:4px;margin:6px 0;"></div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <select id="um-sc-type" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--card-bg));color:var(--text);">
+              <select id="um-sc-type" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--bg2));color:var(--text);">
                 <option value="domain">domain</option>
                 <option value="server">server</option>
                 <option value="proxy">proxy</option>
                 <option value="core">core</option>
               </select>
               <input class="input" id="um-sc-val" placeholder="*.corp.io" style="flex:1;min-width:120px;">
-              <select id="um-sc-mode" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--card-bg));color:var(--text);">
+              <select id="um-sc-mode" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--bg2));color:var(--text);">
                 <option value="read">${t('users.read_opt')}</option>
                 <option value="write">${t('users.write_opt')}</option>
               </select>
@@ -357,7 +357,7 @@ window.openTeamModal = async function(id) {
                 <input class="input" id="tm-sc-val" autocomplete="off" style="width:100%;box-sizing:border-box;" placeholder="*.corp.io">
                 <div id="tm-ac-list"></div>
               </div>
-              <select id="tm-sc-mode" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--card-bg));color:var(--text);">
+              <select id="tm-sc-mode" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--bg2));color:var(--text);">
                 <option value="read">${t('users.read_opt')}</option>
                 <option value="write" selected>${t('users.write_opt')}</option>
               </select>

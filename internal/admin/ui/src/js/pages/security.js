@@ -562,7 +562,7 @@ async function renderSecurityBans(ctx) {
           { v: kpis.history_total ?? '—', label: 'Total historique', color: 'var(--text1)' },
           { v: kpis.recurring_ips ?? '—', label: 'IPs récidivistes', color: (kpis.recurring_ips??0)>0?'var(--orange,#d97706)':'var(--text1)' },
           { v: expiringIn1h, label: 'Expirent dans 1h', color: expiringIn1h>0?'var(--yellow)':'var(--text3)' },
-        ].map(k=>`<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        ].map(k=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:${k.color};line-height:1.1">${k.v}</div>
           <div style="font-size:11px;color:var(--text2);margin-top:3px">${k.label}</div>
         </div>`).join('')}
@@ -1015,7 +1015,7 @@ async function renderAdminSecurityOverview() {
     const coresList = Array.isArray(nodes) ? nodes : [];
 
     const kpiRow = (icon, value, label, color) => `
-      <div style="display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
         <div style="flex-shrink:0;color:${color || 'var(--text2)'}">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${icon}</svg>
         </div>
@@ -1266,7 +1266,7 @@ async function renderAdminSecurityBans() {
           { v: kpis.history_total ?? '—', label: 'Total historique', color: 'var(--text1)' },
           { v: kpis.recurring_ips ?? '—', label: 'IPs récidivistes (≥3)', color: (kpis.recurring_ips??0)>0?'var(--orange,#d97706)':'var(--text1)' },
           { v: rotPct + '%', label: 'Ratio déban / ban', color: 'var(--text1)' },
-        ].map(k=>`<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+        ].map(k=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
           <div style="font-size:24px;font-weight:700;color:${k.color};line-height:1.1">${k.v}</div>
           <div style="font-size:11px;color:var(--text2);margin-top:4px">${k.label}</div>
         </div>`).join('')}
@@ -1366,19 +1366,19 @@ async function renderAdminSecurityVulns() {
 
     content.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:${critical.length>0?'var(--red)':'var(--green)'}">${critical.length}</div>
           <div style="font-size:11px;color:var(--text2)">Critiques (CVSS ≥ 9)</div>
         </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:${high.length>0?'var(--orange,#d97706)':'var(--green)'}">${high.length}</div>
           <div style="font-size:11px;color:var(--text2)">Élevées (CVSS 7–9)</div>
         </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700">${medium.length}</div>
           <div style="font-size:11px;color:var(--text2)">Moyennes (CVSS 4–7)</div>
         </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:var(--green)">${fixed.length}</div>
           <div style="font-size:11px;color:var(--text2)">Corrigées${lastScan ? `<br><span style="font-size:10px">Scan : ${esc(lastScan)}</span>` : ''}</div>
         </div>
@@ -1459,11 +1459,11 @@ async function renderAdminSecurityThreats() {
 
     content.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px">
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:${events.length>0?'var(--accent)':'var(--text)'}">${events.length}</div>
           <div style="font-size:11px;color:var(--text2)">Événements (derniers 100)</div>
         </div>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
           <div style="font-size:22px;font-weight:700;color:${activeThreats.length>0?'var(--red)':'var(--green)'}">${activeThreats.length}</div>
           <div style="font-size:11px;color:var(--text2)">Menaces actives</div>
         </div>
