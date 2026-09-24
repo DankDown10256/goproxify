@@ -1,40 +1,22 @@
 // ── Gestion d'équipe : fusion Utilisateurs & équipes + Espaces de travail ──
-// Deux onglets dans une même page. `pages.users` reste accessible en direct
-// (liens internes access-policies.js / infrastructure.js) et rend refreshUsers()
-// en plein écran, sans onglets.
+// Une seule page en scroll, deux sections successives (pas d'onglets).
+// `pages.users` reste accessible en direct (liens internes access-policies.js
+// / infrastructure.js) et rend refreshUsers() seule, en plein écran.
 
 pages.workspaces = async function() {
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
   content.innerHTML = `
-    <div style="margin-bottom:20px;">
-      <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('workspaces.title')}</h1>
-      <p style="margin:0;opacity:0.65;font-size:14px;">${t('workspaces.subtitle')}</p>
-    </div>
-    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;" id="wsteam-tabs">
-      <button class="btn btn-ghost" style="border-radius:0;border-bottom:2px solid transparent;font-size:13px;padding:8px 14px;" id="wsteam-tab-btn-users" onclick="wsTeamSwitchTab('users')">${t('users.title')}</button>
-      <button class="btn btn-ghost" style="border-radius:0;border-bottom:2px solid transparent;font-size:13px;padding:8px 14px;" id="wsteam-tab-btn-spaces" onclick="wsTeamSwitchTab('spaces')">${t('workspaces.tab_spaces')}</button>
-    </div>
-    <div id="wsteam-tab-body"></div>`;
-  await wsTeamSwitchTab(window._wsTeamActiveTab || 'users');
+    <div id="wsteam-users-section" style="margin-bottom:8px;"></div>
+    <div style="border-top:1px solid var(--border);margin:32px 0 24px;"></div>
+    <div id="wsteam-spaces-section"></div>`;
+  await Promise.all([
+    refreshUsers(document.getElementById('wsteam-users-section')),
+    renderWorkspacesSection(document.getElementById('wsteam-spaces-section')),
+  ]);
 };
 
-window.wsTeamSwitchTab = async function(tab) {
-  window._wsTeamActiveTab = tab;
-  ['users', 'spaces'].forEach(k => {
-    const btn = document.getElementById('wsteam-tab-btn-' + k);
-    if (btn) btn.style.borderBottom = k === tab ? '2px solid var(--accent)' : '2px solid transparent';
-  });
-  const body = document.getElementById('wsteam-tab-body');
-  if (!body) return;
-  if (tab === 'users') {
-    await refreshUsers(body);
-  } else {
-    await renderWorkspacesGrid(body);
-  }
-};
-
-async function renderWorkspacesGrid(container) {
+async function renderWorkspacesSection(container) {
   container.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
   try {
     const [workspaces, proxies, nodes, teams, users] = await Promise.all([
@@ -51,7 +33,11 @@ async function renderWorkspacesGrid(container) {
 
     const list = workspaces || [];
     container.innerHTML = `
-      <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px">
+        <div>
+          <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('workspaces.tab_spaces')}</h1>
+          <p style="margin:0;opacity:0.65;font-size:14px;">${t('workspaces.subtitle')}</p>
+        </div>
         <button class="btn btn-primary blueprint" onclick="openWorkspaceModal()">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           ${t('workspaces.new')}
@@ -70,8 +56,8 @@ async function renderWorkspacesGrid(container) {
 }
 
 function _refreshWorkspacesTab() {
-  const body = document.getElementById('wsteam-tab-body');
-  if (body) renderWorkspacesGrid(body);
+  const el = document.getElementById('wsteam-spaces-section');
+  if (el) renderWorkspacesSection(el);
 }
 
 function workspaceCard(ws) {
@@ -145,8 +131,8 @@ window.deleteWorkspace = function(id) {
 
 window.openWorkspaceDetail = async function(id) {
   document.getElementById('ws-detail-backdrop')?.remove();
-  document.body.insertAdjacentHTML('beforeend', `<div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);">
-    <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;">
+  document.body.insertAdjacentHTML('beforeend', `<div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('ws-detail-backdrop').remove()">
+    <div id="ws-detail-panel" style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
       <p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>
     </div>
   </div>`);
@@ -160,7 +146,8 @@ window.openWorkspaceDetail = async function(id) {
 };
 
 function _renderWorkspacePanel(ws) {
-  const container = document.getElementById('ws-detail-backdrop');
+  const container = document.getElementById('ws-detail-panel');
+  if (!container) return;
   const teams = window._wsTeams || [];
   const users = window._wsUsers || [];
   const proxies = window._wsProxies || [];
@@ -178,8 +165,6 @@ function _renderWorkspacePanel(ws) {
   ].join('');
 
   container.innerHTML = `
-    <div id="ws-detail-backdrop" class="dialog-backdrop" style="align-items:flex-start;justify-content:flex-end;background:rgba(0,0,0,0.4);" onclick="if(event.target===this)document.getElementById('ws-detail-backdrop').remove()">
-      <div style="width:min(540px,98vw);height:100vh;overflow:auto;background:var(--card-bg);border-left:1px solid var(--border);padding:24px 20px;" onclick="event.stopPropagation()">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
           <div>
             <h2 style="margin:0 0 4px;font-size:20px;font-weight:700;">${esc(ws.name)}</h2>
@@ -232,9 +217,7 @@ function _renderWorkspacePanel(ws) {
             <button class="btn btn-secondary btn-sm" onclick="wsAddResource('${esc(ws.id)}')">${t('common.add')}</button>
           </div>
           <p style="margin:6px 0 0;font-size:11px;opacity:0.45;">${t('workspaces.domain_hint')}</p>
-        </div>
-      </div>
-    </div>`;
+        </div>`;
 
   document.getElementById('ws-add-res-type-sel')?.addEventListener('change', function() {
     const custom = document.getElementById('ws-add-res-custom');

@@ -7,6 +7,14 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **Gestion d'équipe — backdrop imbriqué en double sur le volet détail d'un espace de travail** : `_renderWorkspacePanel` récupérait le conteneur `#ws-detail-backdrop` (l'overlay plein écran lui-même) puis réinjectait dedans un **second** `<div id="ws-detail-backdrop" class="dialog-backdrop">` identique. Deux overlays semi-transparents superposés = fond anormalement sombre, IDs dupliqués dans le DOM. Le clic pour fermer en cliquant à l'extérieur n'était de plus jamais attaché sur le premier rendu (skeleton de chargement). Corrigé : l'overlay est créé une seule fois (avec son handler de fermeture), `_renderWorkspacePanel` ne remplace plus que le contenu du panneau interne (`#ws-detail-panel`). (Webapp `0.9.0`)
+
+### Changé
+
+- **Gestion d'équipe — onglets remplacés par des sections en scroll** : la bascule par onglets ("Utilisateurs & équipes" / "Espaces de travail") laisse place à une page unique : les deux blocs s'affichent l'un après l'autre, sans clic pour changer de vue. Simplifie aussi le rendu (plus d'état d'onglet actif à synchroniser). (Webapp `0.9.0`)
+
 ### Ajouté
 
 - **Paramètres Core → Tokens d'appairage (récap lecture seule)** : nouvelle tuile dans la section Sécurité de Paramètres Core, affichant le(s) token(s) `role=core` appairés à ce nœud (statut actif/expiré/révoqué, rôle RBAC, scopes). La CRUD complète (création, édition des scopes, révocation) reste dans **Accès → Tokens d'appairage**, avec un bouton de raccourci — un token sert justement à appairer un Core qui n'existe pas encore, la gestion complète ne peut donc pas être scopée à un Core déjà appairé. (Webapp `0.9.0`)
