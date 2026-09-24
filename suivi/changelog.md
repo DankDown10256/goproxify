@@ -9,7 +9,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
-- **WAF — corps de requête tronqué au-delà de `max_body_mb`** : le WAF lisait au plus `max_body_mb` (10 Mo par défaut) puis remplaçait le corps par ces seuls octets, sans transmettre le reste. Une requête plus grosse (upload) repartait tronquée vers le backend (erreur 502 ou données corrompues). Seuls les premiers `max_body_mb` restent inspectés, mais le corps complet est désormais renvoyé intact. Détecté par le labo de tests (`tests/lab`). (Core `0.6.3`)
+- **WAF — corps de requête tronqué au-delà de `max_body_mb`** : le WAF lisait au plus `max_body_mb` (10 Mo par défaut) puis remplaçait le corps par ces seuls octets, sans transmettre le reste. Une requête plus grosse (upload) repartait tronquée vers le backend (erreur 502 ou données corrompues). Seuls les premiers `max_body_mb` restent inspectés, mais le corps complet est désormais renvoyé intact. Détecté par le labo de tests (`tests/lab`). (Core `0.7.0`)
 
 - **Journal d'audit — dates affichées `01/01/1`** : `created_at` était relu avec un seul format SQLite ; le driver renvoyant du RFC3339, le parse échouait en silence et la date restait à zéro. Le parse accepte désormais les deux formats, et l'UI affiche `—` pour une date nulle. (Admin `0.18.1`)
 
@@ -19,6 +19,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Sécurité — IP client falsifiable via `X-Forwarded-For`** : `RealIP` croyait `CF-Connecting-IP` / `X-Forwarded-For` / `X-Real-IP` de n'importe quel client, ce qui permettait de contourner Fail2Ban/Sentinel/rate-limit (IP changée à chaque requête), de faire bannir un tiers et de falsifier les logs. Les en-têtes ne sont désormais lus que si la connexion directe provient d'un proxy de confiance : loopback + réseaux privés par défaut, extensible via `GPX_TRUSTED_PROXIES` (CSV IP/CIDR, `*` = ancien comportement). **Attention** : derrière Cloudflare ou un load balancer à IP publique, renseigner `GPX_TRUSTED_PROXIES` sinon l'IP vue est celle du proxy. `X-Forwarded-For` est lu de droite à gauche (première IP hors proxy de confiance) : une IP forgée en tête de chaîne derrière un proxy qui ajoute à l'en-tête n'est plus prise en compte ; les valeurs non-IP sont ignorées. (Core `0.6.1`, Admin `0.17.1`)
 
 ### Ajouté
+
+- **Sécurité — `TRACE`/`TRACK` refusés et taille des en-têtes bornée** : le Core répond `405` à `TRACE` et `TRACK` (aucun usage légitime derrière un reverse proxy ; un backend naïf renvoyait la requête telle quelle). La taille cumulée des en-têtes de requête est limitée à **32 Ko par défaut** (`timeouts.max_header_kb`, `0` = défaut) au lieu de 1 Mo ; au-delà, `431 Request Header Fields Too Large`. Attention : des en-têtes légitimes supérieurs à 32 Ko (cookies/jetons très volumineux) devront relever cette valeur. HTTP/1.1, HTTPS et HTTP/3. Détecté par le labo de tests (`tests/lab`). (Core `0.7.0`)
 
 - **Labo de tests** (`tests/lab/`) : environnement Docker isolé (routes `*.lab.test`) avec backend contrôlable, scénarios de charge k6 (smoke, baseline, spike, stress, soak, mixed), batterie d'attaques avec verdicts PASS/FAIL (WAF, usurpation XFF, smuggling, slowloris, API Admin), chaos réseau via Toxiproxy et scanners ZAP/Nuclei. Piloté par `tests/lab/lab.sh`. Aucun changement de service.
 

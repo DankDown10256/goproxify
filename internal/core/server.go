@@ -651,6 +651,7 @@ func (s *Server) startHTTP() error {
 		ReadTimeout:       r,
 		WriteTimeout:      w,
 		IdleTimeout:       idle,
+		MaxHeaderBytes:    s.cfg.MaxHeaderBytes(),
 	}
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -687,6 +688,7 @@ func (s *Server) startHTTPS() error {
 		ReadTimeout:       r,
 		WriteTimeout:      w,
 		IdleTimeout:       idle,
+		MaxHeaderBytes:    s.cfg.MaxHeaderBytes(),
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			if state == http.StateClosed || state == http.StateHijacked {
 				if tc, ok := conn.(*tls.Conn); ok {

@@ -222,6 +222,15 @@ services:
           ko "$$d : obtenu $$got, attendu $$*"
         }
 
+        # Garde-fou : après un redéploiement, lab-backend recompile son code et le Core répond 502 en attendant.
+        # Sans cela, tous les contrôles échouent pour une raison sans rapport avec la sécurité.
+        ready=0
+        for _ in $$(seq 1 30); do
+          [ "$$(code http://lab-fast.lab.test/)" = 200 ] && { ready=1; break; }
+          sleep 2
+        done
+        [ $$ready = 1 ] || { echo "  FAIL route de référence lab-fast.lab.test indisponible après 60 s (lab-backend démarré ? seed fait ?) — arrêt"; exit 1; }
+
         echo "== WAF (mode block) =="
         B=http://lab-waf-block.lab.test
         expect_in "SQLi ' OR 1=1"              "$$(code "$$B/?id=1%27%20OR%20%271%27%3D%271")"                403

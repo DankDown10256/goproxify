@@ -30,8 +30,8 @@ type CoreConfig struct {
 		Enabled   bool              `mapstructure:"enabled"`
 		GroupName string            `mapstructure:"group_name"`
 		NodeID    string            `mapstructure:"node_id"`
-		RaftPort  int               `mapstructure:"raft_port"`  // défaut: 8002
-		Peers     map[string]string `mapstructure:"peers"`      // id → "http://host:raft_port"
+		RaftPort  int               `mapstructure:"raft_port"` // défaut: 8002
+		Peers     map[string]string `mapstructure:"peers"`     // id → "http://host:raft_port"
 	} `mapstructure:"cluster"`
 
 	Engine struct {
@@ -63,6 +63,18 @@ type CoreConfig struct {
 		ReadSeconds       int `mapstructure:"read_seconds"`        // délai max pour lire la requête entière (défaut 30s)
 		WriteSeconds      int `mapstructure:"write_seconds"`       // délai max pour écrire la réponse (défaut 60s)
 		IdleSeconds       int `mapstructure:"idle_seconds"`        // keep-alive idle max (défaut 120s)
+		MaxHeaderKB       int `mapstructure:"max_header_kb"`       // taille max des en-têtes de requête en Ko (défaut 32)
 	} `mapstructure:"timeouts"`
+}
 
+// DefaultMaxHeaderKB borne les en-têtes de requête (nginx : 4 × 8 Ko ; Go : 1 Mo si non borné).
+const DefaultMaxHeaderKB = 32
+
+// MaxHeaderBytes renvoie la taille max des en-têtes de requête en octets (défaut 32 Ko).
+func (c *CoreConfig) MaxHeaderBytes() int {
+	kb := c.Timeouts.MaxHeaderKB
+	if kb <= 0 {
+		kb = DefaultMaxHeaderKB
+	}
+	return kb << 10
 }

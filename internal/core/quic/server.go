@@ -37,10 +37,11 @@ func (q *QUICServer) Start(cfg *config.CoreConfig, handler http.Handler, certSto
 	}
 
 	q.srv = &http3.Server{
-		Addr:       addr,
-		Handler:    altSvcHandler,
-		TLSConfig:  tlsCfg,
-		QUICConfig: quicConfig(cfg),
+		Addr:           addr,
+		Handler:        altSvcHandler,
+		TLSConfig:      tlsCfg,
+		QUICConfig:     quicConfig(cfg),
+		MaxHeaderBytes: cfg.MaxHeaderBytes(),
 	}
 
 	go func() {
@@ -59,7 +60,7 @@ func quicConfig(cfg *config.CoreConfig) *quic.Config {
 	return &quic.Config{
 		HandshakeIdleTimeout: handshake,
 		MaxIdleTimeout:       idle,
-		MaxIncomingStreams:    1024,
+		MaxIncomingStreams:   1024,
 	}
 }
 

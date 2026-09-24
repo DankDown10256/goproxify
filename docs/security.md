@@ -242,6 +242,9 @@ Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux C
 | `read_seconds` | 30 | Temps max pour lire la requête complète |
 | `write_seconds` | 60 | Temps max pour envoyer la réponse |
 | `idle_seconds` | 120 | Temps max d'inactivité sur une connexion keep-alive |
+| `max_header_kb` | 32 | Taille max cumulée des en-têtes de requête (Ko) ; au-delà : `431`. `0` = défaut |
+
+Le Core refuse aussi les méthodes `TRACE` et `TRACK` (`405`) sur toutes les routes.
 
 ---
 

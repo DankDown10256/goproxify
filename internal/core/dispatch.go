@@ -36,7 +36,20 @@ func (s *Server) httpMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.dispatch)
 	mux.Handle("/metrics", promhttp.Handler())
-	return mux
+	return rejectTrace(mux)
+}
+
+// rejectTrace refuse TRACE/TRACK : aucun usage légitime derrière un reverse proxy (écho des en-têtes,
+// risque de fuite de cookies/jetons), et un backend naïf le renverrait tel quel.
+func rejectTrace(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "TRACE" || r.Method == "TRACK" {
+			w.Header().Set("Allow", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+			http.Error(w, "méthode non autorisée", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // serveDefaultError écrit la page d'erreur par défaut Goproxify (sans contexte de route).

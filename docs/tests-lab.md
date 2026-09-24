@@ -60,22 +60,23 @@ Toutes les commandes `docker` s'écrivent avec `sudo` sur la VM.
 - **Chaos** : latence +1,5 s propagée, backend coupé → 502 immédiat puis reprise, connexion réinitialisée, backend muet (coupure à 30 s), bande passante 50 Ko/s. Toxiproxy est sans état : `chaos.sh` recrée son proxy à chaque lancement et s'arrête si la route de référence n'est pas saine.
 - **Charge** : taux d'erreur et latences p50/p95/p99.
 
-## 6. Résultats du premier passage (2026-09-24, VM partagée avec la production)
+## 6. Résultats (2026-09-24, VM partagée avec la production)
 
 | Test | Résultat |
 |---|---|
 | Smoke | 7 486 req (499/s), 0 % d'échec, p95 6,6 ms, p99 28,6 ms |
 | Chaos | Tous PASS : latence 1,45 s, 502 en 3 ms si backend coupé, reprise auto, timeout amont à 30 s |
 | Charge modérée | 56 809 req (947/s), 0 % d'échec, p95 117,6 ms, p99 180,9 ms (seuil p95 < 100 ms franchi ; k6 et le Core se partagent le CPU de la VM) |
-| Attaques | WAF, traversal, XFF, Host dupliqué (400), smuggling, rate-limit (89/120 en 429), slowloris (10 s) : PASS |
+| Attaques | 19 PASS (WAF, traversal, XFF, Host dupliqué en 400, smuggling : une seule réponse, rate-limit 88/120 en 429, slowloris coupé à 10 s) ; 3 échecs : `TRACE`, en-tête de 64 Ko, corps de 3 Mo (constats ci-dessous) |
+| Attaques (après Core `0.7.0`) | **Tous les contrôles passent** : `TRACE` en 405, en-tête de 64 Ko en 431, corps de 3 Mo transmis intact, plus les 19 contrôles précédents |
 
 ### Constats
 
 | Constat | Gravité | Statut |
 |---|---|---|
-| WAF : corps > `max_body_mb` tronqué (502 ou données corrompues) | Moyenne | Corrigé dans le Core `0.6.3` ; à redéployer |
-| `TRACE` transmis au backend (200) | Faible | Ouvert |
-| Aucune limite de taille d'en-tête (64 Ko accepté ; défaut Go 1 Mo) | Faible | Ouvert |
+| WAF : corps > `max_body_mb` tronqué (502 ou données corrompues) | Moyenne | Corrigé dans le Core `0.7.0` ; **vérifié en production** |
+| `TRACE` transmis au backend (200) | Faible | Corrigé dans le Core `0.7.0` (405) ; **vérifié en production** |
+| Aucune limite de taille d'en-tête (64 Ko accepté ; défaut Go 1 Mo) | Faible | Corrigé dans le Core `0.7.0` (`timeouts.max_header_kb`, défaut 32 Ko, 431) ; **vérifié en production** |
 | Pages d'erreur exposant l'URL publique de l'Admin et un lien vers les logs (`GPX_ADMIN_PUBLIC_URL`) | Info | Comportement documenté ; vider la variable pour ne pas l'exposer |
 
 Non-constats (faux positifs corrigés dans les scripts) : redirection 301 de nettoyage de chemin, `X-Real-IP` repris depuis un pair de réseau privé (proxy de confiance par défaut), slowloris mesuré sur un `sleep` au lieu de la connexion.
@@ -96,6 +97,7 @@ Puis : vérifier dans l'UI qu'il ne reste aucune route `lab-*` (y compris des r�
 | `moduleSpecifier … couldn't be found` (k6) | Stack lab déployé avant l'ajout du scénario | Pousser puis redéployer |
 | `LAB_SAFE` ignoré | Script déployé antérieur à son ajout | Redéployer avant de lancer |
 | Seed : `422` `conflit host …` | Routes déjà créées (ancienne version du seed) | Utiliser le seed actuel (idempotent) ; `cleanup.sh` pour repartir de zéro |
+| Attaques : 502 partout juste après un redéploiement | `lab-backend` recréé, en cours de compilation : le Core reçoit `connection refused` et met le backend en quarantaine 15 s | Transitoire ; `attacks.sh` attend désormais jusqu'à 60 s que `lab-fast` réponde 200, sinon s'arrête |
 | Chaos : 502 partout en 3 ms | Proxy Toxiproxy perdu au redémarrage | Version actuelle de `chaos.sh` (recréation automatique) |
 | Erreur de build « listing workers » | Endpoint Docker sans BuildKit | Aucun build dans ce compose : redéployer la version actuelle |
 | `bind source path does not exist` | Montage de fichier sur daemon distant | Sources embarquées : redéployer la version actuelle |
