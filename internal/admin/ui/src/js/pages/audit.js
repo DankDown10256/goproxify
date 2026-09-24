@@ -23,7 +23,7 @@ pages.audit = async function() {
       const tbody = document.getElementById('audit-tbody');
       if (!tbody) return;
       tbody.innerHTML = entries.length ? entries.map(e => `<tr>
-        <td class="mono">${esc(e.created_at ? new Date(e.created_at).toLocaleString(typeof gpxBCP47==='function'?gpxBCP47():'en-US') : '—')}</td>
+        <td class="mono">${esc(e.created_at && !String(e.created_at).startsWith('0001') ? new Date(e.created_at).toLocaleString(typeof gpxBCP47==='function'?gpxBCP47():'en-US') : '—')}</td>
         <td><span class="tag tag-neutral">${esc(e.component)}</span></td>
         <td>${esc(e.actor || '—')}</td>
         <td>${esc(e.ip || '—')}</td>

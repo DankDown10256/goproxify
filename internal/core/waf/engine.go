@@ -779,11 +779,19 @@ func readBody(r *http.Request, maxMB int) (raw string, extracted []string) {
 		return "", nil
 	}
 	limit := int64(maxMB) * 1024 * 1024
-	data, err := io.ReadAll(io.LimitReader(r.Body, limit))
+	orig := r.Body
+	data, err := io.ReadAll(io.LimitReader(orig, limit))
+	// Seuls les premiers maxMB sont inspectés : le corps complet doit néanmoins repartir vers le backend.
+	defer func() {
+		r.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(data), orig), orig}
+	}()
 	if err != nil || len(data) == 0 {
 		return "", nil
 	}
-	r.Body = io.NopCloser(strings.NewReader(string(data)))
+	r.Body = io.NopCloser(bytes.NewReader(data))
 	raw = string(data)
 
 	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -801,7 +809,6 @@ func readBody(r *http.Request, maxMB int) (raw string, extracted []string) {
 			for _, v := range r.MultipartForm.Value {
 				extracted = append(extracted, v...)
 			}
-			r.Body = io.NopCloser(strings.NewReader(raw))
 		}
 	}
 	return raw, extracted

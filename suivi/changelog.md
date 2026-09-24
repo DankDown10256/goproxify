@@ -9,12 +9,18 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **WAF — corps de requête tronqué au-delà de `max_body_mb`** : le WAF lisait au plus `max_body_mb` (10 Mo par défaut) puis remplaçait le corps par ces seuls octets, sans transmettre le reste. Une requête plus grosse (upload) repartait tronquée vers le backend (erreur 502 ou données corrompues). Seuls les premiers `max_body_mb` restent inspectés, mais le corps complet est désormais renvoyé intact. Détecté par le labo de tests (`tests/lab`). (Core `0.6.3`)
+
+- **Journal d'audit — dates affichées `01/01/1`** : `created_at` était relu avec un seul format SQLite ; le driver renvoyant du RFC3339, le parse échouait en silence et la date restait à zéro. Le parse accepte désormais les deux formats, et l'UI affiche `—` pour une date nulle. (Admin `0.18.1`)
+
 - **Sentinel — épuisement mémoire et contournement IPv6** : les compteurs par IP (rate, erreurs 4xx, déclenchements) n'étaient pas bornés et protégés par un mutex global avec GC O(n) dans le chemin de requête. Ils sont désormais répartis en 64 shards, plafonnés (~262 k clés par type, éviction fail-open) et les IPv6 sont agrégées par /64 pour ne plus contourner le rate limit avec un préfixe entier. Nouvelle métrique `gpx_threat_counter_evictions_total`. Les bans restent posés sur l'IP exacte. (Core `0.6.2`)
 - **Sentinel — `rate_window` sans effet** : le paramètre était ignoré (burst = `rate_limit`). Il fixe désormais la capacité de burst : `rate_limit` req/s en moyenne, pics tolérés jusqu'à `rate_limit × rate_window` requêtes (défaut `1s` : comportement inchangé). (Core `0.6.2`)
 
 - **Sécurité — IP client falsifiable via `X-Forwarded-For`** : `RealIP` croyait `CF-Connecting-IP` / `X-Forwarded-For` / `X-Real-IP` de n'importe quel client, ce qui permettait de contourner Fail2Ban/Sentinel/rate-limit (IP changée à chaque requête), de faire bannir un tiers et de falsifier les logs. Les en-têtes ne sont désormais lus que si la connexion directe provient d'un proxy de confiance : loopback + réseaux privés par défaut, extensible via `GPX_TRUSTED_PROXIES` (CSV IP/CIDR, `*` = ancien comportement). **Attention** : derrière Cloudflare ou un load balancer à IP publique, renseigner `GPX_TRUSTED_PROXIES` sinon l'IP vue est celle du proxy. `X-Forwarded-For` est lu de droite à gauche (première IP hors proxy de confiance) : une IP forgée en tête de chaîne derrière un proxy qui ajoute à l'en-tête n'est plus prise en compte ; les valeurs non-IP sont ignorées. (Core `0.6.1`, Admin `0.17.1`)
 
 ### Ajouté
+
+- **Labo de tests** (`tests/lab/`) : environnement Docker isolé (routes `*.lab.test`) avec backend contrôlable, scénarios de charge k6 (smoke, baseline, spike, stress, soak, mixed), batterie d'attaques avec verdicts PASS/FAIL (WAF, usurpation XFF, smuggling, slowloris, API Admin), chaos réseau via Toxiproxy et scanners ZAP/Nuclei. Piloté par `tests/lab/lab.sh`. Aucun changement de service.
 
 - **MCP — allowlist de destinations backend** : `create_proxy` et `update_proxy` refusent un backend hors allowlist (IP, CIDR, hôte exact ou `*.suffixe`), pour qu'un agent victime de prompt injection ne puisse pas rediriger le trafic vers un serveur externe. Défaut : RFC 1918, loopback, ULA, `*.internal|local|svc|cluster.local` et noms à label unique ; liste vide = pas de restriction. Éditable via `GET/PUT /api/v1/mcp-access/allowed-backends` (pas encore d'écran UI). Ne couvre pas l'API REST/UI. Attention : les backends MCP publics existants devront être ajoutés à la liste. (Admin `0.18.0`)
 

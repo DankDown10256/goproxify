@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"log/slog"
 	"net/http"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -388,5 +389,21 @@ func TestContextMatches(t *testing.T) {
 
 	if len(ctxMatches) == 0 {
 		t.Fatal("WAF matches should be in context")
+	}
+}
+
+func TestReadBody_LargeBodyForwardedIntact(t *testing.T) {
+	for _, ct := range []string{"application/octet-stream", "application/json"} {
+		full := strings.Repeat("a", 3<<20)
+		if ct == "application/json" {
+			full = `{"k":"` + strings.Repeat("a", 3<<20) + `"}`
+		}
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(full))
+		r.Header.Set("Content-Type", ct)
+		readBody(r, 1)
+		got, err := io.ReadAll(r.Body)
+		if err != nil || string(got) != full {
+			t.Fatalf("%s : corps tronqué (%d/%d octets, err=%v)", ct, len(got), len(full), err)
+		}
 	}
 }

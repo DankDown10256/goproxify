@@ -163,7 +163,7 @@ func (l *Logger) Search(p SearchParams) ([]Entry, int, error) {
 		); err != nil {
 			continue
 		}
-		e.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", ts)
+		e.CreatedAt = parseTimestamp(ts)
 		entries = append(entries, e)
 	}
 	if entries == nil {
@@ -207,4 +207,23 @@ func (l *Logger) purgeLoop() {
 			fmt.Sprintf("-%d", l.retentionDays),
 		)
 	}
+}
+
+var timestampLayouts = []string{
+	"2006-01-02 15:04:05",
+	time.RFC3339Nano,
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+}
+
+// parseTimestamp accepte le format SQLite CURRENT_TIMESTAMP et les formats renvoyés par le driver
+// pour une colonne DATETIME ; un échec renvoie le zéro (traité comme « inconnu » par l'UI).
+func parseTimestamp(s string) time.Time {
+	for _, l := range timestampLayouts {
+		if t, err := time.Parse(l, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
 }
