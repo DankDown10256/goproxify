@@ -413,6 +413,12 @@ function wizardImport2Html() {
           <input type="checkbox" id="imp-channels" ${s.channel_count?'':'disabled'}> &nbsp;${t('import.entity.channels')} <span style="color:var(--text3)">(${s.channel_count||0})</span>
         </label>
         <label class="infra-card" style="cursor:pointer;padding:12px 14px">
+          <input type="checkbox" id="imp-pats" ${s.pat_count?'':'disabled'}> &nbsp;${t('import.entity.pats')} <span style="color:var(--text3)">(${s.pat_count||0})</span>
+        </label>
+        <label class="infra-card" style="cursor:pointer;padding:12px 14px">
+          <input type="checkbox" id="imp-config" ${s.config_row_count?'':'disabled'}> &nbsp;${t('import.entity.config')} <span style="color:var(--text3)">(${s.config_row_count||0})</span>
+        </label>
+        <label class="infra-card" style="cursor:pointer;padding:12px 14px">
           <input type="checkbox" id="imp-rules" ${s.rule_count?'':'disabled'}> &nbsp;${t('import.entity.rules')} <span style="color:var(--text3)">(${s.rule_count||0})</span>
         </label>
       </div>
@@ -457,6 +463,8 @@ window.applyBackupImport = async function() {
     import_snippets: document.getElementById('imp-snippets')?.checked || false,
     import_alert_channels: document.getElementById('imp-channels')?.checked || false,
     import_alert_rules:    document.getElementById('imp-rules')?.checked || false,
+    import_pats:           document.getElementById('imp-pats')?.checked || false,
+    import_config:         document.getElementById('imp-config')?.checked || false,
     on_conflict: document.getElementById('imp-conflict')?.value || 'skip',
   };
   try {

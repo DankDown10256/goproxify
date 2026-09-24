@@ -25,6 +25,7 @@ func RedactSecrets(b *Backup) {
 			b.Tokens[i].Token = ""
 		}
 	}
+	redactTables(b.Tables)
 	for i, ch := range b.AlertChannels {
 		cfg, _ := ch["config"].(map[string]any)
 		if cfg == nil {

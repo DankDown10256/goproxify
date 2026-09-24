@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -162,15 +163,34 @@ func (h *BackupHandler) restoreSnapshot(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Sans corps : restauration complète. Un corps {"selection":{…}} permet de restreindre.
 	sel := importer.ImportSelection{
 		ImportUsers:    true,
 		ImportTokens:   true,
+		ImportPATs:     true,
 		ImportSnippets: true,
 		ImportChannels: true,
 		ImportRules:    true,
+		ImportConfig:   true,
 		OnConflict:     "overwrite",
 	}
+	var body struct {
+		Selection *importer.ImportSelection `json:"selection"`
+	}
+	if json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body) == nil && body.Selection != nil {
+		sel = *body.Selection
+	}
+	// Filet de sécurité : état courant sauvegardé avant d'écraser quoi que ce soit.
+	if sel.OnConflict == "overwrite" {
+		if err := h.Scheduler.TakeSnapshot("avant-restauration-"+time.Now().Format("20060102-150405"), "", 0); err != nil {
+			http.Error(w, "snapshot de sécurité impossible, restauration annulée : "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	result := importer.Apply(h.DB, bk, sel)
+	if sel.ImportConfig {
+		h.Scheduler.Reload()
+	}
 	if h.Pusher != nil {
 		go h.Pusher.PushRoutes(context.Background())
 	}

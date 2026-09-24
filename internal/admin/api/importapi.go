@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,14 +15,16 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/admin/backup"
 	"github.com/vincamok/goproxify/internal/admin/importer"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
 
 // ImportHandler gère l'import de sauvegardes et la migration de configs.
 type ImportHandler struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB        *sql.DB
+	Log       *slog.Logger
+	Scheduler *backup.Scheduler // optionnel : snapshot de sécurité avant écrasement, rechargement des planifications
 }
 
 func (h *ImportHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +71,7 @@ func (h *ImportHandler) backupApply(w http.ResponseWriter, r *http.Request) {
 		Data      json.RawMessage         `json:"data"`
 		Selection importer.ImportSelection `json:"selection"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20)).Decode(&body); err != nil {
 		importJSONErr(w, err, http.StatusBadRequest)
 		return
 	}
@@ -77,7 +80,16 @@ func (h *ImportHandler) backupApply(w http.ResponseWriter, r *http.Request) {
 		importJSONErr(w, err, http.StatusBadRequest)
 		return
 	}
+	if h.Scheduler != nil && body.Selection.OnConflict == "overwrite" {
+		if err := h.Scheduler.TakeSnapshot("avant-import-"+time.Now().Format("20060102-150405"), "", 0); err != nil {
+			importJSONErr(w, fmt.Errorf("snapshot de sécurité impossible, import annulé : %w", err), http.StatusInternalServerError)
+			return
+		}
+	}
 	result := importer.Apply(h.DB, b, body.Selection)
+	if h.Scheduler != nil && body.Selection.ImportConfig {
+		h.Scheduler.Reload()
+	}
 	jsonOK(w, result)
 }
 

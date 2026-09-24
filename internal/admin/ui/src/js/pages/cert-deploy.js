@@ -151,7 +151,7 @@ window.openAddTargetModal = function(certID, domain) {
         </select>
       </div>
       <div id="tgt-cfg-webhook" style="display:flex;flex-direction:column;gap:10px;">
-        <div class="field"><label>URL du webhook</label><input class="input" id="tgt-url" placeholder="https://votre-serveur.com/cert-hook" type="url"></div>
+        <div class="field"><label>URL du webhook</label><input class="input" id="tgt-url" placeholder="https://your-server.example.com/cert-hook" type="url"></div>
         <div class="field"><label>Secret HMAC <span style="opacity:0.5;font-size:11px;">(optionnel)</span></label><input class="input" id="tgt-secret" placeholder="Clé secrète partagée" type="password" autocomplete="new-password"></div>
       </div>
       <div id="tgt-cfg-ssh" style="display:none;flex-direction:column;gap:10px;">

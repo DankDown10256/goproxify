@@ -701,7 +701,7 @@ async function agentConfigure(nodeName, node) {
   const selStyle = 'background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);font-family:inherit;width:100%;';
   const coreSelect = `<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);">${t('infra.configure.core_target')}
     <select id="cfg-core-ep-select" style="${selStyle}" onchange="(function(s){const m=document.getElementById('cfg-core-ep-manual');if(m)m.style.display=s.value==='__other__'?'block':'none';})(this)">${coreSelectOpts}</select>
-    <input id="cfg-core-ep-manual" type="url" value="${esc(isCoreOther ? currentCoreEP : '')}" placeholder="http://lucas-core:8000"
+    <input id="cfg-core-ep-manual" type="url" value="${esc(isCoreOther ? currentCoreEP : '')}" placeholder="http://core.example.com:8000"
       style="${selStyle}display:${isCoreOther ? 'block' : 'none'};margin-top:4px;">
   </label>`;
 

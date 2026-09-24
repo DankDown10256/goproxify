@@ -359,7 +359,7 @@ func (m *Manager) ConnectFromEnv(ctx context.Context) {
 	}
 
 	// GPX_CORE_EXTRA_ENDPOINTS : Cores supplémentaires (HA, multi-Core).
-	// Format CSV : "name=http://host:port,name2=http://host2:port"
+	// Format CSV : "name=http://host:port,name2=http://core.example.com:port"
 	if extras := os.Getenv("GPX_CORE_EXTRA_ENDPOINTS"); extras != "" {
 		for _, entry := range strings.Split(extras, ",") {
 			entry = strings.TrimSpace(entry)

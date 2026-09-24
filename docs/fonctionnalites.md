@@ -186,7 +186,7 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 |------|-------|---------|
 | Automatic rules | `security-rules` | Rules engine CRUD, dry-run, execution history (see [docs/security.md](security.md#automatic-rules-engine)) |
 | Alert channels | `alert-channels` | Notification channels (email, webhook, ntfy, gotify) |
-| Rule store | `rules-store` | 5 preconfigured rule templates (`GET /api/v1/rules-engine/templates`), one-click install via `POST /api/v1/rules-engine/templates/{id}/install` |
+| Rule store | `rules-store` | 15 preconfigured rule templates (`GET /api/v1/rules-engine/templates`), one-click install via `POST /api/v1/rules-engine/templates/{id}/install` |
 
 ### Architecture wizard
 
@@ -278,7 +278,7 @@ Alertmanager-inspired model: each rule independently defines its scope, triggers
 ### Scheduled backups
 
 - **Core**: routing table snapshot (JSON), per-proxy versioning, navigable history, per-proxy rollback
-- **Admin**: JSON dump (users, teams, token metadata without secrets, snippets); secrets redacted; optional AES-GCM encryption via `GPX_BACKUP_KEY`
+- **Admin**: JSON dump (users, token metadata without secrets, snippets, alert channels/rules, declared nodes, plus configuration tables: settings incl. MCP IP allowlist, automatic rules, teams/scopes, workspaces, domains, cert deploy targets, auth providers, IP profiles, tunnel configs, error/portal pages, fail2ban/CrowdSec config); secrets redacted (a redacted secret never overwrites an existing value on restore); optional AES-GCM encryption via `GPX_BACKUP_KEY`
 - **Configurable cron** scheduling, configurable retention (number of snapshots)
 - Restore with diff preview before applying
 - CLI: `goproxify backup create/list/restore`

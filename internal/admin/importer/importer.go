@@ -34,6 +34,7 @@ type Backup struct {
 	AlertRules     []map[string]any           `json:"alert_rules"`
 	DeclaredNodes  []map[string]any           `json:"declared_nodes,omitempty"`
 	Configs        map[string]json.RawMessage `json:"configs,omitempty"` // "admin" | "core" | "agent:<name>"
+	Tables         map[string][]map[string]any `json:"tables,omitempty"` // tables de configuration (settings, règles auto, équipes, domaines…)
 }
 
 type BackupProxy struct {
@@ -96,6 +97,8 @@ type BackupSummary struct {
 	ChannelCount       int            `json:"channel_count"`
 	RuleCount          int            `json:"rule_count"`
 	DeclaredNodeCount  int            `json:"declared_node_count"`
+	ConfigRowCount     int            `json:"config_row_count"`
+	ConfigTables       map[string]int `json:"config_tables,omitempty"`
 	HasConfigs         bool           `json:"has_configs"`
 }
 
@@ -118,6 +121,7 @@ type ImportSelection struct {
 	ImportRules    bool     `json:"import_alert_rules"`
 	OnConflict     string   `json:"on_conflict"`     // skip | overwrite
 	RestoreConfigs bool     `json:"restore_configs"` // écrire les fichiers config sur disque
+	ImportConfig   bool     `json:"import_config"`   // restaurer les tables de configuration (règles auto, équipes, domaines, settings…)
 }
 
 // ImportResult décrit ce qui a été importé.
@@ -129,6 +133,8 @@ type ImportResult struct {
 	Snippets int `json:"snippets"`
 	Channels int `json:"channels"`
 	Rules    int `json:"rules"`
+	Config        int `json:"config"`
+	DeclaredNodes int `json:"declared_nodes"`
 	Skipped  int `json:"skipped"`
 	Errors   int `json:"errors"`
 }
@@ -138,6 +144,9 @@ func SummarizeBackup(data []byte) (*Backup, *BackupSummary, error) {
 	var b Backup
 	if err := json.Unmarshal(data, &b); err != nil {
 		return nil, nil, err
+	}
+	if b.Version != "" && b.Version != "1" {
+		return nil, nil, fmt.Errorf("version de sauvegarde %q non supportée (attendue : 1)", b.Version)
 	}
 	sum := &BackupSummary{
 		Version:           b.Version,
@@ -150,6 +159,8 @@ func SummarizeBackup(data []byte) (*Backup, *BackupSummary, error) {
 		ChannelCount:      len(b.AlertChannels),
 		RuleCount:         len(b.AlertRules),
 		DeclaredNodeCount: len(b.DeclaredNodes),
+		ConfigRowCount:    TableRowCount(b.Tables),
+		ConfigTables:      TableCounts(b.Tables),
 		HasConfigs:        len(b.Configs) > 0,
 	}
 	for _, p := range b.Proxies {
@@ -413,8 +424,14 @@ func Apply(db *sql.DB, b *Backup, sel ImportSelection) ImportResult {
 		_, err := db.Exec(verb+` INTO declared_nodes (id, role, name, region, environment, config) VALUES (?,?,?,?,?,?)`,
 			id, role, name, region, env, string(cfgJ))
 		if err == nil {
-			_ = err // comptabilisé dans proxies pour ne pas casser l'API
+			res.DeclaredNodes++
 		}
+	}
+
+	if sel.ImportConfig {
+		w, sk := applyTables(db, b.Tables, overwrite)
+		res.Config += w
+		res.Skipped += sk
 	}
 
 	return res
@@ -566,6 +583,8 @@ func ExportBackup(db *sql.DB) (*Backup, error) {
 			})
 		}
 	}
+
+	b.Tables = exportTables(db)
 
 	return b, nil
 }

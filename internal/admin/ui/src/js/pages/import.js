@@ -35,6 +35,8 @@ pages.import = function() {
     ['imp-tokens', 'import.entity.tokens', '<path d="M7 11a4 4 0 100-8 4 4 0 000 8zM11 11l4 4"/>'],
     ['imp-snippets', 'import.entity.snippets', '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'],
     ['imp-channels', 'import.entity.channels', '<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>'],
+    ['imp-pats', 'import.entity.pats', '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>'],
+    ['imp-config', 'import.entity.config', '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'],
     ['imp-rules', 'import.entity.rules', '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'],
   ];
 
@@ -278,6 +280,7 @@ pages.import = function() {
         <div class="gp-kpi-grid" style="margin:16px 0">
           ${kpi(result.proxies||0, t('trafic.proxies'))}${kpi(result.users||0, t('import.entity.users'))}${kpi(result.tokens||0, t('import.entity.tokens'))}
           ${kpi(result.snippets||0, t('import.entity.snippets'))}${kpi(result.channels||0, t('import.result.channels'))}${kpi(result.rules||0, t('import.result.rules'))}
+          ${kpi(result.pats||0, t('import.entity.pats'))}${kpi(result.config||0, t('import.result.config'))}${kpi(result.declared_nodes||0, t('import.result.declared_nodes'))}
         </div>
         ${result.skipped>0?`<p style="color:var(--text2);font-size:13px;margin-bottom:16px">${t('import.result.skipped', { n: result.skipped })}</p>`:''}
         <div style="display:flex;gap:8px">
@@ -349,6 +352,8 @@ pages.import = function() {
         import_snippets:       document.getElementById('imp-snippets')?.checked || false,
         import_alert_channels: document.getElementById('imp-channels')?.checked || false,
         import_alert_rules:    document.getElementById('imp-rules')?.checked    || false,
+        import_pats:           document.getElementById('imp-pats')?.checked     || false,
+        import_config:         document.getElementById('imp-config')?.checked   || false,
         on_conflict:           document.getElementById('imp-conflict')?.value   || 'skip',
       };
       try {

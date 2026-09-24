@@ -7,6 +7,22 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Modifié
+
+- **Sauvegardes — imports et restauration revus** : snapshot de sécurité automatique (`avant-restauration-*` / `avant-import-*`) avant tout écrasement, opération annulée s'il échoue ; `POST /backups/snapshots/:id/restore` accepte une `selection` optionnelle ; restauration des PAT et de la configuration dans les 3 écrans (Sauvegardes, Import, assistant de démarrage) avec cases dédiées ; résumé du preview détaillé par table (`config_tables`) ; compteurs `config` et `declared_nodes` dans le résultat ; version de sauvegarde inconnue refusée ; corps d'import limité à 32 Mo ; planifications rechargées après restauration ; endpoints documentés dans `api_specs.md`. (Admin `0.17.0`)
+
+- **Documentation des sauvegardes** : nouveau `docs/sauvegardes.md` (fonctionnement, contenu exact, exclusions, secrets, restauration).
+
+- **Sauvegardes — couverture étendue** : le snapshot n'exportait que proxies, utilisateurs, tokens, snippets, canaux/règles d'alerte et nœuds déclarés ; tout le reste était perdu à la restauration. Ajout de la section `tables` (règles automatiques, settings dont allowlist MCP, planification de sauvegarde, équipes/scopes, workspaces, domaines, cibles de déploiement de certificats, fournisseurs d'authentification, profils IP, tunnels, pages d'erreur/portail, config fail2ban/CrowdSec). Secrets rédigés à l'export et jamais écrasés à la restauration ; nouvelle case « Configuration » (`import_config`) dans la restauration, cochée par défaut, et incluse dans la restauration d'un snapshot. Les MFA, mots de passe, logs, bans, audit et clés RGPD restent volontairement exclus. (Admin `0.16.0`)
+
+### Modifié
+
+- **Accès MCP — IP sources autorisées : réseaux privés par défaut** : tant que la liste n'a jamais été enregistrée, `/mcp` n'accepte que RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), loopback et IPv6 ULA/loopback. Une liste explicitement vidée reste sans restriction. Attention : les installations existantes n'ayant jamais configuré la liste refusent désormais les IP publiques. (Admin `0.15.1`)
+
+### Ajouté
+
+- **Store de règles — 8 nouveaux templates (15 au total)** : sécurité (`cve-high-notify` CVSS ≥ 7, `ban-spike-notify` > 50 bans/1h, `ban-repeat-permanent` ban définitif après 5 bans/7j), fiabilité (`crowdsec-silent-alert`, `error-rate-notify` > 30 %/10 min, `node-offline-long-backup` nœud hors ligne > 30 min → sauvegarde), conformité (`cert-expiring-notify` 30 j, `cert-expiring-critical` 3 j). Réutilisent les conditions/actions existantes ; aucun changement d'API. (Admin `0.15.0`)
+
 ### Corrigé
 
 - **"Règles automatiques" — le bouton Éditer ne fonctionnait pas** : `onclick="openRuleModal(${JSON.stringify(JSON.stringify(r))})"` injectait un JSON doublement échappé directement dans l'attribut HTML `onclick="..."` — les guillemets `"` du JSON, non ré-échappés pour le contexte HTML, terminaient prématurément l'attribut et cassaient le markup (bouton inopérant ou comportement erratique selon le contenu de la règle). Corrigé en passant l'`id` de la règle (comme le fait déjà `runRuleNow`) et en la retrouvant dans `window._reRules`, déjà en cache depuis `renderSecurityRules` — même pattern que `openAlertRuleModal`/`openChannelModal` (`alerts.js`). (Webapp `0.12.2`)

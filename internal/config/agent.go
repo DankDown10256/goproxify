@@ -96,6 +96,6 @@ type AgentConfig struct {
 // EndpointCoreConf permet de router les routes d'un endpoint Portainer
 // vers un Core GoProxify différent de celui par défaut de l'agent.
 type EndpointCoreConf struct {
-	CoreEndpoint string `mapstructure:"core_endpoint"` // ex: http://lucas-core:8000
+	CoreEndpoint string `mapstructure:"core_endpoint"` // ex: http://core.example.com:8000
 	AuthToken    string `mapstructure:"auth_token"`    // token d'agent pour ce Core
 }

@@ -113,6 +113,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 	go s.loop(ctx)
 }
 
+// Reload réveille la boucle pour relire les planifications (après une restauration).
+func (s *Scheduler) Reload() { s.notify() }
+
 func (s *Scheduler) notify() {
 	select {
 	case s.wake <- struct{}{}:

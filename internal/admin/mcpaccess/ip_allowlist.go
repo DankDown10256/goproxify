@@ -22,9 +22,13 @@ import (
 // autorisés à appeler /mcp. Liste vide = pas de restriction (comportement historique).
 const settingKey = "mcp.allowed_ips"
 
+// defaultAllowedIPs s'applique tant que la clÃ© n'a jamais Ã©tÃ© Ã©crite : rÃ©seaux privÃ©s (RFC 1918),
+// loopback et ULA IPv6. Une liste explicitement vidÃ©e par l'admin reste sans restriction.
+const defaultAllowedIPs = `["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","127.0.0.0/8","::1/128","fc00::/7"]`
+
 // AllowedIPs retourne la liste des IP/CIDR autorisés à utiliser le MCP.
 func AllowedIPs(db *sql.DB) []string {
-	raw := admindb.GetSetting(db, settingKey, "[]")
+	raw := admindb.GetSetting(db, settingKey, defaultAllowedIPs)
 	var out []string
 	_ = json.Unmarshal([]byte(raw), &out)
 	return out

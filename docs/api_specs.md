@@ -247,6 +247,23 @@ Restaure la config de cette version sur le proxy.
 
 ---
 
+## Sauvegardes & imports
+
+Contenu détaillé : [sauvegardes.md](sauvegardes.md).
+
+### `POST /api/v1/backups/snapshots/:id/restore`
+
+Restaure un snapshot. Corps optionnel `{"selection": {…}}` (mêmes champs que `import/backup/apply`) ; **sans corps**, restauration complète en mode `overwrite` (utilisateurs, tokens, PAT, snippets, canaux, règles, tables de configuration). En `overwrite`, un snapshot de sécurité `avant-restauration-<date>` est pris d'abord ; s'il échoue, la restauration est annulée (500). Réponse : `ImportResult`.
+
+### `POST /api/v1/import/backup/preview`
+
+Corps : JSON de sauvegarde (32 Mo max). Réponse : résumé (`proxies[]`, `user_count`, `token_count`, `pat_count`, `snippet_count`, `channel_count`, `rule_count`, `declared_node_count`, `config_row_count`, `config_tables{table: n}`). Une `version` ≠ `1` est refusée (400).
+
+### `POST /api/v1/import/backup/apply`
+
+Corps : `{"data": <sauvegarde>, "selection": {"proxy_ids", "import_users", "import_tokens", "import_pats", "import_snippets", "import_alert_channels", "import_alert_rules", "import_config", "on_conflict": "skip|overwrite"}}` (32 Mo max). En `overwrite`, un snapshot `avant-import-<date>` est pris d'abord. Réponse : `{proxies, users, tokens, pats, snippets, channels, rules, config, declared_nodes, skipped, errors}`.
+---
+
 ## Certificats
 
 ### `GET /api/v1/certs`
@@ -744,7 +761,7 @@ Réponse `200` :
 {
   "entry_id": 4821,
   "ip": "203.0.113.42",
-  "requested_by": "dpo@exemple.fr",
+  "requested_by": "dpo@example.com",
   "reason": "Réquisition judiciaire n°2026/1234",
   "ts": "2026-09-20T14:32:01Z"
 }

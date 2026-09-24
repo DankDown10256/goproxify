@@ -94,7 +94,7 @@ Example:
     "skip_endpoints": ["local"],
     "endpoint_cores": {
       "edge-dc2": {
-        "core_endpoint": "http://core-dc2:8000",
+        "core_endpoint": "http://core-2.example.com:8000",
         "auth_token": "gpx_agent_..."
       }
     }

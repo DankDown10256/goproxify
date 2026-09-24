@@ -73,7 +73,7 @@ L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.ena
 | `goproxify.rate_limit.rps` | `"100"` | Alias généré par l'UI (rps uniquement). |
 | `goproxify.rate_limit.burst` | `"50"` | Burst séparé (combiné avec `.rps`). |
 | `goproxify.ip_filter` | `"allow:10.0.0.0/8"` \| `"deny:1.2.3.4"` | Filtrage IP/CIDR. Préfixe `allow:` ou `deny:`, valeurs séparées par virgule. |
-| `goproxify.cors` | `"https://app.fr,https://www.app.fr"` | Origins CORS autorisées (CSV). |
+| `goproxify.cors` | `"https://app.example.com,https://www.app.example.com"` | Origins CORS autorisées (CSV). |
 | `goproxify.geo_ip` | `"allow:FR,DE"` \| `"deny:CN,RU"` | Filtrage géographique par code pays ISO 3166-1. |
 | `goproxify.snippets` | `"waf-default,headers-secure"` | IDs de snippets de sécurité définis dans l'Admin (CSV). |
 | `goproxify.auth_provider` | `"authentik-prod"` | ID du fournisseur d'authentification configuré dans l'Admin. |

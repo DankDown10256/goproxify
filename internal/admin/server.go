@@ -453,7 +453,7 @@ func (s *Server) Start(ctx context.Context) error {
 	reEngine.Start()
 	s.rulesEngine = reEngine
 	reH := &api.RulesEngineHandler{DB: s.db, Log: s.log, Engine: reEngine}
-	importH := &api.ImportHandler{DB: s.db, Log: s.log}
+	importH := &api.ImportHandler{DB: s.db, Log: s.log, Scheduler: backupSched}
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
 	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater, OnChange: syncConfig}

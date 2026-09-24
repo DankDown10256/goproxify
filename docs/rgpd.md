@@ -147,7 +147,7 @@ Réponse :
 {
   "entry_id": 4821,
   "ip": "203.0.113.42",
-  "requested_by": "dpo@exemple.fr",
+  "requested_by": "dpo@example.com",
   "reason": "Réquisition judiciaire n°2026/1234",
   "ts": "2026-09-20T14:32:01Z"
 }

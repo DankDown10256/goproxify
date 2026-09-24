@@ -441,9 +441,11 @@ pages.backups = async function() {
         ['proxies',  t('trafic.proxies'),          (s.proxies?.length) || 0],
         ['users',    t('import.entity.users'),    s.user_count   || 0],
         ['tokens',   t('import.entity.tokens'),   s.token_count  || 0],
+        ['pats',     t('import.entity.pats'),     s.pat_count    || 0],
         ['snippets', t('import.entity.snippets'), s.snippet_count|| 0],
         ['channels', t('import.entity.channels'), s.channel_count|| 0],
         ['rules',    t('import.entity.rules'),    s.rule_count   || 0],
+        ['config',   t('import.entity.config'),   s.config_row_count || 0],
       ].filter(([,, n]) => n > 0);
 
       return `
@@ -535,9 +537,11 @@ pages.backups = async function() {
           proxy_ids:             proxyIds,
           import_users:          getCheck('users'),
           import_tokens:         getCheck('tokens'),
+          import_pats:           getCheck('pats'),
           import_snippets:       getCheck('snippets'),
           import_alert_channels: getCheck('channels'),
           import_alert_rules:    getCheck('rules'),
+          import_config:         getCheck('config'),
           on_conflict:           conflict,
         };
         try {
@@ -626,7 +630,7 @@ window.restoreSnapshot = async function(id, name) {
   if (!confirm(t('backups.restore_confirm', { name }))) return;
   try {
     const res = await api('POST', `/backups/snapshots/${id}/restore`);
-    toast(t('backups.restore_result', { proxies: res.proxies||0, users: res.users||0 }), 'success');
+    toast(t('backups.restore_result', { proxies: res.proxies||0, users: res.users||0, config: res.config||0 }), 'success');
     pages.backups();
   } catch(e) { toast(e.message, 'error'); }
 };
