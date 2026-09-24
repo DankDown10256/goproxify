@@ -15,6 +15,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **HA Admin — `/ha/status` renvoyait le mauvais `node_id`** : `ha.Manager.HandleStatus` retournait `LeaderID()` à la place de l'ID propre du nœud interrogé, faisant apparaître tous les nœuds (leader et followers) avec le même Node ID dans la page Statut HA. Ajout de `raft.Node.ID()` et correction du handler pour retourner l'identité réelle du nœud.
 - **HA — Core backup ne recevait jamais le `full_sync` Admin** : `GPX_CORE_EXTRA_ENDPOINTS` était documenté mais non implémenté. `ConnectFromEnv` supporte désormais cette variable (format CSV `name=http://host:port`). L'Admin se connecte à chaque Core extra au démarrage et pousse le `full_sync`. (Admin `0.10.1`)
 
+### Corrigé
+
+- **Menu Accès — libellé "Tokens Core & Agent" jamais affiché** : même piège que `page.users`/`page.acme-monitor` — `app.config.js` déclarait `'Tokens Core & Agent'` pour l'entrée `tokens`, mais la clé i18n `page.tokens` (`'Tokens d'appairage'`, cohérente avec le titre de page et les 4 langues) l'écrasait silencieusement via `gpxPageLabel()`. Libellé du menu aligné sur ce qui s'affiche réellement. Audit des 4 entrées d'Accès (`tokens`, `access-policies`, `workspaces`, `acme-monitor`) : plus aucun écart config/i18n. (Webapp `0.9.0`)
+
 ### Ajouté
 
 - **"Monitoring ACME" renommé "Domaines & certificats"** : reflète le périmètre élargi depuis la fusion avec Certificats/Déploiement (actions Déployer/Éditer ajoutées précédemment). Clé `page.acme-monitor` mise à jour en FR/EN (piège identique à celui corrigé pour `page.users` : `gpxPageLabel()` priorise toujours la traduction sur le libellé d'`app.config.js`). (Webapp `0.9.0`)

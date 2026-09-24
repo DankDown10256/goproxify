@@ -135,7 +135,7 @@ const APP_CONFIG = {
       children: [
         {
           page: 'tokens',
-          label: 'Tokens Core & Agent',
+          label: 'Tokens d\'appairage',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11a4 4 0 100-8 4 4 0 000 8zM11 11l4 4"/></svg>',
         },
         {
