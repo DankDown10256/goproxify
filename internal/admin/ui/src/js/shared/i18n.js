@@ -642,8 +642,9 @@ const GPX_I18N_MESSAGES = {
     'users.lecture': 'read',
     'users.ecriture': 'write',
 
-    'workspaces.title': 'Workspaces',
-    'workspaces.subtitle': 'Named containers grouping resources (proxies, domains, cores) with team/user assignments.',
+    'workspaces.title': 'Team management',
+    'workspaces.subtitle': 'Users, teams and workspaces — named containers grouping resources (proxies, domains, cores) with team/user assignments.',
+    'workspaces.tab_spaces': 'Workspaces',
     'workspaces.new': '+ New workspace',
     'workspaces.edit': 'Edit workspace',
     'workspaces.empty': 'No workspace yet — create one to group resources and assign teams.',
@@ -3090,8 +3091,9 @@ const GPX_I18N_MESSAGES = {
     'users.lecture': 'lecture',
     'users.ecriture': 'écriture',
 
-    'workspaces.title': 'Espaces de travail',
-    'workspaces.subtitle': 'Conteneurs nommés regroupant des ressources (proxies, domaines, cores) avec des équipes ou utilisateurs.',
+    'workspaces.title': 'Gestion d\'équipe',
+    'workspaces.subtitle': 'Utilisateurs, équipes et espaces de travail — conteneurs nommés regroupant des ressources (proxies, domaines, cores) avec des équipes ou utilisateurs.',
+    'workspaces.tab_spaces': 'Espaces de travail',
     'workspaces.new': '+ Nouvel espace',
     'workspaces.edit': 'Modifier l\'espace',
     'workspaces.empty': 'Aucun espace de travail — créez-en un pour regrouper des ressources et y affecter des équipes.',

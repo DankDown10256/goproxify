@@ -134,11 +134,6 @@ const APP_CONFIG = {
       guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
       children: [
         {
-          page: 'users',
-          label: 'Utilisateurs & équipes',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/><circle cx="13" cy="5" r="2"/><path d="M18 13c0-2-1.8-3.2-4-3.2"/></svg>',
-        },
-        {
           page: 'tokens',
           label: 'Tokens Core & Agent',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11a4 4 0 100-8 4 4 0 000 8zM11 11l4 4"/></svg>',
@@ -150,8 +145,8 @@ const APP_CONFIG = {
         },
         {
           page: 'workspaces',
-          label: 'Espaces de travail',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+          label: 'Gestion d\'équipe',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/><circle cx="13" cy="5" r="2"/><path d="M18 13c0-2-1.8-3.2-4-3.2"/></svg>',
         },
         {
           page: 'acme-monitor',
@@ -307,7 +302,7 @@ const APP_CONFIG = {
     'api-tokens':        'Mes tokens API',
     access:              'Accès',
     'access-policies':   'Politiques d\'accès',
-    workspaces:          'Espaces de travail',
+    workspaces:          'Gestion d\'équipe',
     prism:              'Prism — Analyse',
     'core-prism':       'Prism',
     alerts:             'Règles d\'alertes',

@@ -1,6 +1,41 @@
+// ── Gestion d'équipe : fusion Utilisateurs & équipes + Espaces de travail ──
+// Deux onglets dans une même page. `pages.users` reste accessible en direct
+// (liens internes access-policies.js / infrastructure.js) et rend refreshUsers()
+// en plein écran, sans onglets.
+
 pages.workspaces = async function() {
   const content = document.getElementById('content');
-  content.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
+  document.getElementById('topbar-actions').innerHTML = '';
+  content.innerHTML = `
+    <div style="margin-bottom:20px;">
+      <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('workspaces.title')}</h1>
+      <p style="margin:0;opacity:0.65;font-size:14px;">${t('workspaces.subtitle')}</p>
+    </div>
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;" id="wsteam-tabs">
+      <button class="btn btn-ghost" style="border-radius:0;border-bottom:2px solid transparent;font-size:13px;padding:8px 14px;" id="wsteam-tab-btn-users" onclick="wsTeamSwitchTab('users')">${t('users.title')}</button>
+      <button class="btn btn-ghost" style="border-radius:0;border-bottom:2px solid transparent;font-size:13px;padding:8px 14px;" id="wsteam-tab-btn-spaces" onclick="wsTeamSwitchTab('spaces')">${t('workspaces.tab_spaces')}</button>
+    </div>
+    <div id="wsteam-tab-body"></div>`;
+  await wsTeamSwitchTab(window._wsTeamActiveTab || 'users');
+};
+
+window.wsTeamSwitchTab = async function(tab) {
+  window._wsTeamActiveTab = tab;
+  ['users', 'spaces'].forEach(k => {
+    const btn = document.getElementById('wsteam-tab-btn-' + k);
+    if (btn) btn.style.borderBottom = k === tab ? '2px solid var(--accent)' : '2px solid transparent';
+  });
+  const body = document.getElementById('wsteam-tab-body');
+  if (!body) return;
+  if (tab === 'users') {
+    await refreshUsers(body);
+  } else {
+    await renderWorkspacesGrid(body);
+  }
+};
+
+async function renderWorkspacesGrid(container) {
+  container.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
   try {
     const [workspaces, proxies, nodes, teams, users] = await Promise.all([
       api('GET', '/workspaces').catch(() => []),
@@ -15,12 +50,8 @@ pages.workspaces = async function() {
     window._wsUsers = users || [];
 
     const list = workspaces || [];
-    content.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-        <div>
-          <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('workspaces.title')}</h1>
-          <p style="margin:0;opacity:0.65;font-size:14px;">${t('workspaces.subtitle')}</p>
-        </div>
+    container.innerHTML = `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
         <button class="btn btn-primary blueprint" onclick="openWorkspaceModal()">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           ${t('workspaces.new')}
@@ -34,9 +65,14 @@ pages.workspaces = async function() {
           </div>`}
       </div>`;
   } catch(e) {
-    content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`;
+    container.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`;
   }
-};
+}
+
+function _refreshWorkspacesTab() {
+  const body = document.getElementById('wsteam-tab-body');
+  if (body) renderWorkspacesGrid(body);
+}
 
 function workspaceCard(ws) {
   return `<div class="card blueprint" style="padding:0;cursor:pointer;" onclick="openWorkspaceDetail('${esc(ws.id)}')">
@@ -98,13 +134,13 @@ window.saveWorkspace = async function(id) {
       await api('POST', '/workspaces', { name, description: desc });
     }
     document.getElementById('ws-modal-backdrop')?.remove();
-    pages.workspaces();
+    _refreshWorkspacesTab();
   } catch(e) { alert(e.message); }
 };
 
 window.deleteWorkspace = function(id) {
   if (!confirm(t('workspaces.confirm_delete'))) return;
-  api('DELETE', `/workspaces/${id}`).then(() => pages.workspaces()).catch(e => alert(e.message));
+  api('DELETE', `/workspaces/${id}`).then(() => _refreshWorkspacesTab()).catch(e => alert(e.message));
 };
 
 window.openWorkspaceDetail = async function(id) {
