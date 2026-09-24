@@ -233,6 +233,20 @@ Réponse :
 
 ---
 
+### `GET /api/v1/backups/proxy-history/:proxyID`
+
+Liste les versions sauvegardées (`proxy_history`, 50 dernières) d'un proxy — indépendant du système de révisions Core ci-dessus. Réponse : `[{"id","proxy_id","note","created_at"}]` (sans la config).
+
+### `GET /api/v1/backups/proxy-history/:versionID/config`
+
+Retourne la config brute (JSON) d'une version de l'historique — utilisé pour calculer un diff côté client entre deux versions, ou entre une version et la config actuelle.
+
+### `POST /api/v1/backups/proxy-history/:versionID/restore`
+
+Restaure la config de cette version sur le proxy.
+
+---
+
 ## Certificats
 
 ### `GET /api/v1/certs`

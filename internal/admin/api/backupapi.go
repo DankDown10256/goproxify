@@ -62,6 +62,8 @@ func (h *BackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Proxy history
 	case r.Method == http.MethodGet && sub == "proxy-history" && id != "" && action == "":
 		h.listProxyHistory(w, r, id)
+	case r.Method == http.MethodGet && sub == "proxy-history" && id != "" && action == "config":
+		h.getProxyVersionConfig(w, r, id)
 	case r.Method == http.MethodPost && sub == "proxy-history" && id != "" && action != "":
 		h.restoreProxyVersion(w, r, action)
 	default:
@@ -211,6 +213,16 @@ func (h *BackupHandler) exportCoreRoutes(w http.ResponseWriter, r *http.Request)
 
 func (h *BackupHandler) listProxyHistory(w http.ResponseWriter, _ *http.Request, proxyID string) {
 	jsonOK(w, h.Scheduler.ListProxyVersions(h.DB, proxyID))
+}
+
+func (h *BackupHandler) getProxyVersionConfig(w http.ResponseWriter, _ *http.Request, versionID string) {
+	v, err := h.Scheduler.GetProxyVersion(h.DB, versionID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(v.Config))
 }
 
 func (h *BackupHandler) restoreProxyVersion(w http.ResponseWriter, r *http.Request, versionID string) {
