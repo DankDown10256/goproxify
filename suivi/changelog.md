@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Changé
 
+- **Politiques d'accès retiré de la 3ᵉ section de "Gestion d'équipe"** : maintenant qu'elle a sa propre landing (clic sur le groupe "Accès"), plus besoin de la dupliquer dans "Gestion d'équipe" — qui revient à 2 sections (Utilisateurs & équipes, Espaces de travail). (Webapp `0.9.0`)
+
 - **Clic sur le groupe "Accès" → Politiques d'accès (au lieu de Gestion d'équipe)** : la vue matricielle croisée domaines × sujets offre une meilleure vue globale du périmètre d'accès et convient mieux comme landing du groupe nav. `pages.access` redirige désormais vers `access-policies`. (Webapp `0.9.0`)
 
 ### Corrigé
