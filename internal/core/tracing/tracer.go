@@ -19,7 +19,7 @@ import (
 // Le propagateur est toujours installé : sans endpoint, un `traceparent` entrant reste transmis
 // au backend (le Core est transparent pour la trace) mais rien n'est exporté.
 //
-// endpoint : "host:port" (OTLP/HTTP en clair) ou URL complète ("https://collector:4318").
+// endpoint : "host:port" (OTLP/HTTP en clair) ou URL complète ("https://collector.example.com:4318").
 // sampleRatio : part des nouvelles traces échantillonnées ; hors ]0,1[ = toutes.
 // Une trace déjà décidée par l'appelant (bit sampled du traceparent) est respectée.
 // Retourne une fonction shutdown à appeler à l'arrêt.

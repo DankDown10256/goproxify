@@ -83,7 +83,7 @@ const (
 	LabelRemoveHeaders = "goproxify.headers.remove" // "X-Powered-By,Server"
 
 	// Authentification
-	LabelJWT  = "goproxify.jwt"  // URL JWKS du fournisseur (https://idp/.well-known/jwks.json)
+	LabelJWT  = "goproxify.jwt"  // URL JWKS du fournisseur (https://idp.example.com/.well-known/jwks.json)
 	LabelJWTIssuer   = "goproxify.jwt.issuer"   // issuer attendu (optionnel)
 	LabelJWTAudience = "goproxify.jwt.audience" // audience attendue (optionnel)
 	LabelMTLS = "goproxify.mtls" // chemin du fichier CA (PEM) lisible par le Core ; certificat client exigé
