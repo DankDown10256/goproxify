@@ -364,7 +364,8 @@ func (h *Handler) toolDeleteAuthProvider(ctx context.Context, id string) (any, e
 
 func (h *Handler) toolListIPProfiles(r *http.Request) (any, error) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, name, profile_type, mode, cidrs, feed_urls, enabled, last_updated_at, created_at
+		`SELECT id, name, profile_type, mode, cidrs, feed_urls, enabled, last_updated_at, created_at,
+		        last_error, consecutive_failures, COALESCE(next_attempt_at, '')
 		 FROM ip_profiles ORDER BY name`)
 	if err != nil {
 		return nil, err
@@ -372,11 +373,12 @@ func (h *Handler) toolListIPProfiles(r *http.Request) (any, error) {
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id, name, profileType, mode, cidrs, feedURLs string
+		var id, name, profileType, mode, cidrs, feedURLs, lastError, nextAttempt string
+		var failures int
 		var enabled int
 		var lastUpdated *time.Time
 		var createdAt time.Time
-		if err := rows.Scan(&id, &name, &profileType, &mode, &cidrs, &feedURLs, &enabled, &lastUpdated, &createdAt); err != nil {
+		if err := rows.Scan(&id, &name, &profileType, &mode, &cidrs, &feedURLs, &enabled, &lastUpdated, &createdAt, &lastError, &failures, &nextAttempt); err != nil {
 			continue
 		}
 		var cidrsObj, feedsObj any
@@ -386,6 +388,7 @@ func (h *Handler) toolListIPProfiles(r *http.Request) (any, error) {
 			"id": id, "name": name, "profile_type": profileType, "mode": mode,
 			"cidrs": cidrsObj, "feed_urls": feedsObj,
 			"enabled": enabled == 1, "last_updated_at": lastUpdated, "created_at": createdAt,
+			"last_error": lastError, "consecutive_failures": failures, "next_attempt_at": nextAttempt,
 		})
 	}
 	if out == nil {

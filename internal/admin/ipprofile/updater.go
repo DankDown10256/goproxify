@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,9 +31,13 @@ type Profile struct {
 	RefreshIntervalH int      `json:"refresh_interval_h"`
 	CIDRs            []string `json:"cidrs"`
 	LastUpdatedAt    *string  `json:"last_updated_at,omitempty"`
-	Enabled          bool     `json:"enabled"`
-	CreatedAt        string   `json:"created_at,omitempty"`
-	UpdatedAt        string   `json:"updated_at,omitempty"`
+	// LastError / ConsecutiveFailures / NextAttemptAt : état du dernier rafraîchissement échoué ; vides après un succès.
+	LastError           string  `json:"last_error,omitempty"`
+	ConsecutiveFailures int     `json:"consecutive_failures,omitempty"`
+	NextAttemptAt       *string `json:"next_attempt_at,omitempty"`
+	Enabled             bool    `json:"enabled"`
+	CreatedAt           string  `json:"created_at,omitempty"`
+	UpdatedAt           string  `json:"updated_at,omitempty"`
 }
 
 type seedProfile struct {
@@ -124,6 +129,10 @@ type Updater struct {
 	db     *sql.DB
 	log    *slog.Logger
 	client *http.Client
+
+	// OnRefreshFail est appelé quand le nombre d'échecs consécutifs d'un profil atteint
+	// le seuil d'alerte (une fois par série d'échecs).
+	OnRefreshFail func(id, name string, failures int, cause error, lastUpdatedAt string)
 }
 
 // New crée un Updater.
@@ -213,7 +222,8 @@ func (u *Updater) refreshDue(ctx context.Context) {
 		 FROM ip_profiles
 		 WHERE enabled=1 AND feed_urls != '[]'
 		   AND (last_updated_at IS NULL
-		     OR datetime(last_updated_at, '+' || refresh_interval_h || ' hours') < datetime('now'))`)
+		     OR datetime(last_updated_at, '+' || refresh_interval_h || ' hours') < datetime('now'))
+		   AND (next_attempt_at IS NULL OR next_attempt_at <= datetime('now'))`)
 	if err != nil {
 		u.log.Warn("ipprofile: lecture profils à rafraîchir", "err", err)
 		return
@@ -241,11 +251,44 @@ func (u *Updater) RefreshProfile(ctx context.Context, id string) error {
 	return u.refresh(ctx, id, true)
 }
 
+const (
+	minRetry = 15 * time.Minute
+	maxRetry = 6 * time.Hour
+	// Garde-fou : une mise à jour qui perd plus de la moitié d'une liste d'au moins
+	// shrinkGuardMin entrées est rejetée (feed vide, tronqué ou page d'erreur en 200).
+	shrinkGuardMin = 10
+)
+
+// retryDelay est le délai avant la prochaine tentative après `failures` échecs consécutifs :
+// 15 min doublées à chaque échec, plafonné à 6 h et à l'intervalle de rafraîchissement du profil.
+func retryDelay(failures, intervalH int) time.Duration {
+	limit := maxRetry
+	if iv := time.Duration(intervalH) * time.Hour; iv > 0 && iv < limit {
+		limit = max(iv, minRetry)
+	}
+	return min(minRetry<<min(max(failures-1, 0), 10), limit)
+}
+
+// checkShrink compare la nouvelle liste à celle stockée. Cette dernière peut dater d'avant
+// l'agrégation : on la normalise avant de comparer pour ne pas rejeter à tort.
+func checkShrink(stored, next []string, mode string) error {
+	if len(stored) < shrinkGuardMin || len(next)*2 >= len(stored) {
+		return nil
+	}
+	prev := len(normalizeCIDRs(stored, mode == "deny"))
+	if prev < shrinkGuardMin || len(next)*2 >= prev {
+		return nil
+	}
+	return fmt.Errorf("liste rejetée : %d entrées contre %d actuellement (forcer un rafraîchissement pour l'accepter)", len(next), prev)
+}
+
 func (u *Updater) refresh(ctx context.Context, id string, force bool) error {
-	var name, mode, feedURLsJSON, feedFormat, cacheJSON string
+	var name, mode, feedURLsJSON, feedFormat, cacheJSON, storedJSON string
+	var intervalH, failures int
 	err := u.db.QueryRowContext(ctx,
-		`SELECT name, mode, feed_urls, feed_format, feed_cache FROM ip_profiles WHERE id=?`, id).
-		Scan(&name, &mode, &feedURLsJSON, &feedFormat, &cacheJSON)
+		`SELECT name, mode, feed_urls, feed_format, feed_cache, cidrs, refresh_interval_h, consecutive_failures
+		 FROM ip_profiles WHERE id=?`, id).
+		Scan(&name, &mode, &feedURLsJSON, &feedFormat, &cacheJSON, &storedJSON, &intervalH, &failures)
 	if err != nil {
 		return fmt.Errorf("profil introuvable: %w", err)
 	}
@@ -260,24 +303,72 @@ func (u *Updater) refresh(ctx context.Context, id string, force bool) error {
 	}
 
 	cidrs, next, unchanged, err := u.fetchAndParse(ctx, feedURLs, feedFormat, mode, prev)
+	if err == nil && !unchanged && !force {
+		var stored []string
+		json.Unmarshal([]byte(storedJSON), &stored) //nolint:errcheck
+		err = checkShrink(stored, cidrs, mode)
+	}
 	if err != nil {
+		u.recordFailure(ctx, id, name, failures+1, intervalH, err)
 		return err
 	}
+
 	nextJSON, _ := json.Marshal(next)
 	if unchanged {
 		_, err = u.db.ExecContext(ctx,
-			`UPDATE ip_profiles SET feed_cache=?, last_updated_at=datetime('now') WHERE id=?`,
+			`UPDATE ip_profiles SET feed_cache=?, last_updated_at=datetime('now'),
+			 last_error='', consecutive_failures=0, next_attempt_at=NULL WHERE id=?`,
 			string(nextJSON), id)
 		u.log.Info("ipprofile: inchangé (304)", "name", name)
 		return err
 	}
 	cidrsJSON, _ := json.Marshal(cidrs)
 	_, err = u.db.ExecContext(ctx,
-		`UPDATE ip_profiles SET cidrs=?, feed_cache=?, last_updated_at=datetime('now'), updated_at=datetime('now')
+		`UPDATE ip_profiles SET cidrs=?, feed_cache=?, last_updated_at=datetime('now'), updated_at=datetime('now'),
+		 last_error='', consecutive_failures=0, next_attempt_at=NULL
 		 WHERE id=?`,
 		string(cidrsJSON), string(nextJSON), id)
 	u.log.Info("ipprofile: mis à jour", "name", name, "cidrs", len(cidrs))
 	return err
+}
+
+// recordFailure mémorise l'échec et repousse la prochaine tentative automatique. Les CIDRs
+// et last_updated_at ne bougent pas : la dernière liste valide reste appliquée.
+func (u *Updater) recordFailure(ctx context.Context, id, name string, failures, intervalH int, cause error) {
+	msg := cause.Error()
+	if len(msg) > 300 {
+		msg = msg[:300]
+	}
+	at := time.Now().UTC().Add(retryDelay(failures, intervalH)).Format("2006-01-02 15:04:05")
+	u.db.ExecContext(ctx, //nolint:errcheck
+		`UPDATE ip_profiles SET last_error=?, consecutive_failures=?, next_attempt_at=? WHERE id=?`,
+		msg, failures, at, id)
+
+	if u.OnRefreshFail != nil && failures == u.alertThreshold(ctx) {
+		var lastUpdated string
+		u.db.QueryRowContext(ctx, //nolint:errcheck
+			`SELECT COALESCE(last_updated_at,'') FROM ip_profiles WHERE id=?`, id).Scan(&lastUpdated)
+		u.OnRefreshFail(id, name, failures, cause, lastUpdated)
+	}
+}
+
+const (
+	alertThresholdSetting = "ipprofile.alert_after_failures"
+	defaultAlertThreshold = 3
+)
+
+// alertThreshold lit le nombre d'échecs consécutifs déclenchant l'alerte (réglage
+// `ipprofile.alert_after_failures`, défaut 3 ; 0 ou négatif = alerte désactivée).
+func (u *Updater) alertThreshold(ctx context.Context) int {
+	var v string
+	if u.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, alertThresholdSetting).Scan(&v) != nil {
+		return defaultAlertThreshold
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return defaultAlertThreshold
+	}
+	return n
 }
 
 // feedValidators mémorise les validateurs HTTP d'un feed pour les requêtes conditionnelles.

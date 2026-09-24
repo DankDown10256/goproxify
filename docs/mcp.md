@@ -797,6 +797,8 @@ Scopes PAT : `proxies:read` (lecture) / `proxies:write` (écriture).
 
 Liste les profils IP (listes blanches/noires CIDR, GeoIP, réputation).
 
+Chaque profil inclut l'état du rafraîchissement automatique : `last_updated_at` (dernier succès), `last_error`, `consecutive_failures` et `next_attempt_at` (vides / 0 quand le feed est à jour).
+
 **Paramètres :** aucun
 
 ---

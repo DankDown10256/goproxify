@@ -560,6 +560,8 @@ goproxify ip-profile update <id> -file <profile.json> [-admin-url …] [-token �
 goproxify ip-profile delete <id> [-y] [-admin-url …] [-token …]
 ```
 
+`list` affiche une colonne `ETAT` : `ok`, ou `échec xN` après N échecs consécutifs du rafraîchissement automatique (détail : `ip-profile get <id>`, champs `last_error` et `next_attempt_at`).
+
 Exemple de fichier `profile.json` :
 
 ```json

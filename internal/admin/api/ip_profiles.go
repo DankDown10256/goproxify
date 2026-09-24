@@ -56,7 +56,8 @@ func (h *IPProfilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *IPProfilesHandler) list(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
 		`SELECT id, name, profile_type, mode, feed_urls, feed_format, refresh_interval_h,
-		        cidrs, COALESCE(last_updated_at,''), enabled, created_at, updated_at
+		        cidrs, COALESCE(last_updated_at,''), enabled, created_at, updated_at,
+		        last_error, consecutive_failures, COALESCE(next_attempt_at,'')
 		 FROM ip_profiles ORDER BY name`)
 	if err != nil {
 		jsonErrF(w, err, http.StatusInternalServerError)
@@ -68,11 +69,12 @@ func (h *IPProfilesHandler) list(w http.ResponseWriter, r *http.Request) {
 		var p ipprofile.Profile
 		var feedURLsJSON, cidrsJSON string
 		var enabled int
-		var lastUpdated string
+		var lastUpdated, nextAttempt string
 		if err := rows.Scan(&p.ID, &p.Name, &p.ProfileType, &p.Mode,
 			&feedURLsJSON, &p.FeedFormat, &p.RefreshIntervalH,
 			&cidrsJSON, &lastUpdated, &enabled,
-			&p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.CreatedAt, &p.UpdatedAt,
+			&p.LastError, &p.ConsecutiveFailures, &nextAttempt); err != nil {
 			continue
 		}
 		json.Unmarshal([]byte(feedURLsJSON), &p.FeedURLs)   //nolint:errcheck
@@ -80,6 +82,9 @@ func (h *IPProfilesHandler) list(w http.ResponseWriter, r *http.Request) {
 		p.Enabled = enabled == 1
 		if lastUpdated != "" {
 			p.LastUpdatedAt = &lastUpdated
+		}
+		if nextAttempt != "" {
+			p.NextAttemptAt = &nextAttempt
 		}
 		profiles = append(profiles, p)
 	}
@@ -93,15 +98,17 @@ func (h *IPProfilesHandler) get(w http.ResponseWriter, r *http.Request, id strin
 	var p ipprofile.Profile
 	var feedURLsJSON, cidrsJSON string
 	var enabled int
-	var lastUpdated string
+	var lastUpdated, nextAttempt string
 	err := h.DB.QueryRowContext(r.Context(),
 		`SELECT id, name, profile_type, mode, feed_urls, feed_format, refresh_interval_h,
-		        cidrs, COALESCE(last_updated_at,''), enabled, created_at, updated_at
+		        cidrs, COALESCE(last_updated_at,''), enabled, created_at, updated_at,
+		        last_error, consecutive_failures, COALESCE(next_attempt_at,'')
 		 FROM ip_profiles WHERE id=?`, id).Scan(
 		&p.ID, &p.Name, &p.ProfileType, &p.Mode,
 		&feedURLsJSON, &p.FeedFormat, &p.RefreshIntervalH,
 		&cidrsJSON, &lastUpdated, &enabled,
-		&p.CreatedAt, &p.UpdatedAt)
+		&p.CreatedAt, &p.UpdatedAt,
+		&p.LastError, &p.ConsecutiveFailures, &nextAttempt)
 	if err == sql.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -115,6 +122,9 @@ func (h *IPProfilesHandler) get(w http.ResponseWriter, r *http.Request, id strin
 	p.Enabled = enabled == 1
 	if lastUpdated != "" {
 		p.LastUpdatedAt = &lastUpdated
+	}
+	if nextAttempt != "" {
+		p.NextAttemptAt = &nextAttempt
 	}
 	jsonOK(w, p)
 }

@@ -358,7 +358,7 @@ Le masquage du fingerprint serveur (`Server`, `X-Powered-By`) est activable ind�
 
 ## Profils IP et GeoIP
 
-- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur tous les Cores ; les profils `allow` servent au filtrage CDN. Les CIDRs sont agrégés (doublons et préfixes contenus fusionnés), les plages privées sont exclues des profils `deny` et les feeds inchangés ne sont pas retéléchargés (ETag / 304). Spamhaus DROP, DShield et Feodo sont désactivés par défaut car inclus dans FireHOL Level 1.
+- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur tous les Cores ; les profils `allow` servent au filtrage CDN. Les CIDRs sont agrégés (doublons et préfixes contenus fusionnés), les plages privées sont exclues des profils `deny` et les feeds inchangés ne sont pas retéléchargés (ETag / 304). Spamhaus DROP, DShield et Feodo sont désactivés par défaut car inclus dans FireHOL Level 1. Un feed en échec est retenté avec un backoff (15 min → 6 h max), la dernière liste valide reste appliquée, l'état est visible dans l'UI, et une mise à jour qui perd plus de la moitié d'une liste (feed vide ou tronqué) est rejetée. Après N échecs consécutifs (3 par défaut, réglage `ipprofile.alert_after_failures`, `0` = désactivé), le déclencheur d'alerte `ip_profile_refresh_failed` est émis une fois par série.
 - **GeoIP** : autorisation ou blocage par pays (MaxMind GeoLite2, téléchargé automatiquement au démarrage).
 
 ---

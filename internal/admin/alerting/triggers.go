@@ -25,6 +25,7 @@ const (
 	TriggerSentinelBan       TriggerType = "sentinel_ban"       // IP bannie par Sentinel/WAF
 	TriggerBackendDown       TriggerType = "backend_down"       // backend déclaré indisponible par health-check
 	TriggerCertDeployFailed  TriggerType = "cert_deploy_failed" // échec de déploiement d'un certificat
+	TriggerIPProfileRefreshFailed TriggerType = "ip_profile_refresh_failed" // feed d'un profil IP en échec de façon répétée
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -33,7 +34,7 @@ var AllTriggers = []TriggerType{
 	TriggerFail2BanBan, TriggerCrowdSecCritical, TriggerConfigChanged,
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
-	TriggerSentinelBan, TriggerBackendDown, TriggerCertDeployFailed,
+	TriggerSentinelBan, TriggerBackendDown, TriggerCertDeployFailed, TriggerIPProfileRefreshFailed,
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
@@ -53,6 +54,7 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerSentinelBan:      "IP bannie par Sentinel / WAF",
 	TriggerBackendDown:      "Backend déclaré indisponible par health-check",
 	TriggerCertDeployFailed: "Échec de déploiement d'un certificat",
+	TriggerIPProfileRefreshFailed: "Mise à jour d'un profil IP en échec répété",
 }
 
 // Severity classe la sévérité d'une alerte.

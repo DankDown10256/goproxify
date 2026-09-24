@@ -353,6 +353,9 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE certs ADD COLUMN key_pem TEXT NOT NULL DEFAULT ''`,
 		// Validateurs HTTP (ETag / Last-Modified) des feeds des profils IP
 		`ALTER TABLE ip_profiles ADD COLUMN feed_cache TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE ip_profiles ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE ip_profiles ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE ip_profiles ADD COLUMN next_attempt_at DATETIME`,
 	} {
 		db.Exec(s) //nolint:errcheck
 	}

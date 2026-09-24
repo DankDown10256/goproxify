@@ -30,8 +30,8 @@ func runIPProfile() {
 			fmt.Println("(aucun profil)")
 			return
 		}
-		fmt.Printf("%-36s  %-30s  %-15s  %s\n", "ID", "NOM", "ACTION", "CIDRS")
-		fmt.Println(strings.Repeat("-", 100))
+		fmt.Printf("%-36s  %-30s  %-15s  %-10s  %s\n", "ID", "NOM", "ACTION", "ETAT", "CIDRS")
+		fmt.Println(strings.Repeat("-", 115))
 		for _, p := range profiles {
 			id, _ := p["id"].(string)
 			name, _ := p["name"].(string)
@@ -49,7 +49,11 @@ func runIPProfile() {
 					cidrs = cidrs[:37] + "…"
 				}
 			}
-			fmt.Printf("%-36s  %-30s  %-15s  %s\n", id, name, action, cidrs)
+			state := "ok"
+			if n, _ := p["consecutive_failures"].(float64); n > 0 {
+				state = fmt.Sprintf("échec x%d", int(n))
+			}
+			fmt.Printf("%-36s  %-30s  %-15s  %-10s  %s\n", id, name, action, state, cidrs)
 		}
 
 	case "get":

@@ -57,7 +57,7 @@ async function ipProfilesLoad() {
       <td><span class="tag ${IPPROF_MODE_BADGE[p.mode]||'tag-neutral'}">${t(IPPROF_MODE_KEYS[p.mode]||p.mode)}</span></td>
       <td style="font-size:12px;color:var(--text2)">${esc(ipprofFormatLabel(p.feed_format))}</td>
       <td>${(p.cidrs||[]).length.toLocaleString()}</td>
-      <td style="font-size:12px;color:var(--text2)">${p.last_updated_at ? new Date(p.last_updated_at).toLocaleString(typeof gpxBCP47==='function'?gpxBCP47():'en-US') : '—'}</td>
+      <td style="font-size:12px;color:var(--text2)">${p.last_updated_at ? new Date(p.last_updated_at).toLocaleString(typeof gpxBCP47==='function'?gpxBCP47():'en-US') : '—'}${p.consecutive_failures ? `<br><span class="tag tag-red" title="${esc(p.last_error||'')}">${esc(t('ipprof.failing', { n: p.consecutive_failures }))}</span>` : ''}</td>
       <td><label class="toggle" title="${esc(t('ipprof.toggle_title'))}">
         <input type="checkbox" ${p.enabled?'checked':''} onchange="ipProfileToggle('${p.id}',this.checked,${JSON.stringify(p).replace(/"/g,'&quot;')})">
         <span class="toggle-slider"></span>

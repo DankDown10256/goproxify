@@ -364,6 +364,27 @@ Supprime un certificat.
 
 ---
 
+## Profils IP
+
+### `GET /api/v1/ip-profiles` · `GET /api/v1/ip-profiles/:id`
+
+Liste / détail des profils IP (`id`, `name`, `profile_type`, `mode`, `feed_urls`, `feed_format`, `refresh_interval_h`, `cidrs`, `enabled`, `last_updated_at`…). Champs d'état du rafraîchissement automatique :
+
+| Champ | Description |
+|---|---|
+| `last_updated_at` | Dernier rafraîchissement **réussi** (un échec ne le modifie pas) |
+| `last_error` | Cause du dernier échec ; absent après un succès |
+| `consecutive_failures` | Nombre d'échecs consécutifs ; absent (0) après un succès |
+| `next_attempt_at` | Prochaine tentative automatique (UTC) après un échec ; absent sinon |
+
+Après un échec (réseau, HTTP ≠ 200, parsing, liste rejetée par le garde-fou), les CIDRs déjà stockés restent appliqués et le profil est retenté avec un délai de 15 min doublé à chaque échec, plafonné à 6 h et à `refresh_interval_h`.
+
+### `POST /api/v1/ip-profiles/:id/refresh`
+
+Force un rafraîchissement complet (téléchargement inconditionnel, garde-fou de taille ignoré). `200 {"status":"refreshed"}`, ou `400 {"error":…}` en cas d'échec (profil sans feed, feed injoignable…). Le rafraîchissement automatique rejette une nouvelle liste qui perd plus de la moitié d'une liste d'au moins 10 entrées (feed vide ou tronqué) : la liste actuelle est conservée et l'échec est enregistré ; ce endpoint permet de l'accepter.
+
+---
+
 ## Snippets
 
 ### `GET /api/v1/snippets/:section`

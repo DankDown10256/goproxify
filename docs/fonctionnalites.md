@@ -57,7 +57,7 @@ The Core can operate **autonomously** if the Admin is temporarily unreachable:
 
 | Feature | Details |
 |---|---|
-| IP/CIDR filtering | Built-in profiles: Cloudflare, Tor, Bogons, custom ranges; feeds aggregated (dedup + merged prefixes), private ranges excluded from deny lists, conditional downloads (ETag/304) |
+| IP/CIDR filtering | Built-in profiles: Cloudflare, Tor, Bogons, custom ranges; feeds aggregated (dedup + merged prefixes), private ranges excluded from deny lists, conditional downloads (ETag/304), exponential retry backoff with visible failure state, and a shrink guard against emptied/truncated feeds and an `ip_profile_refresh_failed` alert after N consecutive failures |
 | Geo-IP | Allow or block by country (MaxMind GeoLite2; auto-download at startup) |
 | Rate limiting | Token bucket per IP or authenticated user — `key_by` field: `ip` (default), `jwt_sub`, `jwt_email`, `jwt_claim:<name>` |
 | Backpressure | Per-route cap on concurrent requests (`backpressure`: `max_inflight`, `queue`, `queue_timeout_ms`); extra requests wait in a bounded queue, then get `503` + `Retry-After`. WebSocket upgrades are exempt. Metrics `gpx_backpressure_*` — see [docs/security.md](security.md#backpressure-par-route) |

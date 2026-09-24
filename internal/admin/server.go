@@ -456,6 +456,17 @@ func (s *Server) Start(ctx context.Context) error {
 	importH := &api.ImportHandler{DB: s.db, Log: s.log, Scheduler: backupSched}
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
+	ipUpdater.OnRefreshFail = func(id, name string, failures int, cause error, lastUpdatedAt string) {
+		s.alertingEngine.Emit(alerting.Event{
+			Trigger:   alerting.TriggerIPProfileRefreshFailed,
+			Severity:  alerting.SevWarning,
+			Component: "admin",
+			Detail: map[string]any{
+				"profile_id": id, "profile": name, "consecutive_failures": failures,
+				"error": cause.Error(), "last_updated_at": lastUpdatedAt,
+			},
+		})
+	}
 	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater, OnChange: syncConfig}
 	syncArch := func() {
 		if archStore != nil {

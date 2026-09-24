@@ -71,6 +71,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [x] **Backpressure par route** : plafond de requêtes simultanées, file bornée, 503 + `Retry-After`, métriques Prometheus
 - [x] **Slow-start du load balancer** : montée en charge progressive (~5 % → 100 %) d'un backend nouvellement ajouté ou revenu après panne, `slow_start_sec` par route
 - [x] **Profils IP — listes optimisées** : agrégation/déduplication des CIDRs, plages privées exclues des listes deny, téléchargements conditionnels (ETag / 304), profils redondants avec FireHOL Level 1 désactivés par défaut
+- [x] **Profils IP — résilience** : backoff exponentiel sur les feeds en échec, état (`last_error`, `consecutive_failures`, `next_attempt_at`) exposé API/MCP/CLI/UI, garde-fou contre les listes vidées ou tronquées
+- [x] **Profils IP — alerte** : déclencheur `ip_profile_refresh_failed` après N échecs consécutifs (défaut 3, réglage `ipprofile.alert_after_failures`)
 - [x] **OpenTelemetry** : propagation W3C `traceparent` jusqu'au backend, span par appel backend, décisions Sentinel/ban en événements, échantillonnage configurable, endpoint OTLP poussé par Admin appliqué à chaud
 - [x] **Topologie temps réel** : carte Admin → Cores → Agents rafraîchie toutes les 5 s (santé, débit req/s, score de risque 0-100 avec facteur dominant) ; `GET /api/v1/nodes/live`, `goproxify nodes live`, outil MCP `get_topology_live`
 - [x] **Dry-run Sentinel via MCP** : `simulate_sentinel_config` rejoue les logs récents contre une config candidate et la compare à l'actuelle
