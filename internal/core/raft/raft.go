@@ -202,6 +202,11 @@ func (n *Node) startElection() {
 	total := len(n.cfg.Peers) + 1
 	quorum := total/2 + 1
 
+	if votes >= quorum {
+		n.becomeLeader()
+		return
+	}
+
 	var mu sync.Mutex
 	for peerID, peerURL := range n.cfg.Peers {
 		go func(pid, purl string) {
