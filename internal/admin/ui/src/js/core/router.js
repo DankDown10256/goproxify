@@ -85,6 +85,15 @@ window.addEventListener('resize', () => {
 // ── Navigation principale ──────────────────────────────────────────────────
 function navigate(page) {
   if (typeof stopLogsSSE === 'function') stopLogsSSE();
+  // Convention : une page qui démarre un setInterval/timer peut attacher
+  // content._cleanup = () => clearInterval(...) pour l'arrêter en quittant
+  // la page — sinon le timer continue de tourner et écrase #content même
+  // après navigation (ex. Health checks, rafraîchi toutes les 30 s).
+  const outgoing = document.getElementById('content');
+  if (outgoing && typeof outgoing._cleanup === 'function') {
+    outgoing._cleanup();
+    outgoing._cleanup = null;
+  }
   state.page = page;
 
   // Ferme la sidebar sur mobile après navigation
