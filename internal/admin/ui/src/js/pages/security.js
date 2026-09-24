@@ -650,7 +650,7 @@ async function renderSecurityVulns(ctx) {
     const [cvesRaw, vsStateRaw, vsConfigRaw] = await Promise.all([
       api('GET', '/security/cves'),
       api('GET', '/security/vulnscan').catch(() => null),
-      isAdmin ? api('GET', '/security/vulnscan/config').catch(() => null) : Promise.resolve(null),
+      api('GET', '/security/vulnscan/config').catch(() => null),
     ]);
     const cves = filterSecCVEs(cvesRaw || [], coreCtx);
     const vsState = filterVulnscanState(vsStateRaw, coreCtx);
@@ -717,10 +717,10 @@ async function renderSecurityVulns(ctx) {
           </span>
           <div style="display:flex;align-items:center;gap:8px">
             ${vsState?.running ? '<span class="tag tag-yellow">' + (t('security.vulnscan.running')||'En cours') + '</span>' : (vsState?.last_scan && vsState.last_scan !== '0001-01-01T00:00:00Z' ? '<span style="font-size:11px;color:var(--text3)">' + (t('security.vulnscan.last_scan')||'Dernier scan') + ' ' + fmtDate(vsState.last_scan) + '</span>' : '')}
-            ${isAdmin ? `<button id="vulnscan-btn" class="btn btn-primary btn-sm" onclick="triggerVulnscan()" ${vsState?.running?'disabled':''}>${t('security.scan_now')}</button>` : ''}
+            <button id="vulnscan-btn" class="btn btn-primary btn-sm" onclick="triggerVulnscan()" ${vsState?.running?'disabled':''}>${t('security.scan_now')}</button>
           </div>
         </div>
-        <div class="card-body" id="vulnscan-body">${vulnscanPanelV2(vsState, window._vsConfig, isAdmin)}</div>
+        <div class="card-body" id="vulnscan-body">${vulnscanPanelV2(vsState, window._vsConfig, true)}</div>
       </div>`;
 
     if (vsState?.running) startVulnscanPoll();

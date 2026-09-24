@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **Menu Sécurité côté Core — section "Scanner CVE" sans bouton de scan manuel ni coche réseau privé** : `renderSecurityVulns` masquait le bouton "Scanner maintenant" et la coche "Autoriser l'accès au réseau privé" via `isAdmin` (`mode === 'admin'`), donc absents en vue Core (`pages['core-security-vulns']`, `mode: 'core'`) alors que les endpoints `/security/vulnscan` et `/security/vulnscan/config` ne sont pas réservés à l'admin. Les deux contrôles sont maintenant affichés quel que soit le mode. (Webapp `0.9.1`)
+
 ### Changé
 
 - **Politiques d'accès retiré de la 3ᵉ section de "Gestion d'équipe"** : maintenant qu'elle a sa propre landing (clic sur le groupe "Accès"), plus besoin de la dupliquer dans "Gestion d'équipe" — qui revient à 2 sections (Utilisateurs & équipes, Espaces de travail). (Webapp `0.9.0`)
