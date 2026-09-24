@@ -1118,6 +1118,14 @@ window.openProxyModal = async function(id, initialTab) {
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:6px;">Slow-start</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Un backend nouvellement ajouté ou revenu après une panne monte en charge progressivement (de ~5 % à 100 % de sa part) pendant cette durée. 0 = désactivé.</div>
+            <div class="field" style="max-width:200px;margin:0;">
+              <label class="field-label" style="font-size:11px">Durée (secondes)</label>
+              <input id="p-slow-start" class="input" type="number" min="0" placeholder="0" value="${cfg.slow_start_sec || ''}">
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Canary</div>
             <div class="form-row" style="gap:8px">
               <div class="field" style="flex:2"><label class="field-label" style="font-size:11px">URL backend canary</label><input id="p-canary-backend" class="input" placeholder="http://10.0.0.6:3000" value="${esc(cfg.canary?.backend||'')}"></div>
@@ -1189,6 +1197,15 @@ window.openProxyModal = async function(id, initialTab) {
             <div class="field" style="max-width:160px;margin:0;">
               <label class="field-label" style="font-size:11px">Max connexions / IP</label>
               <input id="p-limit-conn" class="input" type="number" min="0" placeholder="0" value="${cfg.limit_conn?.max_per_ip || ''}">
+            </div>
+          </div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:6px;">Backpressure — protection des backends</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Plafonne les requêtes simultanées de la route. Les excédentaires attendent dans une file bornée, puis 503 + Retry-After. 0 = désactivé. Les WebSocket sont exclus.</div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              <div class="field" style="flex:1;margin:0;"><label class="field-label" style="font-size:11px">Max requêtes simultanées</label><input id="p-bp-max" class="input" type="number" min="0" placeholder="0" value="${cfg.backpressure?.max_inflight || ''}"></div>
+              <div class="field" style="flex:1;margin:0;"><label class="field-label" style="font-size:11px">Taille de la file</label><input id="p-bp-queue" class="input" type="number" min="0" placeholder="0" value="${cfg.backpressure?.queue || ''}"></div>
+              <div class="field" style="flex:1;margin:0;"><label class="field-label" style="font-size:11px">Attente max en file (ms)</label><input id="p-bp-timeout" class="input" type="number" min="0" placeholder="1000" value="${cfg.backpressure?.queue_timeout_ms || ''}"></div>
             </div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
@@ -1766,6 +1783,9 @@ window.saveProxy = async function(id) {
 
   // limit_conn
   const limitConnMax = parseInt(document.getElementById('p-limit-conn')?.value || '0');
+  const bpMax = parseInt(document.getElementById('p-bp-max')?.value || '0');
+  const bpQueue = parseInt(document.getElementById('p-bp-queue')?.value || '0');
+  const bpTimeout = parseInt(document.getElementById('p-bp-timeout')?.value || '0');
 
   // Cookie domain/path rewrites
   const cookie_domains = [], cookie_paths = [];
@@ -1851,6 +1871,7 @@ window.saveProxy = async function(id) {
   };
 
   const stickyCookie = (document.getElementById('p-sticky-cookie')?.value||'').trim();
+  const slowStart = parseInt(document.getElementById('p-slow-start')?.value || '0');
   const requestID = document.getElementById('p-request-id')?.checked !== false;
 
   // Performance
@@ -1969,6 +1990,7 @@ window.saveProxy = async function(id) {
     ...(aliases.length ? { aliases } : {}),
     ...(tags.length ? { tags } : {}),
     ...(stickyCookie ? { sticky_cookie: stickyCookie } : {}),
+    ...(slowStart > 0 ? { slow_start_sec: slowStart } : {}),
     locations,
     ...(health_check ? { health_check } : {}),
     ...(canary ? { canary } : {}),
@@ -1979,6 +2001,7 @@ window.saveProxy = async function(id) {
     ...(cookie_paths.length ? { cookie_paths } : {}),
     ...(sub_filters.length ? { sub_filters } : {}),
     ...(limitConnMax > 0 ? { limit_conn: { max_per_ip: limitConnMax } } : {}),
+    ...(bpMax > 0 ? { backpressure: { max_inflight: bpMax, ...(bpQueue > 0 ? { queue: bpQueue } : {}), ...(bpTimeout > 0 ? { queue_timeout_ms: bpTimeout } : {}) } } : {}),
     ...(cacheAdvanced ? { cache: cacheAdvanced } : {}),
     ...(request_vars.length ? { request_vars } : {}),
     ...(circuit_breaker ? { circuit_breaker } : {}),

@@ -757,10 +757,11 @@ goproxify access templates push
 
 ### `goproxify nodes`
 
-Nœuds Infrastructure — liste, acceptation et rejet des nœuds en attente.
+Nœuds Infrastructure — liste, état temps réel (`live` : santé, débit req/s et score de risque sur 60 s, cf. `GET /api/v1/nodes/live`), acceptation et rejet des nœuds en attente.
 
 ```
 goproxify nodes list         [-role core|agent]
+goproxify nodes live
 goproxify nodes accept       -id <pending-id>
 goproxify nodes reject       -id <pending-id>
 ```

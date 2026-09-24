@@ -98,6 +98,9 @@ type Engine struct {
 	globalBkt *globalBucket // limiteur global DDoS (nil = désactivé)
 
 	banFn BanCallback
+	sim   bool // rejeu hors production : ni métriques Prometheus ni effets de bord
+
+	tarpitSlots chan struct{} // slots du tarpit ; recréé quand MaxConcurrent change
 	log   *slog.Logger
 
 	cancel context.CancelFunc
@@ -149,6 +152,9 @@ func (e *Engine) UpdateConfig(cfg Config) {
 	e.wl = buildWhitelist(cfg.Whitelist)
 	e.custom = buildCustomLists(cfg.CustomLists)
 	e.globalBkt = bkt
+	if cfg.Tarpit.Enabled && (e.tarpitSlots == nil || cap(e.tarpitSlots) != cfg.Tarpit.slots()) {
+		e.tarpitSlots = make(chan struct{}, cfg.Tarpit.slots())
+	}
 	e.mu.Unlock()
 
 	if cfg.Enabled {
@@ -194,22 +200,22 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	e.mu.RUnlock()
 
 	if !cfg.Enabled {
-		threatChecksTotal.WithLabelValues("allow").Inc()
+		e.inc(threatChecksTotal, "allow")
 		return false, ""
 	}
 	if wl.allowedIP(ip) {
-		threatChecksTotal.WithLabelValues("allow").Inc()
+		e.inc(threatChecksTotal, "allow")
 		return false, ""
 	}
 
 	ua := r.Header.Get("User-Agent")
 	if wl.allowedUA(ua) {
-		threatChecksTotal.WithLabelValues("allow").Inc()
+		e.inc(threatChecksTotal, "allow")
 		return false, ""
 	}
 	path := r.URL.Path
 	if wl.allowedPath(path) {
-		threatChecksTotal.WithLabelValues("allow").Inc()
+		e.inc(threatChecksTotal, "allow")
 		return false, ""
 	}
 
@@ -239,7 +245,7 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	}
 
 	if len(signals) == 0 {
-		threatChecksTotal.WithLabelValues("allow").Inc()
+		e.inc(threatChecksTotal, "allow")
 		return false, ""
 	}
 
@@ -248,7 +254,7 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	var topReason string
 	for _, s := range signals {
 		total += s.score
-		threatSignalsTotal.WithLabelValues(s.reason).Inc()
+		e.inc(threatSignalsTotal, s.reason)
 		if topReason == "" {
 			topReason = s.reason
 		}
@@ -261,7 +267,7 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	if isDetect || !triggered {
 		action = "detect"
 	}
-	threatChecksTotal.WithLabelValues(action).Inc()
+	e.inc(threatChecksTotal, action)
 
 	e.log.Warn("sentinel: signal détecté",
 		"ip", ip,
@@ -278,7 +284,7 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 			// Signal non-rate (path, ip, ua, custom_*) : bannir immédiatement.
 			if e.banFn != nil {
 				expires := time.Now().Add(cfg.BanDuration.Duration)
-				threatBansTotal.WithLabelValues(topReason).Inc()
+				e.inc(threatBansTotal, topReason)
 				e.banFn(ip, "threat: "+topReason, expires)
 			}
 		} else {
@@ -314,8 +320,8 @@ func (e *Engine) maybeRateBan(ip, topReason string, cfg Config) {
 	e.counters.resetRateTrigger(ip)
 	expires := time.Now().Add(cfg.BanDuration.Duration)
 	e.log.Warn("sentinel: ban automatique rate", "ip", ip, "threshold", threshold, "window", window)
-	threatSignalsTotal.WithLabelValues("rate_ban").Inc()
-	threatBansTotal.WithLabelValues("rate").Inc()
+	e.inc(threatSignalsTotal, "rate_ban")
+	e.inc(threatBansTotal, "rate")
 	e.banFn(ip, "threat: rate excessif", expires)
 }
 
@@ -339,10 +345,10 @@ func (e *Engine) RecordStatus(ip string, status int) {
 	if e.counters.errorExceeded(ip, cfg.ErrorThreshold, cfg.ErrorWindow.Duration) {
 		isDetect := strings.EqualFold(cfg.Mode, "detect")
 		e.log.Warn("sentinel: ban automatique 4xx", "ip", ip, "status", status, "detect", isDetect)
-		threatSignalsTotal.WithLabelValues("error4xx").Inc()
+		e.inc(threatSignalsTotal, "error4xx")
 		if !isDetect && e.banFn != nil {
 			expires := time.Now().Add(cfg.BanDuration.Duration)
-			threatBansTotal.WithLabelValues("error4xx").Inc()
+			e.inc(threatBansTotal, "error4xx")
 			e.banFn(ip, "threat: erreurs 4xx répétées", expires)
 		}
 		e.counters.resetErrors(ip)

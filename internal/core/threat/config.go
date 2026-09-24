@@ -45,6 +45,9 @@ type Config struct {
 
 	// Whitelist : IPs/CIDRs, User-Agents et path prefixes exemptés.
 	Whitelist Whitelist `json:"whitelist,omitempty"`
+
+	// Tarpit : ralentit la réponse aux IP bloquées ou bannies par Sentinel (désactivé par défaut).
+	Tarpit TarpitConfig `json:"tarpit,omitempty"`
 }
 
 // CustomListsConfig contient des entrées inline pour chaque liste.

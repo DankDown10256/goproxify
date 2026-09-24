@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/vincamok/goproxify/internal/agent/docker"
 	corelog "github.com/vincamok/goproxify/internal/core/logger"
 	"github.com/vincamok/goproxify/internal/core/router"
 )
@@ -452,5 +453,40 @@ func TestHandleAgentContainerStartFoldsLegacyPerHostRoutes(t *testing.T) {
 		if got.ID != rt.ID {
 			t.Fatalf("alias points to %q, want %q", got.ID, rt.ID)
 		}
+	}
+}
+
+// Chaîne complète : labels Docker → ProxySpec → payload Agent → route du Core.
+func TestDockerLabelsReachRoute(t *testing.T) {
+	spec := docker.ParseLabels("abcdef123456", "web", "img", "net", map[string]string{
+		"goproxify.enable":       "true",
+		"goproxify.host":         "labels.example.fr",
+		"goproxify.limit_conn":   "25",
+		"goproxify.backpressure": "200:100:2s",
+		"goproxify.slow_start":   "30s",
+	}, map[string]struct{}{"80/tcp": {}}, "10.0.0.9")
+	if spec == nil {
+		t.Fatal("spec nil")
+	}
+	payload := map[string]any{
+		"host": "labels.example.fr", "backends": []string{"http://10.0.0.9:80"},
+		"container_id": "abcdef123456", "agent_name": "ag",
+	}
+	docker.AttachSecurityPayload(payload, spec)
+
+	s := testCoreServer()
+	postAgentContainer(t, s, payload)
+	rt, ok := s.table.ByHost("labels.example.fr")
+	if !ok {
+		t.Fatal("route absente")
+	}
+	if rt.LimitConn == nil || rt.LimitConn.MaxPerIP != 25 {
+		t.Fatalf("limit_conn = %+v, want max_per_ip 25", rt.LimitConn)
+	}
+	if bp := rt.Backpressure; bp == nil || bp.MaxInflight != 200 || bp.Queue != 100 || bp.QueueTimeoutMs != 2000 {
+		t.Fatalf("backpressure = %+v", bp)
+	}
+	if rt.SlowStartSec != 30 {
+		t.Fatalf("slow_start_sec = %d", rt.SlowStartSec)
 	}
 }

@@ -1123,3 +1123,6 @@ func (h *SecurityHandler) intelTopIPs(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonOK(w, out)
 }
+
+// ThreatConfigKey expose la clé settings de la config Sentinel d'un Core (outil MCP de simulation).
+func ThreatConfigKey(coreID string) string { return threatConfigKey(coreID) }

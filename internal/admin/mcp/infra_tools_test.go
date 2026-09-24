@@ -21,7 +21,7 @@ func TestInfraToolsRegistered(t *testing.T) {
 		found[name] = true
 	}
 	for _, name := range []string{
-		"list_declared_nodes", "create_declared_node", "delete_declared_node",
+		"list_declared_nodes", "get_topology_live", "create_declared_node", "delete_declared_node",
 		"create_bootstrap_ticket", "accept_node", "reject_node",
 	} {
 		if !found[name] {

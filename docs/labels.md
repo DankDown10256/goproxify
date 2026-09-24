@@ -61,7 +61,9 @@ L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.ena
 | `goproxify.sticky_cookie` | `"GPXSESSION"` | Nom du cookie de session sticky. |
 | `goproxify.retry` | `"3"` \| `"3:500ms"` | Nombre de tentatives et délai entre chacune. |
 | `goproxify.circuit_breaker` | `"5:30s"` | Seuil d'erreurs : durée d'ouverture du circuit. |
-| `goproxify.limit_conn` | `"50"` | Nombre maximum de connexions simultanées. |
+| `goproxify.limit_conn` | `"50"` | Nombre maximum de connexions simultanées **par IP**, propre à la route. |
+| `goproxify.backpressure` | `"200"` \| `"200:100"` \| `"200:100:2s"` | Plafond de requêtes simultanées de la route `max[:file[:attente max]]` ; les excédentaires attendent dans la file bornée puis reçoivent `503` + `Retry-After`. Voir [security.md](security.md#backpressure-par-route). |
+| `goproxify.slow_start` | `"30"` \| `"30s"` \| `"2m"` | Durée de montée en charge (~5 % → 100 %) d'un backend nouvellement ajouté ou revenu après une panne, utile au scale-out. |
 
 ---
 
@@ -124,8 +126,10 @@ Le Sentinel est le moteur global de détection de menaces du Core. Il s'applique
 
 | Label | Valeurs | Description |
 |---|---|---|
-| `goproxify.jwt` | `"true"` \| `"<secret>"` | Valide les JWT entrants via le fournisseur configuré ou un secret inline. |
-| `goproxify.mtls` | `"<nom-cert>"` | Nom du certificat client à vérifier (mTLS). |
+| `goproxify.jwt` | `"https://idp.example.com/.well-known/jwks.json"` | Valide les JWT entrants (signature vérifiée par la clé JWKS du fournisseur). Seule une URL JWKS est acceptée : un secret inline ou `"true"` ne sont **pas** supportés, le label est alors ignoré avec un avertissement dans les logs de l'Agent et la route n'est pas protégée. |
+| `goproxify.jwt.issuer` | `"https://idp.example.com"` | Issuer exigé (optionnel, recommandé). |
+| `goproxify.jwt.audience` | `"my-api"` | Audience exigée (optionnel, recommandé). |
+| `goproxify.mtls` | `"/etc/goproxify/ca.pem"` | Chemin, **côté Core**, du fichier CA (PEM) qui signe les certificats clients ; un certificat client valide est exigé. Si le fichier est illisible, la route répond `503` au lieu de s'ouvrir. `"true"` n'est pas supporté (ignoré avec avertissement). |
 
 ---
 

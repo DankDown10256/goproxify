@@ -62,6 +62,8 @@ func (tw *transformWriter) WriteHeader(code int) {
 	tw.ResponseWriter.WriteHeader(code)
 }
 
+func (tw *transformWriter) Unwrap() http.ResponseWriter { return tw.ResponseWriter }
+
 func (tw *transformWriter) Write(b []byte) (int, error) {
 	if !tw.headerSent {
 		tw.WriteHeader(http.StatusOK)

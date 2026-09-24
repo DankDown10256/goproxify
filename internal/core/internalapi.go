@@ -4,8 +4,10 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vincamok/goproxify/internal/core/tracing"
 	"net/http"
 	"os"
 	"strings"
@@ -16,10 +18,10 @@ import (
 	corecrowdsec "github.com/vincamok/goproxify/internal/core/crowdsec"
 	"github.com/vincamok/goproxify/internal/core/errorpages"
 	coref2b "github.com/vincamok/goproxify/internal/core/fail2ban"
-	corere "github.com/vincamok/goproxify/internal/core/rulesengine"
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/portal"
 	"github.com/vincamok/goproxify/internal/core/router"
+	corere "github.com/vincamok/goproxify/internal/core/rulesengine"
 	"github.com/vincamok/goproxify/internal/core/threat"
 	"github.com/vincamok/goproxify/internal/core/waf/behavior"
 	corews "github.com/vincamok/goproxify/internal/core/ws"
@@ -830,6 +832,7 @@ func (s *Server) applyPushedSettings(payload pushedSettings) {
 		s.pushedTracing = payload.TracingEndpoint
 		s.mu.Unlock()
 		s.log.Info("settings: tracing endpoint reçu depuis Admin", "endpoint", payload.TracingEndpoint)
+		s.reconfigureTracing(payload.TracingEndpoint)
 	}
 
 	// Log level + format — rechargement à chaud, local wins
@@ -1096,15 +1099,15 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
 
 	// Proxies breakdown par host
 	type proxyStat struct {
-		Host          string  `json:"host"`
-		Requests      float64 `json:"requests"`
-		Errors        float64 `json:"errors"`
-		ErrorRate     float64 `json:"error_rate"`
-		P95ms         float64 `json:"p95_ms"`
-		ActiveReqs    float64 `json:"active_requests"`
-		BytesIn       float64 `json:"bytes_in"`
-		BytesOut      float64 `json:"bytes_out"`
-		BlockedTotal  float64 `json:"blocked_total"`
+		Host         string  `json:"host"`
+		Requests     float64 `json:"requests"`
+		Errors       float64 `json:"errors"`
+		ErrorRate    float64 `json:"error_rate"`
+		P95ms        float64 `json:"p95_ms"`
+		ActiveReqs   float64 `json:"active_requests"`
+		BytesIn      float64 `json:"bytes_in"`
+		BytesOut     float64 `json:"bytes_out"`
+		BlockedTotal float64 `json:"blocked_total"`
 	}
 	proxyMap := map[string]*proxyStat{}
 	ensureProxy := func(host string) *proxyStat {
@@ -1207,8 +1210,8 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
 
 	// Pipeline blocks par stage
 	type pipelineStat struct {
-		Stage  string  `json:"stage"`
-		Count  float64 `json:"count"`
+		Stage string  `json:"stage"`
+		Count float64 `json:"count"`
 	}
 	stageMap := map[string]float64{}
 	if mf, ok := idx["gpx_pipeline_blocked_total"]; ok {
@@ -1223,20 +1226,20 @@ func (s *Server) handleMetricsSummary(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	summary := map[string]any{
-		"active_requests":    getGauge("gpx_core_active_requests", nil),
-		"routes_total":       getGauge("gpx_core_routes_total", nil),
-		"requests_total":     sumCounter("gpx_core_requests_total", "", ""),
-		"errors_total":       sumCounter("gpx_core_requests_total", "status", "5xx"),
-		"p50_ms":             quantile("gpx_core_request_duration_seconds", 0.5) * 1000,
-		"p95_ms":             quantile("gpx_core_request_duration_seconds", 0.95) * 1000,
-		"p99_ms":             quantile("gpx_core_request_duration_seconds", 0.99) * 1000,
+		"active_requests":     getGauge("gpx_core_active_requests", nil),
+		"routes_total":        getGauge("gpx_core_routes_total", nil),
+		"requests_total":      sumCounter("gpx_core_requests_total", "", ""),
+		"errors_total":        sumCounter("gpx_core_requests_total", "status", "5xx"),
+		"p50_ms":              quantile("gpx_core_request_duration_seconds", 0.5) * 1000,
+		"p95_ms":              quantile("gpx_core_request_duration_seconds", 0.95) * 1000,
+		"p99_ms":              quantile("gpx_core_request_duration_seconds", 0.99) * 1000,
 		"backend_ttfb_p95_ms": quantile("gpx_backend_ttfb_seconds", 0.95) * 1000,
-		"bytes_in":           sumCounter("gpx_core_bytes_received_total", "", ""),
-		"bytes_out":          sumCounter("gpx_core_bytes_sent_total", "", ""),
-		"backends":           backends,
-		"certs":              certs,
-		"pipeline":           pipeline,
-		"proxies":            proxies,
+		"bytes_in":            sumCounter("gpx_core_bytes_received_total", "", ""),
+		"bytes_out":           sumCounter("gpx_core_bytes_sent_total", "", ""),
+		"backends":            backends,
+		"certs":               certs,
+		"pipeline":            pipeline,
+		"proxies":             proxies,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1302,3 +1305,27 @@ func (s *Server) handlePushClusterPeers(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// reconfigureTracing bascule l'export OTLP à chaud vers l'endpoint poussé par Admin
+// et vide l'ancien exporteur en arrière-plan.
+func (s *Server) reconfigureTracing(endpoint string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if endpoint == s.activeTracing {
+		return
+	}
+	shutdown, err := tracing.Init(endpoint, s.cfg.Engine.TracingSampleRatio)
+	if err != nil {
+		s.log.Warn("settings: tracing endpoint invalide, export inchangé", "endpoint", endpoint, "err", err)
+		return
+	}
+	old := s.tracingShutdown
+	s.tracingShutdown = shutdown
+	s.activeTracing = endpoint
+	if old != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			old(ctx) //nolint:errcheck
+		}()
+	}
+}

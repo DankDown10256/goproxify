@@ -351,6 +351,8 @@ func migrate(db *sql.DB) error {
 		// PEM des certificats — stockés pour re-push après redémarrage Core
 		`ALTER TABLE certs ADD COLUMN cert_pem TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE certs ADD COLUMN key_pem TEXT NOT NULL DEFAULT ''`,
+		// Validateurs HTTP (ETag / Last-Modified) des feeds des profils IP
+		`ALTER TABLE ip_profiles ADD COLUMN feed_cache TEXT NOT NULL DEFAULT '{}'`,
 	} {
 		db.Exec(s) //nolint:errcheck
 	}

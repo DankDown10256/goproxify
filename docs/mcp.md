@@ -596,9 +596,36 @@ Chaque résultat inclut désormais `core_name` — le Core d'origine ayant remon
 
 ---
 
+### `simulate_sentinel_config`
+
+Dry-run Sentinel : rejoue les access logs récents contre une config candidate et la compare à la config actuelle, **sans rien modifier**. Permet de répondre à « si j'applique cette règle, combien de requêtes légitimes auraient été bloquées dans la dernière heure ? » avant de faire `PUT /security/threat-config`. Scope : `logs:read`.
+
+| Paramètre | Type    | Requis | Description |
+|-----------|---------|--------|-------------|
+| `config`  | object  | ✓      | Champs Sentinel à surcharger sur la config actuelle (mêmes noms que `threat-config` : `rate_limit`, `rate_window`, `rate_ban_threshold`, `error_threshold`, `error_window`, `custom_lists`, `whitelist`, `score_threshold`, `ban_duration`) |
+| `hours`   | number  | —      | Fenêtre rejouée (défaut `1`, max `24`) |
+| `domain`  | string  | —      | Limiter le rejeu à un domaine |
+| `core`    | string  | —      | Core dont la config actuelle sert de base (défaut : config globale) |
+
+Réponse : `current` et `candidate` (`events`, `blocked`, `blocked_by_ban`, `legit_blocked`, `blocked_ips`, `by_reason`, `bans`, `top_ips`), `delta` (candidat − actuel), `events_replayed`, `truncated` (plafond 200 000 événements, les plus récents sont conservés), `skipped_unattributable_ip`.
+
+- Le rejeu utilise le moteur Sentinel réel sur l'horloge des logs, en mode `block` ; une IP bannie pendant le rejeu reste bloquée pour la durée du ban.
+- `legit_blocked` compte les requêtes bloquées qui avaient reçu un statut `< 400` : indicateur de faux positifs, pas une certitude.
+- **Non simulé** : listes par défaut (UA/path/IP téléchargées), `global_rps`, règles User-Agent (l'UA n'est pas conservé dans les logs Admin) et WAF (ni en-têtes ni corps conservés). Les IP pseudonymisées (RGPD) sont ignorées.
+
+---
+
 ## Infrastructure / wizard architecture
 
 Scopes PAT : `nodes:read` (lecture) / `nodes:write` (écriture). Alignés sur `/api/v1/declared-nodes`, `/api/v1/bootstrap-tickets`, `/api/v1/nodes/{id}/accept|reject`.
+
+### `get_topology_live`
+
+État temps réel de la topologie : pour chaque Core et Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec son facteur dominant, plus le nombre de bans actifs. Même réponse que `GET /api/v1/nodes/live` (formule du score : voir [api_specs.md](api_specs.md)). Scope `nodes:read`.
+
+**Paramètres :** aucun
+
+---
 
 ### `list_declared_nodes`
 

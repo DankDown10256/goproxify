@@ -14,7 +14,7 @@ import (
 
 func TestLimitConn_AllowsUnderLimit(t *testing.T) {
 	cfg := &router.LimitConnConfig{MaxPerIP: 3}
-	h := LimitConn(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := LimitConn("r1", cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
@@ -36,7 +36,7 @@ func TestLimitConn_BlocksOverLimit(t *testing.T) {
 		<-done
 		w.WriteHeader(http.StatusOK)
 	})
-	h := LimitConn(cfg)(block)
+	h := LimitConn("r1", cfg)(block)
 
 	// reset store for this test IP
 	ip := "9.8.7.6"
@@ -69,12 +69,59 @@ func TestLimitConn_BlocksOverLimit(t *testing.T) {
 }
 
 func TestLimitConn_Disabled(t *testing.T) {
-	h := LimitConn(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := LimitConn("r1", nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+// Le quota est propre à chaque route : une IP qui sature la route A reste servie sur la route B.
+func TestLimitConn_QuotaIsPerRoute(t *testing.T) {
+	cfg := &router.LimitConnConfig{MaxPerIP: 1}
+	ready, done := make(chan struct{}), make(chan struct{})
+	blocking := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(ready)
+		<-done
+	})
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	routeA := LimitConn("route-a", cfg)(blocking)
+	routeB := LimitConn("route-b", cfg)(ok)
+
+	req := func() *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "9.9.9.9:1234"
+		return r
+	}
+	go routeA.ServeHTTP(httptest.NewRecorder(), req())
+	<-ready
+
+	if rec := httptest.NewRecorder(); func() int { routeB.ServeHTTP(rec, req()); return rec.Code }() != http.StatusOK {
+		t.Fatal("la connexion en cours sur la route A ne doit pas compter pour la route B")
+	}
+	rec := httptest.NewRecorder()
+	routeA.ServeHTTP(rec, req())
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("la route A doit rester limitée, got %d", rec.Code)
+	}
+	close(done)
+}
+
+// Un CA illisible ne doit pas ouvrir une route qui exige des certificats clients.
+func TestMTLS_UnreadableCAFailsClosedWhenRequired(t *testing.T) {
+	serve := func(cfg *router.MTLSConfig) int {
+		h := MTLSValidation(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+		return rec.Code
+	}
+	if code := serve(&router.MTLSConfig{Enabled: true, CACertFile: "/nonexistent/ca.pem", RequireClientCert: true}); code != http.StatusServiceUnavailable {
+		t.Fatalf("CA illisible + certificat exigé : 503 attendu, got %d", code)
+	}
+	if code := serve(&router.MTLSConfig{Enabled: true, CACertFile: "/nonexistent/ca.pem"}); code != http.StatusOK {
+		t.Fatalf("certificat optionnel : comportement inchangé attendu, got %d", code)
 	}
 }

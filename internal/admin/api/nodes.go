@@ -77,6 +77,8 @@ func (h *NodesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && id == "":
 		h.list(w, r)
+	case r.Method == http.MethodGet && id == "live" && action == "":
+		h.live(w, r)
 	case r.Method == http.MethodGet && id == "meta" && action == "regions":
 		h.metaValues(w, r, "region")
 	case r.Method == http.MethodGet && id == "meta" && action == "environments":

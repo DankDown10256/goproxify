@@ -386,6 +386,14 @@ window.openDockerLabelsModal = async function(opts = {}) {
                 <label class="field-label" style="font-size:11px">${t('dockerlbl.adv.limit_conn')}</label>
                 <input id="lbl-limit-conn" class="input" type="number" min="0" placeholder="50" oninput="genLabels()">
               </div>
+              <div class="field" style="margin:0;flex:1;min-width:150px">
+                <label class="field-label" style="font-size:11px">${t('dockerlbl.adv.backpressure')}</label>
+                <input id="lbl-backpressure" class="input" placeholder="200:100:2s" oninput="genLabels()">
+              </div>
+              <div class="field" style="margin:0;flex:1;min-width:120px">
+                <label class="field-label" style="font-size:11px">${t('dockerlbl.adv.slow_start')}</label>
+                <input id="lbl-slow-start" class="input" placeholder="30s" oninput="genLabels()">
+              </div>
             </div>
             <div class="form-row" style="gap:10px;flex-wrap:wrap">
               <div class="field" style="margin:0;flex:1;min-width:140px">
@@ -672,7 +680,9 @@ function mapProxyToLabelPrefill(p) {
     maxBodySize: cfg.max_body_size ? String(cfg.max_body_size) : '',
     lb: cfg.lb || cfg.load_balancing?.algorithm || '',
     stickyCookie: cfg.sticky_cookie || '',
-    limitConn: cfg.limit_conn?.max ? String(cfg.limit_conn.max) : '',
+    limitConn: cfg.limit_conn?.max_per_ip ? String(cfg.limit_conn.max_per_ip) : '',
+    backpressure: cfg.backpressure?.max_inflight ? [cfg.backpressure.max_inflight, cfg.backpressure.queue || (cfg.backpressure.queue_timeout_ms ? 0 : ''), cfg.backpressure.queue_timeout_ms ? `${cfg.backpressure.queue_timeout_ms}ms` : ''].join(':').replace(/:+$/, '') : '',
+    slowStart: cfg.slow_start_sec ? String(cfg.slow_start_sec) : '',
     retry: cfg.retry?.attempts ? (cfg.retry.initial_wait ? `${cfg.retry.attempts}:${cfg.retry.initial_wait}` : String(cfg.retry.attempts)) : '',
     circuitBreaker: cfg.circuit_breaker?.threshold ? (cfg.circuit_breaker.timeout ? `${cfg.circuit_breaker.threshold}:${cfg.circuit_breaker.timeout}` : String(cfg.circuit_breaker.threshold)) : '',
     headersAdd: cfg.headers_add ? Object.entries(cfg.headers_add).map(([k,v]) => `${k}:${v}`).join(',') : '',
@@ -734,6 +744,8 @@ function applyLabelPrefill(pre) {
   setVal('lbl-lb', pre.lb || '');
   setVal('lbl-sticky-cookie', pre.stickyCookie || '');
   setVal('lbl-limit-conn', pre.limitConn || '');
+  setVal('lbl-backpressure', pre.backpressure || '');
+  setVal('lbl-slow-start', pre.slowStart || '');
   setVal('lbl-retry', pre.retry || '');
   setVal('lbl-circuit-breaker', pre.circuitBreaker || '');
   setVal('lbl-headers-add', pre.headersAdd || '');
@@ -924,6 +936,8 @@ window.genLabels = function() {
   const lb = document.getElementById('lbl-lb')?.value || '';
   const stickyCookie = (document.getElementById('lbl-sticky-cookie')?.value || '').trim();
   const limitConn = (document.getElementById('lbl-limit-conn')?.value || '').trim();
+  const backpressure = (document.getElementById('lbl-backpressure')?.value || '').trim();
+  const slowStart = (document.getElementById('lbl-slow-start')?.value || '').trim();
   const retry = (document.getElementById('lbl-retry')?.value || '').trim();
   const circuitBreaker = (document.getElementById('lbl-circuit-breaker')?.value || '').trim();
   const headersAdd = (document.getElementById('lbl-headers-add')?.value || '').trim();
@@ -1023,6 +1037,8 @@ spec:
   if (lb) labels.push(`goproxify.lb=${lb}`);
   if (stickyCookie) labels.push(`goproxify.sticky_cookie=${stickyCookie}`);
   if (limitConn) labels.push(`goproxify.limit_conn=${limitConn}`);
+  if (backpressure) labels.push(`goproxify.backpressure=${backpressure}`);
+  if (slowStart) labels.push(`goproxify.slow_start=${slowStart}`);
   if (retry) labels.push(`goproxify.retry=${retry}`);
   if (circuitBreaker) labels.push(`goproxify.circuit_breaker=${circuitBreaker}`);
   if (headersAdd) labels.push(`goproxify.headers.add=${headersAdd}`);

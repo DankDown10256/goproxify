@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -23,6 +24,13 @@ func MTLSValidation(cfg *router.MTLSConfig) func(http.Handler) http.Handler {
 		}
 		pool, err := buildCAPool(cfg)
 		if err != nil {
+			if cfg.RequireClientCert {
+				// Un CA illisible ne doit pas ouvrir une route qui exige des certificats clients.
+				slog.Error("mtls: CA inutilisable, route fermée (503)", "err", err)
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "mTLS: configuration invalide", http.StatusServiceUnavailable)
+				})
+			}
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

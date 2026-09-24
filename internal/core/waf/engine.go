@@ -509,7 +509,8 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 
 		// ── Étape 3 : service de la requête ──────────────────────────────
 		// Si des règles de réponse existent, bufferiser pour inspection.
-		if hasResponseRules {
+		// Un upgrade WebSocket ne peut pas être bufférisé : la connexion est détournée.
+		if hasResponseRules && !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 			rc := &responseCapture{
 				ResponseWriter: w,
 				buf:            &bytes.Buffer{},
@@ -674,6 +675,9 @@ func (sc *statusCapture) Flush() {
 		f.Flush()
 	}
 }
+
+// Unwrap laisse http.NewResponseController atteindre Hijack : sans lui, l'upgrade WebSocket échoue en 502.
+func (sc *statusCapture) Unwrap() http.ResponseWriter { return sc.ResponseWriter }
 
 // realIP extrait l'IP réelle depuis les headers proxy.
 // trustedCIDRs : liste de CIDRs de proxies de confiance parsés.

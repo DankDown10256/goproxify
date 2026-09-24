@@ -401,6 +401,41 @@ Liste les Cores et Agents enregistrés avec leur état.
 ]
 ```
 
+### `GET /api/v1/nodes/live`
+
+État temps réel de la topologie : santé, débit et risque de chaque Core et Agent. Scope PAT : `nodes:read`. L'UI (Infrastructure → Topologie) l'interroge toutes les 5 s.
+
+**Réponse 200 :**
+```json
+{
+  "window_sec": 60,
+  "generated_at": "2026-09-24T20:40:00Z",
+  "bans_active": 12,
+  "nodes": [
+    {
+      "node_name": "core-a", "role": "core", "status": "online",
+      "cpu_pct": 12.5, "mem_pct": 40.1,
+      "requests": 600, "rps": 10, "blocked_pct": 33.3, "error_pct": 0,
+      "low_traffic": false,
+      "risk": 67, "risk_level": "high", "risk_factor": "blocked"
+    }
+  ]
+}
+```
+
+Débit et taux viennent des access logs de la dernière minute (`window_sec`), par `node_name`, hors logs de l'Admin. `blocked_pct` = part de `403`/`429`, `error_pct` = part de `5xx`.
+
+**Score de risque (0-100)** : le plus élevé de plusieurs facteurs indépendants, pour que la cause reste lisible (`risk_factor`) :
+
+| Facteur | Score |
+|---|---|
+| `offline` | 100 si le nœud n'est pas `online` |
+| `blocked` | 2 × `blocked_pct` (50 % de refus = 100) |
+| `errors` | 4 × `error_pct` (25 % d'erreurs = 100) |
+| `resources` | CPU ou mémoire : 0 à 70 %, 100 à 100 % |
+
+`risk_level` : `low` (< 25), `medium` (< 60), `high`. Sous 20 requêtes dans la fenêtre (`low_traffic`), les taux `blocked` et `errors` sont ignorés (bruit statistique). `bans_active` est global (les bans ne sont pas rattachés à un Core).
+
 ### `DELETE /api/v1/nodes/:id`
 
 Désenregistre un node.

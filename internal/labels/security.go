@@ -324,3 +324,66 @@ func splitCSV(s string) []string {
 	}
 	return out
 }
+
+// ParseBackpressure interprète "200", "200:100" ou "200:100:2s" (max_inflight[:file[:attente max]]) → BackpressureConfig.
+func ParseBackpressure(s string) *router.BackpressureConfig {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.SplitN(s, ":", 3)
+	inflight, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || inflight <= 0 {
+		return nil
+	}
+	cfg := &router.BackpressureConfig{MaxInflight: inflight}
+	if len(parts) >= 2 {
+		if q, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil && q > 0 {
+			cfg.Queue = q
+		}
+	}
+	if len(parts) == 3 {
+		if d, err := time.ParseDuration(strings.TrimSpace(parts[2])); err == nil && d > 0 {
+			cfg.QueueTimeoutMs = int(d.Milliseconds())
+		}
+	}
+	return cfg
+}
+
+// ParseSlowStart interprète "30" (secondes) ou une durée ("30s", "2m") → secondes ; 0 si invalide.
+func ParseSlowStart(s string) int {
+	s = strings.TrimSpace(s)
+	if n, err := strconv.Atoi(s); err == nil {
+		return max(n, 0)
+	}
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return int(d.Seconds())
+	}
+	return 0
+}
+
+// ParseJWT construit la validation JWT depuis l URL JWKS du fournisseur (https://.../jwks.json),
+// avec issuer et audience optionnels. Le middleware ne sait valider que par JWKS : tout autre
+// valeur (secret inline, "true") donne nil.
+func ParseJWT(jwksURL, issuer, audience string) *router.JWTConfig {
+	jwksURL = strings.TrimSpace(jwksURL)
+	if !strings.HasPrefix(jwksURL, "https://") && !strings.HasPrefix(jwksURL, "http://") {
+		return nil
+	}
+	return &router.JWTConfig{
+		Enabled:  true,
+		JWKSURL:  jwksURL,
+		Issuer:   strings.TrimSpace(issuer),
+		Audience: strings.TrimSpace(audience),
+	}
+}
+
+// ParseMTLS construit la validation mTLS depuis le chemin du fichier CA (PEM) lisible par le Core.
+// Les certificats clients sont exigés. "true" / "false" ou une valeur vide donnent nil.
+func ParseMTLS(caFile string) *router.MTLSConfig {
+	caFile = strings.TrimSpace(caFile)
+	if caFile == "" || strings.EqualFold(caFile, "true") || strings.EqualFold(caFile, "false") {
+		return nil
+	}
+	return &router.MTLSConfig{Enabled: true, CACertFile: caFile, RequireClientCert: true}
+}

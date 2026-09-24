@@ -225,6 +225,34 @@ var RateLimit = struct {
 	}, []string{"host", "ip"}),
 }
 
+// Backpressure expose l'état du plafond de requêtes simultanées par route.
+var Backpressure = struct {
+	Inflight *prometheus.GaugeVec
+	Queued   *prometheus.GaugeVec
+	Rejected *prometheus.CounterVec
+}{
+	Inflight: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "backpressure",
+		Name:      "inflight",
+		Help:      "Requêtes en cours de traitement sur une route avec backpressure.",
+	}, []string{"host"}),
+
+	Queued: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "backpressure",
+		Name:      "queued",
+		Help:      "Requêtes en file d'attente sur une route avec backpressure.",
+	}, []string{"host"}),
+
+	Rejected: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "backpressure",
+		Name:      "rejected_total",
+		Help:      "Requêtes rejetées en 503 par le backpressure (reason: queue_full|timeout|canceled).",
+	}, []string{"host", "reason"}),
+}
+
 // Traffic expose les métriques de taille de payload.
 var Traffic = struct {
 	RequestSizeBytes  *prometheus.HistogramVec
@@ -300,6 +328,7 @@ var Backend = struct {
 	TTFB          *prometheus.HistogramVec
 	ErrorsTotal   *prometheus.CounterVec
 	RetriesTotal  *prometheus.CounterVec
+	SlowStartShifted *prometheus.CounterVec
 }{
 	RequestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "gpx",
@@ -336,5 +365,12 @@ var Backend = struct {
 		Subsystem: "backend",
 		Name:      "retries_total",
 		Help:      "Tentatives de failover vers un autre backend.",
+	}, []string{"host", "backend"}),
+
+	SlowStartShifted: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "backend",
+		Name:      "slowstart_shifted_total",
+		Help:      "Requêtes détournées d'un backend en montée en charge (slow-start) vers un backend plus avancé.",
 	}, []string{"host", "backend"}),
 }

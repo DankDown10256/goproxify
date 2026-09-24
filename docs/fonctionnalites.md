@@ -57,14 +57,15 @@ The Core can operate **autonomously** if the Admin is temporarily unreachable:
 
 | Feature | Details |
 |---|---|
-| IP/CIDR filtering | Built-in profiles: Cloudflare, Tor, Bogons, custom ranges |
+| IP/CIDR filtering | Built-in profiles: Cloudflare, Tor, Bogons, custom ranges; feeds aggregated (dedup + merged prefixes), private ranges excluded from deny lists, conditional downloads (ETag/304) |
 | Geo-IP | Allow or block by country (MaxMind GeoLite2; auto-download at startup) |
 | Rate limiting | Token bucket per IP or authenticated user — `key_by` field: `ip` (default), `jwt_sub`, `jwt_email`, `jwt_claim:<name>` |
+| Backpressure | Per-route cap on concurrent requests (`backpressure`: `max_inflight`, `queue`, `queue_timeout_ms`); extra requests wait in a bounded queue, then get `503` + `Retry-After`. WebSocket upgrades are exempt. Metrics `gpx_backpressure_*` — see [docs/security.md](security.md#backpressure-par-route) |
 | HTTP security headers | HSTS, X-Frame-Options, Content-Security-Policy, etc. |
 | CORS | Configurable origins, methods and headers |
 | Server fingerprint masking | Removal of revealing headers (`Server`, `X-Powered-By`) |
 | WAF | Native Go engine, 13 OWASP CRS-4 rule sets, request **and** response inspection, detect/block mode, custom rules hot-reload — see [docs/security.md](security.md#waf) |
-| Sentinel | Per-IP behavioral detection: sliding window, immediate ban on signal, global anti-DDoS RPS — see [docs/security.md](security.md#sentinel) |
+| Sentinel | Per-IP behavioral detection: sliding window, immediate ban on signal, global anti-DDoS RPS, optional bounded **tarpit** (holds the response to blocked IPs) — see [docs/security.md](security.md#sentinel) |
 | Native Go Fail2Ban | Automatic banning after N failures, no external dependency |
 | CrowdSec | LAPI stream bouncer → bans pushed to Core (403), Docker compatible |
 | Automatic rules engine | Event-driven conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP, node offline, cert expiring) → actions (disable proxy, ban IP, alert, strict mode, webhook call, trigger backup); cooldown, dry-run, history — see [docs/security.md](security.md#automatic-rules-engine) |
@@ -112,14 +113,17 @@ Core A (client)          Core B (server)
 - **Circuit Breaker**: thread-safe (mutex), `RecordSuccess`/`RecordFailure` called from handler after each attempt; automatic isolation of failing backends
 - **Retry policy** with configurable exponential backoff
 - **Sticky sessions** via cookie
+- **Slow-start** (`slow_start_sec`): a backend that is newly added or recovers from an outage ramps up from ~5 % to 100 % of its share over the configured window; sticky sessions keep their backend. Metric `gpx_backend_slowstart_shifted_total`
 - **Configurable server timeouts**: `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurable from Admin (Security > Server settings) and propagated to Cores via WebSocket
 
 ### Observability
 
+- **Live topology** (Infrastructure → Topology): Admin → Cores → Agents map refreshed every 5 s in place, each node showing health, request rate (req/s over the last 60 s, with a 2-minute sparkline) and a **risk score 0-100** (highest of: offline, rejection rate 403/429, 5xx rate, CPU/RAM pressure; the dominant cause is shown). API `GET /api/v1/nodes/live`, CLI `goproxify nodes live`, MCP `get_topology_live` — see [docs/api_specs.md](api_specs.md#get-apiv1nodeslive)
+
 - **Async JSON access log**: client IP, domain, method, HTTP code, duration, upstream, HTTP version
 - **Structured JSON system log** for all components, with rotation
 - **Prometheus metrics** exposed on `/metrics` — full instrumentation of all services: `gpx_core_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — see `docs/services.md`
-- **OpenTelemetry tracing** (planned)
+- **OpenTelemetry tracing** (OTLP/HTTP, W3C Trace Context): one server span per request continuing an incoming `traceparent`, a client span per backend call (`traceparent` forwarded to the backend, so the trace spans caller → Core → backend), Sentinel / ban decisions as span events (`sentinel.signal`, `ban.blocked`, no IP recorded) and route attributes (`gpx.route.id`, `gpx.route.host`). `X-Trace-Id` is returned to the client. Enable with `engine.tracing_endpoint` (`host:port` for plain HTTP, or a full `https://…` URL) or from Admin (`tracing_endpoint`, pushed to Cores; applied live); `engine.tracing_sample_ratio` (default `1`) samples new traces while honoring the caller's decision. Without an endpoint the Core stays transparent: an incoming `traceparent` is still forwarded, nothing is exported. `/metrics` is not traced
 - **JSON audit log**: full traceability of all operations
 
 ### GoProxify Access (SSH / shell portal)
@@ -172,6 +176,7 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 - **Scopes:** each tool requires a scope (`proxies:read|write|delete`, `nodes:read|write`, `audit:read` for security, `portal:read|write` for Access, …) ∩ current account rights
 - **Read:** proxies, nodes, agents, declared-nodes, alerts, metrics, backups, users, snippets, domains, certs, logs, teams, audit, bans / threats / CVE, alert channels/rules, auth providers, IP profiles, Access (config, catalogue, users, templates, audit)
 - **Write:** `create_proxy`, `update_proxy`, `set_proxy_enabled`, `delete_proxy`, `approve_agent`, `revoke_agent`, `create_declared_node`, `create_bootstrap_ticket`, `accept_node` / `reject_node`, `create_security_ban`, `delete_security_ban`, `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `create_auth_provider`, `delete_auth_provider`, `create_ip_profile`, `delete_ip_profile`, `create_snippet`, `delete_snippet`, `create_domain`, `renew_domain`, `obtain_cert`, Access tools (`update_portal_*`, `invite_portal_user`, `push_portal`, templates…)
+- **Sentinel dry-run:** `simulate_sentinel_config` (scope `logs:read`) replays recent access logs against a candidate Sentinel config and diffs it with the current one (blocked requests, bans, likely false positives) without applying anything
 - Documentation: [docs/mcp.md](mcp.md)
 - **Access control (`/mcp-access`, admin only):**
   - **Source IP allowlist:** admins restrict `/mcp` to a list of IP/CIDR entries (`GET`/`PUT /api/v1/mcp-access/allowed-ips`); enforced server-side before PAT auth even runs. Empty list (default) = no restriction.
@@ -342,8 +347,9 @@ goproxify.canary.weight: "10"
 
 Symmetrically to Docker mode, the Agent can discover annotated Kubernetes resources:
 
-- Watches `Ingress` and `Service` resources carrying `goproxify.*` annotations
-- Same annotation semantics as Docker labels (`goproxify.enable`, `goproxify.host`, `goproxify.port`, etc.)
+- Watches `Ingress` and `Service` resources carrying the **label** `goproxify.enabled: "true"` (a Kubernetes label selector cannot match annotations, so this is a label, unlike Docker's `goproxify.enable`)
+- Configuration comes from `goproxify.*` **annotations** with the same semantics as the Docker labels (see [docs/labels.md](labels.md)): `host` (CSV = aliases; on an Ingress the rule host wins), `port`, `backend`, `tls`, `waf`, `rate_limit`, `limit_conn`, `backpressure`, `slow_start`, `jwt`, `mtls`, `headers.add/remove`, `cache`, etc. The label prefix is configurable (`kubernetes.label_prefix`)
+- Values deduced from the resource (host, backend, TLS from `spec.tls`) take precedence over the annotations
 - Proxies created read-only in UI (source `k8s`)
 - Requires a `ServiceAccount` with `get/watch/list` access on `ingresses` and `services`
 - Compatible with multi-namespace Kubernetes deployments; target namespace configurable in `agent.json`
@@ -509,7 +515,7 @@ goproxify <command> [options]
 | `security threat/bans/waf` | Security: Sentinel, IP bans, WAF per proxy |
 | `status` | Cluster state (nodes, versions, health) |
 | `access` | GoProxify Access (config, catalogue, users, templates, audit) |
-| `nodes` | List / accept / reject nodes (Infrastructure) |
+| `nodes` | List / live health-throughput-risk (`nodes live`) / accept / reject nodes (Infrastructure) |
 | `declared` | Architecture wizard declared nodes |
 | `bootstrap` | QR / curl\|bash host integration tickets |
 | `core cache show/refresh/export/clear` | Core local cache management |

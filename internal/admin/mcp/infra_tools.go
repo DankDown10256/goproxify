@@ -38,6 +38,11 @@ func (h *Handler) callDeclared(r *http.Request, method, path string, body any) (
 func infraTools() []map[string]any {
 	return []map[string]any{
 		{
+			"name":        "get_topology_live",
+			"description": "État temps réel de la topologie : pour chaque nœud Core/Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec le facteur dominant (offline, blocked, errors, resources), plus le nombre de bans actifs.",
+			"inputSchema": schema(),
+		},
+		{
 			"name":        "list_declared_nodes",
 			"description": "Liste les nœuds déclarés (wizard architecture / Infrastructure) pas encore connectés.",
 			"inputSchema": schema(),
@@ -153,4 +158,8 @@ func (h *Handler) toolRejectNode(r *http.Request, args map[string]any) (any, err
 		return nil, fmt.Errorf("id requis")
 	}
 	return h.callNodes(r, http.MethodPost, "/api/v1/nodes/"+id+"/reject", nil)
+}
+
+func (h *Handler) toolGetTopologyLive(r *http.Request) (any, error) {
+	return h.callNodes(r, http.MethodGet, "/api/v1/nodes/live", nil)
 }

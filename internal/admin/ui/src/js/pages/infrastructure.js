@@ -70,6 +70,7 @@ pages.infrastructure = async function() {
         <div class="card-header">
           <span class="card-title">${t('infra.topology')}</span>
           <span style="font-size:11px;color:var(--text2)">${t('infra.topology_meta', { cores: coreNodes.length, agents: agentNodes.length, pending: topoPending })}</span>
+          <span id="topo-live-meta" style="font-size:11px;color:var(--text2)"></span>
         </div>
         <div id="topology-container" style="overflow-x:auto;padding:8px 0"></div>
         <div id="topo-details" class="topo-details" style="display:none;"></div>
@@ -81,6 +82,7 @@ pages.infrastructure = async function() {
       ${agentsSection}
     `;
     renderTopology(allNodes.filter(n => n.status !== 'pending'), health);
+    startTopologyLive(content);
 
     // Événements scaling & santé
     const events = await api('GET','/node-events?limit=30').catch(() => []);
@@ -1238,3 +1240,67 @@ window._clearTopoSelection = _clearTopoSelection;
 
 
 
+
+// ── Topologie temps réel : débit, risque, santé ────────────────────────────
+// Sonde GET /nodes/live toutes les 5 s et met à jour les tuiles en place (pas de re-rendu de la page).
+
+const TOPO_LIVE_POLL_MS = 5000;
+const TOPO_LIVE_HISTORY = 24; // 2 min de débit pour la sparkline
+
+function _topoSparkline(values) {
+  if (values.length < 2) return '';
+  const w = 60, h = 14, max = Math.max(...values, 1);
+  const pts = values.map((v, i) => `${(i / (values.length - 1) * w).toFixed(1)},${(h - 1 - v / max * (h - 2)).toFixed(1)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="flex:none;opacity:.7"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="1.5"/></svg>`;
+}
+
+function _topoApplyLive(live) {
+  const hist = window._topoHist = window._topoHist || {};
+  const meta = document.getElementById('topo-live-meta');
+  if (meta) meta.textContent = t('infra.live.meta', { sec: live.window_sec, bans: live.bans_active });
+
+  for (const n of live.nodes) {
+    const h = hist[n.node_name] = hist[n.node_name] || [];
+    h.push(n.rps);
+    if (h.length > TOPO_LIVE_HISTORY) h.shift();
+
+    const wrap = document.querySelector(`.topo-tile-wrap[data-node-id="${CSS.escape(n.node_name)}"]`);
+    if (!wrap) continue;
+    wrap.dataset.risk = n.risk_level;
+    let box = wrap.querySelector('.topo-live');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'topo-live';
+      wrap.appendChild(box);
+    }
+    const why = n.risk_factor !== 'none' ? ` · ${t('infra.live.factor.' + n.risk_factor)}` : '';
+    const traffic = n.role === 'core'
+      ? `<span>${t('infra.live.reqs', { rps: n.rps < 10 ? n.rps.toFixed(1) : Math.round(n.rps) })}</span>${_topoSparkline(h)}`
+      : '';
+    box.innerHTML = `${traffic}<span class="topo-risk topo-risk-${n.risk_level}" title="${esc(t('infra.live.risk', { score: n.risk }) + why)}${n.low_traffic && n.role === 'core' ? ' — ' + esc(t('infra.live.low')) : ''}">${esc(t('infra.live.risk', { score: n.risk }))}</span>`;
+  }
+}
+
+async function _topoLiveTick(content) {
+  if (!content.isConnected || !document.getElementById('topology-container')) return;
+  const live = await api('GET', '/nodes/live').catch(() => null);
+  if (!live) return;
+  // Un nœud apparu ou disparu change la structure du graphe : rechargement complet, une seule fois par changement.
+  const sig = live.nodes.map(n => n.node_name).join('|');
+  if (window._topoSig !== undefined && window._topoSig !== sig) {
+    window._topoSig = sig;
+    pages.infrastructure();
+    return;
+  }
+  window._topoSig = sig;
+  _topoApplyLive(live);
+}
+
+function startTopologyLive(content) {
+  if (typeof content._cleanup === 'function') content._cleanup();
+  window._topoSig = undefined;
+  window._topoHist = {};
+  _topoLiveTick(content);
+  const timer = setInterval(() => _topoLiveTick(content), TOPO_LIVE_POLL_MS);
+  content._cleanup = () => clearInterval(timer);
+}

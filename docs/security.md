@@ -154,6 +154,27 @@ Les compteurs (rate, erreurs 4xx) sont **bornés en mémoire** (~262 k IPs suivi
 | `global_rps` | 0 | Limite globale toutes IPs confondues (anti-DDoS), 0 = désactivé |
 | `global_burst` | 0 | Burst associé (0 = 2×RPS) |
 | `ban_duration` | `24h` | Durée du ban automatique |
+| `tarpit.enabled` | `false` | Retient la réponse aux IP bloquées ou bannies par Sentinel au lieu de refuser aussitôt |
+| `tarpit.delay_ms` | 5000 | Durée de rétention (max 30000, sous les timeouts d'écriture usuels) |
+| `tarpit.max_concurrent` | 200 | Requêtes retenues simultanément ; au-delà, refus immédiat (`403`) |
+
+### Tarpit
+
+Avec `tarpit.enabled`, une requête bloquée par Sentinel (signal en mode `block`) ou venant d'une IP bannie par Sentinel (ban dont la source est `threat`, y compris les bans posés par le WAF) n'est pas refusée aussitôt : la connexion est retenue `delay_ms` avant la réponse `403`. Un bot qui attend chaque réponse immobilise ses propres connexions et perd du débit.
+
+- **Borné** : au plus `max_concurrent` requêtes retenues en même temps. Au-delà, ou tarpit désactivé, le refus est immédiat comme avant : le tarpit ne peut pas épuiser les connexions du Core.
+- Un client qui se déconnecte libère son slot aussitôt.
+- Les bans Fail2Ban, CrowdSec et manuels, ainsi que les profils IP, ne sont **pas** retenus.
+- Chaque requête retenue garde une goroutine et un socket ouverts : garder `max_concurrent` raisonnable, et `delay_ms` inférieur au `WriteTimeout` du serveur (max 30 s).
+
+```
+gpx_threat_tarpit_active
+gpx_threat_tarpit_total{result}   # held | full
+```
+
+### Simuler une config avant de l'appliquer (MCP)
+
+L'outil MCP `simulate_sentinel_config` rejoue les access logs récents (1 à 24 h) contre une config candidate et la compare à la config en production : requêtes bloquées en plus, bans, IP les plus touchées, et `legit_blocked` (requêtes qui auraient été bloquées alors qu'elles avaient abouti, signe probable de faux positifs). Rien n'est modifié. Les listes par défaut, `global_rps` et les règles User-Agent ne sont pas simulées ; voir [docs/mcp.md](mcp.md#simulate_sentinel_config).
 
 ### Whitelist par route (labels Docker)
 
@@ -161,6 +182,30 @@ Les compteurs (rate, erreurs 4xx) sont **bornés en mémoire** (~262 k IPs suivi
 goproxify.sentinel.whitelist: "192.168.1.5,10.0.0.0/8"
 goproxify.sentinel.whitelist.self: "true"     # IP actuelle du conteneur
 goproxify.sentinel.whitelist.network: "true"  # sous-réseau Docker du conteneur
+```
+
+---
+
+## Backpressure par route
+
+Protège les backends (et la mémoire du Core) quand ils ralentissent : au-delà d'un plafond de requêtes simultanées, les requêtes attendent dans une file bornée puis sont rejetées.
+
+```json
+"backpressure": { "max_inflight": 200, "queue": 100, "queue_timeout_ms": 1000 }
+```
+
+| Champ | Description |
+|---|---|
+| `max_inflight` | Requêtes traitées en parallèle sur la route. `0` = désactivé |
+| `queue` | Requêtes en attente au-delà du plafond. `0` = rejet immédiat |
+| `queue_timeout_ms` | Attente maximale en file (défaut `1000`) |
+
+Une requête rejetée (file pleine, délai dépassé, client parti) reçoit `503` avec `Retry-After: 1`. Les upgrades WebSocket ne consomment pas de slot. Le plafond est propre à chaque instance de Core (non partagé en cluster) et repart de zéro à chaque rechargement de la route.
+
+```
+gpx_backpressure_inflight{host}
+gpx_backpressure_queued{host}
+gpx_backpressure_rejected_total{host, reason}   # queue_full | timeout | canceled
 ```
 
 ---
@@ -313,7 +358,7 @@ Le masquage du fingerprint serveur (`Server`, `X-Powered-By`) est activable ind�
 
 ## Profils IP et GeoIP
 
-- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur tous les Cores ; les profils `allow` servent au filtrage CDN.
+- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur tous les Cores ; les profils `allow` servent au filtrage CDN. Les CIDRs sont agrégés (doublons et préfixes contenus fusionnés), les plages privées sont exclues des profils `deny` et les feeds inchangés ne sont pas retéléchargés (ETag / 304). Spamhaus DROP, DShield et Feodo sont désactivés par défaut car inclus dans FireHOL Level 1.
 - **GeoIP** : autorisation ou blocage par pays (MaxMind GeoLite2, téléchargé automatiquement au démarrage).
 
 ---

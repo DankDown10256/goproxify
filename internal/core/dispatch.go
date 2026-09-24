@@ -23,6 +23,8 @@ import (
 	"github.com/vincamok/goproxify/internal/core/proxy"
 	"github.com/vincamok/goproxify/internal/core/router"
 	"github.com/vincamok/goproxify/internal/core/threat"
+	"github.com/vincamok/goproxify/internal/core/tracing"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type cachedDispatch struct {
@@ -124,6 +126,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	remoteIP := corelog.RealIP(r)
 	if blocked, reason := s.profileStore.CheckBlocked(remoteIP); blocked {
 		s.log.Warn("ip bloquée par profil", "ip", remoteIP, "profile", reason)
+		tracing.Event(r.Context(), "ip_profile.blocked")
 		serveDefaultError(w, r, http.StatusForbidden)
 		return
 	}
@@ -131,6 +134,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if !s.profileStore.IsAllowed(remoteIP) {
 		if blocked, reason := s.banStore.CheckBlocked(remoteIP); blocked {
 			s.log.Warn("ip bloquée par ban", "ip", remoteIP, "reason", reason)
+			tracing.Event(r.Context(), "ban.blocked", attribute.String("source", banSource(reason)))
+			if strings.HasPrefix(reason, "threat") {
+				s.rejectThreat(w, r)
+				return
+			}
 			serveDefaultError(w, r, http.StatusForbidden)
 			return
 		}
@@ -140,9 +148,10 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if s.threatEngine != nil {
 		if blocked, reason := s.threatEngine.Check(r, remoteIP); reason != "" {
 			r = threat.WithSignal(r, reason)
+			tracing.Event(r.Context(), "sentinel.signal", attribute.String("reason", reason), attribute.Bool("blocked", blocked))
 			if blocked {
 				s.log.Warn("ip bloquée par moteur de détection", "ip", remoteIP, "reason", reason)
-				serveDefaultError(w, r, http.StatusForbidden)
+				s.rejectThreat(w, r)
 				return
 			}
 		}
@@ -157,6 +166,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	// Résoudre les snippets et le fournisseur d'auth avant de construire la chaîne.
 	route = router.ResolveSnippets(route, s.snippetStore)
 	route = router.ResolveAuthProvider(route, s.providerStore)
+	tracing.Annotate(r.Context(), attribute.String("gpx.route.id", route.ID), attribute.String("gpx.route.host", route.Host))
 
 	locPath := ""
 	if loc := router.MatchLocation(route, r.URL.Path); loc != nil {
@@ -249,7 +259,8 @@ func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handl
 	h = geoIPMW(h)
 	h = middleware.IPFilter(route.IPFilter)(h)
 	h = middleware.RateLimit(route.RateLimit)(h)
-	h = middleware.LimitConn(route.LimitConn)(h)
+	h = middleware.LimitConn(route.ID, route.LimitConn)(h)
+	h = middleware.Backpressure(route.Host,route.Backpressure)(h)
 	h = middleware.ResolveRequestVars(route.RequestVars)(h)
 	h = middleware.BotProtection(route.Bot)(h)
 	if route.WAF != nil && route.WAF.Enabled {
@@ -350,3 +361,23 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
+
+// rejectThreat répond 403 à une IP bloquée ou bannie par Sentinel, après l'avoir retenue
+// si le tarpit est actif (et non saturé).
+func (s *Server) rejectThreat(w http.ResponseWriter, r *http.Request) {
+	if s.threatEngine != nil {
+		s.threatEngine.TarpitWait(r.Context())
+	}
+	serveDefaultError(w, r, http.StatusForbidden)
+}
+
+// banSource extrait la source d'un motif de ban ("threat: rate" → "threat") : sans IP dans les traces.
+func banSource(reason string) string {
+	if i := strings.Index(reason, ":"); i > 0 {
+		src := reason[:i]
+		if strings.Trim(src, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-") == "" {
+			return src
+		}
+	}
+	return "other"
+}

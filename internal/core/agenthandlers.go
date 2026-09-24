@@ -120,6 +120,7 @@ type agentContainerPayload struct {
 	WAF            json.RawMessage `json:"waf"`
 	Bot            json.RawMessage `json:"bot"`
 	LimitConn      json.RawMessage `json:"limit_conn"`
+	Backpressure   json.RawMessage `json:"backpressure"`
 	JWT            json.RawMessage `json:"jwt"`
 	MTLS           json.RawMessage `json:"mtls"`
 
@@ -142,6 +143,7 @@ type agentContainerPayload struct {
 	// Load balancing & résilience
 	LBOverride     string          `json:"lb"`
 	StickyCookie   string          `json:"sticky_cookie"`
+	SlowStartSec   int             `json:"slow_start_sec"`
 	Retry          json.RawMessage `json:"retry"`
 	CircuitBreaker json.RawMessage `json:"circuit_breaker"`
 
@@ -611,6 +613,9 @@ func applyDiscoveryHostExtras(rt *router.Route, p *agentContainerPayload) {
 	if p.StickyCookie != "" {
 		rt.StickyCookie = p.StickyCookie
 	}
+	if p.SlowStartSec > 0 {
+		rt.SlowStartSec = p.SlowStartSec
+	}
 	if len(p.Retry) > 0 && string(p.Retry) != "null" {
 		var rc router.RetryConfig
 		if json.Unmarshal(p.Retry, &rc) == nil {
@@ -629,23 +634,31 @@ func applyDiscoveryHostExtras(rt *router.Route, p *agentContainerPayload) {
 			rt.LimitConn = &lc
 		}
 	}
+	if len(p.Backpressure) > 0 && string(p.Backpressure) != "null" {
+		var bp router.BackpressureConfig
+		if json.Unmarshal(p.Backpressure, &bp) == nil {
+			rt.Backpressure = &bp
+		}
+	}
 
 	// En-têtes
-	if len(p.HeadersAdd) > 0 || len(p.HeadersRemove) > 0 {
+	if len(p.HeadersAdd) > 0 {
 		if rt.HeadersManipulation == nil {
 			rt.HeadersManipulation = &router.HeadersManipulationConfig{}
 		}
-		if len(p.HeadersAdd) > 0 {
-			if rt.HeadersManipulation.RequestSetHeader == nil {
-				rt.HeadersManipulation.RequestSetHeader = map[string]string{}
-			}
-			for k, v := range p.HeadersAdd {
-				rt.HeadersManipulation.RequestSetHeader[k] = v
-			}
+		if rt.HeadersManipulation.RequestSetHeader == nil {
+			rt.HeadersManipulation.RequestSetHeader = map[string]string{}
 		}
-		if len(p.HeadersRemove) > 0 {
-			rt.HeadersManipulation.RequestHideHeader = p.HeadersRemove
+		for k, v := range p.HeadersAdd {
+			rt.HeadersManipulation.RequestSetHeader[k] = v
 		}
+	}
+	// headers.remove retire des en-têtes de la RÉPONSE (ex. X-Powered-By, Server), comme documenté.
+	if len(p.HeadersRemove) > 0 {
+		if rt.Transform == nil {
+			rt.Transform = &router.RequestTransform{}
+		}
+		rt.Transform.RemoveResponseHeaders = p.HeadersRemove
 	}
 
 	// JWT & mTLS
@@ -1024,6 +1037,15 @@ func discoveryRouteConfig(rt *router.Route) map[string]any {
 	}
 	if rt.StickyCookie != "" {
 		cfg["sticky_cookie"] = rt.StickyCookie
+	}
+	if rt.SlowStartSec > 0 {
+		cfg["slow_start_sec"] = rt.SlowStartSec
+	}
+	if rt.LimitConn != nil {
+		cfg["limit_conn"] = rt.LimitConn
+	}
+	if rt.Backpressure != nil {
+		cfg["backpressure"] = rt.Backpressure
 	}
 	if rt.Websocket != nil {
 		cfg["websocket"] = *rt.Websocket

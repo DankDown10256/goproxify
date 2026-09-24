@@ -42,6 +42,7 @@ type Route struct {
 	// Sécurité
 	RateLimit           *RateLimitConfig           `json:"rate_limit,omitempty"`
 	LimitConn           *LimitConnConfig           `json:"limit_conn,omitempty"`
+	Backpressure        *BackpressureConfig        `json:"backpressure,omitempty"`
 	IPFilter            *IPFilterConfig            `json:"ip_filter,omitempty"`
 	GeoIP               *GeoIPConfig               `json:"geo_ip,omitempty"`
 	Headers             *HeadersConfig             `json:"headers,omitempty"`
@@ -70,6 +71,8 @@ type Route struct {
 	CircuitBreaker *CBConfig    `json:"circuit_breaker,omitempty"`
 	Retry          *RetryConfig `json:"retry,omitempty"`
 	StickyCookie   string       `json:"sticky_cookie,omitempty"`
+	// SlowStartSec : durée (s) de montée en charge d'un backend nouvellement sain ou nouvellement ajouté (0 = désactivé).
+	SlowStartSec int `json:"slow_start_sec,omitempty"`
 	HealthCheck    *HealthCheckConfig `json:"health_check,omitempty"`
 
 	// Pipeline de transformation de requête/réponse (headers, réécriture URL).
@@ -195,6 +198,14 @@ type RateLimitConfig struct {
 // (équivalent nginx limit_conn).
 type LimitConnConfig struct {
 	MaxPerIP int `json:"max_per_ip"` // 0 = désactivé
+}
+
+// BackpressureConfig plafonne les requêtes simultanées vers les backends d'une route
+// et met les excédentaires en file bornée ; au-delà, 503 + Retry-After.
+type BackpressureConfig struct {
+	MaxInflight    int `json:"max_inflight"`               // 0 = désactivé
+	Queue          int `json:"queue,omitempty"`            // requêtes en attente max (0 = rejet immédiat)
+	QueueTimeoutMs int `json:"queue_timeout_ms,omitempty"` // attente max en file (défaut 1000)
 }
 
 type IPFilterConfig struct {

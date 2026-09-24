@@ -1900,6 +1900,21 @@ function threatEngineBanner(cfg) {
           </div>
         </div>
 
+        <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr);align-items:end">
+          <div class="field" style="margin:0">
+            <label class="field-label">Tarpit <span style="font-weight:400;color:var(--text3)">(retient la réponse aux IP bloquées au lieu de refuser aussitôt)</span></label>
+            <label class="toggle"><input type="checkbox" id="threat-tarpit" ${cfg.tarpit?.enabled?'checked':''}><span class="toggle-slider"></span></label>
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">Tarpit — délai <span style="font-weight:400;color:var(--text3)">(ms, défaut 5000, max 30000)</span></label>
+            <input id="threat-tarpit-delay" type="number" class="input" value="${cfg.tarpit?.delay_ms||''}" min="0" max="30000" placeholder="5000">
+          </div>
+          <div class="field" style="margin:0">
+            <label class="field-label">Tarpit — requêtes retenues max <span style="font-weight:400;color:var(--text3)">(défaut 200 ; au-delà, refus immédiat)</span></label>
+            <input id="threat-tarpit-max" type="number" class="input" value="${cfg.tarpit?.max_concurrent||''}" min="0" placeholder="200">
+          </div>
+        </div>
+
         <div class="sec-bans-engine-fields" style="grid-template-columns:repeat(3,1fr)">
           <div class="field" style="margin:0">
             <label class="field-label">${t('security.threat.rate_limit')} <span style="font-weight:400;color:var(--text3)">(req/s par IP, 0 = désactivé)</span></label>
@@ -2020,6 +2035,11 @@ window.saveThreatConfig = async function(e) {
     enabled,
     mode: document.getElementById('threat-mode')?.value || 'block',
     score_threshold: parseInt(document.getElementById('threat-score')?.value || '0', 10) || 0,
+    tarpit: {
+      enabled: document.getElementById('threat-tarpit')?.checked ?? false,
+      delay_ms: parseInt(document.getElementById('threat-tarpit-delay')?.value || '0', 10) || 0,
+      max_concurrent: parseInt(document.getElementById('threat-tarpit-max')?.value || '0', 10) || 0,
+    },
     rate_limit: parseFloat(document.getElementById('threat-rate')?.value || '0') || 0,
     rate_window: document.getElementById('threat-rate-window')?.value || '1s',
     rate_ban_threshold: parseInt(document.getElementById('threat-rate-ban-threshold')?.value || '1', 10) || 1,

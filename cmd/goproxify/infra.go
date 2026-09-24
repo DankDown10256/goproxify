@@ -27,6 +27,15 @@ func runNodes() {
 			os.Exit(1)
 		}
 		printJSON(out)
+	case "live":
+		args := parseFlags(os.Args[3:])
+		client := mustAdminClient(args)
+		var out any
+		if _, err := client.DoJSON("GET", "/api/v1/nodes/live", nil, &out); err != nil {
+			fmt.Fprintf(os.Stderr, "nodes live : %v\n", err)
+			os.Exit(1)
+		}
+		printJSON(out)
 	case "accept":
 		args := parseFlags(os.Args[3:])
 		client := mustAdminClient(args)
@@ -61,12 +70,14 @@ func nodesUsage() {
 
 Actions :
   list     Liste les nœuds (online, declared, pending)
+  live     Santé, débit (req/s) et score de risque de chaque nœud (60 s glissantes)
   accept   Accepte un nœud en attente
   reject   Rejette un nœud en attente
 
 Exemples :
   goproxify nodes list
   goproxify nodes list -role core
+  goproxify nodes live
   goproxify nodes accept -id <pending-id>
   goproxify nodes reject -id <pending-id>
 

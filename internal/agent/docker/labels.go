@@ -75,14 +75,18 @@ const (
 	LabelRetry         = "goproxify.retry"            // "3" ou "3:500ms"
 	LabelCircuitBreaker = "goproxify.circuit_breaker" // "5:30s" (seuil erreurs:délai ouverture)
 	LabelLimitConn     = "goproxify.limit_conn"       // "50" connexions simultanées max
+	LabelBackpressure  = "goproxify.backpressure"     // "200" | "200:100" | "200:100:2s" (max requêtes simultanées[:file[:attente max]])
+	LabelSlowStart     = "goproxify.slow_start"       // "30" (secondes) ou "30s" : montée en charge d'un nouveau backend
 
 	// En-têtes
 	LabelAddHeaders    = "goproxify.headers.add"    // "X-Foo:bar,X-Baz:qux"
 	LabelRemoveHeaders = "goproxify.headers.remove" // "X-Powered-By,Server"
 
 	// Authentification
-	LabelJWT  = "goproxify.jwt"  // secret ou "true" pour valider via le fournisseur configuré
-	LabelMTLS = "goproxify.mtls" // nom du certificat client à vérifier
+	LabelJWT  = "goproxify.jwt"  // URL JWKS du fournisseur (https://idp/.well-known/jwks.json)
+	LabelJWTIssuer   = "goproxify.jwt.issuer"   // issuer attendu (optionnel)
+	LabelJWTAudience = "goproxify.jwt.audience" // audience attendue (optionnel)
+	LabelMTLS = "goproxify.mtls" // chemin du fichier CA (PEM) lisible par le Core ; certificat client exigé
 
 	// Cache
 	LabelCache = "goproxify.cache" // "60s" ou "true" pour les valeurs par défaut
@@ -168,6 +172,8 @@ type ProxySpec struct {
 	Retry         string // "3" ou "3:500ms"
 	CircuitBreaker string // "5:30s"
 	LimitConn     int
+	Backpressure  string // "200:100:2s"
+	SlowStart     string // "30" ou "30s"
 
 	// En-têtes
 	AddHeaders    string // "X-Foo:bar,X-Baz:qux"
@@ -176,6 +182,8 @@ type ProxySpec struct {
 	// Authentification avancée
 	JWT  string
 	MTLS string
+	JWTIssuer   string
+	JWTAudience string
 
 	// Cache
 	Cache string
@@ -317,12 +325,16 @@ func ParseLabelsMulti(containerID, containerName, image, networkID string, label
 		Retry:          stringLabel(labels, LabelRetry, ""),
 		CircuitBreaker: stringLabel(labels, LabelCircuitBreaker, ""),
 		LimitConn:      intLabel(labels, LabelLimitConn, 0),
+		Backpressure:   stringLabel(labels, LabelBackpressure, ""),
+		SlowStart:      stringLabel(labels, LabelSlowStart, ""),
 
 		AddHeaders:    stringLabel(labels, LabelAddHeaders, ""),
 		RemoveHeaders: stringLabel(labels, LabelRemoveHeaders, ""),
 
 		JWT:  stringLabel(labels, LabelJWT, ""),
 		MTLS: stringLabel(labels, LabelMTLS, ""),
+		JWTIssuer:   stringLabel(labels, LabelJWTIssuer, ""),
+		JWTAudience: stringLabel(labels, LabelJWTAudience, ""),
 
 		Cache: stringLabel(labels, LabelCache, ""),
 

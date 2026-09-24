@@ -4,6 +4,7 @@
 package docker
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/vincamok/goproxify/internal/labels"
@@ -39,7 +40,10 @@ func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 		payload["bot"] = bot
 	}
 	if spec.LimitConn > 0 {
-		payload["limit_conn"] = map[string]any{"max": spec.LimitConn}
+		payload["limit_conn"] = map[string]any{"max_per_ip": spec.LimitConn}
+	}
+	if bp := labels.ParseBackpressure(spec.Backpressure); bp != nil {
+		payload["backpressure"] = bp
 	}
 
 	// Authentification
@@ -50,10 +54,18 @@ func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 		payload["auth_provider_id"] = id
 	}
 	if v := strings.TrimSpace(spec.JWT); v != "" {
-		payload["jwt"] = map[string]any{"secret": v}
+		if jc := labels.ParseJWT(v, spec.JWTIssuer, spec.JWTAudience); jc != nil {
+			payload["jwt"] = jc
+		} else {
+			slog.Warn("label goproxify.jwt ignoré : une URL JWKS (https://…) est attendue, la route n'est PAS protégée", "host", spec.Host)
+		}
 	}
 	if v := strings.TrimSpace(spec.MTLS); v != "" {
-		payload["mtls"] = map[string]any{"cert_name": v}
+		if mc := labels.ParseMTLS(v); mc != nil {
+			payload["mtls"] = mc
+		} else {
+			slog.Warn("label goproxify.mtls ignoré : le chemin d'un fichier CA est attendu, la route n'est PAS protégée", "host", spec.Host)
+		}
 	}
 
 	// Comportement HTTP
@@ -101,6 +113,9 @@ func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 	}
 	if v := strings.TrimSpace(spec.StickyCookie); v != "" {
 		payload["sticky_cookie"] = v
+	}
+	if n := labels.ParseSlowStart(spec.SlowStart); n > 0 {
+		payload["slow_start_sec"] = n
 	}
 	if v := strings.TrimSpace(spec.Retry); v != "" {
 		payload["retry"] = labels.ParseRetry(v)

@@ -67,6 +67,7 @@ type backendState struct {
 	healthy    bool
 	downUntil  time.Time
 	streak     int  // succès consécutifs (>0) ou échecs consécutifs (<0)
+	upSince    time.Time // dernier passage en service (création, reprise après panne) : base du slow-start
 	cfg        probeConfig
 }
 
@@ -127,10 +128,40 @@ func (h *BackendHealth) MarkUp(u string) {
 	}
 	h.mu.Lock()
 	st := h.getOrCreateLocked(u)
+	if !st.healthy || !st.downUntil.IsZero() {
+		st.upSince = time.Now()
+	}
 	st.downUntil = time.Time{}
 	st.healthy = true
 	h.mu.Unlock()
 	metrics.BackendUp.WithLabelValues(u).Set(1)
+}
+
+// slowStartFloor : part minimale de trafic d'un backend qui vient d'entrer en service,
+// pour qu'il reçoive de vrais échanges dès la première seconde.
+const slowStartFloor = 0.05
+
+// RampFactor retourne la part de trafic nominale [slowStartFloor, 1] d'un backend
+// pendant sa montée en charge ; 1 hors fenêtre, sans fenêtre ou pour un backend inconnu.
+func (h *BackendHealth) RampFactor(u string, window time.Duration) float64 {
+	if h == nil || window <= 0 {
+		return 1
+	}
+	h.mu.RLock()
+	st, ok := h.states[u]
+	var since time.Time
+	if ok {
+		since = st.upSince
+	}
+	h.mu.RUnlock()
+	if since.IsZero() {
+		return 1
+	}
+	elapsed := time.Since(since)
+	if elapsed >= window {
+		return 1
+	}
+	return slowStartFloor + (1-slowStartFloor)*float64(elapsed)/float64(window)
 }
 
 // Status retourne "up", "down" ou "unknown" pour une URL backend.
@@ -180,7 +211,7 @@ func (h *BackendHealth) getOrCreateLocked(u string) *backendState {
 	if st, ok := h.states[u]; ok {
 		return st
 	}
-	st := &backendState{healthy: true, cfg: defaultProbeConfig()}
+	st := &backendState{healthy: true, cfg: defaultProbeConfig(), upSince: time.Now()}
 	h.states[u] = st
 	return st
 }
@@ -296,6 +327,9 @@ func (h *BackendHealth) loop(target string, cfg probeConfig) {
 			}
 			st.streak++
 			if st.streak >= cfg.healthyThreshold {
+				if !st.healthy || !st.downUntil.IsZero() {
+					st.upSince = time.Now()
+				}
 				st.healthy = true
 				st.downUntil = time.Time{}
 			}

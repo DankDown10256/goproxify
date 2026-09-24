@@ -586,6 +586,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolDeletePortalTemplate(r, p.Arguments)
 	case "push_portal_templates":
 		result, toolErr = h.toolPushPortalTemplates(r)
+	case "simulate_sentinel_config":
+		result, toolErr = h.toolSimulateSentinel(r, p.Arguments)
+	case "get_topology_live":
+		result, toolErr = h.toolGetTopologyLive(r)
 	case "list_declared_nodes":
 		result, toolErr = h.toolListDeclaredNodes(r)
 	case "create_declared_node":

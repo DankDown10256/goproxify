@@ -196,6 +196,7 @@ func TestToolsListIncludesNewTools(t *testing.T) {
 		"jsonrpc": "2.0", "id": 1, "method": "tools/list",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:40000" // l'allowlist MCP par défaut n'accepte que les réseaux privés
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	var resp struct {

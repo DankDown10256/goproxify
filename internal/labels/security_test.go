@@ -124,3 +124,50 @@ func TestParseBotMode(t *testing.T) {
 		t.Fatalf("invalid mode should be ignored, got %q", b.Mode)
 	}
 }
+
+func TestParseBackpressure(t *testing.T) {
+	if ParseBackpressure("") != nil || ParseBackpressure("abc") != nil || ParseBackpressure("0") != nil {
+		t.Fatal("valeur vide/invalide/nulle : désactivé")
+	}
+	if c := ParseBackpressure("200"); c == nil || c.MaxInflight != 200 || c.Queue != 0 || c.QueueTimeoutMs != 0 {
+		t.Fatalf("%+v", c)
+	}
+	if c := ParseBackpressure("200:100"); c == nil || c.Queue != 100 {
+		t.Fatalf("%+v", c)
+	}
+	if c := ParseBackpressure(" 200 : 100 : 2s "); c == nil || c.MaxInflight != 200 || c.Queue != 100 || c.QueueTimeoutMs != 2000 {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestParseSlowStart(t *testing.T) {
+	for in, want := range map[string]int{"30": 30, "30s": 30, "2m": 120, "": 0, "abc": 0, "-5": 0, "0": 0} {
+		if got := ParseSlowStart(in); got != want {
+			t.Errorf("ParseSlowStart(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestParseJWT(t *testing.T) {
+	for _, bad := range []string{"", "true", "s3cr3t", "ftp://x"} {
+		if ParseJWT(bad, "", "") != nil {
+			t.Errorf("%q ne doit pas activer la validation", bad)
+		}
+	}
+	c := ParseJWT(" https://idp.example.com/jwks.json ", "https://idp.example.com", "my-api")
+	if c == nil || !c.Enabled || c.JWKSURL != "https://idp.example.com/jwks.json" || c.Issuer != "https://idp.example.com" || c.Audience != "my-api" {
+		t.Fatalf("%+v", c)
+	}
+}
+
+func TestParseMTLS(t *testing.T) {
+	for _, bad := range []string{"", "true", "FALSE"} {
+		if ParseMTLS(bad) != nil {
+			t.Errorf("%q ne doit pas activer mTLS", bad)
+		}
+	}
+	c := ParseMTLS("/etc/goproxify/ca.pem")
+	if c == nil || !c.Enabled || !c.RequireClientCert || c.CACertFile != "/etc/goproxify/ca.pem" {
+		t.Fatalf("%+v", c)
+	}
+}

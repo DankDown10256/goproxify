@@ -50,8 +50,9 @@ func (cc *connCounter) purge() {
 
 var lcPurgeOnce sync.Once
 
-// LimitConn retourne un middleware limitant le nombre de connexions simultanées par IP.
-func LimitConn(cfg *router.LimitConnConfig) func(http.Handler) http.Handler {
+// LimitConn retourne un middleware limitant le nombre de connexions simultanées par IP, par route
+// (routeID entre dans la clé : une IP très active sur une route ne consomme pas le quota d'une autre).
+func LimitConn(routeID string, cfg *router.LimitConnConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		if cfg == nil || cfg.MaxPerIP <= 0 {
 			return next
@@ -66,7 +67,7 @@ func LimitConn(cfg *router.LimitConnConfig) func(http.Handler) http.Handler {
 		})
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
-			c := lcStore.counter(ip)
+			c := lcStore.counter(routeID + "|" + ip)
 			cur := c.Add(1)
 			defer c.Add(-1)
 			if cur > max {

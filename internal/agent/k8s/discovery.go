@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/agent/docker"
 	"github.com/vincamok/goproxify/internal/config"
 )
 
@@ -317,12 +318,7 @@ func (d *Discovery) upsertService(ctx context.Context, svc k8sService) {
 		backendURL = ann[p+"backend"]
 	}
 
-	key := svcKey(svc.Metadata)
-	d.mu.Lock()
-	d.hostByKey[key] = host
-	d.mu.Unlock()
-
-	d.pushRoute(ctx, key, host, backendURL, ann[p+"tls"] == "true")
+	d.pushRoute(ctx, svcKey(svc.Metadata), ann, host, backendURL, ann[p+"tls"] == "true")
 }
 
 // upsertIngress traduit un Ingress K8s en routes proxy et les pousse au Core.
@@ -374,27 +370,63 @@ func (d *Discovery) upsertIngress(ctx context.Context, ing k8sIngress) {
 			continue
 		}
 
-		key := ingKey(ing.Metadata) + ":" + host
-		d.mu.Lock()
-		d.hostByKey[key] = host
-		d.mu.Unlock()
-
-		d.pushRoute(ctx, key, host, backendURL, tls)
+		d.pushRoute(ctx, ingKey(ing.Metadata)+":"+host, ann, host, backendURL, tls)
 	}
 }
 
-// pushRoute envoie un payload agentContainerPayload compatible au Core.
-func (d *Discovery) pushRoute(ctx context.Context, key, host, backendURL string, tls bool) {
+// routePayload construit le payload Agent→Core d'une route. Les annotations suivent exactement la
+// sémantique des labels Docker (waf, rate_limit, jwt, mtls, backpressure…) : elles passent par le même
+// parseur, préfixe configurable normalisé vers "goproxify.". Retourne nil si l'hôte est invalide.
+func (d *Discovery) routePayload(key string, ann map[string]string, host, backendURL string, tls bool) (map[string]any, *docker.ProxySpec) {
+	labels := make(map[string]string, len(ann)+4)
+	for k, v := range ann {
+		if rest, ok := strings.CutPrefix(k, d.labelPrefix); ok {
+			labels["goproxify."+rest] = v
+		}
+	}
+	// Les valeurs déduites de la ressource K8s l'emportent sur les annotations.
+	labels[docker.LabelEnable] = "true"
+	labels[docker.LabelHost] = host
+	labels[docker.LabelBackendURL] = backendURL
+	if tls {
+		labels[docker.LabelTLS] = "true"
+	}
+	spec := docker.ParseLabels("k8s:"+key, key, "", "", labels, nil, "")
+	if spec == nil {
+		return nil, nil
+	}
 	payload := map[string]any{
-		"host":         host,
-		"aliases":      []string{},
+		"host":         spec.Host,
+		"aliases":      spec.Aliases,
+		"paths":        spec.Paths,
+		"route_type":   spec.Type,
 		"backends":     []string{backendURL},
-		"tls_enabled":  tls,
+		"tls_enabled":  spec.TLS,
+		"passthrough":  spec.Passthrough,
 		"source":       "k8s",
 		"container_id": "k8s:" + key,
 		"agent_name":   d.cfg.Identity.NodeName,
-		"role":         "normal",
+		"role":         spec.Role,
 	}
+	if spec.Role == docker.RoleCanary {
+		payload["canary_weight"] = spec.CanaryWeight
+	}
+	docker.AttachSecurityPayload(payload, spec)
+	return payload, spec
+}
+
+// pushRoute envoie un payload agentContainerPayload compatible au Core.
+func (d *Discovery) pushRoute(ctx context.Context, key string, ann map[string]string, host, backendURL string, tls bool) {
+	payload, spec := d.routePayload(key, ann, host, backendURL, tls)
+	if payload == nil {
+		d.log.Warn("k8s discovery: hôte invalide, route ignorée", "host", host, "key", key)
+		return
+	}
+	d.mu.Lock()
+	d.hostByKey[key] = spec.Host
+	d.mu.Unlock()
+	host = spec.Host
+	tls = spec.TLS
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		d.adminURL+"/internal/v1/agent/containers", bytes.NewReader(body))

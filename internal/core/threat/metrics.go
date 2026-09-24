@@ -37,6 +37,20 @@ var (
 		Help:      "Requêtes rejetées par le limiteur global (DDoS volumétrique).",
 	})
 
+	threatTarpitTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "tarpit_total",
+		Help:      "Requêtes traitées par le tarpit Sentinel (result: held = retenue, full = refusée faute de slot).",
+	}, []string{"result"})
+
+	threatTarpitActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "tarpit_active",
+		Help:      "Requêtes actuellement retenues par le tarpit Sentinel.",
+	})
+
 	threatEvictionsTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "gpx",
 		Subsystem: "threat",
@@ -44,3 +58,10 @@ var (
 		Help:      "Entrées de suivi par IP évincées faute de place (table pleine, attaque distribuée probable).",
 	})
 )
+
+// inc incrémente un compteur, sauf pour un moteur de simulation (Simulate).
+func (e *Engine) inc(v *prometheus.CounterVec, label string) {
+	if !e.sim {
+		v.WithLabelValues(label).Inc()
+	}
+}

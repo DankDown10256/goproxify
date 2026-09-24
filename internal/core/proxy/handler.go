@@ -29,6 +29,7 @@ import (
 	"github.com/vincamok/goproxify/internal/core/metrics"
 	"github.com/vincamok/goproxify/internal/core/middleware"
 	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/core/tracing"
 )
 
 // Handler est le reverse proxy HTTP pour une route donnée.
@@ -466,6 +467,52 @@ func (h *Handler) failoverCandidates(r *http.Request) []*router.Backend {
 		out = append(out, b)
 		seen[b.URL] = true
 	}
+	return h.applySlowStart(r, out)
+}
+
+// applySlowStart détourne une part des requêtes destinées à un backend en montée en charge
+// vers un backend plus avancé : le backend ramping reçoit ~f de sa part nominale.
+// Sans alternative plus avancée (un seul backend, tous en montée), l'ordre est inchangé.
+func (h *Handler) applySlowStart(r *http.Request, out []*router.Backend) []*router.Backend {
+	window := time.Duration(h.route.SlowStartSec) * time.Second
+	if window <= 0 || len(out) < 2 {
+		return out
+	}
+	pref := out[0]
+	f := h.health.RampFactor(pref.URL, window)
+	if f >= 1 || rand.Float64() < f {
+		return out
+	}
+	// Une session collante existante garde son backend, quitte à le charger trop tôt.
+	if h.route.StickyCookie != "" {
+		if c, err := r.Cookie(h.route.StickyCookie); err == nil && c.Value == pref.URL {
+			return out
+		}
+	}
+	// Alternative : parcours cyclique à partir du backend suivant, pour répartir le trafic détourné.
+	n := len(h.route.Backends)
+	start := 0
+	for i := range h.route.Backends {
+		if h.route.Backends[i].URL == pref.URL {
+			start = i
+			break
+		}
+	}
+	for k := 1; k < n; k++ {
+		alt := &h.route.Backends[(start+k)%n]
+		if alt.URL == pref.URL || !h.health.IsHealthy(alt.URL) || h.health.RampFactor(alt.URL, window) <= f {
+			continue
+		}
+		metrics.Backend.SlowStartShifted.WithLabelValues(h.route.Host, pref.URL).Inc()
+		reordered := make([]*router.Backend, 0, len(out))
+		reordered = append(reordered, alt)
+		for _, b := range out {
+			if b.URL != alt.URL {
+				reordered = append(reordered, b)
+			}
+		}
+		return reordered
+	}
 	return out
 }
 
@@ -581,9 +628,11 @@ func (h *Handler) do(w http.ResponseWriter, r *http.Request, b *router.Backend, 
 	ctx := context.WithValue(r.Context(), proxyAttemptKey{}, att)
 	ctx = context.WithValue(ctx, backendCallStartKey{}, callStart)
 	r = r.WithContext(ctx)
+	r, endSpan := h.traceBackend(r, target.Host, attempt)
 	sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	rp := h.reverseProxyFor(b, target)
 	rp.ServeHTTP(sr, r)
+	endSpan(sr.status, att.err)
 	dur := time.Since(callStart)
 	backendHost := target.Host
 	if att.failed {
@@ -638,6 +687,7 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 	transport := h.transportFor(b)
 	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
+			tracing.Inject(req.Context(), req.Header)
 			xfHost := req.Host
 			req.URL.Scheme = urlScheme
 			req.URL.Host = urlHost
@@ -1007,4 +1057,10 @@ func applyRequestHeaderManipulation(req *http.Request, route *router.Route) {
 		}
 		req.Header.Set(k, middleware.ExpandVars(v, vars))
 	}
+}
+
+// traceBackend ouvre le span client de l'appel backend et le rattache à la requête sortante.
+func (h *Handler) traceBackend(r *http.Request, backendHost string, attempt int) (*http.Request, func(status int, err error)) {
+	ctx, end := tracing.StartBackend(r.Context(), backendHost, attempt)
+	return r.WithContext(ctx), end
 }

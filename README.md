@@ -199,11 +199,11 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - Routes and certificates stored **in RAM** (`sync.Map`, `GetCertificate`) — no private key on disk
 - **AES-256-GCM encrypted local cache** — starts and routes without Admin available
 - Hot configuration reload, zero connection interruption
-- Load balancing (Round Robin, Weighted, adaptive CPU/mem/IO + failover + inter-Core gateway), Circuit Breaker, Retry
-- Rate limiting, IP/CIDR filtering, Geo-IP, **OWASP CRS-4 WAF** (13 rule sets: SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Sensitive Files, Response Leaks), HTTP security headers
+- Load balancing (Round Robin, Weighted, adaptive CPU/mem/IO + failover + inter-Core gateway), Circuit Breaker, Retry, per-route slow-start
+- Rate limiting, per-route **backpressure** (bounded queue, 503 + Retry-After), IP/CIDR filtering, Geo-IP, **OWASP CRS-4 WAF** (13 rule sets: SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Sensitive Files, Response Leaks), HTTP security headers
 - **Automatic rules engine** — conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP, node offline, cert expiring) → actions (disable proxy, ban IP, alert, strict Fail2Ban mode, webhook call, trigger backup)
 - Basic, Forward Auth, JWT authentication per route
-- Async JSON access log, Prometheus metrics, OpenTelemetry tracing
+- Live topology map (health, req/s, risk score per node), async JSON access log, Prometheus metrics, OpenTelemetry tracing (W3C `traceparent` propagated caller → Core → backend, sampling)
 - **GoProxify Access** — operator portal on the Core: web terminal + UUID `ssh` to VMs/`sshd` and Docker containers (`docker exec` via Agent); SSH login vault + secrets; 2FA; TTL sessions
 
 ### Admin (Control Plane)

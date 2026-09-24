@@ -94,6 +94,7 @@ type Server struct {
 	mu            sync.Mutex
 	tcpPorts      map[string]interface{ Stop() }
 	pushedTracing string // endpoint OTLP poussé par Admin (utilisé si cfg.Engine.TracingEndpoint est vide)
+	activeTracing string // endpoint OTLP réellement exporté (démarrage ou poussé par Admin)
 
 	// saveCache debounce (revue P1 #8)
 	saveCacheMu    sync.Mutex
@@ -130,7 +131,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		log.Logger().Warn("geoip: bootstrap base MaxMind échoué", "err", err)
 	}
 
-	tracingShutdown, err := tracing.Init(cfg.Engine.TracingEndpoint)
+	tracingShutdown, err := tracing.Init(cfg.Engine.TracingEndpoint, cfg.Engine.TracingSampleRatio)
 	if err != nil {
 		// Non bloquant : le tracing est optionnel
 		tracingShutdown = func(context.Context) error { return nil }
@@ -159,6 +160,7 @@ func New(cfg *config.CoreConfig, cfgPath ...string) (*Server, error) {
 		cache:           corecache.New(cachePath, secret),
 		tcpPorts:        make(map[string]interface{ Stop() }),
 		tracingShutdown: tracingShutdown,
+		activeTracing:   cfg.Engine.TracingEndpoint,
 		nodeStore:       coreagent.NewNodeStore(),
 		tunnelManager:   tunnel.New(log.Logger()),
 	}

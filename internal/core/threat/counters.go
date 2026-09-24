@@ -36,6 +36,7 @@ func counterKey(ip string) string {
 // counterStore gère les compteurs par IP en mémoire (rate + erreurs 4xx + déclenchements rate).
 // Découpé en shards pour éviter un mutex global sur le chemin de requête ; chaque shard est borné.
 type counterStore struct {
+	now    func() time.Time // injectable : rejeu d'access logs (Simulate)
 	shards [counterShards]counterShard
 }
 
@@ -48,7 +49,7 @@ type counterShard struct {
 }
 
 func newCounterStore() *counterStore {
-	s := &counterStore{}
+	s := &counterStore{now: time.Now}
 	for i := range s.shards {
 		s.shards[i].rate = make(map[string]*rateCounter)
 		s.shards[i].errors = make(map[string]*eventWindow)
@@ -65,11 +66,11 @@ func (s *counterStore) shard(key string) *counterShard {
 
 // makeRoom libère une place si la map est pleine : d'abord les entrées expirées,
 // sinon une entrée arbitraire (fail-open plutôt que d'épuiser la mémoire).
-func makeRoom[T any](sh *counterShard, m map[string]*T) {
+func makeRoom[T any](sh *counterShard, m map[string]*T, now time.Time) {
 	if len(m) < maxKeysPerShard {
 		return
 	}
-	sh.gcLocked(time.Now())
+	sh.gcLocked(now)
 	if len(m) < maxKeysPerShard {
 		return
 	}
@@ -82,37 +83,39 @@ func makeRoom[T any](sh *counterShard, m map[string]*T) {
 
 // rateExceeded retourne true si l'IP dépasse le seuil de requêtes/seconde.
 func (s *counterStore) rateExceeded(ip string, limit float64, window time.Duration) bool {
+	now := s.now()
 	key := counterKey(ip)
 	sh := s.shard(key)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-	sh.gcLocked(time.Now())
+	sh.gcLocked(now)
 
 	rc, ok := sh.rate[key]
 	if !ok {
-		makeRoom(sh, sh.rate)
+		makeRoom(sh, sh.rate, now)
 		rc = &rateCounter{}
 		sh.rate[key] = rc
 	}
-	return rc.record(limit, window)
+	return rc.record(limit, window, now)
 }
 
 // errorExceeded retourne true si l'IP a dépassé le seuil d'erreurs 4xx dans la fenêtre.
 func (s *counterStore) errorExceeded(ip string, threshold int, window time.Duration) bool {
+	now := s.now()
 	key := counterKey(ip)
 	sh := s.shard(key)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-	sh.gcLocked(time.Now())
+	sh.gcLocked(now)
 
 	ew, ok := sh.errors[key]
 	if !ok {
-		makeRoom(sh, sh.errors)
+		makeRoom(sh, sh.errors, now)
 		ew = &eventWindow{window: window}
 		sh.errors[key] = ew
 	}
-	ew.record()
-	return ew.count() >= threshold
+	ew.record(now)
+	return ew.count(now) >= threshold
 }
 
 func (s *counterStore) resetErrors(ip string) {
@@ -126,6 +129,7 @@ func (s *counterStore) resetErrors(ip string) {
 // rateTriggerExceeded enregistre un déclenchement du signal "rate" pour l'IP
 // et retourne true si le nombre de déclenchements dans la fenêtre atteint le seuil.
 func (s *counterStore) rateTriggerExceeded(ip string, threshold int, window time.Duration) bool {
+	now := s.now()
 	key := counterKey(ip)
 	sh := s.shard(key)
 	sh.mu.Lock()
@@ -133,12 +137,12 @@ func (s *counterStore) rateTriggerExceeded(ip string, threshold int, window time
 
 	ew, ok := sh.rateTrigger[key]
 	if !ok {
-		makeRoom(sh, sh.rateTrigger)
+		makeRoom(sh, sh.rateTrigger, now)
 		ew = &eventWindow{window: window}
 		sh.rateTrigger[key] = ew
 	}
-	ew.record()
-	return ew.count() >= threshold
+	ew.record(now)
+	return ew.count(now) >= threshold
 }
 
 func (s *counterStore) resetRateTrigger(ip string) {
@@ -194,8 +198,7 @@ type rateCounter struct {
 	lastSeen time.Time
 }
 
-func (r *rateCounter) record(limit float64, window time.Duration) bool {
-	now := time.Now()
+func (r *rateCounter) record(limit float64, window time.Duration, now time.Time) bool {
 	r.lastSeen = now
 
 	max := limit * window.Seconds()
@@ -230,8 +233,7 @@ type eventWindow struct {
 	lastSeen time.Time
 }
 
-func (w *eventWindow) record() {
-	now := time.Now()
+func (w *eventWindow) record(now time.Time) {
 	w.lastSeen = now
 	if len(w.events) >= maxEventsPerKey {
 		w.events = w.events[1:]
@@ -239,8 +241,7 @@ func (w *eventWindow) record() {
 	w.events = append(w.events, now)
 }
 
-func (w *eventWindow) count() int {
-	now := time.Now()
+func (w *eventWindow) count(now time.Time) int {
 	cutoff := now.Add(-w.window)
 	// Compacter : retirer les événements hors fenêtre.
 	i := 0
