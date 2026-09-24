@@ -271,7 +271,9 @@ async function renderAccessPolicies(content) {
   }
 }
 
-// La page "access" redirige vers Gestion d'équipe (groupe nav)
+// La page "access" (clic sur le groupe nav lui-même) redirige vers Politiques
+// d'accès — vue globale croisée domaines × sujets, landing la plus utile pour
+// le groupe "Accès".
 pages.access = async function () {
-  navigate('workspaces');
+  navigate('access-policies');
 };

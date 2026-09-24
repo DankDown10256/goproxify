@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Changé
+
+- **Clic sur le groupe "Accès" → Politiques d'accès (au lieu de Gestion d'équipe)** : la vue matricielle croisée domaines × sujets offre une meilleure vue globale du périmètre d'accès et convient mieux comme landing du groupe nav. `pages.access` redirige désormais vers `access-policies`. (Webapp `0.9.0`)
+
 ### Corrigé
 
 - **Health checks (Paramètres Core) — le rafraîchissement 30s écrasait la page courante après navigation** : `pages['core-health']` démarre un `setInterval(refresh, 30000)` qui écrit directement dans le `#content` capturé à l'ouverture de la page, et prévoyait bien un hook `content._cleanup` pour l'arrêter — mais le routeur ne l'appelait jamais. Le timer continuait de tourner indéfiniment après avoir quitté la page, et toutes les 30 s remplaçait le contenu affiché (n'importe quelle autre page) par "Health checks". Le routeur (`navigate()`) invoque désormais `content._cleanup()` sur la page sortante avant de charger la nouvelle — mécanisme générique réutilisable par toute page qui démarre un timer. (Webapp `0.9.0`)
