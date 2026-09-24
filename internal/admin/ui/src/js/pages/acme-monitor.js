@@ -393,6 +393,14 @@ window.acmeMonitorLoad = async function () {
       <td style="padding:10px 10px;">${upd}</td>
       <td style="text-align:center;padding:10px 10px;">${badge}</td>
       <td style="text-align:right;padding:10px 10px;" onclick="event.stopPropagation()">
+        <button class="btn btn-ghost" title="${t('acme_monitor.deploy')}" style="padding:4px 6px;"
+          onclick="openCertDeployPanel('${esc(c.id)}','${esc(c.domain)}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </button>
+        <button class="btn btn-ghost" title="${t('acme_monitor.edit')}" style="padding:4px 6px;${c.domain_id ? '' : 'opacity:0.35;cursor:not-allowed;'}"
+          ${c.domain_id ? `onclick="openDomainModal('${esc(c.domain_id)}')"` : `onclick="toast(t('acme_monitor.edit_no_domain'),'info')"`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
         <button class="btn btn-ghost" title="${t('acme_monitor.renew')}" style="padding:4px 6px;"
           onclick="acmeRenew('${esc(c.domain)}')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -456,12 +464,16 @@ window.openAcmeCertDetail = function (cert) {
             </div>`).join('')}
         </div>
         <div style="margin-top:24px;display:flex;flex-direction:column;gap:8px;">
-          <button class="btn btn-primary blueprint" style="width:100%;" onclick="acmeRenew('${esc(cert.domain)}')">
+          <button class="btn btn-primary blueprint" style="width:100%;" onclick="openCertDeployPanel('${esc(cert.id)}','${esc(cert.domain)}')">
             <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-            ${t('acme_monitor.renew')}
+            ${t('acme_monitor.deploy')}
           </button>
-          <button class="btn btn-ghost" style="width:100%;font-size:12px;opacity:0.7;" onclick="navigate('domains')">
-            ${t('acme_monitor.detail_go_domain')} →
+          ${cert.domain_id ? `
+          <button class="btn btn-ghost" style="width:100%;font-size:12px;" onclick="document.getElementById('acme-cert-detail-backdrop').remove();openDomainModal('${esc(cert.domain_id)}')">
+            ${t('acme_monitor.edit')}
+          </button>` : ''}
+          <button class="btn btn-ghost" style="width:100%;font-size:12px;opacity:0.7;" onclick="acmeRenew('${esc(cert.domain)}')">
+            ${t('acme_monitor.renew')}
           </button>
           <button class="btn btn-ghost" style="width:100%;font-size:12px;color:var(--red);" onclick="acmeDeleteCert('${esc(cert.domain)}');document.getElementById('acme-cert-detail-backdrop').remove()">
             ${t('acme_monitor.delete')}

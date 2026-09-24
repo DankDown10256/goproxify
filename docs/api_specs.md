@@ -269,15 +269,16 @@ Retourne le statut d'expiration de tous les certificats.
   "total": 5, "ok": 3, "warning": 1, "critical": 1, "expired": 0,
   "certs": [
     {
-      "id": "abc123", "domain": "*.example.fr", "issuer": "letsencrypt",
+      "id": "abc123", "domain": "*.example.fr", "domain_id": "dom456", "issuer": "letsencrypt",
       "expires_at": "2026-10-15T00:00:00Z", "updated_at": "2026-09-15T02:00:00Z",
-      "days_left": 26, "status": "warning"
+      "days_left": 26, "status": "warning", "dns_provider": "cloudflare", "cert_method": "dns"
     }
   ]
 }
 ```
 
 `status` : `ok` (>30j) · `warning` (≤30j) · `critical` (≤7j) · `expired`
+`domain_id` référence `domains.id` (voir `GET/PUT /api/v1/domains/{id}`) — vide si le certificat n'a pas de domaine déclaré correspondant (ex. import manuel via `POST /api/v1/certs/import`).
 
 ### `GET /api/v1/acme/providers`
 

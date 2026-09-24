@@ -213,8 +213,10 @@ Agents connecting for the first time via `JOIN_TOKEN` appear in `pending` status
 
 Feature suite around the TLS certificate lifecycle.
 
-**ACME monitoring**
-- `/acme-monitor` dashboard: status per cert (`ok` / `warning ≤30d` / `critical ≤7d` / `expired`), global KPIs, inline renewal button
+**ACME monitoring — single entry point** (`/acme-monitor`, sidebar Access → Monitoring ACME)
+- Unifies what used to be three separate menus ("Certificates", "Certificate deployment", "ACME Monitoring") into one page — the other two are removed
+- Dashboard: status per cert (`ok` / `warning ≤30d` / `critical ≤7d` / `expired`), global KPIs, inline renewal button
+- Per-row actions: **Deploy** (opens the Deploy Hub drawer below) and **Edit** (opens the source domain's modal — DNS provider, manual PEM, entry Core, delegation — disabled when the cert has no linked domain, e.g. manual import); `domain_id` field in `GET /api/v1/certs/acme-monitor` links the emitted cert back to its `domains` row
 - Automatic alerts: `cert_expiring_soon` (warning ≤30d, critical ≤7d) emitted to the existing alert engine
 - **Multi-DNS providers**: manage multiple named providers (e.g. `cloudflare-prod`, `ovh-zone2`) via the "DNS Providers" section of the ACME Monitoring page; each provider has a type (`cloudflare`, `ovh`, `gandi`, `hetzner`, `route53`) and JSON credentials; full CRUD via `/api/v1/acme/providers`
 
@@ -222,7 +224,7 @@ Feature suite around the TLS certificate lifecycle.
 - `POST /api/v1/certs/import`: PEM + private key upload — domain auto-extracted from SAN/CN, upserted in DB, real-time push to Cores
 - Modal interface in the `acme-monitor` page
 
-**Deploy Hub**
+**Deploy Hub** (reachable via the "Deploy" button on each cert row in ACME Monitoring — no longer a standalone menu)
 - **Deploy targets**: webhook (POST HMAC-SHA256 signed) or `ssh_exec` (script executed on target machine with `GPX_CERT_PEM / GPX_KEY_PEM / GPX_DOMAIN`)
 - Automatic trigger on each ACME renewal + manual trigger
 - Audit history per target (`cert_deploy_history`)

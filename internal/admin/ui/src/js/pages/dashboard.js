@@ -124,7 +124,7 @@ pages.dashboard = async function() {
         icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l5 3v4c0 3-2.5 5.5-5 6.5C9.5 14.5 7 12 7 9V5l5-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
         color: c.expires_in_seconds < 0 ? 'var(--red)' : 'var(--red)',
         text: t('dash.cert_soon', { domain: esc(c.domain), days: Math.max(0, Math.round(c.expires_in_seconds / 86400)) }),
-        action: `navigate('certs')`,
+        action: `navigate('acme-monitor')`,
         actionLabel: t('dash.renew'),
       })),
       ...nodesOffline.map(n => ({
@@ -138,7 +138,7 @@ pages.dashboard = async function() {
         icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l5 3v4c0 3-2.5 5.5-5 6.5C9.5 14.5 7 12 7 9V5l5-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
         color: 'var(--red)',
         text: t('dash.cert_expired', { domain: esc(d.domain) }),
-        action: `navigate('certs')`,
+        action: `navigate('acme-monitor')`,
         actionLabel: t('dash.renew'),
       })),
       ...certsSoon.map(d => {
@@ -147,7 +147,7 @@ pages.dashboard = async function() {
           icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l5 3v4c0 3-2.5 5.5-5 6.5C9.5 14.5 7 12 7 9V5l5-3z"/></svg>`,
           color: days < 7 ? 'var(--red)' : 'var(--yellow)',
           text: t('dash.cert_soon', { domain: esc(d.domain), days }),
-          action: `navigate('certs')`,
+          action: `navigate('acme-monitor')`,
           actionLabel: t('dash.see'),
         };
       }),
@@ -188,7 +188,7 @@ pages.dashboard = async function() {
           </div>
           <div class="card-meta">${t('dash.proxies_meta')}</div>
         </div>
-        <div class="card blueprint" style="padding:20px 22px;cursor:pointer" onclick="navigate('certs')">
+        <div class="card blueprint" style="padding:20px 22px;cursor:pointer" onclick="navigate('acme-monitor')">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div class="card-kicker">${t('dash.domains')}</div>
           <div style="font-size:22px;font-weight:700;font-family:var(--font-heading);margin:6px 0 2px;line-height:1">

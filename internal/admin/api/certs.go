@@ -67,7 +67,9 @@ func (h *CertsHandler) list(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
 		`SELECT id, domain, issuer, expires_at, updated_at FROM certs ORDER BY domain`)
 	if err != nil {
-		if !isCtxErr(err) { h.Log.Error("certs: list", "err", err) }
+		if !isCtxErr(err) {
+			h.Log.Error("certs: list", "err", err)
+		}
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
@@ -100,7 +102,9 @@ func (h *CertsHandler) obtain(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		if err := h.Manager.ObtainCert(context.Background(), req.Domain); err != nil {
-			if !isCtxErr(err) { h.Log.Error("certs: obtention async", "domain", req.Domain, "err", err) }
+			if !isCtxErr(err) {
+				h.Log.Error("certs: obtention async", "domain", req.Domain, "err", err)
+			}
 		}
 	}()
 	w.WriteHeader(http.StatusAccepted)
@@ -109,8 +113,10 @@ func (h *CertsHandler) obtain(w http.ResponseWriter, r *http.Request) {
 
 // certMonitorRow enrichit certRow avec le statut d'expiration calculé.
 type certMonitorRow struct {
-	ID          string `json:"id"`
-	Domain      string `json:"domain"`
+	ID     string `json:"id"`
+	Domain string `json:"domain"`
+	// DomainID référence domains.id — vide si le cert n'a pas de domaine déclaré (ex. import manuel).
+	DomainID    string `json:"domain_id"`
 	Issuer      string `json:"issuer"`
 	ExpiresAt   string `json:"expires_at"`
 	UpdatedAt   string `json:"updated_at"`
@@ -133,7 +139,7 @@ type acmeMonitorResponse struct {
 func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(),
 		`SELECT c.id, c.domain, c.issuer, c.expires_at, c.updated_at,
-		        COALESCE(d.dns_provider,''), COALESCE(d.cert_method,'')
+		        COALESCE(d.dns_provider,''), COALESCE(d.cert_method,''), COALESCE(d.id,'')
 		 FROM certs c
 		 LEFT JOIN domains d ON d.domain = c.domain
 		 ORDER BY c.expires_at ASC`)
@@ -150,8 +156,8 @@ func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 	resp := acmeMonitorResponse{Certs: make([]certMonitorRow, 0)}
 	for rows.Next() {
 		var c certRow
-		var dnsProv, certMethod string
-		if err := rows.Scan(&c.ID, &c.Domain, &c.Issuer, &c.ExpiresAt, &c.UpdatedAt, &dnsProv, &certMethod); err != nil {
+		var dnsProv, certMethod, domainID string
+		if err := rows.Scan(&c.ID, &c.Domain, &c.Issuer, &c.ExpiresAt, &c.UpdatedAt, &dnsProv, &certMethod, &domainID); err != nil {
 			continue
 		}
 		daysLeft := int(c.ExpiresAt.Sub(now).Hours() / 24)
@@ -168,6 +174,7 @@ func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 		resp.Certs = append(resp.Certs, certMonitorRow{
 			ID:          c.ID,
 			Domain:      c.Domain,
+			DomainID:    domainID,
 			Issuer:      c.Issuer,
 			ExpiresAt:   c.ExpiresAt.UTC().Format(time.RFC3339),
 			UpdatedAt:   c.UpdatedAt.UTC().Format(time.RFC3339),
@@ -194,7 +201,9 @@ func (h *CertsHandler) monitor(w http.ResponseWriter, r *http.Request) {
 func (h *CertsHandler) delete(w http.ResponseWriter, r *http.Request, domain string) {
 	res, err := h.DB.ExecContext(r.Context(), `DELETE FROM certs WHERE domain=?`, domain)
 	if err != nil {
-		if !isCtxErr(err) { h.Log.Error("certs: delete", "err", err) }
+		if !isCtxErr(err) {
+			h.Log.Error("certs: delete", "err", err)
+		}
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
@@ -263,7 +272,9 @@ func (h *CertsHandler) importCert(w http.ResponseWriter, r *http.Request) {
 		 RETURNING id`,
 		domain, issuer, leaf.NotAfter, req.CertPEM, req.KeyPEM).Scan(&id)
 	if err != nil {
-		if !isCtxErr(err) { h.Log.Error("certs: import", "err", err) }
+		if !isCtxErr(err) {
+			h.Log.Error("certs: import", "err", err)
+		}
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}

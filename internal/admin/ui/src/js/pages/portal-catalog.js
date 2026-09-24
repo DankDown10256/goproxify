@@ -97,8 +97,7 @@ async function renderPortalCatalogPage(ctx) {
             <div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--text2);border:1px dashed var(--border);border-radius:8px">
               ${esc(t('pcatalog.empty') || 'Aucune destination')}
             </div>`}
-        </div>
-        <div id="pc-modal" style="display:none"></div>`;
+        </div>`;
 
       document.getElementById('pc-q').oninput = (e) => { window._pcFilter.q = e.target.value; render(); };
       document.getElementById('pc-kind').onchange = (e) => { window._pcFilter.kind = e.target.value; render(); };
@@ -188,10 +187,9 @@ async function renderPortalCatalogPage(ctx) {
         return `<option value="${i}">${esc(label)}</option>`;
       }).join('');
 
-      const modal = document.getElementById('pc-modal');
-      modal.style.display = 'block';
-      modal.innerHTML = `
-        <div style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:80;display:flex;align-items:center;justify-content:center;padding:16px" id="pc-backdrop">
+      document.getElementById('pc-editor-backdrop')?.remove();
+      document.body.insertAdjacentHTML('beforeend', `
+        <div id="pc-editor-backdrop" class="dialog-backdrop" onclick="if(event.target===this)window._pcCloseEditor()">
           <div class="card blueprint" style="width:min(520px,100%);max-height:90vh;overflow:auto;padding:18px;background:var(--bg)">
             <div style="font-weight:700;font-size:16px;margin-bottom:12px">${esc(isNew ? (t('pcatalog.add') || 'Nouvelle destination') : (t('common.edit') || 'Éditer'))}</div>
             <div class="field" style="margin-bottom:8px"><label class="field-label">Core</label>
@@ -229,7 +227,9 @@ async function renderPortalCatalogPage(ctx) {
               <button type="button" class="btn btn-primary" id="pe-save">${esc(t('common.save') || 'Enregistrer')}</button>
             </div>
           </div>
-        </div>`;
+        </div>`);
+
+      window._pcCloseEditor = () => document.getElementById('pc-editor-backdrop')?.remove();
 
       const syncKind = () => {
         const docker = document.getElementById('pe-kind').value === 'docker';
@@ -252,10 +252,7 @@ async function renderPortalCatalogPage(ctx) {
         document.getElementById('pe-kind').value = 'docker';
         syncKind();
       };
-      document.getElementById('pe-cancel').onclick = () => { modal.style.display = 'none'; modal.innerHTML = ''; };
-      document.getElementById('pc-backdrop').onclick = (ev) => {
-        if (ev.target.id === 'pc-backdrop') { modal.style.display = 'none'; modal.innerHTML = ''; }
-      };
+      document.getElementById('pe-cancel').onclick = () => window._pcCloseEditor();
       document.getElementById('pe-save').onclick = async () => {
         const msg = document.getElementById('pe-msg');
         try {
@@ -278,8 +275,7 @@ async function renderPortalCatalogPage(ctx) {
             saved = await api('PUT', '/portal/destinations/' + encodeURIComponent(d.id), body);
             window._portalCatalogAll = (window._portalCatalogAll || []).map(x => x.id === d.id ? saved : x);
           }
-          modal.style.display = 'none';
-          modal.innerHTML = '';
+          window._pcCloseEditor();
           render();
         } catch (e) {
           msg.textContent = e.message || String(e);

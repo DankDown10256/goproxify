@@ -1,51 +1,7 @@
-// ── Certificate Deploy Hub ─────────────────────────────────────────────────
-
-pages['cert-deploy'] = async function() {
-  const content = document.getElementById('content');
-  content.innerHTML = `<p style="opacity:0.5;font-size:13px;">${t('common.loading')}</p>`;
-
-  const certs = await api('GET', '/certs').catch(() => []);
-  const list = Array.isArray(certs) ? certs : [];
-
-  content.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-      <div>
-        <h1 style="margin:0 0 4px;font-size:28px;font-family:var(--font-heading);font-weight:600;">${t('cert_deploy.title')}</h1>
-        <p style="margin:0;opacity:0.65;font-size:14px;">${t('cert_deploy.subtitle')}</p>
-      </div>
-    </div>
-    ${!list.length ? `
-      <div style="text-align:center;padding:48px 16px;opacity:0.5;font-size:14px;">
-        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom:12px;opacity:0.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <p>${t('cert_deploy.no_certs')}</p>
-      </div>` :
-      `<div id="cert-deploy-list" style="display:flex;flex-direction:column;gap:16px;">
-        ${list.map(c => certDeployCard(c)).join('')}
-      </div>`
-    }
-    <div id="cert-deploy-panel"></div>`;
-};
-
-function certDeployCard(c) {
-  const exp = c.expires_at ? new Date(c.expires_at) : null;
-  const daysLeft = exp ? Math.ceil((exp - Date.now()) / 86400000) : null;
-  const expColor = daysLeft !== null ? (daysLeft < 7 ? 'var(--red)' : daysLeft < 30 ? 'var(--yellow,#f59e0b)' : 'var(--green)') : 'var(--text2)';
-  return `<div class="card" style="padding:16px 18px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-      <div>
-        <span style="font-weight:600;font-size:15px;">${esc(c.domain)}</span>
-        <span style="margin-left:10px;font-size:11px;opacity:0.55;">${esc(c.issuer||'')}</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;">
-        ${daysLeft !== null ? `<span style="font-size:11px;color:${expColor};">Exp. ${fmtDate ? fmtDate(c.expires_at) : c.expires_at} (J${daysLeft >= 0 ? '-' : '+'}${Math.abs(daysLeft)})</span>` : ''}
-        <button class="btn btn-secondary" style="font-size:12px;" onclick="openCertDeployPanel('${esc(c.id)}','${esc(c.domain)}')">
-          Gérer les déploiements
-        </button>
-      </div>
-    </div>
-    <div id="cert-targets-${esc(c.id)}" style="display:none;"></div>
-  </div>`;
-}
+// ── Certificate Deploy Drawer ────────────────────────────────────────────────
+// Fusionné dans Monitoring ACME : ce fichier n'expose plus de page dédiée,
+// seulement le drawer openCertDeployPanel(certID, domain) appelé depuis
+// acme-monitor.js (bouton "Déployer").
 
 window.openCertDeployPanel = async function(certID, domain) {
   document.getElementById('cert-deploy-overlay')?.remove();
