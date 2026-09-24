@@ -217,7 +217,6 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - ACME DNS-01 wildcard management (OVH, Cloudflare, Gandi, Route53, Hetzner)
 - Certificate push to Core (RAM only, never persisted on Core side)
 - **Certificate Hub** — ACME monitoring (dashboard + expiry alerts), external PEM cert import, deploy targets (HMAC webhook / ssh_exec), multi-format pull tokens (PEM/DER/PKCS#12/JSON)
-- **Internal CA** — generate a self-signed internal root CA and issue server/client certificates for internal services, outside ACME
 - **Granular alerting** — rules per node/domain/team, 10 channels: Email, Webhook, ntfy.sh, Gotify, Jira, Linear, GitHub Issues, GitLab Issues, Zammad, GLPI
 - Structured audit log for all components
 - Scheduled backups and restore
