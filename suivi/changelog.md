@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté
+
+- **"Politiques d'accès" intégré à Gestion d'équipe** : la matrice domaines × sujets (utilisateurs, équipes, tokens Core), purement en lecture seule (aucune action d'écriture, juste deux raccourcis de navigation), devient une 3ᵉ section de la page, après Utilisateurs & équipes et Espaces de travail. Son entrée sidebar dans Accès est retirée ; la tuile Paramètres (`settings.js`) et `pages['access-policies']` restent accessibles en direct (rendu identique, plein écran). La redirection de l'entrée parente "Accès" (clic sur le groupe lui-même) pointe désormais vers `workspaces` au lieu de `users`, cohérent avec le nouveau contenu. (Webapp `0.9.0`)
+
 ### Corrigé
 
 - **`users.js` — erreur de syntaxe cassant tout le fichier (page Utilisateurs & équipes entièrement non fonctionnelle)** : le commit `a7d625a` (20/09, migration des backdrops de modale vers `document.body`) a changé `elt.innerHTML = \`...\`` (une affectation) en `document.body.insertAdjacentHTML('beforeend', \`...\`)` (un appel de fonction) pour les modales Utilisateur et Équipe, mais sans ajouter le `)` de fermeture correspondant à la fin du template literal. Un `SyntaxError` sur un fichier `<script>` classique empêche l'exécution de **tout son contenu** : `pages.users`, `refreshUsers`, `openUserModal`, `saveUser`, `openTeamModal`, `saveTeam`, etc. n'existaient tout simplement jamais. C'est la cause racine de "il n'y a rien dans l'onglet Utilisateurs" et, une fois les onglets retirés, de la page "Gestion d'équipe" entièrement vide (le premier appel `refreshUsers(...)` levait un `ReferenceError` avant même que la section Espaces de travail ne s'affiche). `node --check` sur ce fichier échouait déjà avant tout changement de cette session — non détecté plus tôt car jamais vérifié isolément. (Webapp `0.9.0`)

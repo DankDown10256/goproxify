@@ -7,6 +7,11 @@ pages['access-policies'] = async function () {
   const content = document.getElementById('content');
   const ta = document.getElementById('topbar-actions');
   if (ta) ta.innerHTML = '';
+  await renderAccessPolicies(content);
+};
+
+// Extrait pour être réutilisé comme section dans "Gestion d'équipe" (workspaces.js).
+async function renderAccessPolicies(content) {
   content.innerHTML = `<p style="color:var(--text2)">${t('access.loading')}</p>`;
 
   try {
@@ -264,9 +269,9 @@ pages['access-policies'] = async function () {
   } catch (e) {
     content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`;
   }
-};
+}
 
-// La page "access" redirige vers users (groupe nav)
+// La page "access" redirige vers Gestion d'équipe (groupe nav)
 pages.access = async function () {
-  navigate('users');
+  navigate('workspaces');
 };

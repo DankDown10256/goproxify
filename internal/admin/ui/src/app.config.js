@@ -139,11 +139,6 @@ const APP_CONFIG = {
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 11a4 4 0 100-8 4 4 0 000 8zM11 11l4 4"/></svg>',
         },
         {
-          page: 'access-policies',
-          label: 'Politiques d\'accès',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 7h6M5 9.5h4"/></svg>',
-        },
-        {
           page: 'workspaces',
           label: 'Gestion d\'équipe',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/><circle cx="13" cy="5" r="2"/><path d="M18 13c0-2-1.8-3.2-4-3.2"/></svg>',

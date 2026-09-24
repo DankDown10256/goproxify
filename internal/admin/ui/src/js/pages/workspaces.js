@@ -1,7 +1,8 @@
 // ── Gestion d'équipe : fusion Utilisateurs & équipes + Espaces de travail ──
-// Une seule page en scroll, deux sections successives (pas d'onglets).
-// `pages.users` reste accessible en direct (liens internes access-policies.js
-// / infrastructure.js) et rend refreshUsers() seule, en plein écran.
+// + Politiques d'accès (récap lecture seule). Une seule page en scroll,
+// sections successives (pas d'onglets). `pages.users` et
+// `pages['access-policies']` restent accessibles en direct (liens internes,
+// tuile Paramètres) et se rendent seuls, en plein écran.
 
 pages.workspaces = async function() {
   const content = document.getElementById('content');
@@ -9,10 +10,13 @@ pages.workspaces = async function() {
   content.innerHTML = `
     <div id="wsteam-users-section" style="margin-bottom:8px;"></div>
     <div style="border-top:1px solid var(--border);margin:32px 0 24px;"></div>
-    <div id="wsteam-spaces-section"></div>`;
+    <div id="wsteam-spaces-section"></div>
+    <div style="border-top:1px solid var(--border);margin:32px 0 24px;"></div>
+    <div id="wsteam-policies-section"></div>`;
   await Promise.all([
     refreshUsers(document.getElementById('wsteam-users-section')),
     renderWorkspacesSection(document.getElementById('wsteam-spaces-section')),
+    renderAccessPolicies(document.getElementById('wsteam-policies-section')),
   ]);
 };
 
