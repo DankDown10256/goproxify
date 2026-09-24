@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Retiré
+
+- **Menu Core "Health checks" (`pages['core-health']`)** : la page dupliquait, par backend, une information déjà disponible dans "Trafic" (statut up/down par backend, via `GET /backends/health`) sans apporter de valeur propre. Entrée de nav, route (`app.config.js`, `router.js`) et implémentation (`core.js`) supprimées. L'endpoint `/api/v1/backends/health` reste utilisé par la page Trafic, inchangé. (Admin `0.11.4`, Webapp `0.9.7`)
+
 ### Changé
 
 - **Historique de proxies + Diff config fusionnés en une seule modale** : les deux boutons distincts de la liste des proxies (`trafic.js`) ouvraient chacun leur propre modale, l'une listant les versions (restaurer), l'autre comparant deux révisions issues d'un système distinct (révisions Core via `revisions/diff`), sans lien entre les deux. Un seul bouton "Historique" ouvre désormais `openProxyVersionsModal` : la liste des versions (`proxy_history`) à gauche, un panneau de diff à droite. Cliquer sur une version affiche sa diff face à la configuration actuelle ; cliquer sur une deuxième version affiche la diff entre les deux versions sélectionnées (badges A/B sur les lignes) ; recliquer désélectionne, un 3ᵉ clic repart d'une sélection neuve. L'icône restaurer reste sur chaque ligne. Nouvel endpoint `GET /api/v1/backups/proxy-history/{id}/config` (config brute d'une version, pour calculer la diff côté client) ; le diff n'utilise plus l'historique des révisions Core (`revisions/diff`, toujours actif mais plus appelé depuis l'UI). (Admin `0.11.3`, Webapp `0.9.6`)

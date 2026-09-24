@@ -26,7 +26,7 @@ const App = {
 const CORE_PAGES = new Set([
   'core-trafic','core-proxies','core-streams','core-waf','core-ipfilter',
   'core-certs','core-auth','core-logs-access','core-logs-system',
-  'core-observability','core-prism','core-metrics','core-health','core-cluster','core-tokens','core-settings','core-general','ip-profiles',
+  'core-observability','core-prism','core-metrics','core-cluster','core-tokens','core-settings','core-general','ip-profiles',
   'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
   'core-tunnel',
   'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
@@ -88,7 +88,7 @@ function navigate(page) {
   // Convention : une page qui démarre un setInterval/timer peut attacher
   // content._cleanup = () => clearInterval(...) pour l'arrêter en quittant
   // la page — sinon le timer continue de tourner et écrase #content même
-  // après navigation (ex. Health checks, rafraîchi toutes les 30 s).
+  // après navigation.
   const outgoing = document.getElementById('content');
   if (outgoing && typeof outgoing._cleanup === 'function') {
     outgoing._cleanup();

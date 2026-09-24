@@ -231,11 +231,6 @@ const APP_CONFIG = {
           label: 'Métriques',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
         },
-        {
-          page: 'core-health',
-          label: 'Health checks',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-        },
       ],
     },
     {
@@ -320,7 +315,6 @@ const APP_CONFIG = {
     'admin-observability': 'Observabilité',
     'core-observability': 'Observabilité',
     'core-metrics':     'Métriques',
-    'core-health':      'Health checks',
     'core-tunnel':      'Tunnel L4 mTLS',
     'core-security':           'Sécurité',
     'core-security-vulns':     'Vulnérabilités',
