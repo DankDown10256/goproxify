@@ -708,6 +708,56 @@ pages['core-ipfilter'] = async function() {
 
 // Certificats TLS Core → pages['core-certs'] dans domains.js (renderCertsPage)
 
+// ── PAGE: Tokens d'appairage (récap lecture seule) ───────────────────────
+// La CRUD complète (création, scopes, révocation) reste dans Accès → Tokens :
+// un token sert à appairer un Core qui n'existe pas encore, la gestion ne
+// peut donc pas être scopée à un Core déjà appairé.
+pages['core-tokens'] = async function() {
+  const content = document.getElementById('content');
+  const core = state.selectedCore;
+  const coreLabel = core?.display_name || core?.node_name || '—';
+  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
+  if (!core) { content.innerHTML = `<p style="color:var(--text2)">${t('trafic.no_core')}</p>`; return; }
+
+  try {
+    const tokens = await api('GET', '/tokens?role=core').catch(() => []);
+    const refs = new Set([core.id, core.node_name, core.display_name].filter(Boolean));
+    const matching = (tokens || []).filter(tok => refs.has(tok.id) || refs.has(tok.node_name));
+
+    const scopeTypeLabels = _tokenScopeTypeLabels();
+    const rows = await Promise.all(matching.map(async tok => {
+      const scopes = await api('GET', `/tokens/${encodeURIComponent(tok.id)}/scopes`).catch(() => []);
+      const status = _tokenStatus(tok);
+      const scopeTags = (scopes || []).length
+        ? scopes.map(s => `<span class="tag ${_scopeTagCls(s.scope_type)}" style="font-size:10px;">${esc(scopeTypeLabels[s.scope_type] || s.scope_type)}: ${esc(s.value || s.scope_value)}</span>`).join(' ')
+        : `<span style="font-size:12px;color:var(--text3);">${t('coretokens.no_scope')}</span>`;
+      return `<div class="card blueprint" style="padding:14px 16px;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="tag ${status.cls}" style="font-size:10px;">${esc(status.label)}</span>
+            ${_rbacBadge(tok.rbac_role)}
+          </div>
+          <span style="font-size:11px;color:var(--text3);">${tok.expires_at ? t('tokens.col_expires') + ' ' + esc(new Date(tok.expires_at).toLocaleDateString()) : t('tokens.no_expiry')}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${scopeTags}</div>
+      </div>`;
+    }));
+
+    content.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <h1 style="margin:0 0 4px;font-size:24px;font-family:var(--font-heading);font-weight:600;">${t('coretokens.title')}</h1>
+        <p style="margin:0;font-size:13px;color:var(--text2);">${t('coretokens.subtitle', { core: esc(coreLabel) })}</p>
+      </div>
+      <div style="margin-bottom:16px;padding:10px 12px;background:color-mix(in srgb,var(--accent) 7%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <span>${t('coretokens.banner')}</span>
+        <button class="btn btn-secondary btn-sm" onclick="navigate('tokens')">${t('coretokens.manage_btn')}</button>
+      </div>
+      ${rows.length ? rows.join('') : `<p style="color:var(--text3);font-size:13px;">${t('coretokens.empty')}</p>`}`;
+  } catch(e) {
+    content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`;
+  }
+};
+
 // ── PAGE: Auth / SSO ───────────────────────────────────────────────────────
 pages['core-auth'] = async function() {
   const content = document.getElementById('content');
@@ -1011,6 +1061,7 @@ pages['core-settings'] = function() {
         { page: 'core-waf',      icon: '<path d="M8 2l5 3v4c0 3-2.5 5.5-5 6.5C5.5 14.5 3 12 3 9V5l5-3z"/><path d="M6 8h4M8 6v4"/>', label: t('coresettings.item.waf'), desc: t('coresettings.item.waf_desc') },
         { page: 'core-ipfilter', icon: '<circle cx="8" cy="8" r="6"/><path d="M5 8h6M8 5v6"/>', label: t('coresettings.item.ipfilter'), desc: t('coresettings.item.ipfilter_desc') },
         { page: 'core-auth',     icon: '<rect x="4" y="8" width="8" height="6" rx="1"/><path d="M6 8V6a2 2 0 014 0v2"/>', label: t('coresettings.item.auth'), desc: t('coresettings.item.auth_desc') },
+        { page: 'core-tokens',   icon: '<path d="M7 11a4 4 0 100-8 4 4 0 000 8zM11 11l4 4"/>', label: t('coresettings.item.tokens'), desc: t('coresettings.item.tokens_desc') },
       ]
     },
     {

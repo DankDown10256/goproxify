@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Ajouté
+
+- **Paramètres Core → Tokens d'appairage (récap lecture seule)** : nouvelle tuile dans la section Sécurité de Paramètres Core, affichant le(s) token(s) `role=core` appairés à ce nœud (statut actif/expiré/révoqué, rôle RBAC, scopes). La CRUD complète (création, édition des scopes, révocation) reste dans **Accès → Tokens d'appairage**, avec un bouton de raccourci — un token sert justement à appairer un Core qui n'existe pas encore, la gestion complète ne peut donc pas être scopée à un Core déjà appairé. (Webapp `0.9.0`)
+
 ### Corrigé
 
 - **Menu Accès — libellé "Utilisateurs & équipes" jamais affiché** : `gpxPageLabel(page, fallback)` (i18n.js) donne toujours priorité à la clé `page.<page>` si elle existe, en ignorant totalement le `fallback` passé par `app.config.js`. La clé `page.users` valait encore `'Utilisateurs'` (FR) / `'Users'` (EN) / `'Usuarios'` (ES) / `'Benutzer'` (DE) dans les 4 langues — écrasant silencieusement le libellé `'Utilisateurs & équipes'` défini dans le sous-menu Accès depuis la fusion Users/Teams. Le libellé n'a donc jamais pu s'afficher, dans aucune langue, indépendamment du rôle ou du cache navigateur. Clés `page.users` mises à jour dans les 4 locales. (Webapp `0.9.0`)
