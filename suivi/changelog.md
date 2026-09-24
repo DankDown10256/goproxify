@@ -9,7 +9,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
-- **`docker-compose.yml` — tags d'images par défaut obsolètes** : `GOPROXIFY_ADMIN_TAG`, `GOPROXIFY_CORE_TAG` et `GOPROXIFY_AGENT_TAG` par défaut pointaient vers des versions périmées (`0.3.3`/`0.3.94`/`0.3.50`) désynchronisées de `versions.json`. Alignés sur `0.10.2`/`0.6.0`/`0.4.0`. `docker-compose.quickstart.yml` utilise des tags `preview` et n'était pas concerné.
+- **`docker-compose.yml` — tags d'images par défaut obsolètes** : `GOPROXIFY_ADMIN_TAG`, `GOPROXIFY_CORE_TAG` et `GOPROXIFY_AGENT_TAG` par défaut pointaient vers des versions périmées (`0.3.3`/`0.3.94`/`0.3.50`) désynchronisées de `versions.json`. Alignés sur `preview`, comme `docker-compose.quickstart.yml`, pour éviter que les défauts se re-périment à chaque release.
 - **HA Admin — `/ha/status` renvoyait le mauvais `node_id`** : `ha.Manager.HandleStatus` retournait `LeaderID()` à la place de l'ID propre du nœud interrogé, faisant apparaître tous les nœuds (leader et followers) avec le même Node ID dans la page Statut HA. Ajout de `raft.Node.ID()` et correction du handler pour retourner l'identité réelle du nœud.
 - **HA — Core backup ne recevait jamais le `full_sync` Admin** : `GPX_CORE_EXTRA_ENDPOINTS` était documenté mais non implémenté. `ConnectFromEnv` supporte désormais cette variable (format CSV `name=http://host:port`). L'Admin se connecte à chaque Core extra au démarrage et pousse le `full_sync`. (Admin `0.10.1`)
 
