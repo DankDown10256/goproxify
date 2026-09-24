@@ -250,7 +250,7 @@ Alertmanager-inspired model: each rule independently defines its scope, triggers
 - Core/Agent node offline
 - Certificate expiring in < N days
 - CVE detected on a backend
-  - The HTTP scanner rejects private targets (RFC1918/ULA), localhost and cloud metadata by default (anti-SSRF). To scan Docker/LAN backends: `GPX_VULNSCAN_ALLOW_PRIVATE=true` on Admin, or via the toggle in Admin UI (Security > CVE Scanner — available in both Admin and Core views).
+  - The HTTP scanner rejects private targets (RFC1918/ULA), localhost and cloud metadata by default (anti-SSRF). To scan Docker/LAN backends: `GPX_VULNSCAN_ALLOW_PRIVATE=true` on Admin, or via the toggle in the UI (Security > CVE Scanner, Core view only — the manual scan trigger and the private-network toggle live on the Core side; the Admin view only shows the aggregated results across all Cores).
 - New Fail2Ban ban (threshold: N bans/hour)
 - Critical CrowdSec decision
 - Sensitive configuration change
