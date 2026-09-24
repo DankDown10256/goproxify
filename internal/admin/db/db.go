@@ -559,23 +559,52 @@ func migrate(db *sql.DB) error {
 		return fmt.Errorf("migration token_hash : %w", err)
 	}
 
+	// CA interne — autorité racine et certificats émis (clés PEM persistées sur disque, cf certs/internal-ca/).
+	for _, s := range []string{
+		`CREATE TABLE IF NOT EXISTS internal_ca (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL UNIQUE,
+			subject     TEXT NOT NULL,
+			cert_pem    TEXT NOT NULL,
+			not_after   DATETIME NOT NULL,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS internal_ca_certs (
+			id          TEXT PRIMARY KEY,
+			ca_id       TEXT NOT NULL REFERENCES internal_ca(id) ON DELETE CASCADE,
+			common_name TEXT NOT NULL,
+			usage       TEXT NOT NULL CHECK(usage IN ('server','client')),
+			sans_json   TEXT NOT NULL DEFAULT '[]',
+			serial      TEXT NOT NULL,
+			cert_pem    TEXT NOT NULL,
+			not_after   DATETIME NOT NULL,
+			revoked     INTEGER NOT NULL DEFAULT 0,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_internal_ca_certs_ca ON internal_ca_certs (ca_id)`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("migration internal_ca : %w", err)
+		}
+	}
+
 	// Vulnérabilités (CVE) — Core d'origine, pour affichage côté Admin (vue agrégée multi-Core).
 	db.Exec(`ALTER TABLE security_cves ADD COLUMN core_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
 
 	// Menaces CrowdSec — Core d'origine + dernière observation (une même menace ip+scenario
 	// était ré-émise régulièrement mais ignorée par l'unicité (ip, scenario), sans jamais
 	// rafraîchir la date affichée côté Admin/Core).
-	db.Exec(`ALTER TABLE security_threats ADD COLUMN core_name    TEXT NOT NULL DEFAULT ''`)                    //nolint:errcheck
-	db.Exec(`ALTER TABLE security_threats ADD COLUMN occurrences  INTEGER NOT NULL DEFAULT 1`)                  //nolint:errcheck
-	db.Exec(`ALTER TABLE security_threats ADD COLUMN last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP`)          //nolint:errcheck
-	db.Exec(`UPDATE security_threats SET last_seen_at = created_at WHERE last_seen_at IS NULL`)                 //nolint:errcheck
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN core_name    TEXT NOT NULL DEFAULT ''`)           //nolint:errcheck
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN occurrences  INTEGER NOT NULL DEFAULT 1`)         //nolint:errcheck
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP`) //nolint:errcheck
+	db.Exec(`UPDATE security_threats SET last_seen_at = created_at WHERE last_seen_at IS NULL`)        //nolint:errcheck
 
 	// RGPD : rétention individuelle par ligne + effacement par IP ou utilisateur.
-	db.Exec(`ALTER TABLE logs ADD COLUMN user_id       TEXT NOT NULL DEFAULT ''`)          //nolint:errcheck
-	db.Exec(`ALTER TABLE logs ADD COLUMN retained_until DATETIME`)                         //nolint:errcheck
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_retained ON logs (retained_until)`)       //nolint:errcheck
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_ip       ON logs (ip)`)                   //nolint:errcheck
-	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_user_id  ON logs (user_id)`)              //nolint:errcheck
+	db.Exec(`ALTER TABLE logs ADD COLUMN user_id       TEXT NOT NULL DEFAULT ''`)    //nolint:errcheck
+	db.Exec(`ALTER TABLE logs ADD COLUMN retained_until DATETIME`)                   //nolint:errcheck
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_retained ON logs (retained_until)`) //nolint:errcheck
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_ip       ON logs (ip)`)             //nolint:errcheck
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_user_id  ON logs (user_id)`)        //nolint:errcheck
 	// Keyset pagination : index partiels sur id DESC par kind (access vs system).
 	// Accélère WHERE id < ? AND status > 0 ORDER BY id DESC LIMIT n sans OFFSET.
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_access_id ON logs (id DESC) WHERE status > 0`) //nolint:errcheck

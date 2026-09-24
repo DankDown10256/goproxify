@@ -16,28 +16,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vincamok/goproxify/internal/admin/gdpr"
 	"github.com/vincamok/goproxify/internal/admin/acme"
 	"github.com/vincamok/goproxify/internal/admin/alerting"
-	"github.com/vincamok/goproxify/internal/admin/certdeploy"
 	"github.com/vincamok/goproxify/internal/admin/analytics"
 	"github.com/vincamok/goproxify/internal/admin/api"
-	"github.com/vincamok/goproxify/internal/admin/rulesengine"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/audit"
 	"github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/backup"
+	"github.com/vincamok/goproxify/internal/admin/certdeploy"
 	"github.com/vincamok/goproxify/internal/admin/corews"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/fail2ban"
+	"github.com/vincamok/goproxify/internal/admin/gdpr"
 	"github.com/vincamok/goproxify/internal/admin/ha"
+	"github.com/vincamok/goproxify/internal/admin/internalca"
 	"github.com/vincamok/goproxify/internal/admin/ipprofile"
 	"github.com/vincamok/goproxify/internal/admin/logs"
 	"github.com/vincamok/goproxify/internal/admin/mcp"
 	"github.com/vincamok/goproxify/internal/admin/mfa"
 	"github.com/vincamok/goproxify/internal/admin/monitor"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
+	"github.com/vincamok/goproxify/internal/admin/rulesengine"
 	"github.com/vincamok/goproxify/internal/admin/security"
 	"github.com/vincamok/goproxify/internal/admin/setup"
 	"github.com/vincamok/goproxify/internal/admin/ui"
@@ -313,6 +314,11 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	certsH := &api.CertsHandler{DB: s.db, Log: s.log, Manager: acmeMgr, Pusher: manager}
+	internalCAMgr := internalca.New(s.db, s.log)
+	if s.cfg.Storage.BasePath != "" {
+		internalCAMgr.SetCertDir(filepath.Join(s.cfg.Storage.BasePath, "certs"))
+	}
+	internalCAH := &api.InternalCAHandler{Log: s.log, Manager: internalCAMgr}
 	nodesH := &api.NodesHandler{DB: s.db, Log: s.log, OnTunnelSave: func(nodeID string) {
 		ctx := context.Background()
 		s.wsManager.PushTunnelConfig(ctx, nodeID)
@@ -643,6 +649,8 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	})))
 	mux.Handle("/api/v1/cert-bundle", http.HandlerFunc(certBundleH.ServeHTTP))
+	mux.Handle("/api/v1/internal-ca", adminOnly(internalCAH))
+	mux.Handle("/api/v1/internal-ca/", adminOnly(internalCAH))
 	mux.Handle("/api/v1/nodes", protected(nodesH))
 	mux.Handle("/api/v1/nodes/", protected(nodesH))
 	mux.Handle("/api/v1/declared-nodes", protected(declaredNodesH))
@@ -750,6 +758,7 @@ func (s *Server) Start(ctx context.Context) error {
 		OnBansChange: pushBans,
 		RulesEngine:  s.rulesEngine,
 		CertDeployer: certDeployer,
+		InternalCA:   internalCAMgr,
 	}
 	mux.Handle("/mcp", auth.RequirePAT(s.db)(mcpH))
 	mux.Handle("/mcp/", auth.RequirePAT(s.db)(mcpH))
@@ -856,4 +865,3 @@ func ResetPassword(cfg *config.AdminConfig, email, newPassword string) error {
 }
 
 func (s *Server) mfaStore() *mfa.Store { return mfa.NewStore(s.db) }
-
