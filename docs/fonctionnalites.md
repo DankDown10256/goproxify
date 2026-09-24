@@ -265,6 +265,7 @@ Self-signed root CA generation and issuance of internal server/client certificat
 - `GET/POST /api/v1/internal-ca`, `GET/POST /api/v1/internal-ca/{id}/certs`, `DELETE /api/v1/internal-ca/{id}/certs/{certID}`
 - CLI: `goproxify internal-ca create-ca|list-ca|issue|list-certs|revoke`
 - MCP tools: `create_internal_ca`, `list_internal_cas`, `issue_internal_cert`, `list_internal_certs`, `revoke_internal_cert`
+- Admin UI: "Internal CA" section embedded in the "Domains & certificates" page (`/acme-monitor`) — create a CA, list CAs, side panel to issue/revoke certificates per CA
 
 ### Granular alerting
 

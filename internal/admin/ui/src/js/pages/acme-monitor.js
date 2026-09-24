@@ -54,15 +54,17 @@ pages['acme-monitor'] = async function () {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
         <div id="acme-config-section"></div>
         <div id="acme-providers-section"></div>
       </div>
 
+      <div id="acme-internal-ca-section" style="margin-bottom:24px;"></div>
+
       <div id="acme-kpis" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;"></div>
       <div id="acme-table-wrap"></div>
     </div>`;
-  await Promise.all([acmeConfigLoad(), acmeProvidersLoad(), acmeMonitorLoad()]);
+  await Promise.all([acmeConfigLoad(), acmeProvidersLoad(), acmeInternalCALoad(), acmeMonitorLoad()]);
   _acmeRefreshTimer = setInterval(acmeMonitorLoad, 60_000);
   const obs = new MutationObserver(() => {
     if (!document.getElementById('acme-kpis')) {
