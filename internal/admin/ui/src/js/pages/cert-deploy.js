@@ -1,7 +1,7 @@
 // ── Certificate Deploy Drawer ────────────────────────────────────────────────
-// Fusionné dans Monitoring ACME : ce fichier n'expose plus de page dédiée,
-// seulement le drawer openCertDeployPanel(certID, domain) appelé depuis
-// acme-monitor.js (bouton "Déployer").
+// Fusionné dans Domaines & certificats : ce fichier n'expose plus de page
+// dédiée, seulement le drawer openCertDeployPanel(certID, domain) appelé
+// depuis acme-monitor.js (bouton "Déployer").
 
 window.openCertDeployPanel = async function(certID, domain) {
   document.getElementById('cert-deploy-overlay')?.remove();
