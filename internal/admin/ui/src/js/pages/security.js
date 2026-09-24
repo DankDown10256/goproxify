@@ -975,7 +975,7 @@ async function renderSecurityPosture(ctx) {
 
 pages.security = () => renderAdminSecurityOverview();
 pages['security-bans'] = () => renderAdminSecurityBans();
-pages['security-vulns'] = () => renderAdminSecurityVulns();
+pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-threats'] = () => renderAdminSecurityThreats();
 pages['security-rules'] = () => renderSecurityRules();
 pages['core-security-ips-engines'] = () => renderSecurityIpsEngines({ mode: 'core' });
@@ -1327,92 +1327,6 @@ async function renderAdminSecurityBans() {
           </tr>`).join('')}</tbody>
         </table></div>` : '<p style="font-size:12px;color:var(--green)">Aucun ban actif.</p>'}
       </div>`;
-  } catch(e) {
-    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
-  }
-}
-
-// ── PAGE ADMIN : Vulnérabilités agrégées tous Cores ───────────────────────
-async function renderAdminSecurityVulns() {
-  const content = document.getElementById('content');
-  const ta = document.getElementById('topbar-actions');
-  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-vulns']()">↺ Actualiser</button>`;
-  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
-  try {
-    const [cvesRaw, scanInfo] = await Promise.all([
-      api('GET', '/security/cves').catch(() => []),
-      api('GET', '/security/vulnscan').catch(() => null),
-    ]);
-    const cves = cvesRaw || [];
-    const critical = cves.filter(c => (c.cvss_score || 0) >= 9 && c.status === 'open');
-    const high     = cves.filter(c => (c.cvss_score || 0) >= 7 && (c.cvss_score || 0) < 9 && c.status === 'open');
-    const medium   = cves.filter(c => (c.cvss_score || 0) >= 4 && (c.cvss_score || 0) < 7 && c.status === 'open');
-    const fixed    = cves.filter(c => c.status === 'fixed');
-
-    const cveBadge = score => {
-      const color = score >= 9 ? 'var(--red)' : score >= 7 ? 'var(--orange,#d97706)' : score >= 4 ? 'var(--yellow)' : 'var(--text2)';
-      return `<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,${color} 15%,transparent);color:${color}">${score.toFixed(1)}</span>`;
-    };
-
-    const cveRows = (list) => list.map(c => `<tr style="font-size:12px">
-      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(c.cve_id || '—')}</td>
-      <td style="padding:5px 8px">${cveBadge(c.cvss_score || 0)}</td>
-      <td style="padding:5px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.description||'')}">${esc(c.package || c.component || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(c.proxy_name || c.proxy_id || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(c.core_name || '—')}</td>
-    </tr>`).join('');
-
-    const lastScan = scanInfo?.last_scan ? new Date(scanInfo.last_scan).toLocaleString() : null;
-
-    content.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${critical.length>0?'var(--red)':'var(--green)'}">${critical.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Critiques (CVSS ≥ 9)</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${high.length>0?'var(--orange,#d97706)':'var(--green)'}">${high.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Élevées (CVSS 7–9)</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700">${medium.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Moyennes (CVSS 4–7)</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:var(--green)">${fixed.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Corrigées${lastScan ? `<br><span style="font-size:10px">Scan : ${esc(lastScan)}</span>` : ''}</div>
-        </div>
-      </div>
-
-      ${critical.length + high.length > 0 ? `
-      <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">CVEs critiques & élevées — tous Cores</div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:5px 8px">CVE</th>
-            <th style="text-align:left;padding:5px 8px">CVSS</th>
-            <th style="text-align:left;padding:5px 8px">Package</th>
-            <th style="text-align:left;padding:5px 8px">Proxy</th>
-            <th style="text-align:left;padding:5px 8px">Core</th>
-          </tr></thead>
-          <tbody>${cveRows([...critical, ...high])}</tbody>
-        </table>
-      </div>` : `<div class="card blueprint" style="padding:16px;margin-bottom:16px"><p style="color:var(--green);font-size:13px">✓ Aucune CVE critique ou élevée ouverte.</p></div>`}
-
-      ${medium.length > 0 ? `
-      <div class="card blueprint" style="padding:14px 16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">CVEs moyennes (${medium.length})</div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:5px 8px">CVE</th>
-            <th style="text-align:left;padding:5px 8px">CVSS</th>
-            <th style="text-align:left;padding:5px 8px">Package</th>
-            <th style="text-align:left;padding:5px 8px">Proxy</th>
-            <th style="text-align:left;padding:5px 8px">Core</th>
-          </tr></thead>
-          <tbody>${cveRows(medium)}</tbody>
-        </table>
-      </div>` : ''}`;
   } catch(e) {
     content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
   }
