@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **Modale "Historique" du proxy — "Aucun historique pour ce proxy." alors qu'il y en a un** : la modale unifiée (`openProxyVersionsModal`, `trafic.js`, fusionnée récemment avec l'ancien "Diff config") ne lisait que `GET /backups/proxy-history/{id}`, une table SQLite côté Admin (`proxy_history`) qui n'enregistre une version qu'à chaque création/modification faite *via l'API Admin*. Un proxy jamais retouché depuis l'Admin (créé/synchronisé côté Core, ou modifié avant l'introduction de cette table) y a zéro ligne — alors que l'historique réel existe bien côté Core (`proxystore`, un fichier de révision à chaque création/dry-run/promote), déjà exposé par `GET /proxies/{id}/revisions/diff` (champ `revisions`, utilisé jusqu'ici seulement pour calculer un diff, jamais pour lister). La modale retombe désormais sur ces révisions Core quand `proxy_history` est vide, avec la config déjà incluse dans chaque révision (pas d'appel réseau supplémentaire). Le bouton "Restaurer" est masqué sur ces lignes (aucun endpoint Admin ne permet de restaurer une révision Core arbitraire) et une note indique la provenance Core-only. La comparaison de config, elle, fonctionne à l'identique dans les deux cas. (Webapp `0.9.8`)
+
 ### Retiré
 
 - **Menu Core "Health checks" (`pages['core-health']`)** : la page dupliquait, par backend, une information déjà disponible dans "Trafic" (statut up/down par backend, via `GET /backends/health`) sans apporter de valeur propre. Entrée de nav, route (`app.config.js`, `router.js`) et implémentation (`core.js`) supprimées. L'endpoint `/api/v1/backends/health` reste utilisé par la page Trafic, inchangé. (Admin `0.11.4`, Webapp `0.9.7`)

@@ -1557,18 +1557,40 @@ window.openProxyVersionsModal = async function(proxyId, proxyName) {
   const body = document.querySelector('#modal-overlay .dialog-body');
   if (!body) return;
 
-  const [versions, current] = await Promise.all([
+  let [versions, current] = await Promise.all([
     api('GET', `/backups/proxy-history/${proxyId}`).catch(() => []),
     api('GET', `/proxies/${proxyId}`).catch(() => null),
   ]);
+
+  const pName = esc(proxyName);
+  const configCache = new Map(); // versionId -> parsed config (clé spéciale 'current' = config actuelle)
+  configCache.set('current', current ? current.config : null);
+
+  // Fallback : pas de version admin (proxy_history) — l'historique réel vit côté Core
+  // (proxystore, révisions), déjà interrogé par /revisions/diff. Sans ce recours, un
+  // proxy jamais modifié via l'API Admin affichait "Aucun historique" alors que Core
+  // en a bien un (toute création/dry-run/promote y laisse une révision).
+  let coreOnly = false;
+  if (!versions.length) {
+    const revData = await api('GET', `/proxies/${proxyId}/revisions/diff`).catch(() => null);
+    const coreRevisions = (revData && Array.isArray(revData.revisions)) ? revData.revisions : [];
+    if (coreRevisions.length) {
+      coreOnly = true;
+      versions = coreRevisions.map(rv => ({
+        id: rv.revision,
+        created_at: rv.updated_at,
+        note: rv.created_by ? `Core — ${rv.created_by}` : 'Core',
+        _coreConfig: rv.config,
+      })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      versions.forEach(v => configCache.set(v.id, v._coreConfig || null));
+    }
+  }
+
   if (!versions.length) {
     body.innerHTML = '<p style="color:var(--text2);font-size:13px;margin:0">' + t('backups.history.no_versions') + '</p>';
     return;
   }
 
-  const pName = esc(proxyName);
-  const configCache = new Map(); // versionId -> parsed config (clé spéciale 'current' = config actuelle)
-  configCache.set('current', current ? current.config : null);
   const state = { a: null, b: null };
 
   const loadConfig = async (versionId) => {
@@ -1596,18 +1618,19 @@ window.openProxyVersionsModal = async function(proxyId, proxyName) {
       const isA = state.a === v.id, isB = state.b === v.id;
       const sel = isA || isB;
       const badge = isA ? '<span class="tag" style="margin-right:6px">A</span>' : isB ? '<span class="tag" style="margin-right:6px">B</span>' : '';
+      const restoreBtn = coreOnly ? '' : `<button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();restoreProxyVersion('${esc(v.id)}','${pName}','${fmtDate(v.created_at)}')" title="${t('common.restore')}" style="color:var(--accent)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+          </button>`;
       return `<tr data-vid="${esc(v.id)}" onclick="window._versionsRowClick(event,'${esc(v.id)}')" style="cursor:pointer;${sel ? 'background:color-mix(in srgb,var(--accent) 10%,transparent)' : ''}">
         <td style="font-size:12px;white-space:nowrap">${badge}${fmtDate(v.created_at)}</td>
         <td style="color:var(--text2);font-size:12px">${esc(v.note||'—')}</td>
-        <td style="text-align:right">
-          <button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();restoreProxyVersion('${esc(v.id)}','${pName}','${fmtDate(v.created_at)}')" title="${t('common.restore')}" style="color:var(--accent)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
-          </button>
-        </td>
+        <td style="text-align:right">${restoreBtn}</td>
       </tr>`;
     }).join('');
 
-    return `<div class="table-wrap"><table>
+    return `<div class="table-wrap">
+      ${coreOnly ? `<p style="font-size:11px;color:var(--text3);margin:0 0 8px">${t('backups.history.core_only')||'Historique Core (révisions proxystore) — pas encore de version enregistrée côté Admin sur ce proxy ; restauration indisponible depuis cette liste.'}</p>` : ''}
+      <table>
       <thead><tr>
         <th>${t('common.date')}</th>
         <th>${t('common.note')}</th>
