@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Sécurité — avertissement au démarrage si `GPX_TRUSTED_PROXIES` non défini** : le Core émet désormais un `WARN` au démarrage lorsque `GPX_TRUSTED_PROXIES` n'est pas explicitement défini, rappelant que tous les réseaux privés RFC1918 sont considérés comme proxies de confiance par défaut. Derrière un load balancer public, cela permet à n'importe quelle IP du sous-réseau privé d'usurper `X-Forwarded-For`/`X-Real-IP` (contournement des bans IP, du rate-limit et de la pseudonymisation RGPD). La variable est documentée dans `docker-compose.yml` et dans une nouvelle section de `docs/security.md`. (Core `0.8.0`)
+
 - **Labo de tests — environnement isolé** : `tests/lab/docker-compose.isolated.yml` fournit un Admin + Core de test dans un réseau `lab_isolated_net` distinct de `goproxify_net`. `lab.sh --isolated` pilote cet environnement et bloque les scénarios à fort impact (`stress`, `spike`, `soak`, `baseline`, `mixed`) en mode normal pour éviter tout lancement accidentel sur la production. Les tests `moderate` et `saturation` peuvent désormais être rejoués hors concurrence VM.
 
 - **Pages d'erreur — URL de l'Admin exposée aux visiteurs** : quand `GPX_ADMIN_PUBLIC_URL` était renseignée, `Render()` insérait un lien `<a href="https://...">` cliquable vers l'interface Admin dans la section technique des pages d'erreur, visible de tout visiteur qui cliquait sur `···`. L'URL Admin n'est plus insérée dans les pages publiques ; le `request_id` reste affiché en clair (utile pour le support). `buildLogURL` est conservé pour les templates d'erreur personnalisés via le placeholder `{{log_url}}`, que seul l'opérateur contrôle. (Core `0.8.0`)

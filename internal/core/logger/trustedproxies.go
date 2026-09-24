@@ -4,6 +4,7 @@
 package logger
 
 import (
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -17,20 +18,40 @@ const EnvTrustedProxies = "GPX_TRUSTED_PROXIES"
 var defaultTrustedProxies = []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
 
 type trustSet struct {
-	all  bool
-	nets []*net.IPNet
+	all      bool
+	nets     []*net.IPNet
+	explicit bool // true si GPX_TRUSTED_PROXIES a été explicitement défini
 }
 
 var trusted atomic.Pointer[trustSet]
 
 func init() {
-	SetTrustedProxies(strings.Split(os.Getenv(EnvTrustedProxies), ","))
+	raw := os.Getenv(EnvTrustedProxies)
+	entries := strings.Split(raw, ",")
+	setTrustedProxies(entries, raw != "")
+}
+
+// WarnIfDefaultTrustedProxies émet un avertissement si GPX_TRUSTED_PROXIES n'est pas défini
+// explicitement. À appeler au démarrage du Core pour alerter les opérateurs derrière un LB public.
+func WarnIfDefaultTrustedProxies(log *slog.Logger) {
+	ts := trusted.Load()
+	if !ts.explicit {
+		log.Warn("trusted-proxies: GPX_TRUSTED_PROXIES non défini — tous les réseaux privés (RFC1918) sont considérés comme proxy de confiance. "+
+			"Derrière un load balancer public, restreindre à l'IP du LB pour éviter l'usurpation de X-Forwarded-For/X-Real-IP.",
+			"suggestion", "GPX_TRUSTED_PROXIES=<ip-du-lb>")
+	} else {
+		log.Info("trusted-proxies: liste explicite chargée depuis GPX_TRUSTED_PROXIES", "value", os.Getenv(EnvTrustedProxies))
+	}
 }
 
 // SetTrustedProxies remplace la liste des proxies de confiance (défauts privés toujours inclus).
 // Les entrées invalides sont ignorées.
 func SetTrustedProxies(entries []string) {
-	ts := &trustSet{}
+	setTrustedProxies(entries, true)
+}
+
+func setTrustedProxies(entries []string, explicit bool) {
+	ts := &trustSet{explicit: explicit}
 	for _, e := range append(append([]string{}, defaultTrustedProxies...), entries...) {
 		e = strings.TrimSpace(e)
 		switch {

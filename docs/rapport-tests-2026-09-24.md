@@ -122,7 +122,7 @@ Ressources du Core pendant la saturation (`docker stats`, CPU exprimé par rappo
 1. ~~**Environnement isolé**~~ **Fait** : `tests/lab/docker-compose.isolated.yml` fournit Admin + Core de test dans un réseau `lab_isolated_net` sans lien avec la production. `lab.sh --isolated` pilote cet environnement ; il bloque `stress`, `spike`, `soak`, `baseline`, `mixed` en mode normal pour éviter tout lancement accidentel sur la production.
 2. **Exécuter `moderate` à débit imposé** (300 req/s) pour obtenir la latence de service, et rejouer `saturation` sur l'environnement isolé pour comparaison hors concurrence VM. Commandes : `tests/lab/lab.sh --isolated up-all && tests/lab/lab.sh --isolated load moderate`. **À faire sur le prochain passage en environnement isolé.**
 3. ~~**Décider du constat n° 4**~~ Corrigé : l'URL Admin n'est plus exposée dans les pages d'erreur publiques (Core `0.8.0`).
-4. **Vérifier `GPX_TRUSTED_PROXIES`** en production : derrière un load balancer à IP publique, la valeur par défaut (réseaux privés de confiance) doit être adaptée.
+4. ~~**Vérifier `GPX_TRUSTED_PROXIES`**~~ **Traité** : le Core émet désormais un `WARN` au démarrage si `GPX_TRUSTED_PROXIES` n'est pas défini explicitement, rappelant de le restreindre derrière un LB public. La variable est documentée dans `docker-compose.yml` et `docs/security.md` (§ Proxies de confiance). **À faire côté opérateur** : définir `GPX_TRUSTED_PROXIES=<ip-du-lb>` sur chaque déploiement derrière un load balancer.
 5. **Ajouter TLS/HTTP3 au labo** et éventuellement un test de cluster.
 6. **Nettoyer** : supprimer les routes `lab-*` (`cleanup.sh`), révoquer le PAT du labo, supprimer le stack lab.
 
