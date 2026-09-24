@@ -37,9 +37,39 @@ func (h *McpAccessHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getAllowedIPs(w, r)
 	case r.Method == http.MethodPut && path == "allowed-ips":
 		h.putAllowedIPs(w, r)
+	case r.Method == http.MethodGet && path == "allowed-backends":
+		list := mcpaccess.AllowedBackends(h.DB)
+		if list == nil {
+			list = []string{}
+		}
+		jsonOK(w, map[string]any{"backends": list})
+	case r.Method == http.MethodPut && path == "allowed-backends":
+		h.putAllowedBackends(w, r)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
+}
+
+func (h *McpAccessHandler) putAllowedBackends(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Backends []string `json:"backends"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	for _, entry := range body.Backends {
+		if entry = strings.TrimSpace(entry); entry != "" && !mcpaccess.IsValidBackendEntry(entry) {
+			writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+			return
+		}
+	}
+	if err := mcpaccess.SetAllowedBackends(h.DB, body.Backends); err != nil {
+		h.Log.Error("mcp_access: set allowed backends", "err", err)
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type mcpScopeRow struct {

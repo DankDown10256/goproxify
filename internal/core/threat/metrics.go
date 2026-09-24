@@ -36,4 +36,11 @@ var (
 		Name:      "global_ratelimit_total",
 		Help:      "Requêtes rejetées par le limiteur global (DDoS volumétrique).",
 	})
+
+	threatEvictionsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "counter_evictions_total",
+		Help:      "Entrées de suivi par IP évincées faute de place (table pleine, attaque distribuée probable).",
+	})
 )

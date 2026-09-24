@@ -587,6 +587,14 @@ Allowlist d'IP/CIDR sources autorisées à appeler `/mcp`. Réponse : `{ ips: st
 
 Remplace l'allowlist. Corps : `{ ips: string[] }` — chaque entrée est une IP (`203.0.113.4`) ou un CIDR (`10.0.0.0/24`), validée côté serveur (400 si invalide). Appliquée immédiatement par `internal/admin/mcp.Handler.ServeHTTP` (403 pour toute requête `/mcp` hors liste, avant même l'authentification PAT).
 
+### `GET /api/v1/mcp-access/allowed-backends`
+
+Allowlist des destinations vers lesquelles les outils MCP `create_proxy` / `update_proxy` peuvent pointer un backend (protection contre le détournement de trafic par prompt injection). Réponse : `{ backends: string[] }`. Défaut tant que jamais enregistrée : RFC 1918, loopback, ULA IPv6, `*.internal`, `*.local`, `*.svc`, `*.cluster.local` ; les noms d'hôte à label unique (services Docker/Kubernetes) sont toujours acceptés. Liste vide = aucune restriction. Ne s'applique pas à l'API REST admin ni à l'UI.
+
+### `PUT /api/v1/mcp-access/allowed-backends`
+
+Remplace l'allowlist. Corps : `{ backends: string[] }` — chaque entrée est une IP, un CIDR, un hôte exact (`api.corp.example`) ou un suffixe (`*.corp.example`) ; 400 si invalide. Un backend refusé renvoie une erreur d'outil MCP.
+
 ### `GET /api/v1/mcp-access/tokens`
 
 Liste tous les PAT actifs (non révoqués) sur l'instance, tous porteurs confondus, avec leurs scopes — la vue "quels utilisateurs peuvent utiliser le MCP". Réponse : tableau `{ id, label, owner_email, scopes[], expires_at?, last_used_at?, created_at }`. La gestion (création/révocation) reste self-service sur `/api/v1/me/tokens` — un PAT est personnel.

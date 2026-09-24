@@ -4,6 +4,7 @@
 package threat
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"testing"
@@ -223,5 +224,41 @@ func TestCustomCIDR(t *testing.T) {
 	blocked2, _ := e.Check(r2, "192.168.1.55")
 	if blocked2 {
 		t.Fatal("IP outside custom CIDR should not be blocked")
+	}
+}
+
+func TestCounterKeyIPv6Aggregation(t *testing.T) {
+	a := counterKey("2001:db8:1:2:aaaa::1")
+	b := counterKey("2001:db8:1:2:bbbb::9")
+	if a != b {
+		t.Fatalf("même /64 attendu: %s != %s", a, b)
+	}
+	if counterKey("2001:db8:1:3::1") == a {
+		t.Fatal("/64 différents ne doivent pas être agrégés")
+	}
+	if counterKey("1.2.3.4") != "1.2.3.4" {
+		t.Fatal("IPv4 inchangée")
+	}
+}
+
+func TestCounterStoreBounded(t *testing.T) {
+	s := newCounterStore()
+	for i := 0; i < counterShards*maxKeysPerShard*2; i++ {
+		s.errorExceeded(fmt.Sprintf("10.%d.%d.%d", i>>16&255, i>>8&255, i&255), 1000, time.Minute)
+	}
+	if n := s.size(); n > counterShards*maxKeysPerShard {
+		t.Fatalf("table non bornée: %d", n)
+	}
+}
+
+func TestRateWindowAllowsBurst(t *testing.T) {
+	s := newCounterStore()
+	for i := 0; i < 10; i++ {
+		if s.rateExceeded("1.1.1.1", 2, 5*time.Second) {
+			t.Fatalf("requête %d ne devrait pas dépasser", i+1)
+		}
+	}
+	if !s.rateExceeded("1.1.1.1", 2, 5*time.Second) {
+		t.Fatal("la 11e requête devrait dépasser")
 	}
 }

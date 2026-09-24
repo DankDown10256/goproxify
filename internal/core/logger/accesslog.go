@@ -442,23 +442,46 @@ func stripHostPort(host string) string {
 	return host
 }
 
-// RealIP retourne l'IP réelle du client en respectant les headers Cloudflare/proxy.
+// RealIP retourne l'IP réelle du client. Les headers CF-Connecting-IP / X-Forwarded-For /
+// X-Real-IP ne sont lus que si la connexion directe vient d'un proxy de confiance
+// (voir SetTrustedProxies) ; sinon n'importe quel client pourrait forger son IP.
 func RealIP(r *http.Request) string {
-	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
+	}
+	if !isTrustedPeer(peer) {
+		return peer
+	}
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); net.ParseIP(cf) != nil {
 		return cf
 	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Prend la première IP (la plus proche du client)
-		if idx := strings.IndexByte(xff, ','); idx >= 0 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return strings.TrimSpace(xff)
+	if ip := clientFromXFF(strings.Join(r.Header.Values("X-Forwarded-For"), ",")); ip != "" {
+		return ip
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
 		return xri
 	}
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return ip
+	return peer
+}
+
+// clientFromXFF lit la chaîne X-Forwarded-For de droite à gauche et retourne la première IP
+// qui n'est pas un proxy de confiance : les entrées de gauche sont fournies par le client
+// (un proxy ajoute à la valeur existante) et ne sont donc pas fiables.
+func clientFromXFF(xff string) string {
+	parts := strings.Split(xff, ",")
+	first := ""
+	for i := len(parts) - 1; i >= 0; i-- {
+		p := strings.TrimSpace(parts[i])
+		if net.ParseIP(p) == nil {
+			continue
+		}
+		first = p
+		if !isTrustedPeer(p) {
+			return p
+		}
+	}
+	return first
 }
 
 type statusWriter struct {

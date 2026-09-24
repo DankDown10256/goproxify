@@ -83,7 +83,7 @@ Retourne la configuration complète d'un proxy.
 
 ### `create_proxy`
 
-Crée une nouvelle route proxy (HTTP, TCP ou UDP).
+Crée une nouvelle route proxy (HTTP, TCP ou UDP). Le `backend` doit appartenir à l'allowlist de destinations MCP (`GET/PUT /api/v1/mcp-access/allowed-backends` ; défaut : réseaux privés et suffixes `*.internal`/`*.local`/`*.svc`) — même règle pour `update_proxy`.
 
 | Paramètre     | Type    | Requis | Description                                           |
 |---------------|---------|--------|-------------------------------------------------------|

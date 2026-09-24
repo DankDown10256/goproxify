@@ -7,6 +7,17 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **Sentinel — épuisement mémoire et contournement IPv6** : les compteurs par IP (rate, erreurs 4xx, déclenchements) n'étaient pas bornés et protégés par un mutex global avec GC O(n) dans le chemin de requête. Ils sont désormais répartis en 64 shards, plafonnés (~262 k clés par type, éviction fail-open) et les IPv6 sont agrégées par /64 pour ne plus contourner le rate limit avec un préfixe entier. Nouvelle métrique `gpx_threat_counter_evictions_total`. Les bans restent posés sur l'IP exacte. (Core `0.6.2`)
+- **Sentinel — `rate_window` sans effet** : le paramètre était ignoré (burst = `rate_limit`). Il fixe désormais la capacité de burst : `rate_limit` req/s en moyenne, pics tolérés jusqu'à `rate_limit × rate_window` requêtes (défaut `1s` : comportement inchangé). (Core `0.6.2`)
+
+- **Sécurité — IP client falsifiable via `X-Forwarded-For`** : `RealIP` croyait `CF-Connecting-IP` / `X-Forwarded-For` / `X-Real-IP` de n'importe quel client, ce qui permettait de contourner Fail2Ban/Sentinel/rate-limit (IP changée à chaque requête), de faire bannir un tiers et de falsifier les logs. Les en-têtes ne sont désormais lus que si la connexion directe provient d'un proxy de confiance : loopback + réseaux privés par défaut, extensible via `GPX_TRUSTED_PROXIES` (CSV IP/CIDR, `*` = ancien comportement). **Attention** : derrière Cloudflare ou un load balancer à IP publique, renseigner `GPX_TRUSTED_PROXIES` sinon l'IP vue est celle du proxy. `X-Forwarded-For` est lu de droite à gauche (première IP hors proxy de confiance) : une IP forgée en tête de chaîne derrière un proxy qui ajoute à l'en-tête n'est plus prise en compte ; les valeurs non-IP sont ignorées. (Core `0.6.1`, Admin `0.17.1`)
+
+### Ajouté
+
+- **MCP — allowlist de destinations backend** : `create_proxy` et `update_proxy` refusent un backend hors allowlist (IP, CIDR, hôte exact ou `*.suffixe`), pour qu'un agent victime de prompt injection ne puisse pas rediriger le trafic vers un serveur externe. Défaut : RFC 1918, loopback, ULA, `*.internal|local|svc|cluster.local` et noms à label unique ; liste vide = pas de restriction. Éditable via `GET/PUT /api/v1/mcp-access/allowed-backends` (pas encore d'écran UI). Ne couvre pas l'API REST/UI. Attention : les backends MCP publics existants devront être ajoutés à la liste. (Admin `0.18.0`)
+
 ### Modifié
 
 - **Sauvegardes — imports et restauration revus** : snapshot de sécurité automatique (`avant-restauration-*` / `avant-import-*`) avant tout écrasement, opération annulée s'il échoue ; `POST /backups/snapshots/:id/restore` accepte une `selection` optionnelle ; restauration des PAT et de la configuration dans les 3 écrans (Sauvegardes, Import, assistant de démarrage) avec cases dédiées ; résumé du preview détaillé par table (`config_tables`) ; compteurs `config` et `declared_nodes` dans le résultat ; version de sauvegarde inconnue refusée ; corps d'import limité à 32 Mo ; planifications rechargées après restauration ; endpoints documentés dans `api_specs.md`. (Admin `0.17.0`)

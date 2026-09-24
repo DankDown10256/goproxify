@@ -718,6 +718,9 @@ func (h *Handler) toolCreateProxy(r *http.Request, args map[string]any) (any, er
 	if host == "" || backend == "" {
 		return nil, fmt.Errorf("host et backend requis")
 	}
+	if err := mcpaccess.CheckBackend(h.DB, backend); err != nil {
+		return nil, err
+	}
 	if rtype == "" {
 		rtype = "http"
 	}
@@ -834,6 +837,9 @@ func (h *Handler) toolUpdateProxy(r *http.Request, args map[string]any) (any, er
 		changed = true
 	}
 	if backend, ok := args["backend"].(string); ok && backend != "" {
+		if err := mcpaccess.CheckBackend(h.DB, backend); err != nil {
+			return nil, err
+		}
 		cfg["backends"] = []map[string]any{{"url": backend, "weight": 1}}
 		changed = true
 	}

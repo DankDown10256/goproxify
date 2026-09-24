@@ -137,6 +137,8 @@ Le Sentinel s'applique **avant le routage**, indépendamment des proxies. Il ana
 
 Dès qu'un signal (hors `rate`) dépasse le seuil, l'IP est bannie immédiatement. Le signal `rate` utilise `rate_ban_threshold` (nombre de dépassements avant ban).
 
+Les compteurs (rate, erreurs 4xx) sont **bornés en mémoire** (~262 k IPs suivies, éviction au-delà, métrique `gpx_threat_counter_evictions_total`) et les **IPv6 sont comptées par /64** ; le ban, lui, vise l'IP exacte. Le score n'est pas conservé entre deux requêtes : `score_threshold` ne cumule que les signaux d'une même requête.
+
 ### Paramètres configurables (UI Admin > Sécurité > Sentinel)
 
 | Paramètre | Défaut | Description |
@@ -144,7 +146,7 @@ Dès qu'un signal (hors `rate`) dépasse le seuil, l'IP est bannie immédiatemen
 | `score_threshold` | 0 | Score cumulatif avant blocage |
 | `mode` | `block` | `block` ou `detect` |
 | `rate_limit` | 0 | Req/s par IP, 0 = désactivé |
-| `rate_window` | `1s` | Fenêtre de mesure du taux |
+| `rate_window` | `1s` | Tolérance de pic : burst max = `rate_limit × rate_window` requêtes |
 | `rate_ban_threshold` | 1 | Déclenchements avant ban (1 = immédiat) |
 | `rate_ban_window` | = `rate_window` | Fenêtre de comptage pour le ban rate |
 | `error_threshold` | 20 | Nb d'erreurs 4xx/5xx avant signal |

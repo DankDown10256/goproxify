@@ -263,6 +263,7 @@ See `.env.example` for the full list.
 | `GPX_SECURITY_CLUSTER_SYNC_KEY` | Admin | Cluster sync key |
 | `GPX_PAIRING_SECRET` | Admin / Core / Agent | Shared secret for automatic pairing (HMAC WebSocket) |
 | `GPX_CORE_TOKEN` | Core | Explicit token (alternative to shared secret) |
+| `GPX_TRUSTED_PROXIES` | Core / Admin | CSV of IPs/CIDRs of trusted front proxies (e.g. Cloudflare ranges) whose `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` are honored. Loopback and private ranges are always trusted; `*` trusts everything (legacy, spoofable). |
 | `GPX_IDENTITY_CORE_NODE_NAME` | Admin | Core hostname/IP reachable by Admin (`http://<value>:8000`) |
 | `GPX_CONTROL_PLANE_CORE_ENDPOINT` | Agent | Core URL as seen by Agent (`http://<core>:8000`) |
 | `GPX_ENGINE_LOG_LEVEL` | All | Log level (`debug`/`info`/`warn`/`error`) |

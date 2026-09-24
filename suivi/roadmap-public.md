@@ -12,6 +12,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Moteur de règles automatiques** : conditions pilotées (CVE critique, pic de bans, moteur silencieux, taux d’erreur, IP récidiviste) → actions (désactiver proxy, bannir IP, alerte, mode strict F2B) ; cooldown par règle, test dry-run, historique d’exécution
 - **Menu Automatisation restructuré** : sous-menus Règles automatiques / Canaux d'alerte / Store de règles préconfigurées (15 templates installables en un clic)
 - **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp` (réseaux privés par défaut), vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
+- **IP client fiable** : les en-têtes `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` ne sont crus que depuis un proxy de confiance (`GPX_TRUSTED_PROXIES`) — fin du contournement Fail2Ban/Sentinel par IP forgée
+- **MCP — allowlist de destinations backend** : `create_proxy` / `update_proxy` ne peuvent pointer que vers des destinations autorisées (réseaux privés par défaut), contre le détournement de trafic par prompt injection
 - **Page Bans** refonte : tuiles KPI + 3 onglets (actifs / CrowdSec / historique)
 - **Moteurs IPS** : page unifiée Fail2Ban / CrowdSec avec configuration in-place
 - **Timeouts serveur HTTP/QUIC** : ReadHeader, Read, Write, Idle configurables depuis l’Admin et propagés aux Cores
@@ -65,6 +67,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [x] **Diff de config proxy** : endpoint `GET /api/v1/proxies/{id}/revisions/diff?from=&to=` + bouton "Diff config" dans l'UI Traffic — modal interactif avec comparaison champ par champ entre deux révisions (ou production vs. dernière)
 - [x] **MCP server étendu** : outils `ban_ip`, `unban_ip`, `rotate_cert` ajoutés au MCP server
 - [x] **SBOM + attestation cosign** : workflow `.github/workflows/sbom-sign.yml` — génération SBOM SPDX (syft) + signature keyless cosign sur chaque image GHCR après build
+- [x] **Sentinel — compteurs bornés** : sharding, plafond mémoire, IPv6 agrégées par /64, `rate_window` effectif
+- [ ] **Sentinel — score cumulatif par IP** (avec décroissance), bans graduels, 4xx pondérés par code (hors 401/403/429) et par route
 
 Proposer des idées via
 [Discussions](https://github.com/Vincamok/goproxify/discussions) ou une issue

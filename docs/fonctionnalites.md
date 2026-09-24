@@ -175,6 +175,7 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 - Documentation: [docs/mcp.md](mcp.md)
 - **Access control (`/mcp-access`, admin only):**
   - **Source IP allowlist:** admins restrict `/mcp` to a list of IP/CIDR entries (`GET`/`PUT /api/v1/mcp-access/allowed-ips`); enforced server-side before PAT auth even runs. Empty list (default) = no restriction.
+  - **Backend destination allowlist:** `create_proxy` / `update_proxy` may only point to allowed destinations (`GET`/`PUT /api/v1/mcp-access/allowed-backends`; private networks and `*.internal`/`*.local`/`*.svc` by default), so a prompt-injected agent cannot redirect traffic to an external server.
   - **Active users:** table of every user holding an active PAT on the instance, with their scopes — "who can use the MCP" at a glance.
   - **Scope catalogue (reference):** each scope's covered MCP tools. Scope selection at issuance stays self-service on `/api-tokens` (a PAT is personal to its holder).
 

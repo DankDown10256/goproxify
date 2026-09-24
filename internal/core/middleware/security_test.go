@@ -28,7 +28,7 @@ func TestRateLimitBlocksAndRetryAfter(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "203.0.113.10:12345"
+	req.RemoteAddr = "10.0.0.10:12345"
 	req.Header.Set("X-Forwarded-For", "198.51.100.7")
 
 	rr := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestRateLimitBlocksAndRetryAfter(t *testing.T) {
 
 	// Autre IP XFF = bucket distinct
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	req2.RemoteAddr = "203.0.113.10:12345"
+	req2.RemoteAddr = "10.0.0.10:12345"
 	req2.Header.Set("X-Forwarded-For", "198.51.100.8")
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req2)
