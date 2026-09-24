@@ -44,13 +44,13 @@ cat <<'X'
       - -c
       - |
         mkdir -p /scripts /results
-        for f in common smoke moderate baseline spike stress soak mixed hosts; do eval "printf %s \"\$$K_$$f\"" > /scripts/$$f.js; done
+        for f in common smoke moderate saturation baseline spike stress soak mixed hosts; do eval "printf %s \"\$$K_$$f\"" > /scripts/$$f.js; done
         mv /scripts/hosts.js /hosts.sh
         exec sleep infinity
     networks: [goproxify_net]
     environment:
 X
-emb K_ load/common.js load/smoke.js load/moderate.js load/baseline.js load/spike.js load/stress.js load/soak.js load/mixed.js scripts/hosts.sh
+emb K_ load/common.js load/smoke.js load/moderate.js load/saturation.js load/baseline.js load/spike.js load/stress.js load/soak.js load/mixed.js scripts/hosts.sh
 echo
 echo '  # <<< GENERATED'
 }

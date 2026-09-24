@@ -1,0 +1,23 @@
+// Saturation : 50 VUs sans pause pendant ~1 min (modèle fermé). Mesure le DÉBIT ATTEINT par le système
+// (k6 + Core + backend sur la même machine). Les latences reflètent alors la file d'attente
+// (loi de Little : latence moyenne ≈ VUs / débit) : aucun seuil de latence, erreurs seulement.
+import { get, summary } from "./common.js";
+
+export const options = {
+  summaryTrendStats: ["avg", "med", "p(90)", "p(95)", "p(99)", "max"],
+  stages: [
+    { duration: "10s", target: 50 },
+    { duration: "40s", target: 50 },
+    { duration: "10s", target: 0 },
+  ],
+  thresholds: { http_req_failed: ["rate<0.01"] },
+};
+
+export default function () {
+  const r = Math.random();
+  if (r < 0.8) get("/");
+  else if (r < 0.9) get("/echo");
+  else get("/bytes?n=65536");
+}
+
+export const handleSummary = summary("saturation");

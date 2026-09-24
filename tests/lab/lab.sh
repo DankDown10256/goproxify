@@ -46,7 +46,7 @@ case "$cmd" in
   attacks) tools attacks.sh ;;
   chaos)   tools chaos.sh ;;
 
-  load)   # smoke | moderate | baseline | spike | stress | soak | mixed
+  load)   # smoke | moderate | saturation | baseline | spike | stress | soak | mixed
     s=${1:-smoke}; [ -f "load/$s.js" ] || { echo "scénario inconnu : $s"; exit 1; }
     k6run "$s" ;;
 
@@ -67,7 +67,7 @@ case "$cmd" in
 Commandes :
   up | up-vuln | down               cycle de vie (local)
   seed                              crée les routes du labo via l'API Admin
-  load <smoke|moderate|baseline|spike|stress|soak|mixed>   tests de charge (k6)
+  load <smoke|moderate|saturation|baseline|spike|stress|soak|mixed>   tests de charge (k6)
   attacks | chaos                   batterie d'attaques / pannes backend
   soak | zap | nuclei               endurance + ressources, scanners (local uniquement)
   all                               seed + smoke + attacks + chaos
