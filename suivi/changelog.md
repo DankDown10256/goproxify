@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **"Règles automatiques" — le bouton Éditer ne fonctionnait pas** : `onclick="openRuleModal(${JSON.stringify(JSON.stringify(r))})"` injectait un JSON doublement échappé directement dans l'attribut HTML `onclick="..."` — les guillemets `"` du JSON, non ré-échappés pour le contexte HTML, terminaient prématurément l'attribut et cassaient le markup (bouton inopérant ou comportement erratique selon le contenu de la règle). Corrigé en passant l'`id` de la règle (comme le fait déjà `runRuleNow`) et en la retrouvant dans `window._reRules`, déjà en cache depuis `renderSecurityRules` — même pattern que `openAlertRuleModal`/`openChannelModal` (`alerts.js`). (Webapp `0.12.2`)
+
 - **Traductions manquantes sur les pages du menu Automatisation et sur Accès MCP** : `automation.js`, `rules-store.js` et `mcp-access.js` appelaient `t('clé') || 'texte français'` pour des clés jamais ajoutées à `i18n.js` — tout utilisateur EN/ES/DE voyait le fallback français en dur. Ajout des 38 clés (`automation.*`, `rules_store.*`, `mcp_access.*`, plus `common.empty`/`common.total` déjà utilisées ailleurs sans être définies) dans les 4 locales (`en`, `fr`, `es`, `de`). (Webapp `0.12.1`)
 
 ### Ajouté

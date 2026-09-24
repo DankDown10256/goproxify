@@ -3332,7 +3332,7 @@ function _reRulesHTML() {
           <button class="btn btn-ghost btn-sm" onclick="runRuleNow('${esc(r.id)}','${esc(r.name)}')" title="${t('security.rules.run_now')}">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           </button>
-          <button class="btn btn-ghost btn-sm" onclick="openRuleModal(${JSON.stringify(JSON.stringify(r))})" title="${t('common.edit')}">
+          <button class="btn btn-ghost btn-sm" onclick="openRuleModal('${esc(r.id)}')" title="${t('common.edit')}">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
           <label class="toggle" title="${r.enabled ? t('security.rules.disable') : t('security.rules.enable')}">
@@ -3428,8 +3428,8 @@ window.runRuleNow = async function(id, name) {
   } catch(e) { toast(e.message,'error'); }
 };
 
-window.openRuleModal = function(ruleJSON) {
-  const rule = ruleJSON ? JSON.parse(ruleJSON) : null;
+window.openRuleModal = function(ruleId) {
+  const rule = ruleId ? (window._reRules || []).find(r => r.id === ruleId) : null;
   const isEdit = !!rule;
   const cond = rule?.condition || {};
   const act = rule?.action || {};
