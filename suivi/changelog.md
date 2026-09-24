@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Corrigé
+
+- **Traductions manquantes sur les pages du menu Automatisation et sur Accès MCP** : `automation.js`, `rules-store.js` et `mcp-access.js` appelaient `t('clé') || 'texte français'` pour des clés jamais ajoutées à `i18n.js` — tout utilisateur EN/ES/DE voyait le fallback français en dur. Ajout des 38 clés (`automation.*`, `rules_store.*`, `mcp_access.*`, plus `common.empty`/`common.total` déjà utilisées ailleurs sans être définies) dans les 4 locales (`en`, `fr`, `es`, `de`). (Webapp `0.12.1`)
+
 ### Ajouté
 
 - **Moteur de règles automatiques — 2 nouvelles conditions et 2 nouvelles actions** : conditions `node_offline` (Core/Agent sans heartbeat depuis > N minutes, basé sur `nodes.last_seen_at`) et `cert_expiring` (certificat TLS expirant sous N jours, basé sur `certs.expires_at`) ; actions `webhook_call` (POST JSON générique vers une URL externe — payload `{rule, condition, action, detail, fired_at}`) et `run_backup` (déclenche un snapshot de sauvegarde immédiat via `backup.Scheduler.TakeSnapshot`, rétention optionnelle). Formulaire de règle (`security.js`, modale condition/action) et descripteurs API (`GET /api/v1/rules-engine/condition-types`, nouveau `GET /api/v1/rules-engine/action-types`) mis à jour en conséquence. 2 nouveaux templates dans le store de règles (`node-offline-notify`, `cert-expiring-backup`). (Admin `0.14.0`, Webapp `0.12.0`)
