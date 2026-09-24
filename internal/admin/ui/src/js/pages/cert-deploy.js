@@ -13,7 +13,7 @@ window.openCertDeployPanel = async function(certID, domain) {
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
   const drawer = document.createElement('div');
-  drawer.style.cssText = 'background:var(--bg1);border-left:1px solid var(--border);width:min(560px,100vw);height:100vh;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:0;';
+  drawer.style.cssText = 'background:var(--bg);border-left:1px solid var(--border);width:min(560px,100vw);height:100vh;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:0;';
   drawer.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
       <div>
