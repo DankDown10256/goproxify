@@ -446,6 +446,9 @@ func (s *Server) Start(ctx context.Context) error {
 		},
 		GetF2BLastActivity:  f2bEngine.LastActivity,
 		GetCrowdSecLastSync: csBouncer.LastSync,
+		RunBackup: func(_ context.Context, name string, retention int) error {
+			return backupSched.TakeSnapshot(name, "", retention)
+		},
 	})
 	reEngine.Start()
 	s.rulesEngine = reEngine

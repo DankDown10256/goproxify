@@ -3240,6 +3240,8 @@ const _COND_TYPES = [
   { value: 'engine_silent',    label: 'Moteur IPS silencieux' },
   { value: 'proxy_error_rate', label: 'Taux d\'erreurs proxy' },
   { value: 'ban_repeat',       label: 'IP récidiviste (multi-ban)' },
+  { value: 'node_offline',     label: 'Core/Agent hors ligne' },
+  { value: 'cert_expiring',    label: 'Certificat TLS expirant' },
 ];
 
 const _ACTION_TYPES = [
@@ -3247,6 +3249,8 @@ const _ACTION_TYPES = [
   { value: 'ban_ip',         label: 'Bannir l\'IP' },
   { value: 'notify',         label: 'Notifier' },
   { value: 'enable_strict',  label: 'Mode strict Fail2Ban (temporaire)' },
+  { value: 'webhook_call',   label: 'Appeler un webhook' },
+  { value: 'run_backup',     label: 'Déclencher une sauvegarde' },
 ];
 
 async function renderSecurityRules() {
@@ -3517,6 +3521,16 @@ function _reCondFieldsHTML(type, cond = {}) {
         <input id="re-repeat-count" type="number" class="input" value="${cond.repeat_count||3}" min="2"></div>
       <div class="field" style="margin:0"><label class="field-label">Fenêtre (ex: 24h)</label>
         <input id="re-repeat-window" class="input" value="${esc(cond.repeat_window||'24h')}"></div>`;
+    case 'node_offline': return `
+      <div class="field" style="margin:0"><label class="field-label">Nom du nœud (vide = tous)</label>
+        <input id="re-node-name" class="input" value="${esc(cond.node_name||'')}"></div>
+      <div class="field" style="margin:0"><label class="field-label">Sans heartbeat depuis > (minutes)</label>
+        <input id="re-offline-min" type="number" class="input" value="${cond.offline_minutes||5}" min="1"></div>`;
+    case 'cert_expiring': return `
+      <div class="field" style="margin:0"><label class="field-label">Domaine (vide = tous)</label>
+        <input id="re-cert-domain" class="input" value="${esc(cond.domain||'')}"></div>
+      <div class="field" style="margin:0"><label class="field-label">Expire dans moins de (jours)</label>
+        <input id="re-cert-days" type="number" class="input" value="${cond.days_left||15}" min="1"></div>`;
     default: return '';
   }
 }
@@ -3543,6 +3557,12 @@ function _reActFieldsHTML(type, act = {}) {
     case 'enable_strict': return `
       <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Durée mode strict (ex: 30m)</label>
         <input id="re-act-strict-dur" class="input" value="${esc(act.strict_duration||'30m')}"></div>`;
+    case 'webhook_call': return `
+      <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">URL du webhook</label>
+        <input id="re-act-webhook-url" class="input" placeholder="https://…" value="${esc(act.webhook_url||'')}"></div>`;
+    case 'run_backup': return `
+      <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Rétention (nombre de snapshots à garder, 0 = illimité)</label>
+        <input id="re-act-backup-retention" type="number" class="input" value="${act.backup_retention||0}" min="0"></div>`;
     default: return '';
   }
 }
@@ -3579,6 +3599,12 @@ window._reSaveRule = async function(existingId) {
   } else if (condType === 'ban_repeat') {
     condition.repeat_count = parseInt(document.getElementById('re-repeat-count')?.value||'3');
     condition.repeat_window = document.getElementById('re-repeat-window')?.value||'24h';
+  } else if (condType === 'node_offline') {
+    condition.node_name = document.getElementById('re-node-name')?.value||'';
+    condition.offline_minutes = parseInt(document.getElementById('re-offline-min')?.value||'5');
+  } else if (condType === 'cert_expiring') {
+    condition.domain = document.getElementById('re-cert-domain')?.value||'';
+    condition.days_left = parseInt(document.getElementById('re-cert-days')?.value||'15');
   }
 
   const action = { type: actType };
@@ -3592,6 +3618,10 @@ window._reSaveRule = async function(existingId) {
     action.notify_message  = document.getElementById('re-act-msg')?.value||'';
   } else if (actType === 'enable_strict') {
     action.strict_duration = document.getElementById('re-act-strict-dur')?.value||'30m';
+  } else if (actType === 'webhook_call') {
+    action.webhook_url = document.getElementById('re-act-webhook-url')?.value||'';
+  } else if (actType === 'run_backup') {
+    action.backup_retention = parseInt(document.getElementById('re-act-backup-retention')?.value||'0');
   }
 
   const payload = {

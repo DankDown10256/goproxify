@@ -29,6 +29,8 @@ type Deps struct {
 	GetF2BLastActivity func() time.Time
 	// GetCrowdSecLastSync retourne l'heure de la dernière sync CrowdSec.
 	GetCrowdSecLastSync func() time.Time
+	// RunBackup déclenche un snapshot de sauvegarde immédiat (name, retention).
+	RunBackup func(ctx context.Context, name string, retention int) error
 }
 
 // Engine évalue périodiquement les règles et exécute les actions.
@@ -158,6 +160,10 @@ func (e *Engine) evalCondition(ctx context.Context, c Condition) (bool, map[stri
 		return e.evalProxyErrorRate(ctx, c)
 	case CondBanRepeat:
 		return e.evalBanRepeat(ctx, c)
+	case CondNodeOffline:
+		return e.evalNodeOffline(ctx, c)
+	case CondCertExpiring:
+		return e.evalCertExpiring(ctx, c)
 	default:
 		return false, nil, fmt.Errorf("type de condition inconnu: %s", c.Type)
 	}
@@ -175,6 +181,10 @@ func (e *Engine) execAction(ctx context.Context, ac ActionContext) error {
 		return nil
 	case ActionEnableStrict:
 		return e.execEnableStrict(ctx, ac)
+	case ActionWebhookCall:
+		return e.execWebhookCall(ctx, ac)
+	case ActionRunBackup:
+		return e.execRunBackup(ctx, ac)
 	default:
 		return fmt.Errorf("type d'action inconnu: %s", ac.Rule.Action.Type)
 	}

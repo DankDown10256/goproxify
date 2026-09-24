@@ -544,6 +544,10 @@ Historique des exécutions. Paramètre : `limit`.
 
 Liste les descripteurs de types de conditions disponibles (nom, paramètres, descriptions).
 
+### `GET /api/v1/rules-engine/action-types`
+
+Liste les descripteurs de types d'actions disponibles (nom, paramètres, descriptions).
+
 ### `GET /api/v1/rules-engine/templates`
 
 Store de règles préconfigurées. Réponse : tableau `Template[]` (`id, category, name, description, cooldown_sec, condition, action`).

@@ -201,7 +201,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - Hot configuration reload, zero connection interruption
 - Load balancing (Round Robin, Weighted, adaptive CPU/mem/IO + failover + inter-Core gateway), Circuit Breaker, Retry
 - Rate limiting, IP/CIDR filtering, Geo-IP, **OWASP CRS-4 WAF** (13 rule sets: SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Sensitive Files, Response Leaks), HTTP security headers
-- **Automatic rules engine** — conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP) → actions (disable proxy, ban IP, alert, strict Fail2Ban mode)
+- **Automatic rules engine** — conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP, node offline, cert expiring) → actions (disable proxy, ban IP, alert, strict Fail2Ban mode, webhook call, trigger backup)
 - Basic, Forward Auth, JWT authentication per route
 - Async JSON access log, Prometheus metrics, OpenTelemetry tracing
 - **GoProxify Access** — operator portal on the Core: web terminal + UUID `ssh` to VMs/`sshd` and Docker containers (`docker exec` via Agent); SSH login vault + secrets; 2FA; TTL sessions

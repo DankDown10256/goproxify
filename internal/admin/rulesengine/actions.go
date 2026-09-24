@@ -4,8 +4,12 @@
 package rulesengine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -67,6 +71,52 @@ func (e *Engine) execNotify(ac ActionContext) {
 		msg,
 		ac.Detail,
 	)
+}
+
+func (e *Engine) execWebhookCall(ctx context.Context, ac ActionContext) error {
+	rawURL := ac.Rule.Action.WebhookURL
+	if rawURL == "" {
+		return fmt.Errorf("aucune webhook_url configurée pour l'action webhook_call")
+	}
+	if _, err := url.ParseRequestURI(rawURL); err != nil {
+		return fmt.Errorf("webhook_url invalide: %w", err)
+	}
+	payload := map[string]any{
+		"rule":        ac.Rule.Name,
+		"rule_id":     ac.Rule.ID,
+		"description": ac.Rule.Description,
+		"condition":   ac.Rule.Condition.Type,
+		"action":      ac.Rule.Action.Type,
+		"detail":      ac.Detail,
+		"fired_at":    time.Now().UTC().Format(time.RFC3339),
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("webhook_call: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("webhook_call: statut HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (e *Engine) execRunBackup(ctx context.Context, ac ActionContext) error {
+	if e.deps.RunBackup == nil {
+		return fmt.Errorf("RunBackup non configuré")
+	}
+	name := fmt.Sprintf("rule-auto-%s", ac.Rule.Name)
+	return e.deps.RunBackup(ctx, name, ac.Rule.Action.BackupRetention)
 }
 
 func (e *Engine) execEnableStrict(ctx context.Context, ac ActionContext) error {

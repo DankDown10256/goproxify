@@ -67,7 +67,7 @@ The Core can operate **autonomously** if the Admin is temporarily unreachable:
 | Sentinel | Per-IP behavioral detection: sliding window, immediate ban on signal, global anti-DDoS RPS — see [docs/security.md](security.md#sentinel) |
 | Native Go Fail2Ban | Automatic banning after N failures, no external dependency |
 | CrowdSec | LAPI stream bouncer → bans pushed to Core (403), Docker compatible |
-| Automatic rules engine | Event-driven conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP) → actions (disable proxy, ban IP, alert, strict mode); cooldown, dry-run, history — see [docs/security.md](security.md#automatic-rules-engine) |
+| Automatic rules engine | Event-driven conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP, node offline, cert expiring) → actions (disable proxy, ban IP, alert, strict mode, webhook call, trigger backup); cooldown, dry-run, history — see [docs/security.md](security.md#automatic-rules-engine) |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
 | JWT validation | JWKS (planned) |
 

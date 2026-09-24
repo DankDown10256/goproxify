@@ -64,6 +64,24 @@ func Templates() []Template {
 			Condition:   Condition{Type: CondProxyErrorRate, ErrorRateThreshold: 50, ErrorRateWindow: "5m"},
 			Action:      Action{Type: ActionBanIP, BanDuration: "1h", BanReason: "Taux d'erreur anormal"},
 		},
+		{
+			ID:          "node-offline-notify",
+			Category:    "reliability",
+			Name:        "Alerter sur nœud hors ligne",
+			Description: "Notifie dès qu'un Core ou un Agent n'a pas envoyé de heartbeat depuis plus de 5 minutes.",
+			CooldownSec: 900,
+			Condition:   Condition{Type: CondNodeOffline, OfflineMinutes: 5},
+			Action:      Action{Type: ActionNotify, NotifySeverity: "critical", NotifyMessage: "Nœud hors ligne"},
+		},
+		{
+			ID:          "cert-expiring-backup",
+			Category:    "compliance",
+			Name:        "Sauvegarde avant expiration de certificat",
+			Description: "Déclenche un snapshot de sauvegarde dès qu'un certificat TLS expire dans moins de 7 jours (filet de sécurité avant intervention manuelle).",
+			CooldownSec: 86400,
+			Condition:   Condition{Type: CondCertExpiring, DaysLeft: 7},
+			Action:      Action{Type: ActionRunBackup},
+		},
 	}
 }
 

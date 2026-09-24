@@ -17,6 +17,8 @@ const (
 	CondEngineSilent   ConditionType = "engine_silent"     // moteur IPS sans activité depuis > X min
 	CondProxyErrorRate ConditionType = "proxy_error_rate"  // taux d'erreurs HTTP > seuil
 	CondBanRepeat      ConditionType = "ban_repeat"        // même IP bannie ≥ N fois
+	CondNodeOffline    ConditionType = "node_offline"      // Core/Agent sans heartbeat depuis > X min
+	CondCertExpiring   ConditionType = "cert_expiring"      // certificat TLS expirant sous N jours
 )
 
 // ActionType identifie l'action à exécuter.
@@ -27,6 +29,8 @@ const (
 	ActionBanIP        ActionType = "ban_ip"         // bannir l'IP déclenchante
 	ActionNotify       ActionType = "notify"          // émettre vers le moteur d'alertes
 	ActionEnableStrict ActionType = "enable_strict"   // réduire max_errors F2B (mode strict temporaire)
+	ActionWebhookCall  ActionType = "webhook_call"    // POST JSON vers une URL externe
+	ActionRunBackup    ActionType = "run_backup"      // déclencher un snapshot de sauvegarde immédiat
 )
 
 // Condition décrit le prédicat évalué périodiquement.
@@ -53,6 +57,14 @@ type Condition struct {
 	// CondBanRepeat
 	RepeatCount  int    `json:"repeat_count,omitempty"`  // nombre de bans de la même IP
 	RepeatWindow string `json:"repeat_window,omitempty"` // fenêtre d'observation
+
+	// CondNodeOffline
+	NodeName       string `json:"node_name,omitempty"`       // "" = tous les nœuds
+	OfflineMinutes int    `json:"offline_minutes,omitempty"` // défaut : 5
+
+	// CondCertExpiring
+	Domain   string `json:"domain,omitempty"`    // "" = tous les domaines
+	DaysLeft int    `json:"days_left,omitempty"` // défaut : 15
 }
 
 // Action décrit la remédiation à appliquer si la condition est vraie.
@@ -72,6 +84,12 @@ type Action struct {
 
 	// ActionEnableStrict
 	StrictDuration string `json:"strict_duration,omitempty"` // ex: "30m"
+
+	// ActionWebhookCall
+	WebhookURL string `json:"webhook_url,omitempty"`
+
+	// ActionRunBackup
+	BackupRetention int `json:"backup_retention,omitempty"` // 0 = pas de purge automatique
 }
 
 // Rule est une règle du moteur : une condition + une action + métadonnées.

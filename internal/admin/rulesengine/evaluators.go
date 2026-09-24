@@ -239,3 +239,57 @@ func (e *Engine) evalBanRepeat(ctx context.Context, c Condition) (bool, map[stri
 		"window": window,
 	}, nil
 }
+
+// evalNodeOffline : un Core/Agent sans heartbeat depuis plus de OfflineMinutes.
+func (e *Engine) evalNodeOffline(ctx context.Context, c Condition) (bool, map[string]any, error) {
+	offlineMin := c.OfflineMinutes
+	if offlineMin <= 0 {
+		offlineMin = 5
+	}
+	threshold := time.Now().Add(-time.Duration(offlineMin) * time.Minute).UTC().Format("2006-01-02 15:04:05")
+
+	query := `SELECT node_name, role, last_seen_at FROM nodes WHERE last_seen_at < ?`
+	args := []any{threshold}
+	if c.NodeName != "" {
+		query += ` AND node_name = ?`
+		args = append(args, c.NodeName)
+	}
+	query += ` ORDER BY last_seen_at ASC LIMIT 1`
+
+	var nodeName, role, lastSeen string
+	err := e.db.QueryRowContext(ctx, query, args...).Scan(&nodeName, &role, &lastSeen)
+	if err != nil {
+		return false, nil, nil
+	}
+	return true, map[string]any{
+		"node_name":    nodeName,
+		"role":         role,
+		"last_seen_at": lastSeen,
+	}, nil
+}
+
+// evalCertExpiring : un certificat TLS expire dans moins de DaysLeft jours.
+func (e *Engine) evalCertExpiring(ctx context.Context, c Condition) (bool, map[string]any, error) {
+	daysLeft := c.DaysLeft
+	if daysLeft <= 0 {
+		daysLeft = 15
+	}
+
+	query := `SELECT domain, expires_at FROM certs WHERE julianday(expires_at) - julianday('now') <= ?`
+	args := []any{daysLeft}
+	if c.Domain != "" {
+		query += ` AND domain = ?`
+		args = append(args, c.Domain)
+	}
+	query += ` ORDER BY expires_at ASC LIMIT 1`
+
+	var domain, expiresAt string
+	err := e.db.QueryRowContext(ctx, query, args...).Scan(&domain, &expiresAt)
+	if err != nil {
+		return false, nil, nil
+	}
+	return true, map[string]any{
+		"domain":     domain,
+		"expires_at": expiresAt,
+	}, nil
+}

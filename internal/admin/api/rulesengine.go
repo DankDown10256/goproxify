@@ -48,6 +48,8 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.listHistory(w, r)
 	case r.Method == http.MethodGet && sub == "condition-types":
 		h.conditionTypes(w, r)
+	case r.Method == http.MethodGet && sub == "action-types":
+		h.actionTypes(w, r)
 	case r.Method == http.MethodGet && sub == "templates" && id == "":
 		h.listTemplates(w, r)
 	case r.Method == http.MethodPost && sub == "templates" && strings.HasSuffix(id, "/install"):
@@ -301,6 +303,52 @@ func (h *RulesEngineHandler) conditionTypes(w http.ResponseWriter, r *http.Reque
 			"type":  "ban_repeat",
 			"label": "IP récidiviste",
 			"params": []string{"repeat_count", "repeat_window"},
+		},
+		{
+			"type":  "node_offline",
+			"label": "Core/Agent hors ligne",
+			"params": []string{"node_name", "offline_minutes"},
+		},
+		{
+			"type":  "cert_expiring",
+			"label": "Certificat TLS expirant",
+			"params": []string{"domain", "days_left"},
+		},
+	}
+	jsonOK(w, types)
+}
+
+func (h *RulesEngineHandler) actionTypes(w http.ResponseWriter, r *http.Request) {
+	types := []map[string]any{
+		{
+			"type":   "disable_proxy",
+			"label":  "Désactiver le proxy",
+			"params": []string{"proxy_id"},
+		},
+		{
+			"type":   "ban_ip",
+			"label":  "Bannir l'IP",
+			"params": []string{"ban_reason", "ban_duration"},
+		},
+		{
+			"type":   "notify",
+			"label":  "Notifier",
+			"params": []string{"notify_severity", "notify_message"},
+		},
+		{
+			"type":   "enable_strict",
+			"label":  "Mode strict Fail2Ban (temporaire)",
+			"params": []string{"strict_duration"},
+		},
+		{
+			"type":   "webhook_call",
+			"label":  "Appeler un webhook",
+			"params": []string{"webhook_url"},
+		},
+		{
+			"type":   "run_backup",
+			"label":  "Déclencher une sauvegarde",
+			"params": []string{"backup_retention"},
 		},
 	}
 	jsonOK(w, types)
