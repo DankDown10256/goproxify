@@ -23,6 +23,17 @@ func TestParseClusterPeersCSV(t *testing.T) {
 			map[string]string{"core-2": "http://10.0.0.2:8002"},
 		},
 		{"", map[string]string{}},
+		{
+			// Guillemets englobants (ex: GPX_CLUSTER_PEERS="id=url" en
+			// syntaxe docker-compose "environment:", transmis tels quels
+			// sans shell pour les retirer).
+			`"backup=http://192.168.200.90:8002"`,
+			map[string]string{"backup": "http://192.168.200.90:8002"},
+		},
+		{
+			`'backup=http://192.168.200.90:8002'`,
+			map[string]string{"backup": "http://192.168.200.90:8002"},
+		},
 	}
 	for _, tc := range cases {
 		got := parseClusterPeersCSV(tc.in)
@@ -86,5 +97,46 @@ func TestLoadCoreClusterEnv(t *testing.T) {
 	}
 	if cfg.Identity.NodeName != "core-a-env" {
 		t.Fatalf("identity %q", cfg.Identity.NodeName)
+	}
+}
+
+// TestLoadCoreClusterGroupNameEnv vérifie que GPX_CLUSTER_GROUP_NAME (le nom
+// utilisé dans les déploiements réels, cf. suivi/changelog.md) est bien lu,
+// et pas seulement son alias court GPX_CLUSTER_GROUP.
+func TestLoadCoreClusterGroupNameEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "core.json")
+	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GPX_CLUSTER_GROUP_NAME", "ha-1")
+
+	cfg, err := LoadCore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.GroupName != "ha-1" {
+		t.Fatalf("group_name %q, attendu ha-1", cfg.Cluster.GroupName)
+	}
+}
+
+// TestLoadCoreClusterPeersEnvQuoted reproduit un déploiement docker-compose
+// où GPX_CLUSTER_PEERS est écrit entre guillemets dans "environment:" — ces
+// guillemets sont transmis tels quels au process (pas de shell pour les
+// retirer) et cassaient auparavant le parsing (ID de pair et URL corrompus).
+func TestLoadCoreClusterPeersEnvQuoted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "core.json")
+	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GPX_CLUSTER_PEERS", `"backup=http://192.168.200.90:8002"`)
+
+	cfg, err := LoadCore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.Peers["backup"] != "http://192.168.200.90:8002" {
+		t.Fatalf("peers %#v", cfg.Cluster.Peers)
 	}
 }

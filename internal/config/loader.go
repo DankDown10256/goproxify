@@ -66,9 +66,8 @@ func Load[T AdminConfig | CoreConfig | AgentConfig | LandingConfig](configPath s
 		_ = v.BindEnv("identity.node_name", "GPX_IDENTITY_CORE_NODE_NAME", "GPX_IDENTITY_NODE_NAME")
 	}
 	bindIfMissing(v, "cluster.enabled")
-	// GPX_CLUSTER_GROUP (alias court) plutôt que GPX_CLUSTER_GROUP_NAME
 	if !v.IsSet("cluster.group_name") {
-		_ = v.BindEnv("cluster.group_name", "GPX_CLUSTER_GROUP")
+		_ = v.BindEnv("cluster.group_name", "GPX_CLUSTER_GROUP_NAME", "GPX_CLUSTER_GROUP")
 	}
 	bindIfMissing(v, "cluster.node_id")
 	bindIfMissing(v, "cluster.raft_port")
@@ -113,7 +112,7 @@ func applyClusterPeersEnv(cfg *CoreConfig) {
 	if cfg == nil || len(cfg.Cluster.Peers) > 0 {
 		return
 	}
-	raw := strings.TrimSpace(os.Getenv("GPX_CLUSTER_PEERS"))
+	raw := unquote(strings.TrimSpace(os.Getenv("GPX_CLUSTER_PEERS")))
 	if raw == "" {
 		return
 	}
@@ -126,17 +125,17 @@ func applyClusterPeersEnv(cfg *CoreConfig) {
 func parseClusterPeersCSV(raw string) map[string]string {
 	out := make(map[string]string)
 	for _, part := range strings.Split(raw, ",") {
-		part = strings.TrimSpace(part)
+		part = unquote(strings.TrimSpace(part))
 		if part == "" {
 			continue
 		}
 		id, url := "", ""
 		if i := strings.IndexByte(part, '='); i > 0 {
-			id = strings.TrimSpace(part[:i])
-			url = strings.TrimSpace(part[i+1:])
+			id = unquote(strings.TrimSpace(part[:i]))
+			url = unquote(strings.TrimSpace(part[i+1:]))
 		} else if i := strings.LastIndexByte(part, ':'); i > 0 {
-			host := strings.TrimSpace(part[:i])
-			port := strings.TrimSpace(part[i+1:])
+			host := unquote(strings.TrimSpace(part[:i]))
+			port := unquote(strings.TrimSpace(part[i+1:]))
 			host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
 			id = host
 			url = "http://" + host + ":" + port
@@ -152,6 +151,21 @@ func parseClusterPeersCSV(raw string) map[string]string {
 		out[id] = url
 	}
 	return out
+}
+
+// unquote retire une paire de guillemets (simples ou doubles) englobant s.
+// En syntaxe docker-compose "environment:", des guillemets écrits autour
+// d'une valeur (ex: GPX_CLUSTER_PEERS="id=http://host:8002") sont transmis
+// tels quels au process, sans être retirés par un shell — d'où ce nettoyage
+// défensif avant parsing.
+func unquote(s string) string {
+	if len(s) >= 2 {
+		first, last := s[0], s[len(s)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 
 // LoadAgent charge agent.json → AgentConfig.
