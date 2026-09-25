@@ -88,6 +88,54 @@ func TestLoadCoreNodeNameStableAcrossEnvChange(t *testing.T) {
 	}
 }
 
+// TestBootstrapAdminSQLiteDSNMatchesHistoricalPath verrouille le chemin de la
+// base SQLite générée par BootstrapAdmin : il doit rester exactement celui du
+// template services/admin/config.json qui équipait les images jusqu'à
+// d25555a (/etc/goproxify/database/goproxify.db). Une régression ici ferait
+// pointer un déploiement existant vers une base neuve et vide au premier
+// vrai bootstrap, laissant toutes les données (domaines, certs, config ACME,
+// utilisateurs…) orphelines sur le volume sans qu'elles soient supprimées ni
+// visibles dans l'UI — symptôme observé : "Domaines & certificats" vide.
+func TestBootstrapAdminSQLiteDSNMatchesHistoricalPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GPX_STORAGE_BASE_PATH", dir)
+	path := filepath.Join(dir, "admin.json")
+	if err := BootstrapAdmin(path); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadAdmin(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "database", "goproxify.db")
+	if cfg.Storage.SQLiteDSN != want {
+		t.Fatalf("sqlite_dsn = %q, attendu %q (chemin historique)", cfg.Storage.SQLiteDSN, want)
+	}
+}
+
+// TestBootstrapCoreLogPathsMatchHistoricalPaths verrouille les chemins de
+// logs générés par BootstrapCore face au même risque de divergence
+// silencieuse (fichiers différents du nom historique, logs éparpillés entre
+// ancien et nouveau fichier sur le même volume).
+func TestBootstrapCoreLogPathsMatchHistoricalPaths(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GPX_STORAGE_BASE_PATH", dir)
+	path := filepath.Join(dir, "core.json")
+	if err := BootstrapCore(path); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadCore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "logs", "core_access.log"); cfg.Engine.AccessLogPath != want {
+		t.Fatalf("access_log_path = %q, attendu %q", cfg.Engine.AccessLogPath, want)
+	}
+	if want := filepath.Join(dir, "logs", "core_system.log"); cfg.Engine.SystemLogPath != want {
+		t.Fatalf("system_log_path = %q, attendu %q", cfg.Engine.SystemLogPath, want)
+	}
+}
+
 // TestBootstrapCoreTokenIDStableAcrossManyRestarts simule plusieurs
 // redémarrages consécutifs (le scénario réel : le conteneur redémarre
 // plusieurs fois) et vérifie que token_id et node_name ne bougent jamais

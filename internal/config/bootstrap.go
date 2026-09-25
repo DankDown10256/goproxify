@@ -52,8 +52,17 @@ func BootstrapAdmin(path string) error {
 			"listen_addr": "0.0.0.0",
 		},
 		"storage": map[string]any{
-			"base_path":  basePath,
-			"sqlite_dsn": filepath.Join(basePath, "admin.db"),
+			"base_path": basePath,
+			// Chemin historique (celui du template services/admin/config.json
+			// qui équipait les images jusqu'à d25555a) : les déploiements
+			// existants ont leur base SQLite réelle à cet emplacement précis
+			// sur le volume. Un chemin différent ici ferait pointer Admin
+			// vers une base neuve et vide au premier "vrai" bootstrap (celui
+			// qui ne s'était jamais exécuté avant d25555a faute de
+			// persistance de admin.json), laissant toutes les données
+			// existantes (domaines, certs, config ACME, utilisateurs…)
+			// orphelines sur disque sans que rien ne les supprime.
+			"sqlite_dsn": filepath.Join(basePath, "database", "goproxify.db"),
 		},
 		"security": map[string]any{
 			"jwt_secret": jwtSecret,
@@ -103,9 +112,14 @@ func BootstrapCore(path string) error {
 			"api_host":          envOr("GPX_NETWORK_API_HOST", nodeName),
 		},
 		"engine": map[string]any{
-			"log_level":       logLevel,
-			"log_format":      "json",
-			"access_log_path": filepath.Join(basePath, "logs", "access.log"),
+			"log_level":  logLevel,
+			"log_format": "json",
+			// Chemins historiques (template services/core/config.json qui
+			// équipait les images jusqu'à d25555a) — un nom de fichier
+			// différent ne perd aucune donnée mais éparpille les logs entre
+			// l'ancien et le nouveau fichier sur le même volume.
+			"access_log_path": filepath.Join(basePath, "logs", "core_access.log"),
+			"system_log_path": filepath.Join(basePath, "logs", "core_system.log"),
 		},
 		"geoip": map[string]any{
 			"auto_download": true,
