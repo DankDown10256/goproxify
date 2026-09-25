@@ -171,6 +171,7 @@ func (s *Server) Start(ctx context.Context) error {
 				Level:     item.Level,
 				Component: nvlStr(item.Component, "core"),
 				NodeName:  item.NodeName,
+				NodeID:    item.NodeID,
 				Domain:    item.Domain,
 				Method:    item.Method,
 				Path:      item.Path,

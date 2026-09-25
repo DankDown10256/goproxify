@@ -15,30 +15,30 @@ type Message struct {
 
 // Types de messages Admin → Core
 const (
-	TypeAdminToken        = "admin_token" // jeton HTTP que Core doit reconnaître pour les appels Admin→Core
-	TypePushRoutes        = "push_routes"
-	TypeDeleteRoute       = "delete_route"
-	TypePushCert          = "push_cert"
-	TypePushSnippets      = "push_snippets"
-	TypePushAuthProviders = "push_auth_providers"
-	TypePushIPProfiles    = "push_ip_profiles"
-	TypePushBans          = "push_bans"
-	TypePushSettings      = "push_settings"
-	TypePushClusterPeers  = "push_cluster_peers"
-	TypePushGatewayPeers  = "push_gateway_peers"
-	TypePushDelegations   = "push_delegations"
-	TypePushThreatConfig  = "push_threat_config"
+	TypeAdminToken          = "admin_token" // jeton HTTP que Core doit reconnaître pour les appels Admin→Core
+	TypePushRoutes          = "push_routes"
+	TypeDeleteRoute         = "delete_route"
+	TypePushCert            = "push_cert"
+	TypePushSnippets        = "push_snippets"
+	TypePushAuthProviders   = "push_auth_providers"
+	TypePushIPProfiles      = "push_ip_profiles"
+	TypePushBans            = "push_bans"
+	TypePushSettings        = "push_settings"
+	TypePushClusterPeers    = "push_cluster_peers"
+	TypePushGatewayPeers    = "push_gateway_peers"
+	TypePushDelegations     = "push_delegations"
+	TypePushThreatConfig    = "push_threat_config"
 	TypePushF2BConfig       = "push_f2b_config"
 	TypePushCrowdSecConfig  = "push_crowdsec_config"
-	TypePushServerConfig  = "push_server_config"
-	TypePushErrorPages        = "push_error_pages"
-	TypePushPortal            = "push_portal"
-	TypePushPortalTemplates   = "push_portal_templates"
-	TypeFullSync          = "full_sync"
-	TypeApproveAgent      = "approve_agent"
-	TypeRevokeAgent       = "revoke_agent"
-	TypePushAutoRules     = "push_auto_rules"     // pousse les règles automatiques vers Core
-	TypePushTunnelConfig  = "push_tunnel_config"  // pousse la config peers tunnel L4 mTLS vers Core
+	TypePushServerConfig    = "push_server_config"
+	TypePushErrorPages      = "push_error_pages"
+	TypePushPortal          = "push_portal"
+	TypePushPortalTemplates = "push_portal_templates"
+	TypeFullSync            = "full_sync"
+	TypeApproveAgent        = "approve_agent"
+	TypeRevokeAgent         = "revoke_agent"
+	TypePushAutoRules       = "push_auto_rules"    // pousse les règles automatiques vers Core
+	TypePushTunnelConfig    = "push_tunnel_config" // pousse la config peers tunnel L4 mTLS vers Core
 )
 
 // Types de messages Agent → Core
@@ -68,19 +68,19 @@ const (
 
 // Types de messages Core → Admin
 const (
-	TypeAgentPending  = "agent_pending"
-	TypeNodeUpdate    = "node_update"
-	TypeCoreHeartbeat = "core_heartbeat"
-	TypeAccessLog              = "access_log" // batches d'access logs (Prism / Logs)
+	TypeAgentPending          = "agent_pending"
+	TypeNodeUpdate            = "node_update"
+	TypeCoreHeartbeat         = "core_heartbeat"
+	TypeAccessLog             = "access_log" // batches d'access logs (Prism / Logs)
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
-	TypeThreatBan             = "threat_ban"    // IP bannie par le moteur de détection automatique
-	TypeF2BBan                = "f2b_ban"         // IP bannie par le moteur Fail2Ban Core
+	TypeThreatBan             = "threat_ban"         // IP bannie par le moteur de détection automatique
+	TypeF2BBan                = "f2b_ban"            // IP bannie par le moteur Fail2Ban Core
 	TypeCrowdSecDecisions     = "crowdsec_decisions" // décisions CrowdSec Core→Admin (agrégation)
-	TypeWAFReloaded           = "waf_reloaded"  // Confirmation Core → Admin : règles WAF appliquées
-	TypeBackendDown           = "backend_down"  // Backend déclaré indisponible par health-check
-	TypeRuleFired             = "rule_fired"    // Règle automatique déclenchée Core → Admin
+	TypeWAFReloaded           = "waf_reloaded"       // Confirmation Core → Admin : règles WAF appliquées
+	TypeBackendDown           = "backend_down"       // Backend déclaré indisponible par health-check
+	TypeRuleFired             = "rule_fired"         // Règle automatique déclenchée Core → Admin
 )
 
 // RuleFiredPayload est envoyé par Core → Admin quand une règle automatique se déclenche.
@@ -143,11 +143,17 @@ type LogEntryPayload struct {
 	Level     string `json:"level"`
 	Component string `json:"component"`
 	NodeName  string `json:"node_name,omitempty"`
-	Domain    string `json:"domain"`
-	Method    string `json:"method"`
-	Path      string `json:"path"`
-	Status    int    `json:"status"`
-	IP        string `json:"ip"`
+	// NodeID est écrasé côté Admin par l'ID stable de la connexion WS
+	// (coreID/token) quel que soit ce que Core envoie ici — voir
+	// stampLogBatchNode dans internal/admin/corews/manager.go. Un
+	// renommage du nœud (node_name) ne casse donc plus le filtrage
+	// historique des logs par nœud.
+	NodeID string `json:"node_id,omitempty"`
+	Domain string `json:"domain"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Status int    `json:"status"`
+	IP     string `json:"ip"`
 	// RealIP est présent uniquement en mode pseudonymisation — chiffré côté Admin, jamais stocké en clair.
 	RealIP    string `json:"real_ip,omitempty"`
 	LatencyMs int64  `json:"latency_ms"`

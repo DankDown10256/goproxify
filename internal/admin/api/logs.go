@@ -29,11 +29,11 @@ type LogsSettingsPusher interface {
 
 // LogsHandler gère la consultation statique, l'export et le streaming SSE.
 type LogsHandler struct {
-	Log        *slog.Logger
-	Store      *logs.Store
-	DB         *sql.DB
-	Pusher     LogsSettingsPusher
-	GDPRKey    []byte // clé AES-GCM pour activer la pseudonymisation à chaud
+	Log     *slog.Logger
+	Store   *logs.Store
+	DB      *sql.DB
+	Pusher  LogsSettingsPusher
+	GDPRKey []byte // clé AES-GCM pour activer la pseudonymisation à chaud
 }
 
 func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +115,7 @@ func parseLogsParams(r *http.Request) logs.SearchParams {
 		Level:     q.Get("level"),
 		Component: q.Get("component"),
 		NodeName:  q.Get("node_name"),
+		NodeID:    q.Get("node_id"),
 		Domain:    q.Get("domain"),
 		IP:        q.Get("ip"),
 		Method:    q.Get("method"),

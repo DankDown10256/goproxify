@@ -22,18 +22,24 @@ import (
 // Durées de rétention par défaut — modifiables via settings DB (clés logs.retention_access_days,
 // logs.retention_system_days, logs.retention_ban_days).
 const (
-	DefaultRetentionAccessDays  = 365 // logs HTTP (RGPD : 1 an max recommandé)
-	DefaultRetentionSystemDays  = 90  // logs système/agent
-	DefaultRetentionBanDays     = 730 // entrées de ban (2 ans)
+	DefaultRetentionAccessDays = 365 // logs HTTP (RGPD : 1 an max recommandé)
+	DefaultRetentionSystemDays = 90  // logs système/agent
+	DefaultRetentionBanDays    = 730 // entrées de ban (2 ans)
 )
 
 // Entry représente une ligne de log.
 type Entry struct {
-	ID            int64      `json:"id"`
-	Ts            time.Time  `json:"ts"`
-	Level         string     `json:"level"`
-	Component     string     `json:"component"`
-	NodeName      string     `json:"node_name,omitempty"`
+	ID        int64     `json:"id"`
+	Ts        time.Time `json:"ts"`
+	Level     string    `json:"level"`
+	Component string    `json:"component"`
+	NodeName  string    `json:"node_name,omitempty"`
+	// NodeID est l'identifiant stable du nœud (coreID/token), écrasé côté
+	// Admin sur chaque entrée — voir stampLogBatchNode dans
+	// internal/admin/corews/manager.go. Contrairement à NodeName, il ne
+	// change pas si le nœud est renommé, ce qui permet de filtrer
+	// l'historique complet d'un nœud malgré un renommage.
+	NodeID        string     `json:"node_id,omitempty"`
 	Domain        string     `json:"domain"`
 	Method        string     `json:"method"`
 	Path          string     `json:"path"`
@@ -56,14 +62,17 @@ type SearchParams struct {
 	Level     string
 	Component string
 	NodeName  string
-	Domain    string
-	IP        string
-	Method    string
-	Status    string
-	Path      string
-	Search    string
-	DateFrom  string
-	DateTo    string
+	// NodeID filtre par identifiant stable de nœud (préféré à NodeName quand
+	// disponible : insensible aux renommages). Voir Entry.NodeID.
+	NodeID   string
+	Domain   string
+	IP       string
+	Method   string
+	Status   string
+	Path     string
+	Search   string
+	DateFrom string
+	DateTo   string
 	// Kind : "access" (status>0, requêtes HTTP) | "system" (status=0, événements process) | "" (tous).
 	Kind     string
 	Page     int
@@ -173,10 +182,10 @@ func (s *Store) Write(e Entry) {
 	}
 
 	res, err := s.db.Exec(
-		`INSERT INTO logs (ts, level, component, node_name, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, retained_until, ip_enc)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO logs (ts, level, component, node_name, node_id, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, retained_until, ip_enc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.Ts.UTC().Format(time.RFC3339Nano),
-		nvl(e.Level, "info"), nvl(e.Component, "admin"), e.NodeName,
+		nvl(e.Level, "info"), nvl(e.Component, "admin"), e.NodeName, e.NodeID,
 		e.Domain, e.Method, e.Path, e.Status, e.IP, e.LatencyMs, e.Bytes, e.Message, e.Referrer,
 		e.UserID, e.RequestID, retained.Format(time.RFC3339), ipEnc,
 	)
@@ -234,7 +243,7 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 		if where == "" {
 			cursorClause = " WHERE id < ?"
 		}
-		q = "SELECT id, ts, level, component, COALESCE(node_name,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
+		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
 			where + cursorClause + " ORDER BY id DESC LIMIT ?"
 		qArgs = append(args, p.BeforeID, p.PageSize)
 	} else {
@@ -242,7 +251,7 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 			p.Page = 1
 		}
 		offset := (p.Page - 1) * p.PageSize
-		q = "SELECT id, ts, level, component, COALESCE(node_name,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
+		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
 			where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 		qArgs = append(args, p.PageSize, offset)
 	}
@@ -256,7 +265,7 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 	for rows.Next() {
 		var e Entry
 		var ts string
-		if err := rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.Domain, &e.Method, &e.Path,
+		if err := rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.NodeID, &e.Domain, &e.Method, &e.Path,
 			&e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID); err != nil {
 			continue
 		}
@@ -282,12 +291,12 @@ func (s *Store) Export(p SearchParams, format string) ([]byte, string, error) {
 	if format == "csv" {
 		var sb strings.Builder
 		w := csv.NewWriter(&sb)
-		w.Write([]string{"id", "ts", "level", "component", "node_name", "domain", "method", "path", "status", "ip", "latency_ms", "bytes", "message"}) //nolint:errcheck
+		w.Write([]string{"id", "ts", "level", "component", "node_name", "node_id", "domain", "method", "path", "status", "ip", "latency_ms", "bytes", "message"}) //nolint:errcheck
 		for _, e := range entries {
 			w.Write([]string{ //nolint:errcheck
 				strconv.FormatInt(e.ID, 10),
 				e.Ts.Format(time.RFC3339),
-				e.Level, e.Component, e.NodeName, e.Domain, e.Method, e.Path,
+				e.Level, e.Component, e.NodeName, e.NodeID, e.Domain, e.Method, e.Path,
 				strconv.Itoa(e.Status), e.IP,
 				strconv.FormatInt(e.LatencyMs, 10),
 				strconv.FormatInt(e.Bytes, 10),
@@ -352,7 +361,13 @@ func buildWhere(p SearchParams) (string, []any) {
 		clauses = append(clauses, "component=?")
 		args = append(args, p.Component)
 	}
-	if p.NodeName != "" {
+	if p.NodeID != "" {
+		// NodeID est stable face à un renommage : quand il est fourni, il
+		// prime sur NodeName (qui reste utilisable seul pour retrouver
+		// l'historique d'un nœud renommé/disparu, cf. p.Search ci-dessous).
+		clauses = append(clauses, "node_id=?")
+		args = append(args, p.NodeID)
+	} else if p.NodeName != "" {
 		clauses = append(clauses, "node_name=?")
 		args = append(args, p.NodeName)
 	}
@@ -382,9 +397,13 @@ func buildWhere(p SearchParams) (string, []any) {
 		args = append(args, "%"+p.Path+"%")
 	}
 	if p.Search != "" {
-		clauses = append(clauses, "(message LIKE ? OR path LIKE ? OR ip LIKE ? OR domain LIKE ?)")
+		// node_name est inclus pour permettre de retrouver l'historique d'un
+		// nœud renommé ou disparu (le filtre dédié NodeName/NodeID exige une
+		// égalité exacte sur le nœud sélectionné, alors que Search est une
+		// recherche libre indépendante de tout nœud "actuel").
+		clauses = append(clauses, "(message LIKE ? OR path LIKE ? OR ip LIKE ? OR domain LIKE ? OR node_name LIKE ?)")
 		q := "%" + p.Search + "%"
-		args = append(args, q, q, q, q)
+		args = append(args, q, q, q, q, q)
 	}
 	if p.DateFrom != "" {
 		clauses = append(clauses, "ts >= ?")
@@ -413,7 +432,11 @@ func matchesFilter(e Entry, p SearchParams) bool {
 	if p.Component != "" && e.Component != p.Component {
 		return false
 	}
-	if p.NodeName != "" && e.NodeName != p.NodeName {
+	if p.NodeID != "" {
+		if e.NodeID != p.NodeID {
+			return false
+		}
+	} else if p.NodeName != "" && e.NodeName != p.NodeName {
 		return false
 	}
 	if p.Domain != "" && e.Domain != p.Domain {
@@ -446,7 +469,8 @@ func matchesFilter(e Entry, p SearchParams) bool {
 		if !strings.Contains(strings.ToLower(e.Message), q) &&
 			!strings.Contains(strings.ToLower(e.Path), q) &&
 			!strings.Contains(e.IP, q) &&
-			!strings.Contains(e.Domain, q) {
+			!strings.Contains(e.Domain, q) &&
+			!strings.Contains(strings.ToLower(e.NodeName), q) {
 			return false
 		}
 	}
@@ -460,7 +484,7 @@ func (s *Store) CorrelateByRequestID(requestID string) []Entry {
 		return []Entry{}
 	}
 	rows, err := s.db.Query(
-		`SELECT id, ts, level, component, COALESCE(node_name,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
+		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
 		 FROM logs
 		 WHERE request_id = ?
 		 ORDER BY ts ASC LIMIT 200`,
@@ -485,7 +509,7 @@ func (s *Store) Correlate(domain string, at time.Time, windowSec int) []Entry {
 	domainDash := strings.ReplaceAll(domain, ".", "-")
 	domainFlat := strings.ReplaceAll(domain, ".", "")
 	rows, err := s.db.Query(
-		`SELECT id, ts, level, component, COALESCE(node_name,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
+		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
 		 FROM logs
 		 WHERE ts BETWEEN ? AND ?
 		   AND status = 0
@@ -515,7 +539,7 @@ func scanEntries(rows interface {
 	for rows.Next() {
 		var e Entry
 		var ts string
-		if rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.Domain, &e.Method,
+		if rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.NodeID, &e.Domain, &e.Method,
 			&e.Path, &e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID) != nil {
 			continue
 		}

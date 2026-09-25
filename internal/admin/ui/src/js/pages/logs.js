@@ -14,7 +14,7 @@ const logsFilters = {
 };
 
 /** Portée posée par le menu (conservée pendant toute la visite de la page). */
-let logsScope = { kind: 'access', component: '', node_name: '', lockComp: false };
+let logsScope = { kind: 'access', component: '', node_name: '', node_id: '', lockComp: false };
 
 let logsActiveTab = 'static';
 let logsSSE = null;
@@ -45,6 +45,14 @@ function coreLogNodeName() {
   return (c?.node_name || c?.display_name || c?.id || '').trim();
 }
 
+// coreLogNodeID retourne l'identifiant stable du Core sélectionné (token/id
+// en base), utilisé pour filtrer les logs à la place de node_name : un
+// renommage du nœud (ex. après un re-pairing suite à un core.json régénéré)
+// ne fait alors plus disparaître son historique de logs.
+function coreLogNodeID() {
+  return (state.selectedCore?.id || '').trim();
+}
+
 function hasActiveLogFilters() {
   return !!(logsFilters.domain || logsFilters.ip || logsFilters.method ||
     logsFilters.status || logsFilters.path || logsFilters.search ||
@@ -53,15 +61,17 @@ function hasActiveLogFilters() {
 
 /**
  * Pose les filtres puis rend la vue Logs.
- * @param {{kind?:string, component?:string, node_name?:string, lockComp?:boolean, keepDomain?:boolean, keepFilters?:boolean}} preset
+ * @param {{kind?:string, component?:string, node_name?:string, node_id?:string, lockComp?:boolean, keepDomain?:boolean, keepFilters?:boolean}} preset
  */
 function openLogs(preset = {}) {
   const node = preset.node_name || '';
+  const nodeID = preset.node_id || '';
   const comp = preset.component || '';
   logsScope = {
     kind: preset.kind || 'access',
     component: comp,
     node_name: node,
+    node_id: nodeID,
     // Core : component + nœud verrouillés. Admin : composant filtrable.
     lockComp: preset.lockComp === true || (!!node && !!comp),
   };
@@ -108,7 +118,7 @@ pages['logs-system'] = function() {
 
 // Core — scoped au nœud sélectionné
 pages['core-logs-access'] = function() {
-  openLogs({ kind: 'access', component: 'core', node_name: coreLogNodeName(), lockComp: true, keepFilters: hasActiveLogFilters() });
+  openLogs({ kind: 'access', component: 'core', node_name: coreLogNodeName(), node_id: coreLogNodeID(), lockComp: true, keepFilters: hasActiveLogFilters() });
 };
 // Menu Observabilité Core → atterrit sur les logs d'accès
 pages['core-observability'] = function() {
@@ -123,7 +133,7 @@ pages['core-logs-system'] = function() {
   logsFilters.method = '';
   logsFilters.status = '';
   logsFilters.path = '';
-  openLogs({ kind: 'system', component: 'core', node_name: coreLogNodeName(), lockComp: true, keepFilters: !!(logsFilters.domain || logsFilters.search || logsFilters.level) });
+  openLogs({ kind: 'system', component: 'core', node_name: coreLogNodeName(), node_id: coreLogNodeID(), lockComp: true, keepFilters: !!(logsFilters.domain || logsFilters.search || logsFilters.level) });
 };
 
 function isSystemLogs() {
@@ -497,7 +507,8 @@ async function loadStaticLogs(beforeID) {
   const params = new URLSearchParams({ page_size: 50 });
   if (beforeID > 0) params.set('before_id', beforeID);
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
-  if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  if (logsScope.node_id) params.set('node_id', logsScope.node_id);
+  else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
   if (logsScope.lockComp && logsScope.component) params.set('component', logsScope.component);
   else if (logsFilters.component) params.set('component', logsFilters.component);
   for (const [k, v] of Object.entries(logsFilters)) {
@@ -651,7 +662,8 @@ function startSSE() {
   const params = new URLSearchParams();
   // Portée menu = source de vérité (kind / nœud / composant Core).
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
-  if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  if (logsScope.node_id) params.set('node_id', logsScope.node_id);
+  else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
 
   const lvl    = document.getElementById('lf-live-level')?.value;
   const search = document.getElementById('lf-live-search')?.value;
@@ -764,7 +776,8 @@ function httpStatusBadge(code) {
 window.exportLogs = function(fmt) {
   const params = new URLSearchParams({ format: fmt });
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
-  if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  if (logsScope.node_id) params.set('node_id', logsScope.node_id);
+  else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
   if (logsScope.lockComp && logsScope.component) params.set('component', logsScope.component);
   else if (logsFilters.component) params.set('component', logsFilters.component);
   for (const [k, v] of Object.entries(logsFilters)) {

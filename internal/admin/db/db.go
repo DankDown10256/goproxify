@@ -411,6 +411,12 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE logs ADD COLUMN ip_enc TEXT NOT NULL DEFAULT ''`,
 		// Clé de chiffrement RGPD (32 bytes random base64) — générée au premier démarrage.
 		`CREATE TABLE IF NOT EXISTS gdpr_keys (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
+		// node_id : identifiant stable du nœud (coreID/token), insensible à un
+		// renommage de node_name — évite qu'un re-pairing (nouveau token_id
+		// après régénération de core.json) ne rende l'historique des logs
+		// d'un nœud introuvable sous son ancien nom.
+		`ALTER TABLE logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_node_id ON logs (node_id)`,
 	} {
 		db.Exec(s) //nolint:errcheck
 	}

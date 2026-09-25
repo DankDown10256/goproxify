@@ -63,10 +63,10 @@ type Manager struct {
 
 	settingsMu     sync.RWMutex
 	settings       Settings // derniers paramètres poussés (utilisés au full_sync)
-	onAgentPending  func(id, name, version string)
-	onLogBatch      func(entries []coreWS.LogEntryPayload)
-	onWAFReloaded   func(nodeName string)
-	alertEngine     *alerting.Engine
+	onAgentPending func(id, name, version string)
+	onLogBatch     func(entries []coreWS.LogEntryPayload)
+	onWAFReloaded  func(nodeName string)
+	alertEngine    *alerting.Engine
 }
 
 // NewManager crée un Manager WS Admin→Core.
@@ -91,8 +91,8 @@ func (m *Manager) SetArchStore(s *archstore.Store) {
 
 type coreTokenDisk struct {
 	ID           string `json:"id"`
-	Role         string `json:"role"` // "core" | "agent" ; vide = "core" (compat ancien format)
-	Token        string `json:"token"`  // sealed
+	Role         string `json:"role"`  // "core" | "agent" ; vide = "core" (compat ancien format)
+	Token        string `json:"token"` // sealed
 	TokenHash    string `json:"token_hash"`
 	RBACRole     string `json:"rbac_role"`
 	NodeName     string `json:"node_name"`
@@ -681,15 +681,21 @@ func (m *Manager) newClient(coreID, endpoint string, entry *coreEntry) *Client {
 		return nil
 	}, func(msg coreWS.Message) {
 		if msg.Type == coreWS.TypeAccessLog || msg.Type == coreWS.TypeAgentLog {
-			msg.Payload = stampLogBatchNodeName(msg.Payload, entry.nodeName)
+			msg.Payload = stampLogBatchNode(msg.Payload, coreID, entry.nodeName)
 		}
 		m.HandleCoreMessage(msg)
 	}, m.log)
 }
 
-// stampLogBatchNodeName injecte node_name sur chaque entrée si absent (filtre Logs par Core).
-func stampLogBatchNodeName(raw json.RawMessage, nodeName string) json.RawMessage {
-	if nodeName == "" || len(raw) == 0 {
+// stampLogBatchNode injecte node_name (si absent) et écrase toujours node_id
+// avec l'ID stable de la connexion WS authentifiée (coreID/token), quel que
+// soit ce que Core a pu envoyer — l'identité du nœud doit être autoritaire
+// côté Admin, jamais déclarée par le client. Un renommage du nœud (qui change
+// node_name, ex. après un re-bootstrap de core.json) ne casse ainsi plus le
+// filtrage/historique des logs : node_id reste stable tant que le token du
+// Core ne change pas.
+func stampLogBatchNode(raw json.RawMessage, nodeID, nodeName string) json.RawMessage {
+	if len(raw) == 0 || (nodeID == "" && nodeName == "") {
 		return raw
 	}
 	var entries []coreWS.LogEntryPayload
@@ -698,8 +704,12 @@ func stampLogBatchNodeName(raw json.RawMessage, nodeName string) json.RawMessage
 	}
 	changed := false
 	for i := range entries {
-		if entries[i].NodeName == "" {
+		if entries[i].NodeName == "" && nodeName != "" {
 			entries[i].NodeName = nodeName
+			changed = true
+		}
+		if entries[i].NodeID != nodeID {
+			entries[i].NodeID = nodeID
 			changed = true
 		}
 	}
@@ -1122,12 +1132,12 @@ func (m *Manager) resolveTokenCoreID(ctx context.Context, ref string) string {
 // Envoie aussi une liste vide aux autres Cores pour purger d'éventuelles routes deleg-* obsolètes.
 func (m *Manager) PushDelegations(ctx context.Context) {
 	type delegation struct {
-		ID                  string
-		Domain              string
-		CoreID              string
-		DelegatedToCore     string
-		DelegatedEndpoint   string
-		DelegationMode      string
+		ID                string
+		Domain            string
+		CoreID            string
+		DelegatedToCore   string
+		DelegatedEndpoint string
+		DelegationMode    string
 	}
 
 	rows, err := m.db.QueryContext(ctx, `
@@ -1698,7 +1708,7 @@ func (m *Manager) handleCrowdSecDecisions(raw json.RawMessage) {
 			continue
 		}
 		banID := "crowdsec:" + d.Value
-		m.db.Exec(`DELETE FROM security_bans WHERE id=?`, banID)           //nolint:errcheck
+		m.db.Exec(`DELETE FROM security_bans WHERE id=?`, banID)            //nolint:errcheck
 		m.db.Exec(`DELETE FROM security_threats WHERE ip=? AND scenario=?`, //nolint:errcheck
 			d.Value, d.Scenario)
 	}
