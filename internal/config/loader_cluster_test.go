@@ -27,12 +27,12 @@ func TestParseClusterPeersCSV(t *testing.T) {
 			// Guillemets englobants (ex: GPX_CLUSTER_PEERS="id=url" en
 			// syntaxe docker-compose "environment:", transmis tels quels
 			// sans shell pour les retirer).
-			`"backup=http://192.168.200.90:8002"`,
-			map[string]string{"backup": "http://192.168.200.90:8002"},
+			`"backup=http://192.0.2.90:8002"`,
+			map[string]string{"backup": "http://192.0.2.90:8002"},
 		},
 		{
-			`'backup=http://192.168.200.90:8002'`,
-			map[string]string{"backup": "http://192.168.200.90:8002"},
+			`'backup=http://192.0.2.90:8002'`,
+			map[string]string{"backup": "http://192.0.2.90:8002"},
 		},
 	}
 	for _, tc := range cases {
@@ -130,13 +130,13 @@ func TestLoadCoreClusterPeersEnvQuoted(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GPX_CLUSTER_PEERS", `"backup=http://192.168.200.90:8002"`)
+	t.Setenv("GPX_CLUSTER_PEERS", `"backup=http://192.0.2.90:8002"`)
 
 	cfg, err := LoadCore(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Cluster.Peers["backup"] != "http://192.168.200.90:8002" {
+	if cfg.Cluster.Peers["backup"] != "http://192.0.2.90:8002" {
 		t.Fatalf("peers %#v", cfg.Cluster.Peers)
 	}
 }

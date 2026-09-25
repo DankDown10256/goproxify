@@ -19,6 +19,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/api"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	"github.com/vincamok/goproxify/internal/admin/auth"
+	"github.com/vincamok/goproxify/internal/admin/coreproxy"
 	"github.com/vincamok/goproxify/internal/admin/delegation"
 	"github.com/vincamok/goproxify/internal/admin/mailer"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
@@ -1286,6 +1287,43 @@ func (m *Manager) PushAll(ctx context.Context, settings Settings) {
 	}
 }
 
+// syncProxiesFromPeers rattrape sur e les proxies de production manquants.
+func (m *Manager) syncProxiesFromPeers(ctx context.Context, e *coreEntry) {
+	targets, err := coreproxy.ListTargets(ctx, m.db)
+	if err != nil {
+		m.log.Warn("corews/manager: sync proxies — targets", "core", e.nodeName, "err", err)
+		return
+	}
+	var self *coreproxy.Target
+	for i := range targets {
+		if targets[i].ID == e.id || targets[i].NodeName == e.nodeName {
+			self = &targets[i]
+			break
+		}
+	}
+	if self == nil || len(targets) < 2 {
+		return
+	}
+	// Au démarrage de l'Admin, les Cores répondent 401 tant que leur token n'est pas pris en compte.
+	total := 0
+	for attempt := 1; attempt <= 4; attempt++ {
+		n, err := coreproxy.NewClient().SyncMissing(ctx, *self, targets)
+		total += n
+		if err == nil {
+			break
+		}
+		m.log.Warn("corews/manager: sync proxies", "core", e.nodeName, "attempt", attempt, "synced", n, "err", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+	if total > 0 {
+		m.log.Info("corews/manager: proxies rattrapés depuis les pairs", "core", e.nodeName, "count", total)
+	}
+}
+
 // pushAllToEntry envoie la config complète à un Core spécifique.
 func (m *Manager) pushAllToEntry(ctx context.Context, e *coreEntry, s Settings) {
 	snippets, _ := m.loadSnippets(ctx)
@@ -1310,6 +1348,10 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *coreEntry, s Settings) 
 		m.log.Warn("corews/manager: full_sync", "core", e.nodeName, "err", err)
 		return
 	}
+
+	// Les proxies vivent en YAML côté Core : un Core resté hors ligne pendant une
+	// publication doit les récupérer auprès de ses pairs.
+	go m.syncProxiesFromPeers(ctx, e)
 
 	// Certs en parallèle (binaires, séparés du full_sync JSON)
 	go m.PushCerts(ctx)
