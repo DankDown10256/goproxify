@@ -4,8 +4,6 @@
 package raft
 
 import (
-	"io"
-	"log/slog"
 	"testing"
 	"time"
 )
@@ -14,8 +12,7 @@ import (
 // survivant, ou cluster à un seul nœud) s'élit leader lui-même au lieu de
 // rester bloqué en Candidate indéfiniment.
 func TestSingleNodeElectsItselfLeader(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	n := NewNode(Config{ID: "solo", Peers: map[string]string{}}, nil, log)
+	n := NewNode(Config{ID: "solo", Peers: map[string]string{}}, nil, discardLogger())
 	n.startElection()
 
 	if !n.IsLeader() {
@@ -29,8 +26,7 @@ func TestSingleNodeElectsItselfLeader(t *testing.T) {
 // TestSingleNodeProposeAfterElection vérifie qu'un nœud solo élu leader peut
 // accepter des propositions (Propose ne renvoie plus ErrNotLeader).
 func TestSingleNodeProposeAfterElection(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	n := NewNode(Config{ID: "solo", Peers: map[string]string{}}, nil, log)
+	n := NewNode(Config{ID: "solo", Peers: map[string]string{}}, nil, discardLogger())
 	n.startElection()
 
 	if err := n.Propose([]byte("cmd")); err != nil {
@@ -39,8 +35,7 @@ func TestSingleNodeProposeAfterElection(t *testing.T) {
 }
 
 func TestNewNodeDefaultTimeouts(t *testing.T) {
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	n := NewNode(Config{ID: "n1"}, nil, log)
+	n := NewNode(Config{ID: "n1"}, nil, discardLogger())
 	if n.cfg.ElectionTimeoutMin != 150*time.Millisecond {
 		t.Fatalf("ElectionTimeoutMin par défaut inattendu: %v", n.cfg.ElectionTimeoutMin)
 	}

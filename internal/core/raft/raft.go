@@ -30,9 +30,27 @@ type Node struct {
 
 	leaderID atomic.Value // string
 
-	electionTimer *time.Timer
-	stopCh        chan struct{}
-	applyCh       chan LogEntry
+	// electionResetCh signale à la goroutine run() qu'un heartbeat/vote
+	// valide a été reçu, pour reporter l'élection. Le timer d'élection
+	// lui-même n'est possédé et manipulé que par cette goroutine (voir
+	// runFollowerCandidate) : Reset/Stop d'un time.Timer depuis plusieurs
+	// goroutines pendant qu'une autre lit son canal C est documenté comme
+	// non sûr et provoquait des élections en boucle malgré des heartbeats
+	// reçus à temps.
+	electionResetCh chan struct{}
+	// leaderCh notifie runFollowerCandidate qu'une élection lancée par ce
+	// nœud vient d'aboutir de façon asynchrone (becomeLeader appelé depuis
+	// une goroutine de dépouillement de vote). Sans cela, l'instance de
+	// runFollowerCandidate déjà relancée en attendant l'issue du vote (le
+	// résultat arrive après coup, dans une autre goroutine) ignore que le
+	// nœud est devenu leader : à l'expiration de son propre timer, elle
+	// rappelle startElection() sans vérifier l'état courant, ce qui
+	// redégrade aussitôt le leader tout juste élu et fait grimper le
+	// terme en boucle — aucun leader ne reste jamais assez longtemps en
+	// poste pour committer quoi que ce soit.
+	leaderCh chan struct{}
+	stopCh   chan struct{}
+	applyCh  chan LogEntry
 
 	transport Transport
 }
@@ -50,15 +68,17 @@ func NewNode(cfg Config, transport Transport, log *slog.Logger) *Node {
 	}
 
 	n := &Node{
-		cfg:        cfg,
-		log:        log,
-		state:      Follower,
-		logEntries: []LogEntry{{Index: 0, Term: 0}}, // entrée sentinelle
-		nextIndex:  make(map[string]uint64),
-		matchIndex: make(map[string]uint64),
-		stopCh:     make(chan struct{}),
-		applyCh:    make(chan LogEntry, 256),
-		transport:  transport,
+		cfg:             cfg,
+		log:             log,
+		state:           Follower,
+		logEntries:      []LogEntry{{Index: 0, Term: 0}}, // entrée sentinelle
+		nextIndex:       make(map[string]uint64),
+		matchIndex:      make(map[string]uint64),
+		electionResetCh: make(chan struct{}, 1),
+		leaderCh:        make(chan struct{}, 1),
+		stopCh:          make(chan struct{}),
+		applyCh:         make(chan LogEntry, 256),
+		transport:       transport,
 	}
 	n.leaderID.Store("")
 	return n
@@ -67,7 +87,6 @@ func NewNode(cfg Config, transport Transport, log *slog.Logger) *Node {
 // Start démarre le nœud Raft.
 func (n *Node) Start() {
 	go n.applyLoop()
-	n.resetElectionTimer()
 	go n.run()
 }
 
@@ -156,11 +175,36 @@ func (n *Node) run() {
 	}
 }
 
+// runFollowerCandidate attend soit l'expiration du délai d'élection, soit un
+// signal de reset (heartbeat ou vote valide reçu). Le timer est créé et
+// uniquement manipulé ici, dans cette unique goroutine : c'est ce qui
+// garantit que Reset/Stop/lecture de son canal restent data-race-free.
 func (n *Node) runFollowerCandidate() {
-	select {
-	case <-n.stopCh:
-	case <-n.electionTimer.C:
-		n.startElection()
+	timer := time.NewTimer(n.randomElectionTimeout())
+	defer timer.Stop()
+	for {
+		select {
+		case <-n.stopCh:
+			return
+		case <-n.leaderCh:
+			// Élection lancée par ce nœud gagnée entretemps (annoncée de
+			// façon asynchrone par becomeLeader) : on rend la main à run()
+			// pour qu'il bascule sur runLeader() au lieu de laisser cette
+			// instance repartir sur son propre timer et redémarrer une
+			// élection sans lieu d'être.
+			return
+		case <-n.electionResetCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(n.randomElectionTimeout())
+		case <-timer.C:
+			n.startElection()
+			return
+		}
 	}
 }
 
@@ -196,7 +240,6 @@ func (n *Node) startElection() {
 	n.mu.Unlock()
 
 	n.log.Info("raft: début élection", "id", n.cfg.ID, "term", term)
-	n.resetElectionTimer()
 
 	votes := 1 // vote pour soi-même
 	total := len(n.cfg.Peers) + 1
@@ -255,13 +298,18 @@ func (n *Node) becomeLeader() {
 		n.matchIndex[pid] = 0
 	}
 	n.log.Info("raft: élu leader", "id", n.cfg.ID, "term", n.currentTerm)
+
+	select {
+	case n.leaderCh <- struct{}{}:
+	default:
+	}
 }
 
 func (n *Node) stepDown(term uint64) {
 	n.state = Follower
 	n.currentTerm = term
 	n.votedFor = ""
-	n.resetElectionTimer()
+	n.signalElectionReset()
 }
 
 // --- AppendEntries --------------------------------------------------------
@@ -416,7 +464,7 @@ func (n *Node) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 
 	if (n.votedFor == "" || n.votedFor == args.CandidateID) && logOK {
 		n.votedFor = args.CandidateID
-		n.resetElectionTimer()
+		n.signalElectionReset()
 		reply.VoteGranted = true
 	}
 	reply.Term = n.currentTerm
@@ -437,7 +485,7 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 		n.stepDown(args.Term)
 	}
 	n.leaderID.Store(args.LeaderID)
-	n.resetElectionTimer()
+	n.signalElectionReset()
 
 	// Vérifie la cohérence du log précédent
 	if args.PrevLogIndex >= uint64(len(n.logEntries)) ||
@@ -482,19 +530,20 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 
 // --- Helpers --------------------------------------------------------------
 
-func (n *Node) resetElectionTimer() {
-	timeout := n.cfg.ElectionTimeoutMin +
+func (n *Node) randomElectionTimeout() time.Duration {
+	return n.cfg.ElectionTimeoutMin +
 		time.Duration(rand.Int63n(int64(n.cfg.ElectionTimeoutMax-n.cfg.ElectionTimeoutMin)))
-	if n.electionTimer == nil {
-		n.electionTimer = time.NewTimer(timeout)
-	} else {
-		if !n.electionTimer.Stop() {
-			select {
-			case <-n.electionTimer.C:
-			default:
-			}
-		}
-		n.electionTimer.Reset(timeout)
+}
+
+// signalElectionReset notifie runFollowerCandidate qu'un événement valide
+// (heartbeat, vote accordé) vient d'être reçu, sans jamais toucher au timer
+// lui-même : seule la goroutine run() le manipule. L'envoi est non-bloquant
+// (canal bufferisé à 1) : un reset déjà en attente suffit, inutile d'en
+// empiler d'autres.
+func (n *Node) signalElectionReset() {
+	select {
+	case n.electionResetCh <- struct{}{}:
+	default:
 	}
 }
 
