@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/auth"
 )
 
 var metricsSummaryClient = &http.Client{Timeout: 5 * time.Second}
@@ -42,7 +44,11 @@ func (h *NodesHandler) metricsSummary(w http.ResponseWriter, r *http.Request, id
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	// tokens.token peut être chiffré au repos (voir auth.SealNodeToken) ;
+	// Core n'a que le hash du token en clair (pushAdminToken le déchiffre
+	// avant envoi) — sans ce déchiffrement symétrique, 401 permanent dès
+	// que le chiffrement est actif.
+	req.Header.Set("Authorization", "Bearer "+auth.PlainNodeToken(token))
 
 	resp, err := metricsSummaryClient.Do(req)
 	if err != nil {

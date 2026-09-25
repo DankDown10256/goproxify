@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/delegation"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	coretls "github.com/vincamok/goproxify/internal/core/tls"
@@ -446,6 +447,12 @@ func (p *Pusher) activeCores(ctx context.Context) ([]coreNode, error) {
 		if err := rows.Scan(&c.ID, &c.NodeName, &c.Token, &c.Endpoint, &c.RBACRole, &c.RaftEndpoint); err != nil {
 			continue
 		}
+		// tokens.token peut être chiffré au repos (auth.SealNodeToken) ;
+		// Core ne connaît que le hash du token en clair (pushAdminToken le
+		// déchiffre avant envoi) — sans ce déchiffrement symétrique ici,
+		// tous les push routes/certs échouent en 401 dès que le
+		// chiffrement est actif (GPX_NODE_TOKEN_KEY ou JWT secret configuré).
+		c.Token = auth.PlainNodeToken(c.Token)
 		cores = append(cores, c)
 	}
 	return cores, nil

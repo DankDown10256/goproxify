@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/auth"
 )
 
 var backendsHealthClient = &http.Client{Timeout: 5 * time.Second}
@@ -101,7 +103,13 @@ func (h *BackendsHealthHandler) fetchFromCore(ctx context.Context, coreEndpoint,
 		warn("backends-health: requête invalide", "core", coreName, "endpoint", coreEndpoint, "err", err)
 		return nil
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	// La colonne tokens.token peut être chiffrée au repos (AES-GCM, voir
+	// auth.SealNodeToken/ConfigureNodeTokenKey) ; pushAdminToken déchiffre
+	// avant d'envoyer le token à Core (manager.go), qui ne connaît donc que
+	// le hash du token EN CLAIR. Sans ce déchiffrement symétrique ici, le
+	// Bearer envoyé ne matche jamais côté Core → 401 permanent dès que le
+	// chiffrement est actif (GPX_NODE_TOKEN_KEY ou JWT secret configuré).
+	req.Header.Set("Authorization", "Bearer "+auth.PlainNodeToken(token))
 	resp, err := backendsHealthClient.Do(req)
 	if err != nil {
 		warn("backends-health: Core injoignable", "core", coreName, "endpoint", coreEndpoint, "err", err)
