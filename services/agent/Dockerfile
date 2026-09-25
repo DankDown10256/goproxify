@@ -40,8 +40,9 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /goproxify /goproxify
-# Config par défaut (valeurs surchargées par les GPX_* env vars en production)
-COPY services/agent/config.json /internal/agent/config.json
+# Pas de config.json embarqué : agent.json est généré au premier démarrage
+# sous /etc/goproxify (volume persistant) à partir des variables GPX_*,
+# voir internal/config/bootstrap.go.
 
 # Métriques Prometheus
 EXPOSE 9191

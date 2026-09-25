@@ -38,8 +38,9 @@ FROM scratch
 
 COPY --from=builder /goproxify /goproxify
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-# Config par défaut (valeurs surchargées par les GPX_* env vars en production)
-COPY services/core/config.json /internal/core/config.json
+# Pas de config.json embarqué : core.json est généré au premier démarrage
+# sous /etc/goproxify (volume persistant) à partir des variables GPX_*,
+# voir internal/config/bootstrap.go.
 
 # HTTP, HTTPS (TCP + UDP/QUIC), API interne
 EXPOSE 80 443 443/udp 8000

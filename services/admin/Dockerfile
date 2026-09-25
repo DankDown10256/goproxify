@@ -40,8 +40,9 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates wget tzdata
 
 COPY --from=backend-builder /goproxify /goproxify
-# Config par défaut de production (valeurs surchargées par les GPX_* env vars)
-COPY services/admin/config.json /internal/admin/config.json
+# Pas de config.json embarqué : admin.json est généré au premier démarrage
+# sous /etc/goproxify (volume persistant) à partir des variables GPX_*,
+# voir internal/config/bootstrap.go.
 
 EXPOSE 9443
 

@@ -514,7 +514,7 @@ Sous-commandes :
   approve  Approuve un Agent en attente depuis la CLI
 
 goproxify agent [-config <chemin>]
-  -config   Chemin vers agent.json (défaut: ./internal/agent/config.json)
+  -config   Chemin vers agent.json (défaut: /etc/goproxify/agent.json)
 
 goproxify agent pair -core <url> -join-token <token>
   -core        URL du Core (ex: http://goproxify-core:8000)
@@ -888,9 +888,23 @@ func flagValue(args map[string]string, key, def string) string {
 }
 
 // configPath retourne le chemin vers le fichier de config selon -config ou le défaut.
+//
+// Le défaut est sous /etc/goproxify (le volume de stockage persistant), et
+// non /internal/<component>/config.json : ce second chemin est celui d'un
+// template statique embarqué dans l'image Docker (COPY au build), qui
+// existe donc dès le tout premier démarrage du conteneur. Bootstrap*()
+// (internal/config/bootstrap.go) ne génère le fichier qu'en son absence —
+// pointer par défaut vers le template embarqué empêchait le bootstrap de
+// jamais s'exécuter, donc les variables GPX_* (cluster, identité, etc.)
+// n'étaient jamais prises en compte, et goproxify backup (qui attend ce
+// fichier sous /etc/goproxify, voir defaultConfigPath dans backup.go) ne
+// le trouvait jamais pour l'inclure dans les sauvegardes.
 func configPath(component string, args map[string]string) string {
 	if v := flagValue(args, "-config", ""); v != "" {
 		return v
+	}
+	if p := defaultConfigPath(component); p != "" {
+		return p
 	}
 	return fmt.Sprintf("./internal/%s/config.json", component)
 }

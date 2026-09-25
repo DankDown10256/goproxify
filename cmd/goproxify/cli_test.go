@@ -138,3 +138,36 @@ func TestCollectImportFiles(t *testing.T) {
 		t.Fatalf("dir: %v %v", files, err)
 	}
 }
+
+// TestConfigPathMatchesBackupDefault vérifie que configPath() (utilisé au
+// démarrage pour charger/bootstrapper la config) et defaultConfigPath()
+// (utilisé par "goproxify backup" pour retrouver le fichier à sauvegarder)
+// s'accordent sur le même chemin par défaut. Une divergence signifie que le
+// fichier réellement chargé au démarrage n'est jamais celui que la
+// sauvegarde inclut — et, plus grave, qu'un chemin par défaut pointant vers
+// un template statique embarqué dans l'image empêche Bootstrap*() de
+// jamais s'exécuter (le fichier "existe" déjà), donc les variables GPX_*
+// (cluster, identité…) sont silencieusement ignorées.
+func TestConfigPathMatchesBackupDefault(t *testing.T) {
+	for _, component := range []string{"admin", "core", "agent"} {
+		got := configPath(component, map[string]string{})
+		want := defaultConfigPath(component)
+		if want == "" {
+			t.Fatalf("defaultConfigPath(%q) vide", component)
+		}
+		if got != want {
+			t.Fatalf("configPath(%q) = %q, defaultConfigPath = %q", component, got, want)
+		}
+		if filepath.Dir(got) != "/etc/goproxify" {
+			t.Fatalf("configPath(%q) = %q, attendu sous /etc/goproxify", component, got)
+		}
+	}
+}
+
+// TestConfigPathFlagOverride vérifie que -config prime toujours sur le défaut.
+func TestConfigPathFlagOverride(t *testing.T) {
+	got := configPath("core", map[string]string{"-config": "/custom/path.json"})
+	if got != "/custom/path.json" {
+		t.Fatalf("configPath avec -config = %q", got)
+	}
+}
