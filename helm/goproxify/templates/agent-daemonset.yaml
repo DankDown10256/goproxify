@@ -29,8 +29,8 @@ spec:
           env:
             - name: TZ
               value: {{ .Values.global.timezone | default "Europe/Paris" | quote }}
-            - name: GPX_CONTROL_PLANE_CORE_ENDPOINT
-              value: http://{{ include "goproxify.fullname" . }}-core:{{ .Values.core.service.internalPort }}
+            - name: GPX_CONTROL_PLANE_EDGE_ENDPOINT
+              value: http://{{ include "goproxify.fullname" . }}-edge:{{ .Values.edge.service.internalPort }}
             - name: GPX_CONTROL_PLANE_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:

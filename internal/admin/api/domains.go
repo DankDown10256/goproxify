@@ -24,7 +24,7 @@ type DomainCertObtainer interface {
 }
 
 // DomainRoutePusher déclenche la synchronisation des délégations, routes et certificats
-// (les proxies couverts par un domaine délégué doivent être retirés du Core responsable).
+// (les proxies couverts par un domaine délégué doivent être retirés de la passerelle responsable).
 type DomainRoutePusher interface {
 	PushDelegations(ctx context.Context)
 	PushRoutes(ctx context.Context)
@@ -45,16 +45,16 @@ func (h *DomainsHandler) notifyChange() {
 	}
 }
 
-// domainRow : core_id = Core d'entrée (routage / délégation / ACME UI).
-// Les droits de réception des routes et certificats viennent des token_scopes, pas de core_id.
+// domainRow : edge_id = Passerelle d'entrée (routage / délégation / ACME UI).
+// Les droits de réception des routes et certificats viennent des token_scopes, pas de edge_id.
 type domainRow struct {
 	ID                  string     `json:"id"`
 	Domain              string     `json:"domain"`
-	CoreID              string     `json:"core_id"` // UUID token Core d'entrée (routage), pas un droit
+	EdgeID              string     `json:"edge_id"` // UUID token passerelle d'entrée (routage), pas un droit
 	DNSProvider         string     `json:"dns_provider"`
 	DNSCredentials      any        `json:"dns_credentials,omitempty"`
 	CertMethod          string     `json:"cert_method"`
-	DelegatedToCoreID   string     `json:"delegated_to_core_id"`
+	DelegatedToEdgeID   string     `json:"delegated_to_edge_id"`
 	DelegatedEndpoint   string     `json:"delegated_endpoint"`
 	DelegationMode      string     `json:"delegation_mode"`
 	CertExpiresAt       *time.Time `json:"cert_expires_at"`
@@ -64,19 +64,19 @@ type domainRow struct {
 
 type domainRequest struct {
 	Domain              string `json:"domain"`
-	CoreID              string `json:"core_id"` // Core d'entrée (routage) — ne confère pas de droits token
+	EdgeID              string `json:"edge_id"` // Passerelle d'entrée (routage) — ne confère pas de droits token
 	DNSProvider         string `json:"dns_provider"`
 	DNSCredentials      any    `json:"dns_credentials"`
 	CertMethod          string `json:"cert_method"`
-	DelegatedToCoreID   string `json:"delegated_to_core_id"`
+	DelegatedToEdgeID   string `json:"delegated_to_edge_id"`
 	DelegatedEndpoint   string `json:"delegated_endpoint"`
 	DelegationMode      string `json:"delegation_mode"`
 }
 
-// resolveCoreRef convertit un identifiant Core reçu depuis l'UI/API vers l'ID token UUID.
-// Rétro-compatibilité: accepte aussi le node_name (ex: "core-dev").
-// Ne crée pas de token fantôme : un token Core actif doit déjà exister (droits = token_scopes).
-func (h *DomainsHandler) resolveCoreRef(ctx context.Context, ref string) (string, error) {
+// resolveEdgeRef convertit un identifiant passerelle reçu depuis l'UI/API vers l'ID token UUID.
+// Rétro-compatibilité: accepte aussi le node_name (ex: "edge-dev").
+// Ne crée pas de token fantôme : un token passerelle active doit déjà exister (droits = token_scopes).
+func (h *DomainsHandler) resolveEdgeRef(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", nil
@@ -86,7 +86,7 @@ func (h *DomainsHandler) resolveCoreRef(ctx context.Context, ref string) (string
 	err := h.DB.QueryRowContext(ctx, `
 		SELECT id
 		FROM tokens
-		WHERE role='core' AND revoked=0
+		WHERE role='edge' AND revoked=0
 		  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		  AND (id=? OR node_name=?)
 		ORDER BY
@@ -95,7 +95,7 @@ func (h *DomainsHandler) resolveCoreRef(ctx context.Context, ref string) (string
 		  created_at DESC
 		LIMIT 1`, ref, ref, ref).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", errors.New("core introuvable (token Core actif requis): " + ref)
+		return "", errors.New("edge introuvable (token passerelle active requis): " + ref)
 	}
 	if err != nil {
 		return "", err
@@ -103,12 +103,12 @@ func (h *DomainsHandler) resolveCoreRef(ctx context.Context, ref string) (string
 	return id, nil
 }
 
-// ensureDomainScopesForCores ajoute le périmètre domaine manquant sur les tokens
-// Core d'entrée / délégué (no-op si admin global sans scopes).
-func (h *DomainsHandler) ensureDomainScopesForCores(ctx context.Context, domain, entryCoreID, delegatedCoreID string) []string {
+// ensureDomainScopesForEdges ajoute le périmètre domaine manquant sur les tokens
+// Passerelle d'entrée / délégué (no-op si admin global sans scopes).
+func (h *DomainsHandler) ensureDomainScopesForEdges(ctx context.Context, domain, entryEdgeID, delegatedEdgeID string) []string {
 	var ensured []string
 	seen := map[string]struct{}{}
-	for _, tokenID := range []string{entryCoreID, delegatedCoreID} {
+	for _, tokenID := range []string{entryEdgeID, delegatedEdgeID} {
 		tokenID = strings.TrimSpace(tokenID)
 		if tokenID == "" {
 			continue
@@ -177,8 +177,8 @@ func (h *DomainsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *DomainsHandler) list(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(), `
-		SELECT d.id, d.domain, d.core_id, d.dns_provider, d.dns_credentials,
-		       d.cert_method, d.delegated_to_core_id, d.delegated_endpoint, d.delegation_mode,
+		SELECT d.id, d.domain, d.edge_id, d.dns_provider, d.dns_credentials,
+		       d.cert_method, d.delegated_to_edge_id, d.delegated_endpoint, d.delegation_mode,
 		       d.cert_expires_at, d.created_at, d.updated_at
 		FROM domains d ORDER BY d.domain`)
 	if err != nil {
@@ -199,8 +199,8 @@ func (h *DomainsHandler) list(w http.ResponseWriter, r *http.Request) {
 		var d domainRow
 		var credJSON string
 		var exp sql.NullTime
-		if err := rows.Scan(&d.ID, &d.Domain, &d.CoreID, &d.DNSProvider, &credJSON,
-			&d.CertMethod, &d.DelegatedToCoreID, &d.DelegatedEndpoint, &d.DelegationMode,
+		if err := rows.Scan(&d.ID, &d.Domain, &d.EdgeID, &d.DNSProvider, &credJSON,
+			&d.CertMethod, &d.DelegatedToEdgeID, &d.DelegatedEndpoint, &d.DelegationMode,
 			&exp, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			continue
 		}
@@ -224,12 +224,12 @@ func (h *DomainsHandler) get(w http.ResponseWriter, r *http.Request, id string) 
 	var credJSON string
 	var exp sql.NullTime
 	err := h.DB.QueryRowContext(r.Context(), `
-		SELECT id, domain, core_id, dns_provider, dns_credentials,
-		       cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode,
+		SELECT id, domain, edge_id, dns_provider, dns_credentials,
+		       cert_method, delegated_to_edge_id, delegated_endpoint, delegation_mode,
 		       cert_expires_at, created_at, updated_at
 		FROM domains WHERE id=?`, id).Scan(
-		&d.ID, &d.Domain, &d.CoreID, &d.DNSProvider, &credJSON,
-		&d.CertMethod, &d.DelegatedToCoreID, &d.DelegatedEndpoint, &d.DelegationMode,
+		&d.ID, &d.Domain, &d.EdgeID, &d.DNSProvider, &credJSON,
+		&d.CertMethod, &d.DelegatedToEdgeID, &d.DelegatedEndpoint, &d.DelegationMode,
 		&exp, &d.CreatedAt, &d.UpdatedAt)
 	if err == sql.ErrNoRows {
 		writeErr(w, r, http.StatusNotFound, "api.err.domain_not_found")
@@ -278,23 +278,23 @@ func (h *DomainsHandler) create(w http.ResponseWriter, r *http.Request) {
 	if req.DelegationMode == "" {
 		req.DelegationMode = "passthrough"
 	}
-	resolvedCoreID, err := h.resolveCoreRef(r.Context(), req.CoreID)
+	resolvedEdgeID, err := h.resolveEdgeRef(r.Context(), req.EdgeID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	resolvedDelegatedToCoreID, err := h.resolveCoreRef(r.Context(), req.DelegatedToCoreID)
+	resolvedDelegatedToEdgeID, err := h.resolveEdgeRef(r.Context(), req.DelegatedToEdgeID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	id := uuid.New().String()
 	_, err = h.DB.ExecContext(r.Context(), `
-		INSERT INTO domains (id, domain, core_id, dns_provider, dns_credentials,
-		                     cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode)
+		INSERT INTO domains (id, domain, edge_id, dns_provider, dns_credentials,
+		                     cert_method, delegated_to_edge_id, delegated_endpoint, delegation_mode)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, req.Domain, resolvedCoreID, req.DNSProvider, credJSON,
-		req.CertMethod, resolvedDelegatedToCoreID, req.DelegatedEndpoint, req.DelegationMode)
+		id, req.Domain, resolvedEdgeID, req.DNSProvider, credJSON,
+		req.CertMethod, resolvedDelegatedToEdgeID, req.DelegatedEndpoint, req.DelegationMode)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			http.Error(w, "ce domaine existe déjà", http.StatusConflict)
@@ -320,8 +320,8 @@ func (h *DomainsHandler) create(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	ensured := h.ensureDomainScopesForCores(r.Context(), req.Domain, resolvedCoreID, resolvedDelegatedToCoreID)
-	h.resyncAfterScopeEnsure(ensured, req.DelegatedToCoreID != "")
+	ensured := h.ensureDomainScopesForEdges(r.Context(), req.Domain, resolvedEdgeID, resolvedDelegatedToEdgeID)
+	h.resyncAfterScopeEnsure(ensured, req.DelegatedToEdgeID != "")
 
 	h.notifyChange()
 	w.Header().Set("Content-Type", "application/json")
@@ -347,23 +347,23 @@ func (h *DomainsHandler) update(w http.ResponseWriter, r *http.Request, id strin
 	if req.DelegationMode == "" {
 		req.DelegationMode = "passthrough"
 	}
-	resolvedCoreID, err := h.resolveCoreRef(r.Context(), req.CoreID)
+	resolvedEdgeID, err := h.resolveEdgeRef(r.Context(), req.EdgeID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	resolvedDelegatedToCoreID, err := h.resolveCoreRef(r.Context(), req.DelegatedToCoreID)
+	resolvedDelegatedToEdgeID, err := h.resolveEdgeRef(r.Context(), req.DelegatedToEdgeID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	res, err := h.DB.ExecContext(r.Context(), `
-		UPDATE domains SET domain=?, core_id=?, dns_provider=?, dns_credentials=?,
-		                   cert_method=?, delegated_to_core_id=?, delegated_endpoint=?,
+		UPDATE domains SET domain=?, edge_id=?, dns_provider=?, dns_credentials=?,
+		                   cert_method=?, delegated_to_edge_id=?, delegated_endpoint=?,
 		                   delegation_mode=?, updated_at=CURRENT_TIMESTAMP
 		WHERE id=?`,
-		req.Domain, resolvedCoreID, req.DNSProvider, credJSON,
-		req.CertMethod, resolvedDelegatedToCoreID, req.DelegatedEndpoint,
+		req.Domain, resolvedEdgeID, req.DNSProvider, credJSON,
+		req.CertMethod, resolvedDelegatedToEdgeID, req.DelegatedEndpoint,
 		req.DelegationMode, id)
 	if err != nil {
 		h.Log.Error("domains: update", "err", err)
@@ -374,7 +374,7 @@ func (h *DomainsHandler) update(w http.ResponseWriter, r *http.Request, id strin
 		writeErr(w, r, http.StatusNotFound, "api.err.domain_not_found")
 		return
 	}
-	ensured := h.ensureDomainScopesForCores(r.Context(), req.Domain, resolvedCoreID, resolvedDelegatedToCoreID)
+	ensured := h.ensureDomainScopesForEdges(r.Context(), req.Domain, resolvedEdgeID, resolvedDelegatedToEdgeID)
 	// Toujours resync routes/délégations après update domaine (comportement historique).
 	h.resyncAfterScopeEnsure(ensured, true)
 	h.notifyChange()

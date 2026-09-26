@@ -3,7 +3,7 @@
     "node_name": ""
   },
   "control_plane": {
-    "core_endpoint": "http://goproxify-core:8000",
+    "edge_endpoint": "http://goproxify-edge:8000",
     "auth_token": ""
   },
   "docker": {
@@ -19,7 +19,7 @@
   "network_management": {
     "manage_wireguard": false,
     "docker_network_driver": "bridge",
-    "core_container_name": "goproxify-core"
+    "edge_container_name": "goproxify-edge"
   },
   "log_forwarding": {
     "enabled": false,

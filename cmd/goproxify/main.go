@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -23,16 +24,17 @@ import (
 	"github.com/vincamok/goproxify/internal/agent"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	"github.com/vincamok/goproxify/internal/config"
-	"github.com/vincamok/goproxify/internal/core"
-	corecache "github.com/vincamok/goproxify/internal/core/cache"
-	"github.com/vincamok/goproxify/internal/core/errorpages"
-	coretokens "github.com/vincamok/goproxify/internal/core/tokens"
+	"github.com/vincamok/goproxify/internal/edge"
+	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
+	"github.com/vincamok/goproxify/internal/edge/errorpages"
+	edgetokens "github.com/vincamok/goproxify/internal/edge/tokens"
 	"github.com/vincamok/goproxify/internal/landing"
 	"github.com/vincamok/goproxify/internal/tz"
 )
 
 func main() {
-	buildinfo.Set(VersionAdmin, VersionCore, VersionAgent, VersionWebapp, VersionLanding, GitCommit, BuildTime)
+	buildinfo.Set(VersionAdmin, VersionEdge, VersionAgent, VersionWebapp, VersionLanding, GitCommit, BuildTime)
+	config.AliasLegacyEnv()
 
 	if len(os.Args) < 2 {
 		usage()
@@ -42,8 +44,11 @@ func main() {
 	switch os.Args[1] {
 	case "admin":
 		runAdmin()
+	case "edge":
+		runEdge()
 	case "core":
-		runCore()
+		fmt.Fprintln(os.Stderr, "avertissement : la commande « core » est renommée « edge »")
+		runEdge()
 	case "agent":
 		runAgent()
 	case "landing":
@@ -107,7 +112,7 @@ func main() {
 	case "version":
 		fmt.Printf("goproxify\n")
 		fmt.Printf("  admin    %s\n", VersionAdmin)
-		fmt.Printf("  core     %s\n", VersionCore)
+		fmt.Printf("  edge     %s\n", VersionEdge)
 		fmt.Printf("  agent    %s\n", VersionAgent)
 		fmt.Printf("  webapp   %s\n", VersionWebapp)
 		fmt.Printf("  landing  %s\n", VersionLanding)
@@ -131,12 +136,12 @@ func usage() {
 
 Commandes de service :
   admin    Démarre l'Administration (Control Plane + Web UI)
-  core     Démarre le Core (Data Plane — Reverse Proxy)
+  edge     Démarre la passerelle (Data Plane — Reverse Proxy)
   agent    Démarre l'Agent (Discovery & Télémétrie)
   landing  Démarre la page de présentation
 
 Commandes d'administration (API Admin — -admin-url / -token) :
-  token     Tokens d'appairage Core/Agent (create/list/revoke)
+  token     Tokens d'appairage passerelle/Agent (create/list/revoke)
   backup    Snapshots Admin + export routage (create/list/restore)
   import    Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote)
   update    Mise à jour des images Docker (via Agent)
@@ -179,13 +184,13 @@ Variables d'environnement :
   GPX_<SECTION>_<KEY>   Surcharge n'importe quelle clé du fichier de config.
   Exemples courants :
     GPX_APP_ENVIRONMENT=production
-    GPX_CONTROLPLANE_AUTH_TOKEN=gpx_core_abc123
+    GPX_CONTROLPLANE_AUTH_TOKEN=gpx_edge_abc123
     GPX_SECURITY_JWT_SECRET=mon_secret_prod
 
   Plan de contrôle WebSocket :
-    GPX_CONTROL_PLANE_ADMIN_HMAC_SECRET   Clé HMAC-SHA256 partagée Admin↔Core (auth tunnel WS)
-    GPX_CONTROL_PLANE_JOIN_TOKEN          Token d'appairage Agent→Core (premier démarrage, gpx_join_*)
-    GPX_CONTROL_PLANE_CORE_ENDPOINT       URL du Core local (Agent WS, ex: http://goproxify-core:8000)
+    GPX_CONTROL_PLANE_ADMIN_HMAC_SECRET   Clé HMAC-SHA256 partagée Admin↔Passerelle (auth tunnel WS)
+    GPX_CONTROL_PLANE_JOIN_TOKEN          Token d'appairage Agent→Passerelle (premier démarrage, gpx_join_*)
+    GPX_CONTROL_PLANE_EDGE_ENDPOINT       URL de la passerelle locale (Agent WS, ex: http://goproxify-edge:8000)
 
 Pour l'aide d'une sous-commande :
   goproxify agent help
@@ -251,62 +256,63 @@ func runAdmin() {
 	srv.Stop(context.Background())
 }
 
-func runCore() {
+func runEdge() {
 	sub := subcommand(os.Args, 2)
 
 	// Sous-commandes de gestion du cache local
 	if sub == "cache" {
-		runCoreCache()
+		runEdgeCache()
 		return
 	}
 
 	// Sous-commandes de gestion des tokens locaux
 	if sub == "token" {
-		runCoreToken()
+		runEdgeToken()
 		return
 	}
 
 	args := parseFlags(os.Args[2:])
-	cfgPath := configPath("core", args)
-	if err := config.BootstrapCore(cfgPath); err != nil {
-		fmt.Fprintf(os.Stderr, "bootstrap core : %v\n", err)
+	cfgPath := configPath("edge", args)
+	config.MigrateLegacyEdgeFiles(filepath.Dir(cfgPath))
+	if err := config.BootstrapEdge(cfgPath); err != nil {
+		fmt.Fprintf(os.Stderr, "bootstrap edge : %v\n", err)
 		os.Exit(1)
 	}
-	cfg, err := config.LoadCore(cfgPath)
+	cfg, err := config.LoadEdge(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "erreur config core : %v\n", err)
+		fmt.Fprintf(os.Stderr, "erreur config edge : %v\n", err)
 		os.Exit(1)
 	}
 
-	errorpages.CoreVersion = VersionCore
-	srv, err := core.New(cfg, cfgPath)
+	errorpages.EdgeVersion = VersionEdge
+	srv, err := edge.New(cfg, cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "initialisation core : %v\n", err)
+		fmt.Fprintf(os.Stderr, "initialisation edge : %v\n", err)
 		os.Exit(1)
 	}
-	buildinfo.LogBanner(slog.Default(), "core", VersionCore)
+	buildinfo.LogBanner(slog.Default(), "edge", VersionEdge)
 	tz.LogStartup(slog.Default())
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
 	if err := srv.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "démarrage core : %v\n", err)
+		fmt.Fprintf(os.Stderr, "démarrage edge : %v\n", err)
 		os.Exit(1)
 	}
 	<-ctx.Done()
 	srv.Stop(context.Background())
 }
 
-func runCoreCache() {
+func runEdgeCache() {
 	sub := subcommand(os.Args, 3)
 
-	cachePath := "/etc/goproxify/core-cache.gpx"
-	if p := os.Getenv("GPX_CORE_CACHE_PATH"); p != "" {
+	cachePath := "/etc/goproxify/edge-cache.gpx"
+	if p := os.Getenv("GPX_EDGE_CACHE_PATH"); p != "" {
 		cachePath = p
 	}
-	secret := corecache.ResolveSecret(os.Getenv("GPX_CONTROL_PLANE_AUTH_TOKEN"))
-	store := corecache.New(cachePath, secret)
+	secret := edgecache.ResolveSecret(os.Getenv("GPX_CONTROL_PLANE_AUTH_TOKEN"))
+	store := edgecache.New(cachePath, secret)
 
 	switch sub {
 	case "show":
@@ -319,19 +325,19 @@ func runCoreCache() {
 			fmt.Printf("Aucun cache disponible à %s\n", cachePath)
 			return
 		}
-		fmt.Printf("Cache Core\n")
+		fmt.Printf("Cache passerelle\n")
 		fmt.Printf("  Chemin    : %s\n", info.Path)
 		fmt.Printf("  Sauvegardé: %s\n", info.SavedAt.Format("2006-01-02 15:04:05 UTC"))
 		fmt.Printf("  Routes    : %d\n", info.RouteCount)
 		fmt.Printf("  Certificats: %d\n", info.CertCount)
 
 	case "refresh":
-		fmt.Println("La commande refresh nécessite que le Core soit en cours d'exécution.")
-		fmt.Println("Envoyez SIGHUP au processus Core pour forcer une resync.")
+		fmt.Println("La commande refresh nécessite que la passerelle soit en cours d'exécution.")
+		fmt.Println("Envoyez SIGHUP au processus passerelle pour forcer une resync.")
 
 	case "export":
 		args := parseFlags(os.Args[4:])
-		output := flagValue(args, "-output", "core-cache-export.json")
+		output := flagValue(args, "-output", "edge-cache-export.json")
 		if err := store.ExportJSON(output); err != nil {
 			fmt.Fprintf(os.Stderr, "export échoué : %v\n", err)
 			os.Exit(1)
@@ -346,13 +352,13 @@ func runCoreCache() {
 		fmt.Printf("Cache supprimé : %s\n", cachePath)
 
 	case "help", "":
-		fmt.Print(`Usage: goproxify core cache <sous-commande>
+		fmt.Print(`Usage: goproxify edge cache <sous-commande>
 
 Sous-commandes apparentées :
-  goproxify core token   Gestion des tokens d'authentification
+  goproxify edge token   Gestion des tokens d'authentification
 
-Gestion du cache local du Core (table de routage + certificats sauvegardés).
-Le Core charge ce cache au démarrage si l'Administration est injoignable.
+Gestion du cache local de la passerelle (table de routage + certificats sauvegardés).
+La passerelle charge ce cache au démarrage si l'Administration est injoignable.
 
 Sous-commandes :
   show      Affiche l'état du cache (date, nombre de routes, certificats)
@@ -360,29 +366,29 @@ Sous-commandes :
   export    Exporte le cache en JSON lisible
   clear     Efface le cache local
 
-goproxify core cache show
-goproxify core cache refresh
-goproxify core cache export [-output <fichier>]
-  -output   Fichier de destination (défaut: core-cache-export.json)
-goproxify core cache clear
+goproxify edge cache show
+goproxify edge cache refresh
+goproxify edge cache export [-output <fichier>]
+  -output   Fichier de destination (défaut: edge-cache-export.json)
+goproxify edge cache clear
 `)
 
 	default:
-		fmt.Fprintf(os.Stderr, "sous-commande core cache inconnue : %q\n", sub)
-		fmt.Fprintln(os.Stderr, "utilisez : goproxify core cache help")
+		fmt.Fprintf(os.Stderr, "sous-commande edge cache inconnue : %q\n", sub)
+		fmt.Fprintln(os.Stderr, "utilisez : goproxify edge cache help")
 		os.Exit(1)
 	}
 }
 
-func runCoreToken() {
+func runEdgeToken() {
 	sub := subcommand(os.Args, 3)
 
-	tokensPath := "/etc/goproxify/core-tokens.db"
-	if p := os.Getenv("GPX_CORE_TOKENS_PATH"); p != "" {
+	tokensPath := "/etc/goproxify/edge-tokens.db"
+	if p := os.Getenv("GPX_EDGE_TOKENS_PATH"); p != "" {
 		tokensPath = p
 	}
 
-	store, err := coretokens.Open(tokensPath)
+	store, err := edgetokens.Open(tokensPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "token store: %v\n", err)
 		os.Exit(1)
@@ -396,15 +402,15 @@ func runCoreToken() {
 		roleStr := flagValue(args, "-role", "agent")
 		ttlStr := flagValue(args, "-ttl", "0")
 		if name == "" {
-			fmt.Fprintln(os.Stderr, "usage: goproxify core token create -name <nom> [-role admin|agent] [-ttl 24h]")
+			fmt.Fprintln(os.Stderr, "usage: goproxify edge token create -name <nom> [-role admin|agent] [-ttl 24h]")
 			os.Exit(1)
 		}
-		var role coretokens.Role
+		var role edgetokens.Role
 		switch roleStr {
 		case "admin":
-			role = coretokens.RoleAdmin
+			role = edgetokens.RoleAdmin
 		case "agent":
-			role = coretokens.RoleAgent
+			role = edgetokens.RoleAgent
 		default:
 			fmt.Fprintf(os.Stderr, "-role doit être 'admin' ou 'agent' (reçu: %q)\n", roleStr)
 			os.Exit(1)
@@ -458,7 +464,7 @@ func runCoreToken() {
 
 	case "revoke":
 		if len(os.Args) < 5 {
-			fmt.Fprintln(os.Stderr, "usage: goproxify core token revoke <id>")
+			fmt.Fprintln(os.Stderr, "usage: goproxify edge token revoke <id>")
 			os.Exit(1)
 		}
 		id := os.Args[4]
@@ -469,33 +475,33 @@ func runCoreToken() {
 		fmt.Printf("Token %s révoqué.\n", id)
 
 	case "help":
-		fmt.Print(`Usage: goproxify core token <sous-commande> [options]
+		fmt.Print(`Usage: goproxify edge token <sous-commande> [options]
 
-Gestion des tokens d'authentification locaux du Core.
-Ces tokens contrôlent qui peut appeler l'API interne du Core (port 8000).
+Gestion des tokens d'authentification locaux de la passerelle.
+Ces tokens contrôlent qui peut appeler l'API interne de la passerelle (port 8000).
 
 Sous-commandes :
   create   Génère un nouveau token (défaut si omis)
   list     Liste tous les tokens
   revoke   Révoque un token
 
-goproxify core token create -name <nom> [-role admin|agent] [-ttl <durée>]
+goproxify edge token create -name <nom> [-role admin|agent] [-ttl <durée>]
   -name   Nom descriptif (ex: "admin-prod", "agent-docker-1")
   -role   Rôle : admin (push routes/certs) | agent (heartbeat/containers) — défaut: agent
   -ttl    Durée de validité (ex: 24h, 7d) — défaut: permanent
 
-goproxify core token list
+goproxify edge token list
 
-goproxify core token revoke <id>
+goproxify edge token revoke <id>
   id   Identifiant du token (affiché par 'list')
 
 Variables d'environnement :
-  GPX_CORE_TOKENS_PATH  Chemin vers la base SQLite (défaut: /etc/goproxify/core-tokens.db)
+  GPX_EDGE_TOKENS_PATH  Chemin vers la base SQLite (défaut: /etc/goproxify/edge-tokens.db)
 `)
 
 	default:
-		fmt.Fprintf(os.Stderr, "sous-commande core token inconnue : %q\n", sub)
-		fmt.Fprintln(os.Stderr, "utilisez : goproxify core token help")
+		fmt.Fprintf(os.Stderr, "sous-commande edge token inconnue : %q\n", sub)
+		fmt.Fprintln(os.Stderr, "utilisez : goproxify edge token help")
 		os.Exit(1)
 	}
 }
@@ -513,14 +519,14 @@ func runAgent() {
 Sans sous-commande : démarre le service Agent.
 
 Sous-commandes :
-  pair     Configure l'appairage WS Agent→Core (JOIN_TOKEN)
+  pair     Configure l'appairage WS Agent→Passerelle (JOIN_TOKEN)
   approve  Approuve un Agent en attente depuis la CLI
 
 goproxify agent [-config <chemin>]
   -config   Chemin vers agent.json (défaut: /etc/goproxify/agent.json)
 
-goproxify agent pair -core <url> -join-token <token>
-  -core        URL du Core (ex: http://goproxify-core:8000)
+goproxify agent pair -edge <url> -join-token <token>
+  -edge        URL de la passerelle (ex: http://goproxify-edge:8000)
   -join-token  Token d'appairage généré par l'Admin (gpx_join_*)
 
 goproxify agent approve <agent-id> [-admin-url <url>] [-token <token>]
@@ -530,7 +536,7 @@ goproxify agent approve <agent-id> [-admin-url <url>] [-token <token>]
 
 Workflow d'appairage WS :
   1. L'Admin génère un JOIN_TOKEN (UI → Agents → Nouveau token)
-  2. goproxify agent pair -core http://core:8000 -join-token gpx_join_xxx
+  2. goproxify agent pair -edge http://edge:8000 -join-token gpx_join_xxx
   3. goproxify agent  →  l'Agent se connecte en WS, statut "pending"
   4. goproxify agent approve <agent-id>  (ou approuver dans l'UI)
   5. L'Agent reçoit un secret HMAC et passe en statut "approved"
@@ -575,27 +581,27 @@ func runAgentService() {
 // runAgentPair affiche la configuration WS à injecter dans agent.json ou en variables d'env.
 func runAgentPair() {
 	args := parseFlags(os.Args[3:])
-	coreURL := flagValue(args, "-core", "")
+	edgeURL := flagValue(args, "-edge", "")
 	joinToken := flagValue(args, "-join-token", "")
-	if coreURL == "" || joinToken == "" {
-		fmt.Fprintln(os.Stderr, "usage: goproxify agent pair -core <url> -join-token <token>")
-		fmt.Fprintln(os.Stderr, "       -core        URL du Core (ex: http://goproxify-core:8000)")
+	if edgeURL == "" || joinToken == "" {
+		fmt.Fprintln(os.Stderr, "usage: goproxify agent pair -edge <url> -join-token <token>")
+		fmt.Fprintln(os.Stderr, "       -edge        URL de la passerelle (ex: http://goproxify-edge:8000)")
 		fmt.Fprintln(os.Stderr, "       -join-token  Token d'appairage généré par l'Admin (gpx_join_*)")
 		os.Exit(1)
 	}
 	if !strings.HasPrefix(joinToken, "gpx_join_") {
 		fmt.Fprintln(os.Stderr, "avertissement : le token ne commence pas par 'gpx_join_' — vérifiez qu'il s'agit d'un JOIN_TOKEN Agent")
 	}
-	fmt.Printf("Configuration de l'appairage WS Agent→Core\n\n")
+	fmt.Printf("Configuration de l'appairage WS Agent→Passerelle\n\n")
 	fmt.Printf("Option A — fichier agent.json (section control_plane) :\n")
 	fmt.Printf("  {\n")
 	fmt.Printf("    \"control_plane\": {\n")
-	fmt.Printf("      \"core_endpoint\": %q,\n", coreURL)
+	fmt.Printf("      \"edge_endpoint\": %q,\n", edgeURL)
 	fmt.Printf("      \"join_token\":    %q\n", joinToken)
 	fmt.Printf("    }\n")
 	fmt.Printf("  }\n\n")
 	fmt.Printf("Option B — variables d'environnement :\n")
-	fmt.Printf("  GPX_CONTROL_PLANE_CORE_ENDPOINT=%s\n", coreURL)
+	fmt.Printf("  GPX_CONTROL_PLANE_EDGE_ENDPOINT=%s\n", edgeURL)
 	fmt.Printf("  GPX_CONTROL_PLANE_JOIN_TOKEN=%s\n\n", joinToken)
 	fmt.Printf("Démarrez ensuite l'Agent : goproxify agent\n")
 	fmt.Printf("L'Agent apparaîtra en statut 'pending' dans l'UI Admin.\n")
@@ -779,7 +785,7 @@ func runStatus() {
 		return json.NewDecoder(resp.Body).Decode(out)
 	}
 
-	// Nœuds (Cores + Agents HTTP)
+	// Nœuds (Passerelles + Agents HTTP)
 	type Node struct {
 		NodeName   string  `json:"node_name"`
 		Role       string  `json:"role"`

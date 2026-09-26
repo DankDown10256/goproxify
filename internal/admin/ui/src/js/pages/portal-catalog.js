@@ -1,24 +1,24 @@
-// ── PAGE PARTAGÉE: Catalogue portail Access (Admin + Core)
-// ctx = { mode: 'admin'|'core' }
+// ── PAGE PARTAGÉE: Catalogue portail Access (Admin + Passerelle)
+// ctx = { mode: 'admin'|'edge' }
 
 async function renderPortalCatalogPage(ctx) {
   const mode = ctx.mode || 'admin';
   const isAdmin = mode === 'admin';
-  const core = isAdmin ? null : state.selectedCore;
-  const coreName = core?.node_name || '';
-  const coreLabel = core ? (core.display_name || coreName || '—') : '';
+  const edge = isAdmin ? null : state.selectedEdge;
+  const edgeName = edge?.node_name || '';
+  const edgeLabel = edge ? (edge.display_name || edgeName || '—') : '';
 
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
 
-  if (!isAdmin && !coreName) {
-    content.innerHTML = `<div class="empty"><p>${esc(t('portal.need_core') || 'Sélectionnez un Core')}</p></div>`;
+  if (!isAdmin && !edgeName) {
+    content.innerHTML = `<div class="empty"><p>${esc(t('portal.need_edge') || 'Sélectionnez une passerelle')}</p></div>`;
     return;
   }
 
   try {
-    const destPath = isAdmin ? '/portal/destinations' : '/portal/destinations?core=' + encodeURIComponent(coreName);
+    const destPath = isAdmin ? '/portal/destinations' : '/portal/destinations?edge=' + encodeURIComponent(edgeName);
     const [destRes, nodesRes, containersRes] = await Promise.all([
       api('GET', destPath).catch(() => ({ destinations: [] })),
       isAdmin ? api('GET', '/nodes').catch(() => []) : Promise.resolve([]),
@@ -27,17 +27,17 @@ async function renderPortalCatalogPage(ctx) {
 
     let destinations = destRes.destinations || destRes || [];
     if (!Array.isArray(destinations)) destinations = [];
-    const cores = (nodesRes || []).filter(n => n.role === 'core');
-    window._portalCatalogCores = cores;
+    const edges = (nodesRes || []).filter(n => n.role === 'edge');
+    window._portalCatalogEdges = edges;
     window._portalCatalogAll = destinations;
     window._portalDiscovered = containersRes || [];
 
-    if (!window._pcFilter) window._pcFilter = { core: '', kind: '', q: '' };
+    if (!window._pcFilter) window._pcFilter = { edge: '', kind: '', q: '' };
 
     const filtered = () => {
       const f = window._pcFilter;
       return (window._portalCatalogAll || []).filter(d => {
-        if (f.core && d.core_name !== f.core) return false;
+        if (f.edge && d.edge_name !== f.edge) return false;
         if (f.kind && d.kind !== f.kind) return false;
         if (f.q) {
           const hay = [d.name, d.host, d.agent_name, d.container, ...(d.tags || [])].join(' ').toLowerCase();
@@ -49,10 +49,10 @@ async function renderPortalCatalogPage(ctx) {
 
     const render = () => {
       const items = filtered();
-      const chips = isAdmin ? cores.map(c => {
+      const chips = isAdmin ? edges.map(c => {
         const nn = c.node_name || c.id;
-        const active = window._pcFilter.core === nn;
-        return `<button type="button" class="chip" data-core="${esc(nn)}" style="cursor:pointer;${active ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(c.display_name || nn)}</button>`;
+        const active = window._pcFilter.edge === nn;
+        return `<button type="button" class="chip" data-edge="${esc(nn)}" style="cursor:pointer;${active ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(c.display_name || nn)}</button>`;
       }).join('') : '';
 
       document.getElementById('topbar-actions').innerHTML = `
@@ -65,8 +65,8 @@ async function renderPortalCatalogPage(ctx) {
           </h1>
           <p style="margin:0;font-size:13px;color:var(--text2)">
             ${isAdmin
-              ? esc(t('pcatalog.sub_admin') || 'Destinations de tous les Cores.')
-              : (t('pcatalog.sub_core') || 'Destinations de {name}.').replace('{name}', '<strong>' + esc(coreLabel) + '</strong>')}
+              ? esc(t('pcatalog.sub_admin') || 'Destinations de toutes les passerelles.')
+              : (t('pcatalog.sub_edge') || 'Destinations de {name}.').replace('{name}', '<strong>' + esc(edgeLabel) + '</strong>')}
           </p>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center">
@@ -77,7 +77,7 @@ async function renderPortalCatalogPage(ctx) {
             <option value="docker" ${window._pcFilter.kind === 'docker' ? 'selected' : ''}>Docker</option>
           </select>
           ${isAdmin ? `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-            <button type="button" class="chip" data-core="" style="cursor:pointer;${!window._pcFilter.core ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(t('pcatalog.all_cores') || 'Tous')}</button>
+            <button type="button" class="chip" data-edge="" style="cursor:pointer;${!window._pcFilter.edge ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(t('pcatalog.all_edges') || 'Tous')}</button>
             ${chips}
           </div>` : ''}
           <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:auto">
@@ -101,16 +101,16 @@ async function renderPortalCatalogPage(ctx) {
 
       document.getElementById('pc-q').oninput = (e) => { window._pcFilter.q = e.target.value; render(); };
       document.getElementById('pc-kind').onchange = (e) => { window._pcFilter.kind = e.target.value; render(); };
-      content.querySelectorAll('[data-core]').forEach(btn => {
-        btn.onclick = () => { window._pcFilter.core = btn.getAttribute('data-core') || ''; render(); };
+      content.querySelectorAll('[data-edge]').forEach(btn => {
+        btn.onclick = () => { window._pcFilter.edge = btn.getAttribute('data-edge') || ''; render(); };
       });
       document.getElementById('pc-add').onclick = () => openEditor(null);
       document.getElementById('pc-preview').onclick = async () => {
         window._pcPreviewTags = document.getElementById('pc-preview-tags').value.trim();
         try {
           let path = '/portal/destinations/preview?tags=' + encodeURIComponent(window._pcPreviewTags);
-          const c = isAdmin ? window._pcFilter.core : coreName;
-          if (c) path += '&core=' + encodeURIComponent(c);
+          const c = isAdmin ? window._pcFilter.edge : edgeName;
+          if (c) path += '&edge=' + encodeURIComponent(c);
           window._pcPreview = await api('GET', path);
           render();
         } catch (e) { alert(e.message || e); }
@@ -140,7 +140,7 @@ async function renderPortalCatalogPage(ctx) {
       const meta = d.kind === 'docker'
         ? `${esc(d.agent_name || '')} / ${esc(d.container || '')}`
         : `${esc(d.host || '')}:${d.port || 22}`;
-      const coreChip = isAdmin ? `<span class="tag tag-outline" style="font-size:10px">${esc(d.core_name)}</span>` : '';
+      const edgeChip = isAdmin ? `<span class="tag tag-outline" style="font-size:10px">${esc(d.edge_name)}</span>` : '';
       let opacity = '';
       if (window._pcPreview) {
         const hid = (window._pcPreview.hidden || []).some(x => x.id === d.id);
@@ -153,7 +153,7 @@ async function renderPortalCatalogPage(ctx) {
             <span class="tag ${d.kind === 'docker' ? 'tag-neutral' : 'tag-accent'}" style="font-size:10px;text-transform:uppercase">${esc(d.kind)}</span>
           </div>
           <div style="font-family:ui-monospace,monospace;font-size:11px;color:var(--text2);word-break:break-all">${meta}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">${coreChip}${tags}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">${edgeChip}${tags}</div>
           <div style="display:flex;gap:4px;margin-top:auto;justify-content:flex-end">
             <button type="button" class="btn btn-ghost btn-icon btn-sm" data-edit="${esc(d.id)}" title="${esc(t('common.edit') || 'Modifier')}">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -168,18 +168,18 @@ async function renderPortalCatalogPage(ctx) {
     function openEditor(dest) {
       const isNew = !dest;
       const d = dest ? { ...dest } : {
-        core_name: isAdmin ? (window._pcFilter.core || (cores[0]?.node_name || '')) : coreName,
+        edge_name: isAdmin ? (window._pcFilter.edge || (edges[0]?.node_name || '')) : edgeName,
         kind: 'ssh', name: '', host: '', port: 22, agent_name: '', container: '', tags: [], enabled: true,
       };
       const discovered = (window._portalDiscovered || []).filter(c =>
-        !d.core_name || c.core_name === d.core_name
+        !d.edge_name || c.edge_name === d.edge_name
       );
-      const coreOptions = isAdmin
-        ? cores.map(c => {
+      const edgeOptions = isAdmin
+        ? edges.map(c => {
             const nn = c.node_name || c.id;
-            return `<option value="${esc(nn)}" ${d.core_name === nn ? 'selected' : ''}>${esc(c.display_name || nn)}</option>`;
+            return `<option value="${esc(nn)}" ${d.edge_name === nn ? 'selected' : ''}>${esc(c.display_name || nn)}</option>`;
           }).join('')
-        : `<option value="${esc(coreName)}" selected>${esc(coreLabel)}</option>`;
+        : `<option value="${esc(edgeName)}" selected>${esc(edgeLabel)}</option>`;
 
       const suggestOpts = discovered.map((c, i) => {
         const cid = (c.container_ids && c.container_ids[0]) || c.id || '';
@@ -192,8 +192,8 @@ async function renderPortalCatalogPage(ctx) {
         <div id="pc-editor-backdrop" class="dialog-backdrop" onclick="if(event.target===this)window._pcCloseEditor()">
           <div class="card blueprint" style="width:min(520px,100%);max-height:90vh;overflow:auto;padding:18px;background:var(--bg)">
             <div style="font-weight:700;font-size:16px;margin-bottom:12px">${esc(isNew ? (t('pcatalog.add') || 'Nouvelle destination') : (t('common.edit') || 'Éditer'))}</div>
-            <div class="field" style="margin-bottom:8px"><label class="field-label">Core</label>
-              <select class="input" id="pe-core" ${isAdmin ? '' : 'disabled'}>${coreOptions}</select>
+            <div class="field" style="margin-bottom:8px"><label class="field-label">Passerelle</label>
+              <select class="input" id="pe-edge" ${isAdmin ? '' : 'disabled'}>${edgeOptions}</select>
             </div>
             <div class="field" style="margin-bottom:8px"><label class="field-label">${esc(t('pcatalog.name') || 'Nom')}</label>
               <input class="input" id="pe-name" value="${esc(d.name || '')}"/>
@@ -257,7 +257,7 @@ async function renderPortalCatalogPage(ctx) {
         const msg = document.getElementById('pe-msg');
         try {
           const body = {
-            core_name: document.getElementById('pe-core').value,
+            edge_name: document.getElementById('pe-edge').value,
             name: document.getElementById('pe-name').value.trim(),
             kind: document.getElementById('pe-kind').value,
             host: document.getElementById('pe-host').value.trim(),
@@ -293,6 +293,6 @@ pages['admin-portal-catalog'] = async function() {
   await renderPortalCatalogPage({ mode: 'admin' });
 };
 
-pages['core-portal-catalog'] = async function() {
-  await renderPortalCatalogPage({ mode: 'core' });
+pages['edge-portal-catalog'] = async function() {
+  await renderPortalCatalogPage({ mode: 'edge' });
 };

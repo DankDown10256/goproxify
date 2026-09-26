@@ -1,6 +1,6 @@
 # Référence des labels Docker GoProxify
 
-L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.enable: "true"` et configure le Core en conséquence. Tous les labels sont optionnels sauf `goproxify.enable` et `goproxify.host`.
+L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.enable: "true"` et configure la passerelle en conséquence. Tous les labels sont optionnels sauf `goproxify.enable` et `goproxify.host`.
 
 ---
 
@@ -15,7 +15,7 @@ L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.ena
 | `goproxify.backend` | `http://app:8080` | URL complète du backend (surcharge host+port). |
 | `goproxify.tls` | `"true"` | Active la terminaison TLS (HTTPS public → HTTP interne). |
 | `goproxify.https` | `"true"` | Le backend écoute en HTTPS. |
-| `goproxify.passthrough` | `"true"` | SSL passthrough (le Core ne déchiffre pas). |
+| `goproxify.passthrough` | `"true"` | SSL passthrough (la passerelle ne déchiffre pas). |
 | `goproxify.ip` | `"10.0.1.5"` | Surcharge l'IP auto-détectée du conteneur. |
 
 ---
@@ -84,7 +84,7 @@ L'Agent GoProxify détecte automatiquement les conteneurs portant `goproxify.ena
 
 ## Sécurité — WAF
 
-Le WAF applique les règles OWASP Core Rule Set (CRS) sur les requêtes HTTP.
+Le WAF applique les règles OWASP passerelle Rule Set (CRS) sur les requêtes HTTP.
 
 | Label | Valeurs | Description |
 |---|---|---|
@@ -110,7 +110,7 @@ Le WAF applique les règles OWASP Core Rule Set (CRS) sur les requêtes HTTP.
 
 ## Sécurité — Sentinel (whitelist par route)
 
-Le Sentinel est le moteur global de détection de menaces du Core. Il s'applique **avant le routage**, donc indépendamment des proxies. Ces labels permettent d'exempter certaines sources pour un conteneur donné — les entrées sont fusionnées dans la whitelist globale du Sentinel.
+Le Sentinel est le moteur global de détection de menaces de la passerelle. Il s'applique **avant le routage**, donc indépendamment des proxies. Ces labels permettent d'exempter certaines sources pour un conteneur donné — les entrées sont fusionnées dans la whitelist globale du Sentinel.
 
 > **Note DHCP** : les IPs Docker sont dynamiques. Préférer `.self` ou `.network` plutôt que des IPs statiques dans `.whitelist`.
 
@@ -129,7 +129,7 @@ Le Sentinel est le moteur global de détection de menaces du Core. Il s'applique
 | `goproxify.jwt` | `"https://idp.example.com/.well-known/jwks.json"` | Valide les JWT entrants (signature vérifiée par la clé JWKS du fournisseur). Seule une URL JWKS est acceptée : un secret inline ou `"true"` ne sont **pas** supportés, le label est alors ignoré avec un avertissement dans les logs de l'Agent et la route n'est pas protégée. |
 | `goproxify.jwt.issuer` | `"https://idp.example.com"` | Issuer exigé (optionnel, recommandé). |
 | `goproxify.jwt.audience` | `"my-api"` | Audience exigée (optionnel, recommandé). |
-| `goproxify.mtls` | `"/etc/goproxify/ca.pem"` | Chemin, **côté Core**, du fichier CA (PEM) qui signe les certificats clients ; un certificat client valide est exigé. Si le fichier est illisible, la route répond `503` au lieu de s'ouvrir. `"true"` n'est pas supporté (ignoré avec avertissement). |
+| `goproxify.mtls` | `"/etc/goproxify/ca.pem"` | Chemin, **côté passerelle**, du fichier CA (PEM) qui signe les certificats clients ; un certificat client valide est exigé. Si le fichier est illisible, la route répond `503` au lieu de s'ouvrir. `"true"` n'est pas supporté (ignoré avec avertissement). |
 
 ---
 
@@ -145,7 +145,7 @@ Le Sentinel est le moteur global de détection de menaces du Core. Il s'applique
 
 | Label | Valeurs | Description |
 |---|---|---|
-| `goproxify.logs` | `"true"` | Active le log forwarding (logs Docker → Core). |
+| `goproxify.logs` | `"true"` | Active le log forwarding (logs Docker → passerelle). |
 | `goproxify.logs.format` | `combined` \| `json` \| `minimal` | Format des logs d'accès. |
 | `goproxify.logs.level` | `debug` \| `info` \| `warn` \| `error` | Niveau de log. |
 

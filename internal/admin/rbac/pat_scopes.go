@@ -61,7 +61,7 @@ func ScopeCatalog() []ScopeMeta {
 		ScopeProxiesRead:   "Lister et lire les proxies",
 		ScopeProxiesWrite:  "Créer et modifier les proxies",
 		ScopeProxiesDelete: "Supprimer des proxies",
-		ScopeNodesRead:     "Lister les nœuds / Cores",
+		ScopeNodesRead:     "Lister les nœuds / Passerelles",
 		ScopeNodesWrite:    "Approuver / révoquer Agents et muter les nœuds",
 		ScopeAlertsRead:    "Lister les alertes et règles",
 		ScopeMetricsRead:   "Lire les métriques",

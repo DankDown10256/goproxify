@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// AgentInfo décrit un Agent en attente d'approbation ou actif (vu via WS Core→Admin).
+// AgentInfo décrit un Agent en attente d'approbation ou actif (vu via WS passerelle→Admin).
 type AgentInfo struct {
 	ID       string    `json:"id"`
 	Name     string    `json:"name"`
@@ -21,7 +21,7 @@ type AgentInfo struct {
 	SeenAt   time.Time `json:"seen_at"`
 }
 
-// AgentApprover est implémenté par corews.Manager pour approuver un Agent.
+// AgentApprover est implémenté par edgews.Manager pour approuver un Agent.
 type AgentApprover interface {
 	ApproveAgent(ctx interface{}, agentID string) error
 }
@@ -61,10 +61,10 @@ func (s *AgentStore) List() []AgentInfo {
 	return out
 }
 
-// AgentApproveFunc est la fonction qui, côté Admin, envoie approve_agent aux Cores via WS.
+// AgentApproveFunc est la fonction qui, côté Admin, envoie approve_agent aux passerelles via WS.
 type AgentApproveFunc func(agentID string)
 
-// AgentRevokeFunc envoie revoke_agent aux Cores via WS.
+// AgentRevokeFunc envoie revoke_agent aux passerelles via WS.
 type AgentRevokeFunc func(agentID string)
 
 // AgentsHandler gère la liste et l'approbation des Agents.
@@ -111,7 +111,7 @@ func (h *AgentsHandler) approve(w http.ResponseWriter, r *http.Request, agentID 
 	if h.OnApprove != nil {
 		h.OnApprove(agentID)
 		h.Store.Upsert(agentID, agentID, "", "approved")
-		h.Log.Info("agent: approbation envoyée aux Cores", "agent", agentID)
+		h.Log.Info("agent: approbation envoyée aux passerelles", "agent", agentID)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -126,7 +126,7 @@ func (h *AgentsHandler) revoke(w http.ResponseWriter, r *http.Request, agentID s
 		h.OnRevoke(agentID)
 	}
 	h.Store.Upsert(agentID, agentID, "", "revoked")
-	h.Log.Info("agent: révocation envoyée aux Cores", "agent", agentID)
+	h.Log.Info("agent: révocation envoyée aux passerelles", "agent", agentID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck

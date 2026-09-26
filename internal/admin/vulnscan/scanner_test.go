@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/proxystore"
+	"github.com/vincamok/goproxify/internal/edge/proxystore"
 )
 
 func TestProgressPct(t *testing.T) {
@@ -39,7 +39,7 @@ func TestLoadBackends_ReadsBackendsArray(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Proxies servis par un faux Core.
+	// Proxies servis par un faux passerelle.
 	proxies := []*proxystore.Envelope{
 		{ID: "p1", Host: "app.example.com", Enabled: true, Status: proxystore.StatusProduction,
 			Config: json.RawMessage(`{"host":"app.example.com","type":"http","backends":[{"url":"http://10.0.0.5:3000","weight":1},{"url":"http://10.0.0.6:3000"}]}`)},
@@ -55,7 +55,7 @@ func TestLoadBackends_ReadsBackendsArray(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	_, _ = db.Exec(`INSERT INTO tokens (id, node_name, role, token, node_endpoint, revoked)
-		VALUES ('tok-vs','core-vs','core','gpx_core_vstesttoken',?,0)`, srv.URL)
+		VALUES ('tok-vs','edge-vs','edge','gpx_edge_vstesttoken',?,0)`, srv.URL)
 
 	s := New(db, slog.Default(), "")
 	got := s.loadBackends()

@@ -11,7 +11,7 @@ import (
 // Remplies depuis cmd/goproxify via Set (valeurs ldflags).
 var (
 	Admin   = "dev"
-	Core    = "dev"
+	Edge    = "dev"
 	Agent   = "dev"
 	Webapp  = "dev"
 	Landing = "dev"
@@ -20,12 +20,12 @@ var (
 )
 
 // Set enregistre les versions du binaire (appelé une fois depuis main).
-func Set(admin, core, agent, webapp, landing, commit, built string) {
+func Set(admin, edge, agent, webapp, landing, commit, built string) {
 	if admin != "" {
 		Admin = admin
 	}
-	if core != "" {
-		Core = core
+	if edge != "" {
+		Edge = edge
 	}
 	if agent != "" {
 		Agent = agent

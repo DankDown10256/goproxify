@@ -20,7 +20,7 @@ type CertObtainer interface {
 	ObtainCert(ctx context.Context, domain string) error
 }
 
-// CertImportPusher pousse un cert importé vers les Cores connectés.
+// CertImportPusher pousse un cert importé vers les passerelles connectées.
 type CertImportPusher interface {
 	PushCert(ctx context.Context, name string, certPEM, keyPEM []byte)
 }
@@ -30,7 +30,7 @@ type CertsHandler struct {
 	DB      *sql.DB
 	Log     *slog.Logger
 	Manager CertObtainer
-	// Pusher optionnel — pousse les certs importés manuellement vers les Cores.
+	// Pusher optionnel — pousse les certs importés manuellement vers les passerelles.
 	Pusher CertImportPusher
 }
 
@@ -279,7 +279,7 @@ func (h *CertsHandler) importCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pousse vers les Cores si disponible
+	// Pousse vers les passerelles si disponible
 	if h.Pusher != nil {
 		go h.Pusher.PushCert(context.Background(), domain, []byte(req.CertPEM), []byte(req.KeyPEM))
 	}

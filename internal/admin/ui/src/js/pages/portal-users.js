@@ -1,10 +1,10 @@
-// ── PAGE PARTAGÉE: Users portail Access (Admin + Core)
+// ── PAGE PARTAGÉE: Users portail Access (Admin + Passerelle)
 async function renderPortalUsersPage(ctx) {
   const mode = ctx.mode || 'admin';
   const isAdmin = mode === 'admin';
-  const core = isAdmin ? null : state.selectedCore;
-  const coreName = core?.node_name || '';
-  const coreLabel = core ? (core.display_name || coreName || '—') : '';
+  const edge = isAdmin ? null : state.selectedEdge;
+  const edgeName = edge?.node_name || '';
+  const edgeLabel = edge ? (edge.display_name || edgeName || '—') : '';
 
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
@@ -13,31 +13,31 @@ async function renderPortalUsersPage(ctx) {
     ${esc(t('common.loading') || 'Chargement…')}
   </div>`;
 
-  if (!isAdmin && !coreName) {
-    content.innerHTML = `<div class="empty"><p>${esc(t('portal.need_core') || 'Sélectionnez un Core')}</p></div>`;
+  if (!isAdmin && !edgeName) {
+    content.innerHTML = `<div class="empty"><p>${esc(t('portal.need_edge') || 'Sélectionnez une passerelle')}</p></div>`;
     return;
   }
 
   try {
-    const path = isAdmin ? '/portal/users' : '/portal/users?core=' + encodeURIComponent(coreName);
+    const path = isAdmin ? '/portal/users' : '/portal/users?edge=' + encodeURIComponent(edgeName);
     const [usersRes, nodesRes] = await Promise.all([
       api('GET', path).catch(() => ({ users: [] })),
       isAdmin ? api('GET', '/nodes').catch(() => []) : Promise.resolve([]),
     ]);
     let users = usersRes.users || [];
     if (!Array.isArray(users)) users = [];
-    const cores = (nodesRes || []).filter(n => n.role === 'core');
+    const edges = (nodesRes || []).filter(n => n.role === 'edge');
     window._portalUsersAll = users;
-    window._portalUsersCores = cores;
-    if (!window._puFilter) window._puFilter = { core: '', status: '', q: '' };
+    window._portalUsersEdges = edges;
+    if (!window._puFilter) window._puFilter = { edge: '', status: '', q: '' };
 
     const filtered = () => {
       const f = window._puFilter;
       return (window._portalUsersAll || []).filter(u => {
-        if (f.core && u.home_core !== f.core) return false;
+        if (f.edge && u.home_edge !== f.edge) return false;
         if (f.status && u.status !== f.status) return false;
         if (f.q) {
-          const hay = [u.email, u.home_core, ...(u.tags || [])].join(' ').toLowerCase();
+          const hay = [u.email, u.home_edge, ...(u.tags || [])].join(' ').toLowerCase();
           if (!hay.includes(f.q.toLowerCase())) return false;
         }
         return true;
@@ -59,10 +59,10 @@ async function renderPortalUsersPage(ctx) {
       document.getElementById('topbar-actions').innerHTML = `
         <button class="btn btn-primary" id="pu-invite">${esc(t('pusers.invite') || 'Inviter')}</button>`;
 
-      const chips = isAdmin ? cores.map(c => {
+      const chips = isAdmin ? edges.map(c => {
         const nn = c.node_name || c.id;
-        const active = window._puFilter.core === nn;
-        return `<button type="button" class="chip" data-core="${esc(nn)}" style="cursor:pointer;${active ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(c.display_name || nn)}</button>`;
+        const active = window._puFilter.edge === nn;
+        return `<button type="button" class="chip" data-edge="${esc(nn)}" style="cursor:pointer;${active ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(c.display_name || nn)}</button>`;
       }).join('') : '';
 
       content.innerHTML = `
@@ -73,7 +73,7 @@ async function renderPortalUsersPage(ctx) {
           <p style="margin:0;font-size:13px;color:var(--text2)">
             ${isAdmin
               ? esc(t('pusers.sub_admin') || 'Comptes portail — invitation par email (SMTP requis).')
-              : (t('pusers.sub_core') || 'Comptes de {name}.').replace('{name}', '<strong>' + esc(coreLabel) + '</strong>')}
+              : (t('pusers.sub_edge') || 'Comptes de {name}.').replace('{name}', '<strong>' + esc(edgeLabel) + '</strong>')}
           </p>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center">
@@ -85,7 +85,7 @@ async function renderPortalUsersPage(ctx) {
             <option value="disabled" ${window._puFilter.status === 'disabled' ? 'selected' : ''}>disabled</option>
           </select>
           ${isAdmin ? `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-            <button type="button" class="chip" data-core="" style="cursor:pointer;${!window._puFilter.core ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(t('pcatalog.all_cores') || 'Tous')}</button>
+            <button type="button" class="chip" data-edge="" style="cursor:pointer;${!window._puFilter.edge ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(t('pcatalog.all_edges') || 'Tous')}</button>
             ${chips}
           </div>` : ''}
         </div>
@@ -95,7 +95,7 @@ async function renderPortalUsersPage(ctx) {
             <thead>
               <tr style="text-align:left;border-bottom:1px solid var(--border);color:var(--text2)">
                 <th style="padding:10px 14px">Email</th>
-                ${isAdmin ? '<th style="padding:10px 14px">Core</th>' : ''}
+                ${isAdmin ? '<th style="padding:10px 14px">Passerelle</th>' : ''}
                 <th style="padding:10px 14px">Tags</th>
                 <th style="padding:10px 14px">Status</th>
                 <th style="padding:10px 14px"></th>
@@ -105,7 +105,7 @@ async function renderPortalUsersPage(ctx) {
               ${items.length ? items.map(u => `
                 <tr style="border-bottom:1px solid var(--border)">
                   <td style="padding:10px 14px;font-weight:500">${esc(u.email)}</td>
-                  ${isAdmin ? `<td style="padding:10px 14px;color:var(--text2)">${esc(u.home_core)}</td>` : ''}
+                  ${isAdmin ? `<td style="padding:10px 14px;color:var(--text2)">${esc(u.home_edge)}</td>` : ''}
                   <td style="padding:10px 14px">${(u.tags || []).map(tg => `<span class="chip" style="font-size:11px">${esc(tg)}</span>`).join(' ') || '—'}</td>
                   <td style="padding:10px 14px">${statusBadge(u.status)}</td>
                   <td style="padding:10px 14px;text-align:right;white-space:nowrap">
@@ -131,8 +131,8 @@ async function renderPortalUsersPage(ctx) {
 
       document.getElementById('pu-q').oninput = (e) => { window._puFilter.q = e.target.value; render(); };
       document.getElementById('pu-status').onchange = (e) => { window._puFilter.status = e.target.value; render(); };
-      content.querySelectorAll('[data-core]').forEach(btn => {
-        btn.onclick = () => { window._puFilter.core = btn.getAttribute('data-core') || ''; render(); };
+      content.querySelectorAll('[data-edge]').forEach(btn => {
+        btn.onclick = () => { window._puFilter.edge = btn.getAttribute('data-edge') || ''; render(); };
       });
       document.getElementById('pu-invite').onclick = () => openInviteModal();
       const emptyInvite = document.getElementById('pu-empty-invite');
@@ -172,13 +172,13 @@ async function renderPortalUsersPage(ctx) {
     }
 
     function openInviteModal() {
-      const defaultCore = isAdmin ? (window._puFilter.core || (cores[0] && (cores[0].node_name || cores[0].id)) || '') : coreName;
-      const coreOpts = isAdmin
-        ? cores.map(c => {
+      const defaultEdge = isAdmin ? (window._puFilter.edge || (edges[0] && (edges[0].node_name || edges[0].id)) || '') : edgeName;
+      const edgeOpts = isAdmin
+        ? edges.map(c => {
             const nn = c.node_name || c.id;
-            return `<option value="${esc(nn)}" ${nn === defaultCore ? 'selected' : ''}>${esc(c.display_name || nn)}</option>`;
+            return `<option value="${esc(nn)}" ${nn === defaultEdge ? 'selected' : ''}>${esc(c.display_name || nn)}</option>`;
           }).join('')
-        : `<option value="${esc(coreName)}">${esc(coreLabel)}</option>`;
+        : `<option value="${esc(edgeName)}">${esc(edgeLabel)}</option>`;
       const overlay = document.createElement('div');
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
       overlay.innerHTML = `
@@ -186,7 +186,7 @@ async function renderPortalUsersPage(ctx) {
           <div style="font-weight:700;font-size:16px;margin-bottom:12px">${esc(t('pusers.invite') || 'Inviter')}</div>
           <div class="field" style="margin-bottom:10px"><label class="field-label">Email</label><input class="input" id="pu-email" type="email"/></div>
           <div class="field" style="margin-bottom:10px"><label class="field-label">Tags</label><input class="input" id="pu-tags" placeholder="prod, ops"/></div>
-          <div class="field" style="margin-bottom:10px"><label class="field-label">Core</label><select class="input" id="pu-core">${coreOpts}</select></div>
+          <div class="field" style="margin-bottom:10px"><label class="field-label">Passerelle</label><select class="input" id="pu-edge">${edgeOpts}</select></div>
           <div id="pu-modal-err" style="font-size:12px;color:var(--danger,#c45c5c);min-height:1.2em;margin-bottom:8px"></div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button class="btn btn-secondary" id="pu-cancel">${esc(t('common.cancel') || 'Annuler')}</button>
@@ -207,7 +207,7 @@ async function renderPortalUsersPage(ctx) {
           await api('POST', '/portal/users/invite', {
             email: overlay.querySelector('#pu-email').value.trim(),
             tags,
-            home_core: overlay.querySelector('#pu-core').value,
+            home_edge: overlay.querySelector('#pu-edge').value,
           });
           overlay.remove();
           toast(t('pusers.invited') || 'Invitation envoyée.');
@@ -275,6 +275,6 @@ async function renderPortalUsersPage(ctx) {
 pages['admin-portal-users'] = async function() {
   await renderPortalUsersPage({ mode: 'admin' });
 };
-pages['core-portal-users'] = async function() {
-  await renderPortalUsersPage({ mode: 'core' });
+pages['edge-portal-users'] = async function() {
+  await renderPortalUsersPage({ mode: 'edge' });
 };

@@ -25,9 +25,9 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/backup"
 	"github.com/vincamok/goproxify/internal/admin/certdeploy"
-	"github.com/vincamok/goproxify/internal/admin/corews"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/edgews"
 	"github.com/vincamok/goproxify/internal/admin/fail2ban"
 	"github.com/vincamok/goproxify/internal/admin/gdpr"
 	"github.com/vincamok/goproxify/internal/admin/ha"
@@ -45,7 +45,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/vulnscan"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	"github.com/vincamok/goproxify/internal/config"
-	coreWS "github.com/vincamok/goproxify/internal/core/ws"
+	edgeWS "github.com/vincamok/goproxify/internal/edge/ws"
 )
 
 // Server est le Control Plane de Goproxify.
@@ -60,7 +60,7 @@ type Server struct {
 	rulesEngine    *rulesengine.Engine
 	logStore       *logs.Store
 	gdprKey        []byte          // clé AES-GCM pseudonymisation RGPD
-	wsManager      *corews.Manager // manager WS Admin→Core
+	wsManager      *edgews.Manager // manager WS Admin→Passerelle
 	loginLimit     *loginLimiter
 }
 
@@ -132,9 +132,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	jwtSecret := s.cfg.Security.JWTSecret
 
-	// Manager WS Admin→Core — HMAC partagé via GPX_PAIRING_SECRET
+	// Manager WS Admin→Passerelle — HMAC partagé via GPX_PAIRING_SECRET
 	hmacSecret := os.Getenv("GPX_PAIRING_SECRET")
-	manager := corews.NewManager(hmacSecret, s.db, s.log)
+	manager := edgews.NewManager(hmacSecret, s.db, s.log)
 	var archStore *archstore.Store
 	if s.cfg.Storage.BasePath != "" {
 		stateDir := filepath.Join(s.cfg.Storage.BasePath, "state")
@@ -157,7 +157,7 @@ func (s *Server) Start(ctx context.Context) error {
 			s.log.Info("pair: Agent auto-accepté (declared/bootstrap)", "id", id, "name", name)
 		}
 	})
-	manager.SetLogBatchHandler(func(entries []coreWS.LogEntryPayload) {
+	manager.SetLogBatchHandler(func(entries []edgeWS.LogEntryPayload) {
 		for _, item := range entries {
 			ts, _ := time.Parse(time.RFC3339Nano, item.Ts)
 			if ts.IsZero() {
@@ -169,7 +169,7 @@ func (s *Server) Start(ctx context.Context) error {
 			s.logStore.Write(logs.Entry{
 				Ts:        ts,
 				Level:     item.Level,
-				Component: nvlStr(item.Component, "core"),
+				Component: nvlStr(item.Component, "edge"),
 				NodeName:  item.NodeName,
 				NodeID:    item.NodeID,
 				Domain:    item.Domain,
@@ -193,7 +193,7 @@ func (s *Server) Start(ctx context.Context) error {
 	proxiesH := &api.ProxiesHandler{DB: s.db, Log: s.log, Pusher: manager, Versioner: backupSched}
 	backupH := &api.BackupHandler{DB: s.db, Log: s.log, Scheduler: backupSched, Pusher: manager}
 	tokensH := &api.TokensHandler{
-		DB: s.db, Log: s.log, Cores: manager, Pusher: manager,
+		DB: s.db, Log: s.log, Edges: manager, Pusher: manager,
 		ArchStore: archStore,
 		OnAgentRevoke: func(agentID string) {
 			manager.BroadcastRevokeAgent(agentID)
@@ -326,7 +326,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}}
 	autoConfigurer := &api.AgentAutoConfigurer{DB: s.db, Log: s.log, Nodes: nodesH}
 	go autoConfigurer.Start(ctx)
-	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, CoreNodeName: s.cfg.Identity.CoreNodeName, Scheduler: backupSched, ArchStore: archStore}
+	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, EdgeNodeName: s.cfg.Identity.EdgeNodeName, Scheduler: backupSched, ArchStore: archStore}
 	architectureH := &api.ArchitectureHandler{DB: s.db, Log: s.log, Store: archStore, OnRestore: func() {
 		if manager != nil {
 			go manager.ReloadArchitecture(context.Background())
@@ -403,9 +403,9 @@ func (s *Server) Start(ctx context.Context) error {
 		CrowdSec:     csBouncer,
 		ScanCtx:      ctx,
 		OnBansChange: pushBans,
-		OnThreatConfigChange: func(coreRef string, cfg any) {
+		OnThreatConfigChange: func(edgeRef string, cfg any) {
 			if manager != nil {
-				go manager.PushThreatConfig(context.Background(), coreRef, cfg)
+				go manager.PushThreatConfig(context.Background(), edgeRef, cfg)
 			}
 		},
 		OnServerConfigChange: func(cfg any) {
@@ -494,7 +494,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Log:   s.log,
 		Store: agentStore,
 		OnApprove: func(agentID string) {
-			// Broadcaster approve_agent à tous les Cores — le Core qui a l'Agent le traitera
+			// Broadcaster approve_agent à toutes les passerelles — la passerelle qui a l'Agent le traitera
 			manager.BroadcastApproveAgent(agentID)
 		},
 		OnRevoke: func(agentID string) {
@@ -595,11 +595,11 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/auth/mfa/webauthn/login/begin", mfaH.ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/mfa/webauthn/login/finish", mfaH.ServeHTTP)
 
-	// Routes internes — Cores et Agents (token d'appairage)
+	// Routes internes — passerelles et Agents (token d'appairage)
 	mux.HandleFunc("POST /internal/v1/pair", s.handlePair)
 	mux.HandleFunc("GET /internal/v1/pair/status", s.handlePairStatus)
-	mux.Handle("POST /internal/v1/cores/register", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleCoreRegister(manager))))
-	mux.Handle("GET /internal/v1/routes", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleCoreRoutes)))
+	mux.Handle("POST /internal/v1/edges/register", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleEdgeRegister(manager))))
+	mux.Handle("GET /internal/v1/routes", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleEdgeRoutes)))
 	mux.Handle("GET /internal/v1/nodes/metrics", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleNodeMetrics)))
 	mux.Handle("/internal/v1/logs", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleAgentLogs)))
 	mux.Handle("/internal/v1/security/bans", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleInternalBans)))
@@ -607,7 +607,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/internal/v1/security/cves", auth.RequireBearerToken(s.db)(http.HandlerFunc(s.handleInternalCVEs)))
 
 	// Middleware d'accès : JWT session UI ou PAT utilisateur ; scopes PAT appliqués ensuite.
-	// Les sessions UI (JWT) mémorisent l'origine publique pour les liens des pages d'erreur Core.
+	// Les sessions UI (JWT) mémorisent l'origine publique pour les liens des pages d'erreur passerelle.
 	protected := func(h http.Handler) http.Handler {
 		return auth.RequireAuth(jwtSecret, s.db)(rbac.EnforcePATScope(s.db)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if auth.AuthKindFromContext(r.Context()) == auth.AuthKindJWT {
@@ -678,7 +678,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/security/", adminOnly(securityH))
 	mux.Handle("/api/v1/rules-engine/", adminOnly(reH))
 	mux.Handle("/api/v1/rules-engine", adminOnly(reH))
-	mux.Handle("GET /api/v1/cores/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /api/v1/edges/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.db.QueryContext(r.Context(),
 			`SELECT key, value FROM settings WHERE key LIKE 'waf_reloaded_at:%'`)
 		if err != nil {
@@ -775,7 +775,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/internal/v1/events", auth.RequireBearerToken(s.db)(nodeEventsH))
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.Server.ListenAddr, s.cfg.Server.APIPort)
-	var handler http.Handler = s.logMiddleware(mux)
+	var handler http.Handler = legacyCoreAPI(s.logMiddleware(mux))
 	if s.haManager != nil {
 		handler = s.haManager.ForwardOrHandle(handler)
 	}
@@ -805,7 +805,7 @@ func (s *Server) Start(ctx context.Context) error {
 		}()
 	}
 
-	// Port local de secours : accès direct sans passer par le Core.
+	// Port local de secours : accès direct sans passer par la passerelle.
 	// Utile si Sentinel ou une règle de sécurité bloque l'accès proxifié.
 	if s.cfg.Server.LocalPort > 0 {
 		localAddr := fmt.Sprintf("0.0.0.0:%d", s.cfg.Server.LocalPort)

@@ -20,7 +20,7 @@ import (
 type DeclaredNodesHandler struct {
 	DB           *sql.DB
 	Log          *slog.Logger
-	CoreNodeName string // depuis admin.json identity.core_node_name ; sert de base déclarative
+	EdgeNodeName string // depuis admin.json identity.edge_node_name ; sert de base déclarative
 	Scheduler    *backup.Scheduler
 	ArchStore    *archstore.Store // nil = pas de persistance disque
 }
@@ -77,25 +77,25 @@ func (h *DeclaredNodesHandler) list(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 
 	// Compléter avec les nœuds dérivés des fichiers config (source de vérité déclarative).
-	// 1. Core principal déclaré dans admin.json (identity.core_node_name).
-	// N'ajouter le Core env-var que si aucun Core n'est déjà déclaré en DB (évite doublon
-	// quand l'opérateur renomme le Core principal via le Wizard).
+	// 1. Passerelle principale déclaré dans admin.json (identity.edge_node_name).
+	// N'ajouter la passerelle env-var que si aucune passerelle n'est déjà déclaré en DB (évite doublon
+	// quand l'opérateur renomme la passerelle principale via le Wizard).
 	hasDBCore := false
 	for k := range inDB {
-		if len(k) > 5 && k[:5] == "core:" {
+		if len(k) > 5 && k[:5] == "edge:" {
 			hasDBCore = true
 			break
 		}
 	}
-	if h.CoreNodeName != "" && !inDB["core:"+h.CoreNodeName] && !hasDBCore {
+	if h.EdgeNodeName != "" && !inDB["edge:"+h.EdgeNodeName] && !hasDBCore {
 		result = append(result, declaredNode{
-			ID:     "cfg:core:" + h.CoreNodeName,
-			Role:   "core",
-			Name:   h.CoreNodeName,
+			ID:     "cfg:edge:" + h.EdgeNodeName,
+			Role:   "edge",
+			Name:   h.EdgeNodeName,
 			Config: json.RawMessage(`{"source":"config"}`),
 		})
 	}
-	// 2. Nœuds enregistrés via tokens (cores + agents appairés).
+	// 2. Nœuds enregistrés via tokens (edges + agents appairés).
 	trows, _ := h.DB.QueryContext(r.Context(),
 		`SELECT role, node_name, node_endpoint FROM tokens WHERE revoked=0 AND node_name!='' ORDER BY created_at`)
 	if trows != nil {
@@ -105,7 +105,7 @@ func (h *DeclaredNodesHandler) list(w http.ResponseWriter, r *http.Request) {
 			if err := trows.Scan(&role, &name, &endpoint); err != nil {
 				continue
 			}
-			if role != "core" && role != "agent" {
+			if role != "edge" && role != "agent" {
 				continue
 			}
 			if inDB[role+":"+name] {
@@ -128,7 +128,7 @@ func (h *DeclaredNodesHandler) list(w http.ResponseWriter, r *http.Request) {
 func (h *DeclaredNodesHandler) ensureTable() {
 	h.DB.Exec(`CREATE TABLE IF NOT EXISTS declared_nodes (
 		id         TEXT PRIMARY KEY,
-		role       TEXT NOT NULL CHECK(role IN ('core','agent')),
+		role       TEXT NOT NULL CHECK(role IN ('edge','agent')),
 		name       TEXT NOT NULL,
 		region     TEXT NOT NULL DEFAULT '',
 		environment TEXT NOT NULL DEFAULT '',
@@ -150,8 +150,8 @@ func (h *DeclaredNodesHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json")
 		return
 	}
-	if req.Role != "core" && req.Role != "agent" {
-		http.Error(w, "role invalide (core|agent)", http.StatusBadRequest)
+	if req.Role != "edge" && req.Role != "agent" {
+		http.Error(w, "role invalide (edge|agent)", http.StatusBadRequest)
 		return
 	}
 	if req.Name == "" {

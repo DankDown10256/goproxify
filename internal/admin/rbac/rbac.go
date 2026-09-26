@@ -11,7 +11,7 @@
 //
 // Grant = (scope_type, scope_value, access_mode read|write) :
 //
-//	core   : glob sur node_name du Core → accès à toutes ses ressources
+//	edge   : glob sur node_name de la passerelle → accès à toutes ses ressources
 //	domain : glob sur Route.Host
 //	proxy  : identifiant exact d'un proxy
 //	server : glob sur Backend.URL
@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"github.com/vincamok/goproxify/internal/admin/auth"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // Access modes pour un grant.
@@ -34,9 +34,9 @@ const (
 	AccessWrite = "write"
 )
 
-// Scope représente un périmètre d'accès (tokens Core / match route).
+// Scope représente un périmètre d'accès (tokens passerelle / match route).
 type Scope struct {
-	Type  string // "domain" | "server" | "proxy" | "core"
+	Type  string // "domain" | "server" | "proxy" | "edge"
 	Value string
 }
 
@@ -71,9 +71,9 @@ func (s Scope) match(route *router.Route) bool {
 				return true
 			}
 		}
-	case "core":
-		// Un scope core donne accès à toutes les routes (push global vers tous les Cores).
-		// La restriction de visibilité Core se fait au niveau de la nav, pas des routes.
+	case "edge":
+		// Un scope edge donne accès à toutes les routes (push global vers toutes les passerelles).
+		// La restriction de visibilité passerelle se fait au niveau de la nav, pas des routes.
 		return true
 	}
 	return false
@@ -103,7 +103,7 @@ func MatchRoute(scopes []Scope, route *router.Route) bool {
 	return false
 }
 
-// RouteAllowedByToken indique si une route est dans le périmètre d'un token Core.
+// RouteAllowedByToken indique si une route est dans le périmètre d'un token passerelle.
 // Même sémantique que FilterRoutesByScopes : admin sans scope → tout ; sinon match.
 // Streams L4 (tcp/udp) : pas de domaine DNS — hors périmètre token_scopes domain.
 func RouteAllowedByToken(role string, scopes []Scope, route *router.Route) bool {
@@ -133,32 +133,32 @@ func FilterRoutesByScopes(role string, scopes []Scope, routes []router.Route) []
 	return filtered
 }
 
-// ResolveCoreToken résout un token Core par UUID ou node_name.
+// ResolveEdgeToken résout un token passerelle par UUID ou node_name.
 // Préfère l'ID exact, puis un token avec endpoint, puis le plus récent.
 // Sans périmètre (scopes vides) + rôle admin → accès à tous les domaines.
-func ResolveCoreToken(ctx context.Context, db *sql.DB, ref string) (tokenID, rbacRole string) {
-	acc := ResolveCoreAccess(ctx, db, ref)
+func ResolveEdgeToken(ctx context.Context, db *sql.DB, ref string) (tokenID, rbacRole string) {
+	acc := ResolveEdgeAccess(ctx, db, ref)
 	return acc.TokenID, acc.Role
 }
 
-// CoreAccess est le rôle + scopes effectifs pour un Core (push / UI).
-type CoreAccess struct {
+// EdgeAccess est le rôle + scopes effectifs pour une passerelle (push / UI).
+type EdgeAccess struct {
 	TokenID string
 	Role    string
 	Scopes  []Scope
 }
 
-// ResolveCoreAccess résout le meilleur token Core pour une référence (uuid ou node_name).
-func ResolveCoreAccess(ctx context.Context, db *sql.DB, ref string) CoreAccess {
+// ResolveEdgeAccess résout le meilleur token passerelle pour une référence (uuid ou node_name).
+func ResolveEdgeAccess(ctx context.Context, db *sql.DB, ref string) EdgeAccess {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return CoreAccess{}
+		return EdgeAccess{}
 	}
 	var id, role string
 	err := db.QueryRowContext(ctx, `
 		SELECT t.id, COALESCE(t.rbac_role,'admin')
 		FROM tokens t
-		WHERE t.role='core' AND t.revoked=0
+		WHERE t.role='edge' AND t.revoked=0
 		  AND (t.expires_at IS NULL OR t.expires_at > CURRENT_TIMESTAMP)
 		  AND (t.id=? OR t.node_name=?)
 		ORDER BY
@@ -167,32 +167,32 @@ func ResolveCoreAccess(ctx context.Context, db *sql.DB, ref string) CoreAccess {
 		  t.created_at DESC
 		LIMIT 1`, ref, ref, ref).Scan(&id, &role)
 	if err != nil || id == "" {
-		return CoreAccess{}
+		return EdgeAccess{}
 	}
 	scopes, _ := TokenScopes(ctx, db, id)
-	return CoreAccess{TokenID: id, Role: role, Scopes: scopes}
+	return EdgeAccess{TokenID: id, Role: role, Scopes: scopes}
 }
 
-// LoadCoreAccess charge le rôle et les scopes du token indiqué.
+// LoadEdgeAccess charge le rôle et les scopes du token indiqué.
 // Scopes vides + admin = tous les domaines (pas de bascule vers un autre token).
-func LoadCoreAccess(ctx context.Context, db *sql.DB, tokenID, nodeName string) CoreAccess {
+func LoadEdgeAccess(ctx context.Context, db *sql.DB, tokenID, nodeName string) EdgeAccess {
 	tokenID = strings.TrimSpace(tokenID)
 	if tokenID == "" {
 		if nodeName = strings.TrimSpace(nodeName); nodeName != "" {
-			return ResolveCoreAccess(ctx, db, nodeName)
+			return ResolveEdgeAccess(ctx, db, nodeName)
 		}
-		return CoreAccess{}
+		return EdgeAccess{}
 	}
 	role := "admin"
 	_ = db.QueryRowContext(ctx,
 		`SELECT COALESCE(rbac_role,'admin') FROM tokens WHERE id=?`, tokenID).Scan(&role)
 	scopes, _ := TokenScopes(ctx, db, tokenID)
-	return CoreAccess{TokenID: tokenID, Role: role, Scopes: scopes}
+	return EdgeAccess{TokenID: tokenID, Role: role, Scopes: scopes}
 }
 
-// ShouldReceiveCert indique si un Core doit recevoir le certificat nommé certName
+// ShouldReceiveCert indique si une passerelle doit recevoir le certificat nommé certName
 // (ex: "*.dankdown.fr" ou "api.example.fr").
-// Même sémantique que les routes : admin sans périmètre → tout ; sinon match domaine/core.
+// Même sémantique que les routes : admin sans périmètre → tout ; sinon match domaine/edge.
 func ShouldReceiveCert(role string, scopes []Scope, certName string) bool {
 	if IsSuperAdminRole(role) || (IsAdminRole(role) && len(scopes) == 0) {
 		return true
@@ -217,8 +217,8 @@ func MatchCertName(scopes []Scope, certName string) bool {
 	}
 	for _, s := range scopes {
 		switch s.Type {
-		case "core":
-			// Comme pour les routes : un scope core donne accès global aux ressources poussées.
+		case "edge":
+			// Comme pour les routes : un scope edge donne accès global aux ressources poussées.
 			return true
 		case "domain":
 			for _, c := range candidates {
@@ -506,16 +506,16 @@ func CanReadDomainWithGrants(role string, grants []Grant, domain string) bool {
 		if g.Type == "domain" && hostMatchesDomainScope(g.Value, domain) {
 			return true
 		}
-		if g.Type == "core" {
+		if g.Type == "edge" {
 			return true
 		}
 	}
 	return false
 }
 
-// UserScopedCoreGlobs retourne les globs de Cores accessibles via scope type "core".
+// UserScopedEdgeGlobs retourne les globs de passerelles accessibles via scope type "edge".
 // Retourne nil si l'utilisateur a un accès global (superadmin ou admin sans grants).
-func UserScopedCoreGlobs(ctx context.Context, db *sql.DB, userID string) []string {
+func UserScopedEdgeGlobs(ctx context.Context, db *sql.DB, userID string) []string {
 	role := UserRole(ctx, db, userID)
 	grants, _ := UserEffectiveGrants(ctx, db, userID)
 	if IsSuperAdminRole(role) || (IsAdminRole(role) && len(grants) == 0) {
@@ -523,14 +523,14 @@ func UserScopedCoreGlobs(ctx context.Context, db *sql.DB, userID string) []strin
 	}
 	var globs []string
 	for _, g := range grants {
-		if g.Type == "core" {
+		if g.Type == "edge" {
 			globs = append(globs, g.Value)
 		}
 	}
 	return globs
 }
 
-// --- Droits token (Core/Agent) ---
+// --- Droits token (Passerelle/Agent) ---
 
 // TokenScopes retourne les scopes associés à un token (par ID de token).
 func TokenScopes(ctx context.Context, db *sql.DB, tokenID string) ([]Scope, error) {

@@ -14,16 +14,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/auth"
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
-	"github.com/vincamok/goproxify/internal/core/proxystore"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/proxystore"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
-// listFiles lists production proxies from connected Cores (dedup by id).
+// listFiles lists production proxies from connected Edges (dedup by id).
 func (h *ProxiesHandler) listFiles(w http.ResponseWriter, r *http.Request) {
-	targets, err := coreproxy.ListTargets(r.Context(), h.DB)
+	targets, err := edgeproxy.ListTargets(r.Context(), h.DB)
 	if err != nil {
 		h.Log.Error("proxies/files: targets", "err", err)
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -34,16 +34,16 @@ func (h *ProxiesHandler) listFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	byID := map[string]proxyRow{}
 	userID := auth.UserIDFromContext(r.Context())
-	coreRef := r.URL.Query().Get("core")
-	var coreAccess rbac.CoreAccess
-	filterByCore := coreRef != ""
-	if filterByCore {
-		coreAccess = rbac.ResolveCoreAccess(r.Context(), h.DB, coreRef)
-		if coreAccess.TokenID == "" {
-			coreAccess.Role = "viewer"
+	edgeRef := r.URL.Query().Get("edge")
+	var edgeAccess rbac.EdgeAccess
+	filterByEdge := edgeRef != ""
+	if filterByEdge {
+		edgeAccess = rbac.ResolveEdgeAccess(r.Context(), h.DB, edgeRef)
+		if edgeAccess.TokenID == "" {
+			edgeAccess.Role = "viewer"
 		}
 	}
 
@@ -52,13 +52,13 @@ func (h *ProxiesHandler) listFiles(w http.ResponseWriter, r *http.Request) {
 	userRole := rbac.UserRole(r.Context(), h.DB, userID)
 	userGrants, _ := rbac.UserEffectiveGrants(r.Context(), h.DB, userID)
 	for _, t := range targets {
-		if filterByCore && t.ID != coreRef && t.NodeName != coreRef {
+		if filterByEdge && t.ID != edgeRef && t.NodeName != edgeRef {
 			continue
 		}
 		res, err := client.List(r.Context(), t)
 		if err != nil {
 			lastListErr = err
-			h.Log.Warn("proxies/files: list core", "core", t.NodeName, "err", err)
+			h.Log.Warn("proxies/files: list edge", "edge", t.NodeName, "err", err)
 			continue
 		}
 		listOK++
@@ -73,15 +73,15 @@ func (h *ProxiesHandler) listFiles(w http.ResponseWriter, r *http.Request) {
 			if !rbac.CanReadProxyWithGrants(userRole, userGrants, &route) {
 				continue
 			}
-			if filterByCore && !rbac.RouteAllowedByToken(coreAccess.Role, coreAccess.Scopes, &route) {
+			if filterByEdge && !rbac.RouteAllowedByToken(edgeAccess.Role, edgeAccess.Scopes, &route) {
 				continue
 			}
 			byID[row.ID] = row
 		}
 	}
 	if listOK == 0 && lastListErr != nil {
-		h.Log.Error("proxies/files: aucun Core n'a répondu au list", "err", lastListErr)
-		h.writeCoreErr(w, r, lastListErr)
+		h.Log.Error("proxies/files: aucune passerelle n'a répondu au list", "err", lastListErr)
+		h.writeEdgeErr(w, r, lastListErr)
 		return
 	}
 
@@ -94,7 +94,7 @@ func (h *ProxiesHandler) listFiles(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProxiesHandler) getFiles(w http.ResponseWriter, r *http.Request, id string) {
 	env, err := h.fetchProd(r.Context(), id)
-	if errors.Is(err, errNoCore) {
+	if errors.Is(err, errNoEdge) {
 		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
 		return
 	}
@@ -135,7 +135,7 @@ func (h *ProxiesHandler) createFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	prod, err := h.publishAll(r.Context(), route.ID, route.Host, enabled, json.RawMessage(cfgJSON), userID)
 	if err != nil {
-		h.writeCoreErr(w, r, err)
+		h.writeEdgeErr(w, r, err)
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, userID, "create", "proxy:"+route.ID, route.Host)
@@ -168,7 +168,7 @@ func (h *ProxiesHandler) updateFiles(w http.ResponseWriter, r *http.Request, id 
 	}
 	prod, err := h.publishAll(r.Context(), id, route.Host, enabled, json.RawMessage(cfgJSON), userID)
 	if err != nil {
-		h.writeCoreErr(w, r, err)
+		h.writeEdgeErr(w, r, err)
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, userID, "update", "proxy:"+id, route.Host)
@@ -198,7 +198,7 @@ func (h *ProxiesHandler) patchFiles(w http.ResponseWriter, r *http.Request, id s
 	}
 	_, err = h.publishAll(r.Context(), id, existing.Host, *body.Enabled, existing.Config, userID)
 	if err != nil {
-		h.writeCoreErr(w, r, err)
+		h.writeEdgeErr(w, r, err)
 		return
 	}
 	state := "désactivé"
@@ -222,29 +222,29 @@ func (h *ProxiesHandler) deleteFiles(w http.ResponseWriter, r *http.Request, id 
 		writeErr(w, r, http.StatusForbidden, "api.err.delete_admin")
 		return
 	}
-	targets, err := coreproxy.ListTargets(r.Context(), h.DB)
+	targets, err := edgeproxy.ListTargets(r.Context(), h.DB)
 	if err != nil || len(targets) == 0 {
 		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
 		return
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	var lastErr error
 	for _, t := range targets {
 		if err := client.Delete(r.Context(), t, id); err != nil {
 			lastErr = err
-			h.Log.Warn("proxies/files: delete", "core", t.NodeName, "err", err)
+			h.Log.Warn("proxies/files: delete", "edge", t.NodeName, "err", err)
 		}
 	}
 	if lastErr != nil {
-		h.writeCoreErr(w, r, lastErr)
+		h.writeEdgeErr(w, r, lastErr)
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, userID, "delete", "proxy:"+id, "")
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// MigrateToCoreHandler POST /api/v1/proxies/migrate-to-core
-// Publie chaque proxy SQLite vers les Cores (create→dry-run→promote), puis optionnellement vide SQLite.
+// MigrateToEdgeHandler POST /api/v1/proxies/migrate-to-edge
+// Publie chaque proxy SQLite vers les passerelles (create→dry-run→promote), puis optionnellement vide SQLite.
 type MigrateProxiesHandler struct {
 	DB  *sql.DB
 	Log *slog.Logger
@@ -260,9 +260,9 @@ func (h *MigrateProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	}
 	_ = json.NewDecoder(r.Body).Decode(&opts)
 
-	targets, err := coreproxy.ListTargets(r.Context(), h.DB)
+	targets, err := edgeproxy.ListTargets(r.Context(), h.DB)
 	if err != nil || len(targets) == 0 {
-		http.Error(w, "aucun Core joignable", http.StatusServiceUnavailable)
+		http.Error(w, "aucune passerelle joignable", http.StatusServiceUnavailable)
 		return
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
@@ -279,7 +279,7 @@ func (h *MigrateProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		OK     bool   `json:"ok"`
 		Error  string `json:"error,omitempty"`
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	results := make([]item, 0)
 	actor := auth.UserIDFromContext(r.Context())
 	for rows.Next() {
@@ -295,7 +295,7 @@ func (h *MigrateProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 			prod, err = client.Publish(r.Context(), t, id, name, enabled == 1, json.RawMessage(cfg), actor)
 			if err != nil {
 				lastErr = err
-				h.Log.Warn("migrate proxy", "id", id, "core", t.NodeName, "err", err)
+				h.Log.Warn("migrate proxy", "id", id, "edge", t.NodeName, "err", err)
 				continue
 			}
 			lastErr = nil
@@ -325,21 +325,21 @@ func (h *MigrateProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	_ = admindb.WriteAudit(h.DB, actor, "migrate", "proxies", "to-core")
+	_ = admindb.WriteAudit(h.DB, actor, "migrate", "proxies", "to-edge")
 	jsonOK(w, map[string]any{
 		"migrated":      results,
 		"purged_sqlite": purged,
 	})
 }
 
-var errNoCore = errors.New("no core")
+var errNoEdge = errors.New("no edge")
 
 func (h *ProxiesHandler) fetchProd(ctx context.Context, id string) (*proxystore.Envelope, error) {
-	targets, err := coreproxy.ListTargets(ctx, h.DB)
+	targets, err := edgeproxy.ListTargets(ctx, h.DB)
 	if err != nil || len(targets) == 0 {
-		return nil, errNoCore
+		return nil, errNoEdge
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	var last error
 	for _, t := range targets {
 		env, err := client.Get(ctx, t, id)
@@ -349,20 +349,20 @@ func (h *ProxiesHandler) fetchProd(ctx context.Context, id string) (*proxystore.
 		last = err
 	}
 	if last == nil {
-		last = errNoCore
+		last = errNoEdge
 	}
 	return nil, last
 }
 
 func (h *ProxiesHandler) publishAll(ctx context.Context, id, host string, enabled bool, config json.RawMessage, createdBy string) (*proxystore.Envelope, error) {
-	targets, err := coreproxy.ListTargets(ctx, h.DB)
+	targets, err := edgeproxy.ListTargets(ctx, h.DB)
 	if err != nil {
 		return nil, err
 	}
 	if len(targets) == 0 {
-		return nil, errNoCore
+		return nil, errNoEdge
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	var prod *proxystore.Envelope
 	var lastErr error
 	ok := 0
@@ -370,7 +370,7 @@ func (h *ProxiesHandler) publishAll(ctx context.Context, id, host string, enable
 		p, err := client.Publish(ctx, t, id, host, enabled, config, createdBy)
 		if err != nil {
 			lastErr = err
-			h.Log.Warn("proxies/files: publish", "core", t.NodeName, "err", err)
+			h.Log.Warn("proxies/files: publish", "edge", t.NodeName, "err", err)
 			continue
 		}
 		prod = p
@@ -378,7 +378,7 @@ func (h *ProxiesHandler) publishAll(ctx context.Context, id, host string, enable
 	}
 	if ok == 0 {
 		if lastErr == nil {
-			lastErr = errNoCore
+			lastErr = errNoEdge
 		}
 		return nil, lastErr
 	}
@@ -393,8 +393,8 @@ func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, p
 	toRev := r.URL.Query().Get("to")
 
 	prod, err := h.fetchProd(ctx, proxyID)
-	if errors.Is(err, errNoCore) {
-		writeErr(w, r, http.StatusServiceUnavailable, "api.err.no_core")
+	if errors.Is(err, errNoEdge) {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.no_edge")
 		return
 	}
 	if err != nil {
@@ -402,9 +402,9 @@ func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 
-	// Chercher les révisions sur le même Core qui a répondu pour prod.
-	targets, _ := coreproxy.ListTargets(ctx, h.DB)
-	client := coreproxy.NewClient()
+	// Chercher les révisions sur la même passerelle qui a répondu pour prod.
+	targets, _ := edgeproxy.ListTargets(ctx, h.DB)
+	client := edgeproxy.NewClient()
 	var revisions []*proxystore.Envelope
 	for _, t := range targets {
 		rv, err := client.ListRevisions(ctx, t, proxyID)
@@ -497,8 +497,8 @@ func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, p
 	})
 }
 
-func (h *ProxiesHandler) writeCoreErr(w http.ResponseWriter, r *http.Request, err error) {
-	var he *coreproxy.HTTPError
+func (h *ProxiesHandler) writeEdgeErr(w http.ResponseWriter, r *http.Request, err error) {
+	var he *edgeproxy.HTTPError
 	if errors.As(err, &he) {
 		if he.Status == http.StatusUnprocessableEntity {
 			w.Header().Set("Content-Type", "application/json")
@@ -509,12 +509,12 @@ func (h *ProxiesHandler) writeCoreErr(w http.ResponseWriter, r *http.Request, er
 		http.Error(w, he.Body, he.Status)
 		return
 	}
-	if errors.Is(err, errNoCore) {
+	if errors.Is(err, errNoEdge) {
 		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
 		return
 	}
-	h.Log.Error("proxies/files: core injoignable", "err", err)
-	writeErr(w, r, http.StatusServiceUnavailable, "api.err.core_unreachable")
+	h.Log.Error("proxies/files: edge injoignable", "err", err)
+	writeErr(w, r, http.StatusServiceUnavailable, "api.err.edge_unreachable")
 }
 
 func envelopeToRow(env *proxystore.Envelope) proxyRow {

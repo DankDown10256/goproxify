@@ -1,0 +1,724 @@
+// Copyright 2024-2026 Vincamok / GoProxify contributors
+// SPDX-License-Identifier: Apache-2.0
+
+// Package edgepush envoie les mises à jour de routes et de certificats
+// aux passerelles enregistrées via l'API interne :8000.
+package edgepush
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/vincamok/goproxify/internal/admin/auth"
+	"github.com/vincamok/goproxify/internal/admin/delegation"
+	"github.com/vincamok/goproxify/internal/admin/rbac"
+	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
+	"github.com/vincamok/goproxify/internal/edge/errorpages"
+	"github.com/vincamok/goproxify/internal/edge/router"
+)
+
+// Pusher envoie les tables de routage et les certificats aux passerelles.
+type Pusher struct {
+	db     *sql.DB
+	log    *slog.Logger
+	client *http.Client
+}
+
+// New crée un Pusher.
+func New(db *sql.DB, log *slog.Logger) *Pusher {
+	return &Pusher{
+		db:     db,
+		log:    log,
+		client: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// edgeNode représente une passerelle enregistrée (token actif de type edge).
+type edgeNode struct {
+	ID           string // ID dans la table tokens (pour charger les scopes)
+	NodeName     string
+	Token        string
+	Endpoint     string // ex: http://10.0.0.5:8000
+	RBACRole     string // 'admin' | 'operator' | 'viewer'
+	RaftEndpoint string // ex: http://10.0.0.5:8002 (vide si pas de cluster)
+}
+
+// PushRoutes envoie la liste des routes activées à toutes les passerelles enregistrées.
+// Chaque passerelle ne reçoit que les routes correspondant à son rbac_role + token_scopes.
+// Bloque jusqu'à la fin des envois.
+func (p *Pusher) PushRoutes(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles", "err", err)
+		return
+	}
+
+	allRoutes, err := p.activeRoutesParsed(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des routes", "err", err)
+		return
+	}
+
+	bindings := p.loadDelegationBindings(ctx)
+	var wg sync.WaitGroup
+	for _, c := range edges {
+		c := c
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			acc := rbac.LoadEdgeAccess(ctx, p.db, c.ID, c.NodeName)
+			filtered := rbac.FilterRoutesByScopes(acc.Role, acc.Scopes, allRoutes)
+			filtered = delegation.FilterRoutesForEdge(c.ID, c.NodeName, filtered, bindings)
+			body, err := json.Marshal(filtered)
+			if err != nil {
+				return
+			}
+			p.sendRoutes(ctx, c, body)
+		}()
+	}
+	wg.Wait()
+}
+
+// PushCerts relit tous les certificats stockés en DB et les envoie à toutes les passerelles.
+// Appelé lors de l'enregistrement d'une nouveau passerelle pour restaurer les certs après redémarrage.
+func (p *Pusher) PushCerts(ctx context.Context) {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT domain, cert_pem, key_pem FROM certs WHERE cert_pem != '' AND key_pem != ''`)
+	if err != nil {
+		p.log.Error("edgepush: lecture certs DB", "err", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var domain, certPEM, keyPEM string
+		if err := rows.Scan(&domain, &certPEM, &keyPEM); err != nil {
+			continue
+		}
+		pemBytes := []byte(certPEM)
+		keyBytes := []byte(keyPEM)
+		for _, name := range edgetls.PushNames(domain, pemBytes) {
+			go p.PushCert(ctx, name, pemBytes, keyBytes)
+		}
+	}
+}
+
+// PushCert envoie un certificat déchiffré (PEM) aux passerelles dont le périmètre le couvre.
+// Admin sans scope → toutes les passerelles.
+func (p *Pusher) PushCert(ctx context.Context, name string, certPEM, keyPEM []byte) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour cert", "err", err)
+		return
+	}
+
+	payload := map[string]any{
+		"name":     name,
+		"cert_pem": certPEM,
+		"key_pem":  keyPEM,
+	}
+	body, _ := json.Marshal(payload)
+
+	for _, c := range edges {
+		scopes, _ := rbac.TokenScopes(ctx, p.db, c.ID)
+		if !rbac.ShouldReceiveCert(c.RBACRole, scopes, name) {
+			continue
+		}
+		c := c
+		go p.sendCert(ctx, c, body)
+	}
+}
+
+func (p *Pusher) sendRoutes(ctx context.Context, c edgeNode, body []byte) {
+	if err := p.post(ctx, c, "/internal/v1/routes", body, "routes"); err == nil {
+		p.log.Info("edgepush: routes envoyées", "edge", c.NodeName)
+	}
+}
+
+func (p *Pusher) loadDelegationBindings(ctx context.Context) []delegation.Binding {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT domain, edge_id, delegated_to_edge_id
+		FROM domains
+		WHERE delegated_to_edge_id != '' AND delegated_endpoint != ''`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []delegation.Binding
+	for rows.Next() {
+		var b delegation.Binding
+		if err := rows.Scan(&b.Domain, &b.ResponsibleEdgeID, &b.TargetEdgeID); err != nil {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// PushSnippets envoie tous les snippets actifs à toutes les passerelles enregistrées.
+func (p *Pusher) PushSnippets(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour snippets", "err", err)
+		return
+	}
+	snippets, err := p.activeSnippets(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des snippets", "err", err)
+		return
+	}
+	body, _ := json.Marshal(snippets)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/snippets", body, "snippets")
+	}
+}
+
+// PushAuthProviders envoie tous les fournisseurs auth à toutes les passerelles enregistrées.
+func (p *Pusher) PushAuthProviders(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour providers", "err", err)
+		return
+	}
+	providers, err := p.activeAuthProviders(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des providers", "err", err)
+		return
+	}
+	body, _ := json.Marshal(providers)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/auth-providers", body, "auth-providers")
+	}
+}
+
+// PushAll envoie routes, snippets, fournisseurs auth, profils IP et paramètres à toutes les passerelles.
+// Utilisé après un enregistrement passerelle pour synchroniser l'ensemble de la config.
+// Les Settings sont passés par l'appelant (Admin server connaît sa propre config).
+func (p *Pusher) PushAll(ctx context.Context, settings Settings) {
+	go p.PushRoutes(ctx)
+	go p.PushSnippets(ctx)
+	go p.PushAuthProviders(ctx)
+	go p.PushIPProfiles(ctx)
+	go p.PushBans(ctx)
+	go p.PushClusterPeers(ctx)
+	go p.PushSettings(ctx, settings)
+	go p.PushCerts(ctx)
+	go p.PushDelegations(ctx)
+	go p.PushErrorPages(ctx)
+}
+
+// PushErrorPages envoie la bibliothèque de pages d'erreur aux passerelles (HTTP legacy).
+// Bloque jusqu'à la fin des envois (évite la course avec PushRoutes).
+func (p *Pusher) PushErrorPages(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour error pages", "err", err)
+		return
+	}
+	tpls, err := p.loadErrorPages(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture error pages", "err", err)
+		return
+	}
+	body, _ := json.Marshal(tpls)
+	var wg sync.WaitGroup
+	for _, c := range edges {
+		c := c
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = p.post(ctx, c, "/internal/v1/error-pages", body, "error-pages")
+		}()
+	}
+	wg.Wait()
+}
+
+// Settings regroupe les paramètres runtime poussés aux passerelles.
+type Settings struct {
+	TracingEndpoint string `json:"tracing_endpoint,omitempty"`
+	LogLevel        string `json:"log_level,omitempty"`
+	LogFormat       string `json:"log_format,omitempty"`
+	AccessLogPath   string `json:"access_log_path,omitempty"`
+	AdminPublicURL  string `json:"admin_public_url,omitempty"`
+	// IPAnonymize : quand true, la passerelle tronque les IPs dans les access logs (RGPD).
+	// La config locale edge.json a toujours la priorité si ip_anonymize y est défini à true.
+	IPAnonymize *bool `json:"ip_anonymize,omitempty"`
+	// IPPseudonymize : quand true, Passerelle tronque l'IP dans son fichier log mais envoie l'IP réelle à l'Admin.
+	IPPseudonymize *bool `json:"ip_pseudonymize,omitempty"`
+}
+
+// PushSettings envoie les paramètres runtime à toutes les passerelles.
+// La passerelle applique chaque champ uniquement si sa config locale est vide.
+func (p *Pusher) PushSettings(ctx context.Context, s Settings) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour settings", "err", err)
+		return
+	}
+	body, _ := json.Marshal(s)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/settings", body, "settings")
+	}
+}
+
+// PushClusterPeers envoie la topologie Raft (toutes les passerelles actives avec raft_endpoint) à chaque passerelle.
+func (p *Pusher) PushClusterPeers(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour cluster/peers", "err", err)
+		return
+	}
+
+	// Construire la map peers : nodeID → raft_endpoint (on exclut les passerelles sans raft_endpoint).
+	peers := make(map[string]string)
+	for _, c := range edges {
+		if c.RaftEndpoint != "" {
+			peers[c.NodeName] = c.RaftEndpoint
+		}
+	}
+	if len(peers) == 0 {
+		return
+	}
+
+	body, _ := json.Marshal(peers)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/cluster/peers", body, "cluster/peers")
+	}
+}
+
+// PushDelegations construit des routes synthétiques pour chaque domaine délégué
+// et les envoie à la passerelle qui reçoit le trafic (edge_id), en complément de ses routes normales.
+// Mode passthrough : TLSPassthrough=true, TCP forward brut vers la passerelle cible.
+// Mode terminate   : TLSPassthrough=false, proxy HTTP(S) vers la passerelle cible.
+func (p *Pusher) PushDelegations(ctx context.Context) {
+	type delegation struct {
+		ID                string
+		Domain            string
+		EdgeID            string // Passerelle qui reçoit le trafic
+		DelegatedEndpoint string
+		DelegationMode    string // passthrough | terminate
+	}
+
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT id, domain, edge_id, delegated_endpoint, delegation_mode
+		FROM domains
+		WHERE delegated_to_edge_id != '' AND delegated_endpoint != ''`)
+	if err != nil {
+		p.log.Error("edgepush: lecture des délégations", "err", err)
+		return
+	}
+	defer rows.Close()
+
+	// Regrouper par edge_id
+	byEdgeID := map[string][]delegation{}
+	for rows.Next() {
+		var d delegation
+		if err := rows.Scan(&d.ID, &d.Domain, &d.EdgeID, &d.DelegatedEndpoint, &d.DelegationMode); err != nil {
+			continue
+		}
+		byEdgeID[d.EdgeID] = append(byEdgeID[d.EdgeID], d)
+	}
+	if len(byEdgeID) == 0 {
+		return
+	}
+
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour délégations", "err", err)
+		return
+	}
+
+	for _, c := range edges {
+		delegs, ok := byEdgeID[c.ID]
+		if !ok {
+			continue
+		}
+		c, delegs := c, delegs
+		go func() {
+			routes := make([]router.Route, 0, len(delegs))
+			for _, d := range delegs {
+				r := router.Route{
+					ID:   "deleg-" + d.ID,
+					Host: d.Domain,
+					Type: router.RouteHTTP,
+				}
+				if d.DelegationMode == "terminate" {
+					// Passerelle A termine TLS et proxy HTTP(S) vers passerelle B
+					r.TLSEnabled = true
+					r.TLSPassthrough = false
+					r.PreserveHost = boolPtr(true) // edge B doit recevoir le Host original pour router
+					backendURL := d.DelegatedEndpoint
+					if len(backendURL) > 0 && backendURL[0] != 'h' {
+						backendURL = "https://" + backendURL
+					}
+					r.Backends = []router.Backend{{URL: backendURL}}
+					// Explicite côté Admin (pas forcé par passerelle) — labs / Passerelle B auto-signé.
+					r.TLSSkipVerify = true
+				} else {
+					// Mode passthrough : TCP forward sans déchiffrement
+					r.TLSEnabled = true
+					r.TLSPassthrough = true
+					backendURL := d.DelegatedEndpoint
+					if len(backendURL) > 0 && backendURL[0] != 'h' {
+						backendURL = "https://" + backendURL
+					}
+					r.Backends = []router.Backend{{URL: backendURL}}
+				}
+				routes = append(routes, r)
+			}
+			body, err := json.Marshal(routes)
+			if err != nil {
+				return
+			}
+			if err := p.post(ctx, c, "/internal/v1/delegations", body, "delegations"); err == nil {
+				p.log.Info("edgepush: délégations envoyées", "edge", c.NodeName, "count", len(routes))
+			}
+		}()
+	}
+}
+
+// DeleteRoute supprime immédiatement une route sur toutes les passerelles enregistrées.
+func (p *Pusher) DeleteRoute(ctx context.Context, id string) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour delete", "err", err)
+		return
+	}
+	for _, c := range edges {
+		go p.sendDeleteRoute(ctx, c, id)
+	}
+}
+
+func (p *Pusher) sendDeleteRoute(ctx context.Context, c edgeNode, id string) {
+	url := fmt.Sprintf("%s/internal/v1/routes/%s", c.Endpoint, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.log.Warn("edgepush: suppression route échouée", "edge", c.NodeName, "id", id, "err", err)
+		return
+	}
+	resp.Body.Close()
+	p.log.Info("edgepush: route supprimée", "edge", c.NodeName, "id", id)
+}
+
+func (p *Pusher) sendCert(ctx context.Context, c edgeNode, body []byte) {
+	url := c.Endpoint + "/internal/v1/certs"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.log.Warn("edgepush: envoi cert échoué", "edge", c.NodeName, "err", err)
+		return
+	}
+	resp.Body.Close()
+	p.log.Info("edgepush: certificat envoyé", "edge", c.NodeName)
+}
+
+// activeEdges retourne les passerelles actives depuis la table tokens.
+func (p *Pusher) activeEdges(ctx context.Context) ([]edgeNode, error) {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT id, node_name, token, node_endpoint, COALESCE(rbac_role, 'admin'), COALESCE(raft_endpoint, '')
+		 FROM tokens
+		 WHERE role='edge' AND revoked=0 AND node_endpoint != ''
+		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var edges []edgeNode
+	for rows.Next() {
+		var c edgeNode
+		if err := rows.Scan(&c.ID, &c.NodeName, &c.Token, &c.Endpoint, &c.RBACRole, &c.RaftEndpoint); err != nil {
+			continue
+		}
+		// tokens.token peut être chiffré au repos (auth.SealNodeToken) ;
+		// Passerelle ne connaît que le hash du token en clair (pushAdminToken le
+		// déchiffre avant envoi) — sans ce déchiffrement symétrique ici,
+		// tous les push routes/certs échouent en 401 dès que le
+		// chiffrement est actif (GPX_NODE_TOKEN_KEY ou JWT secret configuré).
+		c.Token = auth.PlainNodeToken(c.Token)
+		edges = append(edges, c)
+	}
+	return edges, nil
+}
+
+func (p *Pusher) post(ctx context.Context, c edgeNode, path string, body []byte, label string) error {
+	url := c.Endpoint + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		p.log.Warn("edgepush: envoi échoué", "label", label, "edge", c.NodeName, "err", err)
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		p.log.Warn("edgepush: token refusé (401) — vérifier le token de la passerelle dans Admin > Tokens", "label", label, "edge", c.NodeName)
+		return fmt.Errorf("status 401")
+	}
+	if resp.StatusCode >= 300 {
+		p.log.Warn("edgepush: réponse inattendue", "label", label, "edge", c.NodeName, "status", resp.StatusCode)
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (p *Pusher) activeSnippets(ctx context.Context) ([]json.RawMessage, error) {
+	rows, err := p.db.QueryContext(ctx, `SELECT id, name, type, config FROM snippets`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type snippet struct {
+		ID     string          `json:"id"`
+		Name   string          `json:"name"`
+		Type   string          `json:"type"`
+		Config json.RawMessage `json:"config"`
+	}
+	var list []json.RawMessage
+	for rows.Next() {
+		var s snippet
+		var cfg string
+		if err := rows.Scan(&s.ID, &s.Name, &s.Type, &cfg); err != nil {
+			continue
+		}
+		s.Config = json.RawMessage(cfg)
+		b, _ := json.Marshal(s)
+		list = append(list, b)
+	}
+	if list == nil {
+		list = []json.RawMessage{}
+	}
+	return list, nil
+}
+
+func (p *Pusher) loadErrorPages(ctx context.Context) ([]errorpages.Template, error) {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT id, name, description, body, scope_type, scope_id
+		 FROM error_page_templates WHERE scope_type='admin'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []errorpages.Template
+	for rows.Next() {
+		var t errorpages.Template
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Body, &t.ScopeType, &t.ScopeID); err != nil {
+			continue
+		}
+		aRows, err := p.db.QueryContext(ctx,
+			`SELECT filename, content_type, content FROM error_page_assets WHERE template_id=?`, t.ID)
+		if err == nil {
+			for aRows.Next() {
+				var a errorpages.Asset
+				if err := aRows.Scan(&a.Filename, &a.ContentType, &a.Content); err != nil {
+					continue
+				}
+				t.Assets = append(t.Assets, a)
+			}
+			aRows.Close()
+		}
+		list = append(list, t)
+	}
+	if list == nil {
+		list = []errorpages.Template{}
+	}
+	return list, nil
+}
+
+func (p *Pusher) activeAuthProviders(ctx context.Context) ([]json.RawMessage, error) {
+	rows, err := p.db.QueryContext(ctx, `SELECT id, name, provider, config FROM auth_providers WHERE enabled=1`)
+	if err != nil {
+		// La table peut ne pas exister encore — retourner vide sans erreur.
+		return []json.RawMessage{}, nil
+	}
+	defer rows.Close()
+	type provider struct {
+		ID       string          `json:"id"`
+		Name     string          `json:"name"`
+		Provider string          `json:"provider"`
+		Config   json.RawMessage `json:"config"`
+	}
+	var list []json.RawMessage
+	for rows.Next() {
+		var pr provider
+		var cfg string
+		if err := rows.Scan(&pr.ID, &pr.Name, &pr.Provider, &cfg); err != nil {
+			continue
+		}
+		pr.Config = json.RawMessage(cfg)
+		b, _ := json.Marshal(pr)
+		list = append(list, b)
+	}
+	if list == nil {
+		list = []json.RawMessage{}
+	}
+	return list, nil
+}
+
+// PushIPProfiles envoie les profils IP actifs (avec CIDRs compilés) à toutes les passerelles.
+func (p *Pusher) PushIPProfiles(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour ip-profiles", "err", err)
+		return
+	}
+	profiles, err := p.activeIPProfiles(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des ip-profiles", "err", err)
+		return
+	}
+	body, _ := json.Marshal(profiles)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/ip-profiles", body, "ip-profiles")
+	}
+}
+
+// PushBans envoie les bans IP actifs à toutes les passerelles (HTTP legacy).
+// PushThreatConfig envoie la config du moteur de détection à toutes les passerelles.
+func (p *Pusher) PushThreatConfig(ctx context.Context, cfg any) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour threat-config", "err", err)
+		return
+	}
+	body, _ := json.Marshal(cfg)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/threat-config", body, "threat-config")
+	}
+}
+
+// PushServerConfig envoie les timeouts HTTP/QUIC à toutes les passerelles.
+// La passerelle écrit les valeurs dans edge.json — un redémarrage est nécessaire pour les appliquer.
+func (p *Pusher) PushServerConfig(ctx context.Context, cfg any) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour server-config", "err", err)
+		return
+	}
+	body, _ := json.Marshal(cfg)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/server-config", body, "server-config")
+	}
+}
+
+func (p *Pusher) PushBans(ctx context.Context) {
+	edges, err := p.activeEdges(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des passerelles pour bans", "err", err)
+		return
+	}
+	list, err := p.activeBans(ctx)
+	if err != nil {
+		p.log.Error("edgepush: lecture des bans", "err", err)
+		return
+	}
+	body, _ := json.Marshal(list)
+	for _, c := range edges {
+		go p.post(ctx, c, "/internal/v1/bans", body, "bans")
+	}
+}
+
+func (p *Pusher) activeBans(ctx context.Context) ([]map[string]any, error) {
+	rows, err := p.db.QueryContext(ctx, `
+		SELECT id, ip, reason, source, expires_at
+		FROM security_bans
+		WHERE expires_at IS NULL OR expires_at = '' OR expires_at > CURRENT_TIMESTAMP`)
+	if err != nil {
+		return []map[string]any{}, nil
+	}
+	defer rows.Close()
+	var list []map[string]any
+	for rows.Next() {
+		var id, ip, reason, source string
+		var expires sql.NullString
+		if err := rows.Scan(&id, &ip, &reason, &source, &expires); err != nil {
+			continue
+		}
+		m := map[string]any{"id": id, "ip": ip, "reason": reason, "source": source}
+		if expires.Valid && expires.String != "" {
+			m["expires_at"] = expires.String
+		}
+		list = append(list, m)
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	return list, nil
+}
+
+func (p *Pusher) activeIPProfiles(ctx context.Context) ([]json.RawMessage, error) {
+	rows, err := p.db.QueryContext(ctx,
+		`SELECT id, name, mode, cidrs FROM ip_profiles WHERE enabled=1`)
+	if err != nil {
+		return []json.RawMessage{}, nil
+	}
+	defer rows.Close()
+	type profile struct {
+		ID    string          `json:"id"`
+		Name  string          `json:"name"`
+		Mode  string          `json:"mode"`
+		CIDRs json.RawMessage `json:"cidrs"`
+	}
+	var list []json.RawMessage
+	for rows.Next() {
+		var pr profile
+		var cidrs string
+		if err := rows.Scan(&pr.ID, &pr.Name, &pr.Mode, &cidrs); err != nil {
+			continue
+		}
+		pr.CIDRs = json.RawMessage(cidrs)
+		b, _ := json.Marshal(pr)
+		list = append(list, b)
+	}
+	if list == nil {
+		list = []json.RawMessage{}
+	}
+	return list, nil
+}
+
+// activeRoutesParsed retourne toutes les routes activées sous forme de structs (pour filtrage RBAC).
+func (p *Pusher) activeRoutesParsed(ctx context.Context) ([]router.Route, error) {
+	rows, err := p.db.QueryContext(ctx, `SELECT config FROM proxies WHERE enabled=1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var routes []router.Route
+	for rows.Next() {
+		var cfg string
+		if err := rows.Scan(&cfg); err != nil {
+			continue
+		}
+		var r router.Route
+		if err := json.Unmarshal([]byte(cfg), &r); err == nil {
+			routes = append(routes, r)
+		}
+	}
+	if routes == nil {
+		routes = []router.Route{}
+	}
+	return routes, nil
+}
+
+func boolPtr(b bool) *bool { return &b }

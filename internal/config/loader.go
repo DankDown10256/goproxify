@@ -24,7 +24,7 @@ import (
 //	GPX_APP_ENVIRONMENT=production
 //	GPX_SERVER_API_PORT=9443
 //	GPX_SECURITY_JWT_SECRET=mon_secret_prod
-//	GPX_CONTROL_PLANE_AUTH_TOKEN=gpx_core_abc123
+//	GPX_CONTROL_PLANE_AUTH_TOKEN=gpx_edge_abc123
 // Load charge la configuration depuis un fichier JSON.
 //
 // Comportement selon l'état du fichier :
@@ -38,7 +38,7 @@ import (
 // Pour les utilisateurs avancés qui souhaitent surcharger une valeur du JSON
 // sans éditer le fichier : supprimer la clé du JSON, la valeur sera alors
 // lue depuis la variable d'environnement correspondante.
-func Load[T AdminConfig | CoreConfig | AgentConfig | LandingConfig](configPath string) (*T, error) {
+func Load[T AdminConfig | EdgeConfig | AgentConfig | LandingConfig](configPath string) (*T, error) {
 	v := viper.New()
 
 	v.SetConfigFile(configPath)
@@ -55,15 +55,16 @@ func Load[T AdminConfig | CoreConfig | AgentConfig | LandingConfig](configPath s
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("lecture config %q : %w", configPath, err)
 	}
+	migrateLegacyKeys(v)
 
 	// Les env vars ne surchargent que les clés absentes du JSON (pas de AutomaticEnv global).
 	// On bind uniquement les clés qui peuvent légitimement manquer dans le JSON
 	// pour permettre à l'utilisateur avancé de les passer en env var.
 	// cluster.peers est intentionnellement omis ici : GPX_CLUSTER_PEERS est une chaîne CSV
 	// incompatible avec map[string]string pour viper. Géré par applyClusterPeersEnv après Unmarshal.
-	// GPX_IDENTITY_CORE_NODE_NAME pour compatibilité avec les variables de bootstrap Core.
+	// GPX_IDENTITY_EDGE_NODE_NAME pour compatibilité avec les variables de bootstrap passerelle.
 	if !v.IsSet("identity.node_name") {
-		_ = v.BindEnv("identity.node_name", "GPX_IDENTITY_CORE_NODE_NAME", "GPX_IDENTITY_NODE_NAME")
+		_ = v.BindEnv("identity.node_name", "GPX_IDENTITY_EDGE_NODE_NAME", "GPX_IDENTITY_NODE_NAME")
 	}
 	bindIfMissing(v, "cluster.enabled")
 	if !v.IsSet("cluster.group_name") {
@@ -93,9 +94,9 @@ func LoadAdmin(path string) (*AdminConfig, error) {
 	return Load[AdminConfig](path)
 }
 
-// LoadCore charge core.json → CoreConfig.
-func LoadCore(path string) (*CoreConfig, error) {
-	cfg, err := Load[CoreConfig](path)
+// LoadEdge charge edge.json → EdgeConfig.
+func LoadEdge(path string) (*EdgeConfig, error) {
+	cfg, err := Load[EdgeConfig](path)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,7 @@ func LoadCore(path string) (*CoreConfig, error) {
 //   - id=http://host:8002
 //   - id:8002  → http://id:8002
 //   - host:8002 → clé = host
-func applyClusterPeersEnv(cfg *CoreConfig) {
+func applyClusterPeersEnv(cfg *EdgeConfig) {
 	if cfg == nil || len(cfg.Cluster.Peers) > 0 {
 		return
 	}
@@ -186,8 +187,8 @@ func applyAgentEnvOverrides(cfg *AgentConfig) {
 	if cfg == nil {
 		return
 	}
-	if v := os.Getenv("GPX_CONTROL_PLANE_CORE_ENDPOINT"); v != "" {
-		cfg.ControlPlane.CoreEndpoint = v
+	if v := os.Getenv("GPX_CONTROL_PLANE_EDGE_ENDPOINT"); v != "" {
+		cfg.ControlPlane.EdgeEndpoint = v
 	}
 	if v := os.Getenv("GPX_CONTROL_PLANE_JOIN_TOKEN"); v != "" {
 		cfg.ControlPlane.JoinToken = v
@@ -195,8 +196,8 @@ func applyAgentEnvOverrides(cfg *AgentConfig) {
 	if v := os.Getenv("GPX_IDENTITY_AGENT_NODE_NAME"); v != "" {
 		cfg.Identity.NodeName = v
 	}
-	if v := os.Getenv("GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME"); v != "" {
-		cfg.NetworkManagement.CoreContainerName = v
+	if v := os.Getenv("GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME"); v != "" {
+		cfg.NetworkManagement.EdgeContainerName = v
 	}
 }
 

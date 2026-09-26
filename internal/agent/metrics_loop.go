@@ -13,12 +13,12 @@ import (
 	agentdocker "github.com/vincamok/goproxify/internal/agent/docker"
 	"github.com/vincamok/goproxify/internal/agent/telemetry"
 	"github.com/vincamok/goproxify/internal/agent/wsclient"
-	corews "github.com/vincamok/goproxify/internal/core/ws"
+	edgews "github.com/vincamok/goproxify/internal/edge/ws"
 )
 
 const metricsInterval = 10 * time.Second
 
-// metricsLoop streame CPU/mem/IO des conteneurs goproxify.enable vers le Core (WS).
+// metricsLoop streame CPU/mem/IO des conteneurs goproxify.enable vers la passerelle (WS).
 func metricsLoop(ctx context.Context, client *agentdocker.Client, agentName string, ws *wsclient.Client, log *slog.Logger) {
 	if client == nil || ws == nil {
 		return
@@ -49,11 +49,11 @@ func metricsLoop(ctx context.Context, client *agentdocker.Client, agentName stri
 			return
 		}
 
-		payload := corews.AgentMetricsPayload{
+		payload := edgews.AgentMetricsPayload{
 			AgentName:  agentName,
 			CPUPct:     hostCPU,
 			MemPct:     hostMem,
-			Containers: make([]corews.ContainerMetric, 0),
+			Containers: make([]edgews.ContainerMetric, 0),
 		}
 		intervalS := metricsInterval.Seconds()
 		for _, c := range containers {
@@ -74,7 +74,7 @@ func metricsLoop(ctx context.Context, client *agentdocker.Client, agentName stri
 			if len(c.Names) > 0 {
 				name = strings.TrimPrefix(c.Names[0], "/")
 			}
-			payload.Containers = append(payload.Containers, corews.ContainerMetric{
+			payload.Containers = append(payload.Containers, edgews.ContainerMetric{
 				ContainerID: c.ID,
 				Name:        name,
 				IP:          ip,

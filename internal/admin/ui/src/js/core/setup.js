@@ -1,5 +1,5 @@
 // ── Setup initial (premier admin) ───────────────────────────────────────
-// Chargé avant core/boot.js (showSetupPage).
+// Chargé avant edge/boot.js (showSetupPage).
 // Extrait de pages-all.js — phase 2.
 
 // ── Setup ──────────────────────────────────────────────────────────────────

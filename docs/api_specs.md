@@ -91,22 +91,22 @@ Crée le compte administrateur initial (uniquement si `initialized: false`).
 
 ### `POST /api/v1/tokens`
 
-Génère un token cryptographique pour un Core ou un Agent.
+Génère un token cryptographique pour une passerelle ou un Agent.
 
 **Corps :**
 ```json
-{ "role": "core", "node": "serveur-production-1", "ttl": "0" }
+{ "role": "edge", "node": "serveur-production-1", "ttl": "0" }
 ```
 
-`role` : `core` | `agent`
+`role` : `edge` | `agent`
 `ttl` : durée de validité (ex: `"24h"`) ou `"0"` pour permanent.
 
 **Réponse 201 :**
 ```json
 {
-  "token": "gpx_core_a1b2c3d4e5f6...",
+  "token": "gpx_edge_a1b2c3d4e5f6...",
   "node": "serveur-production-1",
-  "role": "core",
+  "role": "edge",
   "created_at": "2026-07-15T10:00:00Z"
 }
 ```
@@ -235,7 +235,7 @@ Réponse :
 
 ### `GET /api/v1/backups/proxy-history/:proxyID`
 
-Liste les versions sauvegardées (`proxy_history`, 50 dernières) d'un proxy — indépendant du système de révisions Core ci-dessus. Réponse : `[{"id","proxy_id","note","created_at"}]` (sans la config).
+Liste les versions sauvegardées (`proxy_history`, 50 dernières) d'un proxy — indépendant du système de révisions passerelle ci-dessus. Réponse : `[{"id","proxy_id","note","created_at"}]` (sans la config).
 
 ### `GET /api/v1/backups/proxy-history/:versionID/config`
 
@@ -283,7 +283,7 @@ Importe un certificat externe (non-ACME).
 }
 ```
 
-Le domaine est extrait automatiquement depuis le SAN/CN du certificat. Upsert sur le domaine existant. Le cert est ensuite poussé aux Cores connectés.
+Le domaine est extrait automatiquement depuis le SAN/CN du certificat. Upsert sur le domaine existant. Le cert est ensuite poussé aux passerelles connectées.
 
 **Réponse 201 :**
 ```json
@@ -460,18 +460,18 @@ Modification/suppression (interdite sur `builtin: true`).
 
 ---
 
-## Nodes (Cores & Agents enregistrés)
+## Nodes (Passerelles & Agents enregistrés)
 
 ### `GET /api/v1/nodes`
 
-Liste les Cores et Agents enregistrés avec leur état.
+Liste les passerelles et Agents enregistrés avec leur état.
 
 **Réponse 200 :**
 ```json
 [
   {
-    "id": "core-1",
-    "role": "core",
+    "id": "edge-1",
+    "role": "edge",
     "node": "serveur-production-1",
     "ip": "203.0.113.10",
     "status": "healthy",
@@ -482,7 +482,7 @@ Liste les Cores et Agents enregistrés avec leur état.
 
 ### `GET /api/v1/nodes/live`
 
-État temps réel de la topologie : santé, débit et risque de chaque Core et Agent. Scope PAT : `nodes:read`. L'UI (Infrastructure → Topologie) l'interroge toutes les 5 s.
+État temps réel de la topologie : santé, débit et risque de chaque passerelle et Agent. Scope PAT : `nodes:read`. L'UI (Infrastructure → Topologie) l'interroge toutes les 5 s.
 
 **Réponse 200 :**
 ```json
@@ -492,7 +492,7 @@ Liste les Cores et Agents enregistrés avec leur état.
   "bans_active": 12,
   "nodes": [
     {
-      "node_name": "core-a", "role": "core", "status": "online",
+      "node_name": "edge-a", "role": "edge", "status": "online",
       "cpu_pct": 12.5, "mem_pct": 40.1,
       "requests": 600, "rps": 10, "blocked_pct": 33.3, "error_pct": 0,
       "low_traffic": false,
@@ -513,7 +513,7 @@ Débit et taux viennent des access logs de la dernière minute (`window_sec`), p
 | `errors` | 4 × `error_pct` (25 % d'erreurs = 100) |
 | `resources` | CPU ou mémoire : 0 à 70 %, 100 à 100 % |
 
-`risk_level` : `low` (< 25), `medium` (< 60), `high`. Sous 20 requêtes dans la fenêtre (`low_traffic`), les taux `blocked` et `errors` sont ignorés (bruit statistique). `bans_active` est global (les bans ne sont pas rattachés à un Core).
+`risk_level` : `low` (< 25), `medium` (< 60), `high`. Sous 20 requêtes dans la fenêtre (`low_traffic`), les taux `blocked` et `errors` sont ignorés (bruit statistique). `bans_active` est global (les bans ne sont pas rattachés à une passerelle).
 
 ### `DELETE /api/v1/nodes/:id`
 
@@ -544,7 +544,7 @@ Liste tous les Agents (online, pending, offline).
 
 ### `POST /api/v1/agents/:id/approve`
 
-Approuve un Agent en attente. Le Core lui envoie immédiatement son `agent_hmac` via la connexion WS active.
+Approuve un Agent en attente. La passerelle lui envoie immédiatement son `agent_hmac` via la connexion WS active.
 
 **Réponse 200 :**
 ```json
@@ -561,7 +561,7 @@ Liste les nœuds déclarés via le wizard architecture (pas encore connectés, o
 
 ### `POST /api/v1/declared-nodes`
 
-Déclare un nœud (`role`: `core`|`agent`, `name`, `region`, `environment`, `config`). Upsert par `(role, name)`.
+Déclare un nœud (`role`: `edge`|`agent`, `name`, `region`, `environment`, `config`). Upsert par `(role, name)`.
 
 ### `DELETE /api/v1/declared-nodes/:id`
 
@@ -578,7 +578,7 @@ Rôle admin requis. Liste les versions conservées de `architecture.json` (la pl
 
 ### `POST /api/v1/architecture/restore` `[AUTH]`
 
-Rôle admin requis. Remet en place une version conservée, réaligne la base dessus et reconnecte les Cores qu'elle décrit. L'état remplacé est lui-même conservé : une restauration est réversible.
+Rôle admin requis. Remet en place une version conservée, réaligne la base dessus et reconnecte les passerelles qu'elle décrit. L'état remplacé est lui-même conservé : une restauration est réversible.
 
 **Body :** `{"name": "architecture-20260926T070623359846127Z.json"}`
 
@@ -591,12 +591,12 @@ Crée un ticket one-shot pour intégrer un hôte (QR + lien + script).
 **Body :**
 ```json
 {
-  "host_name": "edge-1",
-  "core_endpoint": "http://192.0.2.10:8000",
+  "host_name": "host-1",
+  "edge_endpoint": "http://192.0.2.10:8000",
   "payload": {},
   "ttl_hours": 24,
   "auto_accept": true,
-  "node_names": ["core-edge"]
+  "node_names": ["edge-main"]
 }
 ```
 
@@ -612,11 +612,11 @@ Accepte ou rejette un nœud en attente (`pending_nodes`) après présentation du
 
 ### `GET /api/v1/nodes/:id/tunnel-config`
 
-Retourne la configuration Tunnel L4 mTLS du nœud. Réponse : `{"peers":[{"name":"core-b","addr":"10.0.0.2:9443"},...]}`.
+Retourne la configuration Tunnel L4 mTLS du nœud. Réponse : `{"peers":[{"name":"edge-b","addr":"10.0.0.2:9443"},...]}`.
 
 ### `PUT /api/v1/nodes/:id/tunnel-config`
 
-Met à jour la liste des peers Tunnel L4 du nœud. Corps : `{"peers":[{"name":"...","addr":"..."}]}`. Déclenche un push WS `push_tunnel_config` vers le Core connecté pour application immédiate via `tunnel.Manager.SetPeers`.
+Met à jour la liste des peers Tunnel L4 du nœud. Corps : `{"peers":[{"name":"...","addr":"..."}]}`. Déclenche un push WS `push_tunnel_config` vers la passerelle connectée pour application immédiate via `tunnel.Manager.SetPeers`.
 
 ---
 
@@ -640,11 +640,11 @@ Supprime un ban par ID.
 
 ### `GET /api/v1/security/threats`
 
-Liste les menaces CrowdSec (`security_threats`), triées par `last_seen_at` décroissant. Paramètre : `limit`. Une même menace (`ip`+`scenario`) est dédupliquée : chaque nouvelle occurrence rafraîchit `last_seen_at` et incrémente `occurrences` au lieu de créer une ligne ignorée à date figée. Chaque entrée inclut aussi `core_name` — le Core d'origine, résolu côté serveur depuis le token d'appairage à la réception (vide pour les données antérieures à cette colonne).
+Liste les menaces CrowdSec (`security_threats`), triées par `last_seen_at` décroissant. Paramètre : `limit`. Une même menace (`ip`+`scenario`) est dédupliquée : chaque nouvelle occurrence rafraîchit `last_seen_at` et incrémente `occurrences` au lieu de créer une ligne ignorée à date figée. Chaque entrée inclut aussi `edge_name` — la passerelle d'origine, résolu côté serveur depuis le token d'appairage à la réception (vide pour les données antérieures à cette colonne).
 
 ### `GET /api/v1/security/cves`
 
-Liste les CVE détectées (`security_cves`). Paramètres : `status` (`open|ignored|fixed`), `critical=true` (CVSS ≥ 7). Chaque entrée inclut `core_name` — le Core d'origine ayant remonté la CVE (résolu côté serveur depuis le token d'appairage à la réception, vide pour les données antérieures à cette colonne). Vue Admin : agrégat de tous les Cores, colonne Core affichée. Vue Core : déjà filtrée sur ce Core via les backends de ses proxies, colonne masquée (redondante).
+Liste les CVE détectées (`security_cves`). Paramètres : `status` (`open|ignored|fixed`), `critical=true` (CVSS ≥ 7). Chaque entrée inclut `edge_name` — la passerelle d'origine ayant remonté la CVE (résolu côté serveur depuis le token d'appairage à la réception, vide pour les données antérieures à cette colonne). Vue Admin : agrégat de toutes les passerelles, colonne passerelle affichée. Vue passerelle : déjà filtrée sur cette passerelle via les backends de ses proxies, colonne masquée (redondante).
 
 ### `PATCH /api/v1/security/cves/:id`
 
@@ -750,17 +750,17 @@ Catalogue des scopes PAT avec les outils MCP couverts par chacun, pour référen
 
 ---
 
-## API interne Core ↔ Administration
+## API interne passerelle ↔ Administration
 
 *Ces endpoints ne sont pas exposés publiquement. Authentification par token d'appairage.*
 
 ### `POST /internal/v1/register`
 
-Enregistrement d'un Core ou Agent.
+Enregistrement d'une passerelle ou Agent.
 
 ### `GET /internal/v1/config`
 
-Récupère la configuration complète (routes + certs) pour un Core.
+Récupère la configuration complète (routes + certs) pour une passerelle.
 
 ### `POST /internal/v1/telemetry`
 
@@ -776,9 +776,9 @@ Soumission d'un proxy découvert par labels (depuis un Agent).
 
 ## Protocole WebSocket
 
-Le plan de contrôle utilise des tunnels WebSocket persistants initiés par Admin et Agent vers le Core. Le Core est le seul hub de connexion.
+Le plan de contrôle utilise des tunnels WebSocket persistants initiés par Admin et Agent vers la passerelle. La passerelle est le seul hub de connexion.
 
-### `GET /ws/admin` — Connexion Admin↔Core
+### `GET /ws/admin` — Connexion Admin↔Passerelle
 
 **Authentification :** header `X-Goproxify-Signature: hmac-sha256 <timestamp>.<hex_sig>`
 
@@ -786,11 +786,11 @@ La signature est calculée sur `"<ts>:<method>:<path>"` avec la clé `GPX_CONTRO
 
 **Header requis :** `X-Node-ID: <nodeID>` — identifiant unique de l'instance Admin.
 
-### `GET /ws/agent` — Connexion Agent↔Core
+### `GET /ws/agent` — Connexion Agent↔Passerelle
 
 **Premier démarrage :** header `X-Join-Token: gpx_join_*` (TTL 24h). L'Agent passe en état `pending` jusqu'à approbation via `POST /api/v1/agents/:id/approve`.
 
-**Après approbation :** header `X-Agent-HMAC: <secret>` (rotatif toutes les heures, envoyé par le Core via message `rotate_hmac`).
+**Après approbation :** header `X-Agent-HMAC: <secret>` (rotatif toutes les heures, envoyé par la passerelle via message `rotate_hmac`).
 
 ---
 
@@ -814,7 +814,7 @@ Tous les messages WS utilisent l'enveloppe suivante :
 
 ---
 
-### Types de messages Admin→Core
+### Types de messages Admin→Passerelle
 
 | Type | Description |
 |---|---|
@@ -826,11 +826,11 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | `push_ip_profiles` | Pousse les profils IP/CIDR |
 | `push_settings` | Pousse les paramètres runtime (log level, tracing, etc.) |
 | `push_cluster_peers` | Pousse la topologie Raft |
-| `push_delegations` | Pousse les routes de délégation multi-Core |
+| `push_delegations` | Pousse les routes de délégation multi-passerelle |
 | `full_sync` | Full sync : envoie toutes les données en une seule enveloppe |
-| `approve_agent` | Demande au Core d'approuver un Agent en attente |
+| `approve_agent` | Demande à la passerelle d'approuver un Agent en attente |
 
-### Types de messages Agent→Core
+### Types de messages Agent→Passerelle
 
 | Type | Description |
 |---|---|
@@ -841,7 +841,7 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | `event` | Événement de cycle de vie conteneur (start, stop, die, scale, etc.) |
 | `log` | Batch de logs de conteneurs (log forwarding) |
 
-### Types de messages Core→Agent
+### Types de messages passerelle→Agent
 
 | Type | Description |
 |---|---|
@@ -851,7 +851,7 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | `rescan` | Demande un rescan Docker immédiat |
 | `ping` | Ping keepalive (répondu par `pong`) |
 
-### Types de messages Core→Admin
+### Types de messages passerelle→Admin
 
 | Type | Description |
 |---|---|
@@ -873,7 +873,7 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | DELETE | `/api/v1/workspaces/{id}` | Supprime (en cascade membres + ressources) |
 | POST | `/api/v1/workspaces/{id}/members` | Ajoute un membre (`entity_type`: `user`/`team`, `entity_id`) |
 | DELETE | `/api/v1/workspaces/{id}/members/{type}/{entityID}` | Retire un membre |
-| POST | `/api/v1/workspaces/{id}/resources` | Ajoute une ressource (`resource_type`: `proxy`/`domain`/`core`, `resource_id`) |
+| POST | `/api/v1/workspaces/{id}/resources` | Ajoute une ressource (`resource_type`: `proxy`/`domain`/`edge`, `resource_id`) |
 | DELETE | `/api/v1/workspaces/{id}/resources/{type}/{resourceID}` | Retire une ressource |
 
 ---

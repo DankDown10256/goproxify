@@ -1,9 +1,9 @@
-// ── PAGE: Logs (Admin + Core) ──────────────────────────────────────────
+// ── PAGE: Logs (Admin + Passerelle) ──────────────────────────────────────────
 // Une seule vue ; les entrées de menu ne font que poser des filtres.
 //
 // Convention store :
 //   kind=access  → status>0  (HTTP proxies / domaines)
-//   kind=system  → status=0  (process core / admin / agent)
+//   kind=system  → status=0  (process edge / admin / agent)
 //
 // logsFilters doit exister avant trafic.js (liens domaine → logs).
 
@@ -40,17 +40,17 @@ function logFilterLabels() {
   };
 }
 
-function coreLogNodeName() {
-  const c = state.selectedCore;
+function edgeLogNodeName() {
+  const c = state.selectedEdge;
   return (c?.node_name || c?.display_name || c?.id || '').trim();
 }
 
-// coreLogNodeID retourne l'identifiant stable du Core sélectionné (token/id
+// edgeLogNodeID retourne l'identifiant stable de la passerelle sélectionnée (token/id
 // en base), utilisé pour filtrer les logs à la place de node_name : un
-// renommage du nœud (ex. après un re-pairing suite à un core.json régénéré)
+// renommage du nœud (ex. après un re-pairing suite à une passerelle.json régénéré)
 // ne fait alors plus disparaître son historique de logs.
-function coreLogNodeID() {
-  return (state.selectedCore?.id || '').trim();
+function edgeLogNodeID() {
+  return (state.selectedEdge?.id || '').trim();
 }
 
 function hasActiveLogFilters() {
@@ -72,7 +72,7 @@ function openLogs(preset = {}) {
     component: comp,
     node_name: node,
     node_id: nodeID,
-    // Core : component + nœud verrouillés. Admin : composant filtrable.
+    // Passerelle : component + nœud verrouillés. Admin : composant filtrable.
     lockComp: preset.lockComp === true || (!!node && !!comp),
   };
   logsFilters.kind = logsScope.kind;
@@ -100,11 +100,11 @@ window.openLogsFiltered = function(opts = {}) {
   for (const k of keys) {
     if (opts[k] !== undefined && opts[k] !== null) logsFilters[k] = String(opts[k]);
   }
-  if (state.selectedCore) navigate('core-logs-access');
+  if (state.selectedEdge) navigate('edge-logs-access');
   else navigate('logs');
 };
 
-// Admin — tous les Cores / composants
+// Admin — toutes les passerelles / composants
 pages.logs = function() {
   openLogs({ kind: 'access', keepFilters: hasActiveLogFilters() });
 };
@@ -116,24 +116,24 @@ pages['logs-system'] = function() {
   openLogs({ kind: 'system', keepFilters: !!(logsFilters.domain || logsFilters.search || logsFilters.level) });
 };
 
-// Core — scoped au nœud sélectionné
-pages['core-logs-access'] = function() {
-  openLogs({ kind: 'access', component: 'core', node_name: coreLogNodeName(), node_id: coreLogNodeID(), lockComp: true, keepFilters: hasActiveLogFilters() });
+// Passerelle — scoped au nœud sélectionné
+pages['edge-logs-access'] = function() {
+  openLogs({ kind: 'access', component: 'edge', node_name: edgeLogNodeName(), node_id: edgeLogNodeID(), lockComp: true, keepFilters: hasActiveLogFilters() });
 };
-// Menu Observabilité Core → atterrit sur les logs d'accès
-pages['core-observability'] = function() {
-  navigate('core-logs-access');
+// Menu Observabilité passerelle → atterrit sur les logs d'accès
+pages['edge-observability'] = function() {
+  navigate('edge-logs-access');
 };
 // Menu Observabilité Admin → atterrit sur les logs d'accès
 pages['admin-observability'] = function() {
   navigate('logs');
 };
-pages['core-logs-system'] = function() {
+pages['edge-logs-system'] = function() {
   logsFilters.ip = '';
   logsFilters.method = '';
   logsFilters.status = '';
   logsFilters.path = '';
-  openLogs({ kind: 'system', component: 'core', node_name: coreLogNodeName(), node_id: coreLogNodeID(), lockComp: true, keepFilters: !!(logsFilters.domain || logsFilters.search || logsFilters.level) });
+  openLogs({ kind: 'system', component: 'edge', node_name: edgeLogNodeName(), node_id: edgeLogNodeID(), lockComp: true, keepFilters: !!(logsFilters.domain || logsFilters.search || logsFilters.level) });
 };
 
 function isSystemLogs() {
@@ -146,16 +146,16 @@ function logsScopeBanner() {
   let text = '';
   if (kind === 'access') {
     text = node
-      ? t('logs.banner_access_core')
+      ? t('logs.banner_access_edge')
       : t('logs.banner_access_all');
   } else if (kind === 'system') {
     text = node
-      ? t('logs.banner_sys_core')
+      ? t('logs.banner_sys_edge')
       : t('logs.banner_sys_all');
   }
   if (node) {
     return `<div style="margin-bottom:12px;padding:8px 12px;background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);">
-      ${t('logs.filtered_core')} <strong style="color:var(--text)">${esc(node)}</strong>${text ? ' — ' + esc(text) : ''}
+      ${t('logs.filtered_edge')} <strong style="color:var(--text)">${esc(node)}</strong>${text ? ' — ' + esc(text) : ''}
     </div>`;
   }
   if (text) {
@@ -293,26 +293,26 @@ function logCellFilter(field, value, display) {
 }
 
 function openPrismFromLogs(opts = {}) {
-  const node = logsScope.node_name || coreLogNodeName();
-  if (!node && !state.selectedCore) {
-    toast(t('logs.prism_need_core'), 'error');
+  const node = logsScope.node_name || edgeLogNodeName();
+  if (!node && !state.selectedEdge) {
+    toast(t('logs.prism_need_edge'), 'error');
     return;
   }
   window._prismProxyInit = opts.proxy || logsFilters.domain || '';
   window._prismIpInit = opts.ip || logsFilters.ip || '';
   window._prismPathInit = opts.path || logsFilters.path || '';
-  if (state.selectedCore) {
-    navigate('core-prism');
+  if (state.selectedEdge) {
+    navigate('edge-prism');
     return;
   }
-  // Sélectionne le Core par node_name si possible
-  const cores = window._coreNodes || [];
-  const idx = cores.findIndex(c => c.node_name === node || c.display_name === node || c.id === node);
+  // Sélectionne la passerelle par node_name si possible
+  const edges = window._edgeNodes || [];
+  const idx = edges.findIndex(c => c.node_name === node || c.display_name === node || c.id === node);
   if (idx >= 0) {
-    selectCore(cores[idx], 'core-prism');
+    selectEdge(edges[idx], 'edge-prism');
     return;
   }
-  toast(t('logs.prism_need_core'), 'error');
+  toast(t('logs.prism_need_edge'), 'error');
 }
 
 function switchLogsTab(tab) {
@@ -331,13 +331,13 @@ function switchLogsTab(tab) {
 function componentFilterHTML(idPrefix) {
   if (logsScope.lockComp) {
     return `<input type="hidden" id="${idPrefix}comp" value="${esc(logsFilters.component)}">
-      <span class="chip" style="font-size:11px">${esc(logsFilters.component || 'core')}</span>`;
+      <span class="chip" style="font-size:11px">${esc(logsFilters.component || 'edge')}</span>`;
   }
   return `<select id="${idPrefix}comp" class="input" onchange="${idPrefix === 'lf-live-' ? 'restartSSE()' : 'logsFilter()'}">
       <option value="">${t('logs.comp_ph')}</option>
       <option${logsFilters.component==='admin'?' selected':''}>admin</option>
       <option${logsFilters.component==='agent'?' selected':''}>agent</option>
-      <option${logsFilters.component==='core'?' selected':''}>core</option>
+      <option${logsFilters.component==='edge'?' selected':''}>edge</option>
     </select>`;
 }
 
@@ -459,7 +459,7 @@ window.logsFilter = function() {
   logsFilters.search = document.getElementById('lf-search')?.value || '';
   logsFilters.level  = document.getElementById('lf-level')?.value || '';
   logsFilters.kind   = document.getElementById('lf-kind')?.value || logsScope.kind || 'access';
-  // Ne pas laisser l'UI écraser le composant verrouillé (vue Core).
+  // Ne pas laisser l'UI écraser le composant verrouillé (vue passerelle).
   if (!logsScope.lockComp) {
     logsFilters.component = document.getElementById('lf-comp')?.value || '';
   } else {
@@ -660,7 +660,7 @@ window.restartSSE = function() {
 
 function startSSE() {
   const params = new URLSearchParams();
-  // Portée menu = source de vérité (kind / nœud / composant Core).
+  // Portée menu = source de vérité (kind / nœud / composant passerelle).
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
   if (logsScope.node_id) params.set('node_id', logsScope.node_id);
   else if (logsScope.node_name) params.set('node_name', logsScope.node_name);

@@ -51,7 +51,7 @@ type Bouncer struct {
 	mu      sync.Mutex
 	startup bool // true → GET stream?startup=true (snapshot complet)
 
-	// OnChange est appelé après toute sync qui modifie les bans (push Core).
+	// OnChange est appelé après toute sync qui modifie les bans (push passerelle).
 	OnChange func()
 	// OnNewDecision est appelé pour chaque nouvelle décision de type ban.
 	OnNewDecision func(d Decision)
@@ -120,7 +120,7 @@ func (b *Bouncer) SaveConfig(cfg Config) error {
 }
 
 // SyncNow déclenche immédiatement une synchronisation LAPI.
-// Si CrowdSec est désactivé, purge les menaces/bans CrowdSec et notifie le Core.
+// Si CrowdSec est désactivé, purge les menaces/bans CrowdSec et notifie la passerelle.
 func (b *Bouncer) SyncNow(ctx context.Context) {
 	cfg := b.loadConfig()
 	if cfg.Enabled {

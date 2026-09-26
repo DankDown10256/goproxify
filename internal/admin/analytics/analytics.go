@@ -19,7 +19,7 @@ const queryTimeout = 25 * time.Second
 // Params filtre commun à toutes les requêtes.
 type Params struct {
 	Proxy    string // domaine ou "" pour tous
-	NodeName string // nœud Core ou "" pour tous
+	NodeName string // nœud passerelle ou "" pour tous
 	IP       string // IP client ou "" pour tous
 	Path     string // préfixe/égalité chemin ou "" pour tous
 	From     time.Time
@@ -438,7 +438,7 @@ func GetTopAgents(db *sql.DB, p Params, limit int) []AgentEntry {
 }
 
 // GetProxies retourne les domaines configurés (table proxies), sans scanner logs.
-// Si nodeName est non vide, ne retourne que les domaines vus dans les logs d'accès de ce Core.
+// Si nodeName est non vide, ne retourne que les domaines vus dans les logs d'accès de cette passerelle.
 func GetProxies(db *sql.DB, nodeName string) []ProxyOption {
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	defer cancel()

@@ -275,7 +275,7 @@ window.computeProxyHeaderScore = function(cfg) {
   return { score, grade, checks, wafCfg, botCfg, jwtCfg };
 };
 
-window.openProxySecModal = async function(id, initialTab) {
+window._psecMount = async function(id, initialTab, embedEl) {
   try {
   let existing = null;
   let allSnippets = [];
@@ -341,7 +341,7 @@ window.openProxySecModal = async function(id, initialTab) {
   const _storedPlatforms = Array.isArray(wafCfg?.exclude_platforms) ? wafCfg.exclude_platforms : [];
   const _autoMode = _storedPlatforms.includes('auto');
   const _activePlatforms = new Set(_autoMode ? [] : _storedPlatforms);
-  // True si le proxy a une config WAF propre (pas seulement héritage Core)
+  // True si le proxy a une config WAF propre (pas seulement héritage passerelle)
   const _hasOwnWaf = !!(cfg.waf?.enabled !== undefined || cfg.waf?.mode || cfg.waf?.exclude_platforms?.length);
   const botCfg = scored.botCfg;
   const jwtCfg = scored.jwtCfg;
@@ -450,7 +450,7 @@ window.openProxySecModal = async function(id, initialTab) {
     </div>`;
 
   const body = `
-    <div style="display:flex;height:560px;margin:-16px -24px;overflow:hidden;">
+    <div style="display:flex;height:100%;overflow:hidden;">
       <!-- Sidebar sécurité -->
       <div id="psec-tabs" style="width:145px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:8px 0;background:var(--bg);">
         ${stab('recap', 'Récap', '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4" stroke-width="2.5"/>')}
@@ -539,7 +539,7 @@ window.openProxySecModal = async function(id, initialTab) {
               <div style="display:flex;align-items:center;gap:8px;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
                 <span style="font-size:12.5px;font-weight:600;">WAF</span>
-                ${wafCfg?.enabled ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:#34d39918;color:#34d399;border:1px solid #34d39930;">${wafCfg.mode||'block'}</span>` : `<span style="font-size:10px;color:var(--text3);">${_hasOwnWaf?'Désactivé':'Hérite du Core'}</span>`}
+                ${wafCfg?.enabled ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:#34d39918;color:#34d399;border:1px solid #34d39930;">${wafCfg.mode||'block'}</span>` : `<span style="font-size:10px;color:var(--text3);">${_hasOwnWaf?'Désactivé':'Hérite de la passerelle'}</span>`}
               </div>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text3)"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
@@ -611,7 +611,7 @@ window.openProxySecModal = async function(id, initialTab) {
                 <div class="field" style="margin:0 0 8px;">
                   <label class="field-label" style="font-size:11px">Base MaxMind (.mmdb)</label>
                   <input id="psec-geo-db" class="input" placeholder="${esc((typeof GPX_GEO_DEFAULT_DB!=='undefined'&&GPX_GEO_DEFAULT_DB)||'/etc/goproxify/geoip/GeoLite2-Country.mmdb')}" value="${esc(geoCfg.db_path||'')}">
-                  <div style="font-size:10px;color:var(--text3);margin-top:3px;">Requis sur le Core. Laisser vide pour utiliser le chemin par défaut.</div>
+                  <div style="font-size:10px;color:var(--text3);margin-top:3px;">Requis sur la passerelle. Laisser vide pour utiliser le chemin par défaut.</div>
                 </div>
                 <div id="psec-geo-picker"></div>
               </div>
@@ -655,7 +655,7 @@ window.openProxySecModal = async function(id, initialTab) {
             </button>` : `<span style="font-size:11px;color:#34d399;font-weight:600;">✓ Tous les headers sont optimaux</span>`}
           </div>
           ${_hdrItems}
-          ${_fixCount > 0 ? `<div style="font-size:11px;color:var(--text3);padding-top:4px;">Les headers cochés seront écrits dans <code>headers</code> et appliqués aux réponses clients par le Core.</div>` : ''}
+          ${_fixCount > 0 ? `<div style="font-size:11px;color:var(--text3);padding-top:4px;">Les headers cochés seront écrits dans <code>headers</code> et appliqués aux réponses clients par le Edge.</div>` : ''}
         </div>
 
         <!-- WAF -->
@@ -663,14 +663,14 @@ window.openProxySecModal = async function(id, initialTab) {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
             <div style="font-size:13px;font-weight:700;">Web Application Firewall</div>
             <div style="display:flex;gap:6px;">
-              ${_hasOwnWaf ? `<button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--text3);" onclick="psecResetWafToCore('${esc(id)}')">↩ Hériter du Core</button>` : ''}
+              ${_hasOwnWaf ? `<button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--text3);" onclick="psecResetWafToEdge('${esc(id)}')">↩ Hériter du Edge</button>` : ''}
               <button type="button" class="btn btn-ghost btn-sm" style="font-size:10px;" onclick="psecToggleWAFAdvanced()">Avancé ▾</button>
             </div>
           </div>
           ${!_hasOwnWaf ? `
           <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:color-mix(in srgb,var(--green) 8%,transparent);border:1px solid color-mix(in srgb,var(--green) 25%,var(--border));border-radius:8px;font-size:11.5px;color:var(--text2);">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--green);flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
-            <span>Hérite de la config WAF du Core — <button type="button" onclick="psecActivateOwnWaf()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;">Personnaliser pour ce proxy</button></span>
+            <span>Hérite de la config WAF du Edge — <button type="button" onclick="psecActivateOwnWaf()" style="background:none;border:none;padding:0;cursor:pointer;color:var(--accent);font-size:11.5px;text-decoration:underline;">Personnaliser pour ce proxy</button></span>
           </div>` : ''}
           <div id="psec-waf-own" style="display:${_hasOwnWaf?'flex':'none'};flex-direction:column;gap:14px;">
             <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
@@ -833,10 +833,7 @@ window.openProxySecModal = async function(id, initialTab) {
       </div>
     </div>`;
 
-  modal(`Sécurité — ${esc(host)}`, body, `
-    <button class="btn btn-secondary" onclick="closeModal()">Fermer</button>
-    <button class="btn btn-primary" onclick="saveProxySec('${esc(id)}')">Enregistrer les paramètres</button>
-  `, true);
+  embedEl.innerHTML = body;
   switchSecTab(initialTab && ['recap','params','snippets','headers','waf','bans','timeline'].includes(initialTab) ? initialTab : 'recap');
   try { psecGeoInit(geoCfg.countries || [], 'psec-geo-picker'); } catch (e) { console.warn('psecGeoInit', e); }
   try {
@@ -915,9 +912,14 @@ window.openProxySecModal = async function(id, initialTab) {
     if (el) el.textContent = 'Impossible de charger la timeline.';
   });
   } catch (e) {
-    console.error('openProxySecModal', e);
-    toast(e.message || 'Impossible d\'ouvrir la modale Sécurité', 'error');
+    console.error('_psecMount', e);
+    toast(e.message || 'Impossible de charger l\'onglet Protection', 'error');
   }
+};
+
+// La sécurité n'a plus de modale propre : c'est l'onglet « Protection » de la modale du proxy.
+window.openProxySecModal = function(id, initialTab) {
+  return openProxyModal(id, 'protection', initialTab);
 };
 
 window.psecToggleWAFAdvanced = function() {
@@ -949,15 +951,16 @@ window.psecTogglePlatform = function(id, label) {
   }
 };
 
-window.psecResetWafToCore = async function(id) {
-  if (!confirm('Supprimer la config WAF propre de ce proxy et hériter du Core ?')) return;
+window.psecResetWafToEdge = async function(id) {
+  if (!confirm('Supprimer la config WAF propre de ce proxy et hériter de la passerelle ?')) return;
+  if (!await saveProxy(id, { keepOpen: true })) return;
   try {
     const existing = await api('GET', `/proxies/${encodeURIComponent(id)}`);
     let cfg = existing ? (typeof existing.config === 'string' ? tryJSON(existing.config) : existing.config || existing) : {};
     delete cfg.waf;
     await api('PUT', `/proxies/${encodeURIComponent(id)}`, { ...existing, config: cfg });
-    toast('Config WAF réinitialisée — héritage Core actif', 'success');
-    openProxySecModal(id, 'waf');
+    toast('Config WAF réinitialisée — héritage passerelle active', 'success');
+    await openProxyModal(id, 'protection', 'waf');
   } catch(e) { toast(e.message, 'error'); }
 };
 
@@ -1021,7 +1024,7 @@ window.switchSecTab = function(tab) {
 };
 
 // ── Sélecteur GeoIP (pays + regroupements + recherche) ─────────────────────
-// Racine DOM configurable (modale Sécurité = psec-geo-picker, page Core = core-geo-picker)
+// Racine DOM configurable (modale Sécurité = psec-geo-picker, page passerelle = edge-geo-picker)
 window.psecGeoRoot = function() {
   return document.getElementById(window._psecGeoRootId || 'psec-geo-picker');
 };
@@ -1033,14 +1036,14 @@ window.psecGeoInit = function(codes, rootId) {
   window._psecGeoSelected = new Set(incoming.length ? incoming : []);
   window._psecGeoQuery = '';
   psecGeoRender();
-  const en = document.getElementById('psec-geo-enabled') || document.getElementById('core-geo-enabled');
+  const en = document.getElementById('psec-geo-enabled') || document.getElementById('edge-geo-enabled');
   psecGeoToggleEnabled(!!(en?.checked || window._psecGeoSelected.size));
 };
 
 window.psecGeoToggleEnabled = function(on) {
-  const box = document.getElementById('psec-geo-fields') || document.getElementById('core-geo-fields');
+  const box = document.getElementById('psec-geo-fields') || document.getElementById('edge-geo-fields');
   if (box) box.style.opacity = on ? '1' : '0.45';
-  const en = document.getElementById('psec-geo-enabled') || document.getElementById('core-geo-enabled');
+  const en = document.getElementById('psec-geo-enabled') || document.getElementById('edge-geo-enabled');
   if (en && en.checked !== !!on) en.checked = !!on;
   if (on) psecGeoRender();
 };
@@ -1207,7 +1210,9 @@ window.psecGeoRenderList = function() {
     : '');
 };
 
-window.saveProxySec = async function(id) {
+// Lit les champs de l'onglet Protection (psec-*) et les applique sur `baseCfg`.
+// Utilisé par l'enregistrement unique de la modale proxy (saveProxy).
+window._psecBuildConfig = function(baseCfg) {
   const jwtEnabled = document.getElementById('psec-jwt-enabled')?.checked;
   const jwtJwks = document.getElementById('psec-jwt-jwks')?.value.trim();
   const wafEnabled = document.getElementById('psec-waf-enabled')?.checked;
@@ -1234,110 +1239,78 @@ window.saveProxySec = async function(id) {
   const geoEnabled = document.getElementById('psec-geo-enabled')?.checked;
   const geoCountries = psecGeoGetSelected();
   const geoDb = document.getElementById('psec-geo-db')?.value.trim();
-
-  try {
-    const existing = await api('GET', `/proxies/${encodeURIComponent(id)}`);
-    let cfg = existing ? (typeof existing.config === 'string' ? tryJSON(existing.config) : existing.config || existing) : {};
-    cfg = migrateHeadersConfig(cfg || {});
-    // Chemins canoniques lus par ComputeHeaderScore (headers, rate_limit, ip_filter, waf, bot, jwt)
-    const updatedConfig = {
-      ...cfg,
-      headers: {
-        ...(cfg.headers || {}),
-        hsts: !!hsts,
-        hsts_max_age: hsts ? (parseInt(document.getElementById('psec-hsts-maxage')?.value, 10) || 31536000) : (cfg.headers?.hsts_max_age || 31536000),
-        hide_server: !!hideServer,
-        x_frame_options: xfo || '',
-      },
-      waf: wafEnabled ? {
-        enabled: true,
-        mode: wafMode === 'detect' ? 'detect' : 'block',
-        anomaly_threshold: wafThreshold || undefined,
-        max_body_mb: wafMaxBody !== 10 ? wafMaxBody : undefined,
-        exclude_ids: wafExcludeRaw.length ? wafExcludeRaw : undefined,
-        custom_rules: wafCustomRules.length ? wafCustomRules : undefined,
-        behavior_enabled: wafBehaviorEnabled || undefined,
-        behavior_window_s: wafBehaviorEnabled ? wafBehaviorWindow : undefined,
-        behavior_threshold: wafBehaviorEnabled ? wafBehaviorThreshold : undefined,
-        trusted_proxies: wafTrustedProxies.length ? wafTrustedProxies : undefined,
-        exclude_platforms: wafPlatforms.length ? wafPlatforms : undefined,
-      } : undefined,
-      bot: botEnabled ? {
-        enabled: true,
-        mode: botMode === 'challenge' ? 'challenge' : (botMode === 'log' ? 'log' : 'block'),
-        js_challenge: botMode === 'challenge',
-      } : undefined,
-      jwt: (jwtEnabled || jwtJwks) ? {
-        enabled: !!jwtEnabled,
-        jwks_url: jwtJwks || undefined,
-        audience: document.getElementById('psec-jwt-aud')?.value.trim() || undefined,
-        issuer: document.getElementById('psec-jwt-iss')?.value.trim() || undefined,
-      } : undefined,
-      rate_limit: rlEnabled ? {
-        rps: parseFloat(document.getElementById('psec-rl-rps')?.value) || 10,
-        burst: parseInt(document.getElementById('psec-rl-burst')?.value, 10) || 20,
-      } : undefined,
-      ip_filter: (ipfEnabled && cidrs.length) ? {
-        mode: document.getElementById('psec-ipf-mode')?.value || 'deny',
-        cidrs,
-      } : undefined,
-      geo_ip: (geoEnabled && geoCountries.length) ? {
-        mode: document.getElementById('psec-geo-mode')?.value || 'deny',
-        countries: geoCountries,
-        db_path: geoDb || cfg.geo_ip?.db_path || (typeof GPX_GEO_DEFAULT_DB !== 'undefined' ? GPX_GEO_DEFAULT_DB : '/etc/goproxify/geoip/GeoLite2-Country.mmdb'),
-      } : undefined,
-      sentinel_whitelist: sentinelWhitelist.length ? sentinelWhitelist : undefined,
-      snippet_ids: (() => {
-        const ids = typeof psecGetSnippetIds === 'function' ? psecGetSnippetIds() : (cfg.snippet_ids || []);
-        return ids.length ? ids : undefined;
-      })(),
-    };
-    // Nettoyer custom des doublons HSTS/XFO (gérés en typés)
-    if (updatedConfig.headers?.custom) {
-      const custom = { ...updatedConfig.headers.custom };
-      Object.keys(custom).forEach(k => {
-        const lk = k.toLowerCase();
-        if (lk === 'strict-transport-security' || lk === 'x-frame-options') delete custom[k];
-      });
-      if (Object.keys(custom).length) updatedConfig.headers.custom = custom;
-      else delete updatedConfig.headers.custom;
-    }
-    await api('PUT', `/proxies/${encodeURIComponent(id)}`, { config: updatedConfig, enabled: existing.enabled !== false });
-    toast('Paramètres de sécurité enregistrés', 'success');
-    closeModal();
-    navigate(state.page);
-  } catch(e) { toast(e.message || 'Erreur lors de la sauvegarde', 'error'); }
+  const cfg = migrateHeadersConfig({ ...(baseCfg || {}) });
+  // Chemins canoniques lus par ComputeHeaderScore (headers, rate_limit, ip_filter, waf, bot, jwt)
+  const updatedConfig = {
+    ...cfg,
+    headers: {
+      ...(cfg.headers || {}),
+      hsts: !!hsts,
+      hsts_max_age: hsts ? (parseInt(document.getElementById('psec-hsts-maxage')?.value, 10) || 31536000) : (cfg.headers?.hsts_max_age || 31536000),
+      hide_server: !!hideServer,
+      x_frame_options: xfo || '',
+    },
+    waf: wafEnabled ? {
+      enabled: true,
+      mode: wafMode === 'detect' ? 'detect' : 'block',
+      anomaly_threshold: wafThreshold || undefined,
+      max_body_mb: wafMaxBody !== 10 ? wafMaxBody : undefined,
+      exclude_ids: wafExcludeRaw.length ? wafExcludeRaw : undefined,
+      custom_rules: wafCustomRules.length ? wafCustomRules : undefined,
+      behavior_enabled: wafBehaviorEnabled || undefined,
+      behavior_window_s: wafBehaviorEnabled ? wafBehaviorWindow : undefined,
+      behavior_threshold: wafBehaviorEnabled ? wafBehaviorThreshold : undefined,
+      trusted_proxies: wafTrustedProxies.length ? wafTrustedProxies : undefined,
+      exclude_platforms: wafPlatforms.length ? wafPlatforms : undefined,
+    } : undefined,
+    bot: botEnabled ? {
+      enabled: true,
+      mode: botMode === 'challenge' ? 'challenge' : (botMode === 'log' ? 'log' : 'block'),
+      js_challenge: botMode === 'challenge',
+    } : undefined,
+    jwt: (jwtEnabled || jwtJwks) ? {
+      enabled: !!jwtEnabled,
+      jwks_url: jwtJwks || undefined,
+      audience: document.getElementById('psec-jwt-aud')?.value.trim() || undefined,
+      issuer: document.getElementById('psec-jwt-iss')?.value.trim() || undefined,
+    } : undefined,
+    rate_limit: rlEnabled ? {
+      rps: parseFloat(document.getElementById('psec-rl-rps')?.value) || 10,
+      burst: parseInt(document.getElementById('psec-rl-burst')?.value, 10) || 20,
+    } : undefined,
+    ip_filter: (ipfEnabled && cidrs.length) ? {
+      mode: document.getElementById('psec-ipf-mode')?.value || 'deny',
+      cidrs,
+    } : undefined,
+    geo_ip: (geoEnabled && geoCountries.length) ? {
+      mode: document.getElementById('psec-geo-mode')?.value || 'deny',
+      countries: geoCountries,
+      db_path: geoDb || cfg.geo_ip?.db_path || (typeof GPX_GEO_DEFAULT_DB !== 'undefined' ? GPX_GEO_DEFAULT_DB : '/etc/goproxify/geoip/GeoLite2-Country.mmdb'),
+    } : undefined,
+    sentinel_whitelist: sentinelWhitelist.length ? sentinelWhitelist : undefined,
+    snippet_ids: (() => {
+      const ids = typeof psecGetSnippetIds === 'function' ? psecGetSnippetIds() : (cfg.snippet_ids || []);
+      return ids.length ? ids : undefined;
+    })(),
+  };
+  // Nettoyer custom des doublons HSTS/XFO (gérés en typés)
+  if (updatedConfig.headers?.custom) {
+    const custom = { ...updatedConfig.headers.custom };
+    Object.keys(custom).forEach(k => {
+      const lk = k.toLowerCase();
+      if (lk === 'strict-transport-security' || lk === 'x-frame-options') delete custom[k];
+    });
+    if (Object.keys(custom).length) updatedConfig.headers.custom = custom;
+    else delete updatedConfig.headers.custom;
+  }
+  return updatedConfig;
 };
 
 window.applySecHeaders = async function(id) {
   const checks = [...document.querySelectorAll('.psec-hdr-fix:checked')];
   if (!checks.length) { toast('Aucun header sélectionné', 'error'); return; }
-  // Préserver les paramètres non enregistrés avant le refresh de la modale
-  const draft = {
-    wafEnabled: document.getElementById('psec-waf-enabled')?.checked,
-    wafMode: document.getElementById('psec-waf-mode')?.value,
-    botEnabled: document.getElementById('psec-bot-enabled')?.checked,
-    botMode: document.getElementById('psec-bot-mode')?.value,
-    jwtEnabled: document.getElementById('psec-jwt-enabled')?.checked,
-    jwtJwks: document.getElementById('psec-jwt-jwks')?.value,
-    jwtAud: document.getElementById('psec-jwt-aud')?.value,
-    jwtIss: document.getElementById('psec-jwt-iss')?.value,
-    hsts: document.getElementById('psec-hsts')?.checked,
-    hstsMaxAge: document.getElementById('psec-hsts-maxage')?.value,
-    hideServer: document.getElementById('psec-hide-server')?.checked,
-    xfo: document.getElementById('psec-xfo')?.value,
-    rlEnabled: document.getElementById('psec-rl-enabled')?.checked,
-    rlRps: document.getElementById('psec-rl-rps')?.value,
-    rlBurst: document.getElementById('psec-rl-burst')?.value,
-    ipfEnabled: document.getElementById('psec-ipf-enabled')?.checked,
-    ipfMode: document.getElementById('psec-ipf-mode')?.value,
-    ipfCidrs: document.getElementById('psec-ipf-cidrs')?.value,
-    geoEnabled: document.getElementById('psec-geo-enabled')?.checked,
-    geoMode: document.getElementById('psec-geo-mode')?.value,
-    geoDb: document.getElementById('psec-geo-db')?.value,
-    geoCountries: psecGeoGetSelected(),
-    snippetIds: psecGetSnippetIds(),
-  };
+  // Les autres onglets sont enregistrés d'abord : la modale est rechargée depuis le serveur ensuite.
+  if (!await saveProxy(id, { keepOpen: true })) return;
   try {
     const existing = await api('GET', `/proxies/${encodeURIComponent(id)}`);
     const cfg = existing ? (typeof existing.config === 'string' ? tryJSON(existing.config) : existing.config || existing) : {};
@@ -1348,47 +1321,6 @@ window.applySecHeaders = async function(id) {
     }
     await api('PUT', `/proxies/${encodeURIComponent(id)}`, { config: updatedConfig, enabled: existing.enabled !== false });
     toast(`${checks.length} header${checks.length > 1 ? 's' : ''} de sécurité appliqué${checks.length > 1 ? 's' : ''}`, 'success');
-    // Rafraîchir la liste des headers sans fermer, en restaurant le brouillon Paramètres
-    await openProxySecModal(id);
-    switchSecTab('headers');
-    const set = (elId, prop, val) => { const el = document.getElementById(elId); if (el != null && val != null) el[prop] = val; };
-    set('psec-waf-enabled', 'checked', draft.wafEnabled);
-    set('psec-waf-mode', 'value', draft.wafMode);
-    set('psec-bot-enabled', 'checked', draft.botEnabled);
-    set('psec-bot-mode', 'value', draft.botMode);
-    set('psec-jwt-enabled', 'checked', draft.jwtEnabled);
-    set('psec-jwt-jwks', 'value', draft.jwtJwks);
-    set('psec-jwt-aud', 'value', draft.jwtAud);
-    set('psec-jwt-iss', 'value', draft.jwtIss);
-    set('psec-hsts', 'checked', draft.hsts);
-    set('psec-hsts-maxage', 'value', draft.hstsMaxAge);
-    set('psec-hide-server', 'checked', draft.hideServer);
-    set('psec-xfo', 'value', draft.xfo);
-    set('psec-rl-enabled', 'checked', draft.rlEnabled);
-    set('psec-rl-rps', 'value', draft.rlRps);
-    set('psec-rl-burst', 'value', draft.rlBurst);
-    set('psec-ipf-enabled', 'checked', draft.ipfEnabled);
-    set('psec-ipf-mode', 'value', draft.ipfMode);
-    set('psec-ipf-cidrs', 'value', draft.ipfCidrs);
-    set('psec-geo-enabled', 'checked', draft.geoEnabled);
-    set('psec-geo-mode', 'value', draft.geoMode);
-    set('psec-geo-db', 'value', draft.geoDb);
-    const hstsRow = document.getElementById('psec-hsts-maxage-row');
-    if (hstsRow) hstsRow.style.display = draft.hsts ? 'flex' : 'none';
-    const rlFields = document.getElementById('psec-rl-fields');
-    if (rlFields) rlFields.style.opacity = draft.rlEnabled ? '1' : '0.45';
-    const ipfFields = document.getElementById('psec-ipf-fields');
-    if (ipfFields) ipfFields.style.opacity = draft.ipfEnabled ? '1' : '0.45';
-    psecGeoInit(draft.geoCountries || [], 'psec-geo-picker');
-    psecGeoToggleEnabled(!!draft.geoEnabled);
-    window._psecSnippetIds = new Set(draft.snippetIds || []);
-    const snipList = document.getElementById('psec-snippets-list');
-    if (snipList) {
-      // Recharger le proxy cfg minimal pour les hints inline
-      snipList.innerHTML = psecSnippetsHTML(window._psecAllSnippets || [], draft.snippetIds || [], {});
-      document.querySelectorAll('.psec-snip-cb').forEach(cb => {
-        cb.checked = window._psecSnippetIds.has(cb.dataset.sid);
-      });
-    }
+    await openProxyModal(id, 'protection', 'headers');
   } catch(e) { toast(e.message || 'Erreur lors de l\'application', 'error'); }
 };

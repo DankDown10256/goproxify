@@ -20,13 +20,13 @@ pages.infrastructure = async function() {
       try { if (JSON.parse(dn.config || '{}').excluded) window._excludedDeclaredNodes.set(dn.name, dn); } catch {}
     }
     const pendingNodes = allNodes.filter(n => n.status === 'pending');
-    const coreNodes  = allNodes.filter(n => n.role === 'core' && n.status !== 'pending');
+    const edgeNodes  = allNodes.filter(n => n.role === 'edge' && n.status !== 'pending');
     const agentNodes = allNodes.filter(n => n.role === 'agent' && n.status !== 'pending');
     const adminNode  = { node_name: 'Admin', role: 'admin', status: health?.status === 'ok' ? 'online' : 'offline', version: health?.version || '', cpu_pct: null, mem_pct: null, container_runtimes: [] };
 
-    window._coreNodes = coreNodes;
-    window.openCore = function(i, page) { selectCore(window._coreNodes[i], page); };
-    if (typeof refreshNavCores === 'function') refreshNavCores();
+    window._edgeNodes = edgeNodes;
+    window.openEdge = function(i, page) { selectEdge(window._edgeNodes[i], page); };
+    if (typeof refreshNavEdges === 'function') refreshNavEdges();
     window._infraNodes = [...allNodes, adminNode];
     window._topoSelection = new Set();
     _closeDetails();
@@ -36,9 +36,9 @@ pages.infrastructure = async function() {
       ? `<div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--orange,#f97316);opacity:.9;">${t('infra.section.pending_accept', { n: pendingNodes.length })}</div>
          <div class="node-grid" style="margin-bottom:24px;">${pendingNodes.map(n => infraPendingCard(n)).join('')}</div>`
       : '';
-    const coresSection = coreNodes.length
-      ? `<div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);opacity:.7;">${t('infra.section.cores', { n: coreNodes.length })}</div>
-         <div class="node-grid" style="margin-bottom:24px;">${coreNodes.map((n,i) => infraCoreCard(n, i)).join('')}</div>`
+    const edgesSection = edgeNodes.length
+      ? `<div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);opacity:.7;">${t('infra.section.edges', { n: edgeNodes.length })}</div>
+         <div class="node-grid" style="margin-bottom:24px;">${edgeNodes.map((n,i) => infraEdgeCard(n, i)).join('')}</div>`
       : '';
     const agentsSection = agentNodes.length
       ? `<div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);opacity:.7;">${t('infra.section.agents', { n: agentNodes.length })}</div>
@@ -69,7 +69,7 @@ pages.infrastructure = async function() {
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div class="card-header">
           <span class="card-title">${t('infra.topology')}</span>
-          <span style="font-size:11px;color:var(--text2)">${t('infra.topology_meta', { cores: coreNodes.length, agents: agentNodes.length, pending: topoPending })}</span>
+          <span style="font-size:11px;color:var(--text2)">${t('infra.topology_meta', { edges: edgeNodes.length, agents: agentNodes.length, pending: topoPending })}</span>
           <span id="topo-live-meta" style="font-size:11px;color:var(--text2)"></span>
         </div>
         <div id="topology-container" style="overflow-x:auto;padding:8px 0"></div>
@@ -78,7 +78,7 @@ pages.infrastructure = async function() {
       <div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);opacity:.7;">${t('nav.section.Administration')}</div>
       <div style="margin-bottom:24px;">${infraAdminCard(adminNode, health)}</div>
       ${pendingSection}
-      ${coresSection}
+      ${edgesSection}
       ${agentsSection}
     `;
     renderTopology(allNodes.filter(n => n.status !== 'pending'), health);
@@ -118,13 +118,13 @@ function _genSecret() {
 }
 
 const _wiz = {
-  coreList: [],
+  edgeList: [],
   declaredNodes: [],
   pairingSecret: '',
 };
 
-/** Endpoint Admin→Core à partir d'un hôte saisi (évite :8000 en double). */
-function _wizCoreEndpoint(host) {
+/** Endpoint Admin→Passerelle à partir d'un hôte saisi (évite :8000 en double). */
+function _wizEdgeEndpoint(host) {
   const h = (host || '').trim();
   if (!h) return '';
   if (h.includes('://')) return h;
@@ -132,29 +132,29 @@ function _wizCoreEndpoint(host) {
   return 'http://' + h + ':8000';
 }
 
-/** Fusionne nœuds Core et tokens pour listes Agent / cluster Raft. */
-function _wizLoadCoreList(nodes, tokens) {
+/** Fusionne nœuds passerelle et tokens pour listes Agent / cluster Raft. */
+function _wizLoadEdgeList(nodes, tokens) {
   const byName = new Map();
-  for (const n of (nodes || []).filter(x => x.role === 'core')) {
+  for (const n of (nodes || []).filter(x => x.role === 'edge')) {
     const key = (n.node_name || n.display_name || n.id || '').trim();
     if (!key) continue;
     byName.set(key, { ...n, node_name: n.node_name || key });
   }
-  for (const t of (tokens || []).filter(x => x.role === 'core' && !x.revoked && x.node_endpoint)) {
+  for (const t of (tokens || []).filter(x => x.role === 'edge' && !x.revoked && x.node_endpoint)) {
     const key = (t.node_name || '').trim();
     if (!key) continue;
-    const existing = byName.get(key) || { node_name: key, display_name: key, role: 'core', status: 'online' };
+    const existing = byName.get(key) || { node_name: key, display_name: key, role: 'edge', status: 'online' };
     existing.node_endpoint = t.node_endpoint;
     byName.set(key, existing);
   }
   return [...byName.values()];
 }
 
-/** Options Core pour stack unifié (déclaré ou valeurs par défaut du nœud). */
-function _wizCoreOptsFromExisting(core) {
-  if (!core) return null;
-  const name = (core.node_name || core.display_name || 'goproxify-core').trim();
-  const declared = (_wiz.declaredNodes || []).find(n => n.role === 'core' && n.name === name);
+/** Options passerelle pour stack unifié (déclaré ou valeurs par défaut du nœud). */
+function _wizEdgeOptsFromExisting(edge) {
+  if (!edge) return null;
+  const name = (edge.node_name || edge.display_name || 'goproxify-edge').trim();
+  const declared = (_wiz.declaredNodes || []).find(n => n.role === 'edge' && n.name === name);
   let cfg = {};
   if (declared) {
     try {
@@ -177,7 +177,7 @@ function _wizCoreOptsFromExisting(core) {
       restart: cfg.restart || 'unless-stopped',
     };
   }
-  return _buildCoreOpts({
+  return _buildEdgeOpts({
     wc_name: name,
     wc_restart: cfg.restart || 'unless-stopped',
     wc_log: cfg.log_level || 'info',
@@ -200,7 +200,7 @@ function openInfraWizard() {
 
 function infraPendingCard(n) {
   const name = n.display_name || n.node_name || n.id;
-  const role = n.role === 'core' ? 'Core' : (n.role === 'agent' ? 'Agent' : n.role);
+  const role = n.role === 'edge' ? 'Passerelle' : (n.role === 'agent' ? 'Agent' : n.role);
   return `<div class="card blueprint" style="padding:18px 20px;display:flex;flex-direction:column;gap:0;border-color:color-mix(in srgb,var(--orange,#f97316) 40%,var(--border));">
     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;">
@@ -238,7 +238,7 @@ function infraAdminCard(node, health) {
   </div>`;
 }
 
-function infraCoreCard(n, idx) {
+function infraEdgeCard(n, idx) {
   const declared = n.status === 'declared';
   const online = n.status === 'online';
   const cpu  = n.cpu_pct  ?? 0;
@@ -260,10 +260,10 @@ function infraCoreCard(n, idx) {
         <button class="btn-icon" title="${t('common.delete')}" style="color:var(--red);margin-left:auto;" onclick="deleteDeclaredNode('${n.id}')">${iconTrash}</button>
       </div>`
     : `<div style="display:flex;gap:6px;margin-top:14px;align-items:center;">
-        <button class="btn-icon" title="${t('infra.title.traffic')}" onclick="openCore(${idx},'core-trafic')">
+        <button class="btn-icon" title="${t('infra.title.traffic')}" onclick="openEdge(${idx},'edge-trafic')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         </button>
-        <button class="btn-icon" title="${t('infra.title.general_settings')}" onclick="openCore(${idx},'core-general')">
+        <button class="btn-icon" title="${t('infra.title.general_settings')}" onclick="openEdge(${idx},'edge-general')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         </button>
         <button class="btn-icon" title="${t('infra.title.update')}" onclick="nodeAction('${esc(n.node_name)}','update')">
@@ -275,7 +275,7 @@ function infraCoreCard(n, idx) {
         ${_infraPendingDeploy(name) ? `<button class="btn-icon" title="${t('infra.mark_deployed')}" onclick="archMarkDeployed('${esc(name)}')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
         </button>` : ''}
-        <button class="btn-icon" title="${t('infra.title.delete_node')}" style="color:var(--red);margin-left:auto;" onclick="deleteActiveNode('${esc(n.id)}','${esc(name)}','core')">
+        <button class="btn-icon" title="${t('infra.title.delete_node')}" style="color:var(--red);margin-left:auto;" onclick="deleteActiveNode('${esc(n.id)}','${esc(name)}','edge')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
         </button>
       </div>`;
@@ -445,14 +445,14 @@ async function confirmAgentRemoval(dnId, nodeName, displayName) {
 
 
 /** Génère les opts Agent (envVars, volumes, image) depuis un formulaire "Ajouter un agent". */
-function _buildAddAgentOpts({ name, coreURL, docker, dockerSock, portainer, portainerURL, portainerKey, pairingSecret }) {
+function _buildAddAgentOpts({ name, edgeURL, docker, dockerSock, portainer, portainerURL, portainerKey, pairingSecret }) {
   const cat = window._gpxCatalog;
   const image = cat ? cat.image('agent') : 'ghcr.io/vincamok/goproxify/agent:preview';
   const netBlock = cat ? cat.netBlock() : '\nnetworks:\n  goproxify_net:\n    driver: bridge';
   const sockPath = dockerSock || '/var/run/docker.sock';
   const envVars = [
     { k: 'GPX_IDENTITY_AGENT_NODE_NAME',    v: name },
-    { k: 'GPX_CONTROL_PLANE_CORE_ENDPOINT', v: coreURL },
+    { k: 'GPX_CONTROL_PLANE_EDGE_ENDPOINT', v: edgeURL },
     { k: 'GPX_PAIRING_SECRET',              v: pairingSecret || '' },
     docker ? { k: 'GPX_DOCKER_ENABLED',  v: 'true' } : { k: 'GPX_DOCKER_ENABLED', v: 'false' },
     docker ? { k: 'GPX_DOCKER_RUNTIME',  v: 'auto' } : null,
@@ -467,7 +467,7 @@ function _buildAddAgentOpts({ name, coreURL, docker, dockerSock, portainer, port
 }
 
 window.openAddAgentModal = async function() {
-  const cores = (window._coreNodes || []).filter(n => n.status === 'online');
+  const edges = (window._edgeNodes || []).filter(n => n.status === 'online');
   let pairingSecret = _wiz.pairingSecret;
   if (!pairingSecret) {
     const sec = await api('GET', '/pairing-secret').catch(() => null);
@@ -475,8 +475,8 @@ window.openAddAgentModal = async function() {
     _wiz.pairingSecret = pairingSecret;
   }
 
-  const coreOptions = cores.length
-    ? cores.map(c => `<option value="${esc(c.node_name||c.id)}">${esc(c.display_name||c.node_name||c.id)}</option>`).join('')
+  const edgeOptions = edges.length
+    ? edges.map(c => `<option value="${esc(c.node_name||c.id)}">${esc(c.display_name||c.node_name||c.id)}</option>`).join('')
     : `<option value="">${t('common.none')}</option>`;
 
   const formHTML = `
@@ -485,14 +485,14 @@ window.openAddAgentModal = async function() {
         <input id="aa-name" type="text" value="goproxify-agent-1" placeholder="goproxify-agent-1"
           style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);">
       </label>
-      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);">${t('infra.add_agent.core')}
-        <select id="aa-core-select" onchange="document.getElementById('aa-core-url').value=this.value?'':'http://goproxify-core:8000'"
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);">${t('infra.add_agent.edge')}
+        <select id="aa-edge-select" onchange="document.getElementById('aa-edge-url').value=this.value?'':'http://goproxify-edge:8000'"
           style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);">
-          ${coreOptions}
-          <option value="__custom__">${t('infra.add_agent.core_url')}</option>
+          ${edgeOptions}
+          <option value="__custom__">${t('infra.add_agent.edge_url')}</option>
         </select>
-        <input id="aa-core-url" type="text" placeholder="http://goproxify-core:8000"
-          value="${cores.length ? 'http://' + esc(cores[0].node_name||cores[0].id) + ':8000' : 'http://goproxify-core:8000'}"
+        <input id="aa-edge-url" type="text" placeholder="http://goproxify-edge:8000"
+          value="${edges.length ? 'http://' + esc(edges[0].node_name||edges[0].id) + ':8000' : 'http://goproxify-edge:8000'}"
           style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);margin-top:4px;">
       </label>
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-top:4px;">${t('infra.add_agent.docker')}</div>
@@ -524,10 +524,10 @@ window.openAddAgentModal = async function() {
 
 window._submitAddAgent = async function(pairingSecret) {
   const name   = (document.getElementById('aa-name')?.value || '').trim();
-  const coreSelectVal = document.getElementById('aa-core-select')?.value;
-  let coreURL = (document.getElementById('aa-core-url')?.value || '').trim();
-  if (coreSelectVal && coreSelectVal !== '__custom__') {
-    coreURL = `http://${coreSelectVal}:8000`;
+  const edgeSelectVal = document.getElementById('aa-edge-select')?.value;
+  let edgeURL = (document.getElementById('aa-edge-url')?.value || '').trim();
+  if (edgeSelectVal && edgeSelectVal !== '__custom__') {
+    edgeURL = `http://${edgeSelectVal}:8000`;
   }
   const docker       = document.getElementById('aa-docker')?.checked ?? true;
   const portainer    = document.getElementById('aa-portainer')?.checked ?? false;
@@ -535,7 +535,7 @@ window._submitAddAgent = async function(pairingSecret) {
   const portainerKey = document.getElementById('aa-portainer-key')?.value || '';
 
   if (!name) { toast(t('infra.add_agent.name') + ' requis', 'error'); return; }
-  if (!coreURL) { toast(t('infra.add_agent.core_url') + ' requis', 'error'); return; }
+  if (!edgeURL) { toast(t('infra.add_agent.edge_url') + ' requis', 'error'); return; }
 
   const btn = document.getElementById('aa-generate-btn');
   if (btn) { btn.disabled = true; btn.textContent = t('infra.add_agent.generating'); }
@@ -544,7 +544,7 @@ window._submitAddAgent = async function(pairingSecret) {
   const agentConfig = {
     docker: { enabled: docker, runtime: docker ? 'auto' : '' },
     portainer: { enabled: portainer, url: portainerURL, api_key: portainerKey },
-    core_endpoint: coreURL,
+    edge_endpoint: edgeURL,
     auto_accept: true,
   };
   try {
@@ -560,7 +560,7 @@ window._submitAddAgent = async function(pairingSecret) {
   }
 
   // 2. Générer le snippet docker-compose
-  const opts = _buildAddAgentOpts({ name, coreURL, docker, portainer, portainerURL, portainerKey, pairingSecret });
+  const opts = _buildAddAgentOpts({ name, edgeURL, docker, portainer, portainerURL, portainerKey, pairingSecret });
   const composeText = _cfgComposeText(opts, 'inline');
   const envText = opts.envVars.map(({ k, v }) => `${k}=${v}`).join('\n');
 
@@ -599,49 +599,49 @@ async function agentRescan(nodeName) {
   } catch(e) { toast(t('infra.toast.rescan_failed', { msg: e.message }), 'error'); }
 }
 
-function _epCoreRowHTML(epName, coreEndpoint, authToken) {
+function _epEdgeRowHTML(epName, edgeEndpoint, authToken) {
   const s = 'font-size:11px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text1);width:100%;';
-  const cores = (window._coreNodes || []).filter(n => n.status !== 'pending');
+  const edges = (window._edgeNodes || []).filter(n => n.status !== 'pending');
 
-  const coreURL = c => { const ep = c.endpoint || c.node_endpoint || ''; return ep.startsWith('http') ? ep : 'http://' + ep; };
-  const knownMatch = cores.find(c => coreURL(c) === coreEndpoint);
-  const isOther = coreEndpoint && !knownMatch;
+  const edgeURL = c => { const ep = c.endpoint || c.node_endpoint || ''; return ep.startsWith('http') ? ep : 'http://' + ep; };
+  const knownMatch = edges.find(c => edgeURL(c) === edgeEndpoint);
+  const isOther = edgeEndpoint && !knownMatch;
 
   const options = [
-    `<option value=""${!coreEndpoint ? ' selected' : ''}>${t('infra.configure.ep_core_select_placeholder')}</option>`,
-    ...cores.map(c => `<option value="${esc(coreURL(c))}"${c === knownMatch ? ' selected' : ''}>${esc(c.node_name || c.display_name)} — ${esc(coreURL(c))}</option>`),
-    `<option value="__other__"${isOther ? ' selected' : ''}>${t('infra.configure.ep_core_other')}</option>`,
+    `<option value=""${!edgeEndpoint ? ' selected' : ''}>${t('infra.configure.ep_edge_select_placeholder')}</option>`,
+    ...edges.map(c => `<option value="${esc(edgeURL(c))}"${c === knownMatch ? ' selected' : ''}>${esc(c.node_name || c.display_name)} — ${esc(edgeURL(c))}</option>`),
+    `<option value="__other__"${isOther ? ' selected' : ''}>${t('infra.configure.ep_edge_other')}</option>`,
   ].join('');
 
-  return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:4px;align-items:start;" class="ep-core-row">
-    <input type="text" placeholder="${t('infra.configure.ep_core_name')}" value="${esc(epName)}" style="${s}">
+  return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:4px;align-items:start;" class="ep-edge-row">
+    <input type="text" placeholder="${t('infra.configure.ep_edge_name')}" value="${esc(epName)}" style="${s}">
     <div>
-      <select class="ep-core-select" onchange="_epCoreSelectChange(this)" style="${s}cursor:pointer;">${options}</select>
-      <input type="url" class="ep-core-manual" placeholder="http://core:8000" value="${esc(isOther ? coreEndpoint : '')}"
+      <select class="ep-edge-select" onchange="_epEdgeSelectChange(this)" style="${s}cursor:pointer;">${options}</select>
+      <input type="url" class="ep-edge-manual" placeholder="http://edge:8000" value="${esc(isOther ? edgeEndpoint : '')}"
         style="${s}margin-top:3px;display:${isOther ? 'block' : 'none'};">
     </div>
-    <input type="password" placeholder="${t('infra.configure.ep_core_token')}" value="${esc(authToken)}" style="${s}">
+    <input type="password" placeholder="${t('infra.configure.ep_edge_token')}" value="${esc(authToken)}" style="${s}">
     <button type="button" style="padding:4px 8px;font-size:11px;background:var(--red,#e53e3e);color:#fff;border:none;border-radius:4px;cursor:pointer;margin-top:2px;"
-      onclick="this.closest('.ep-core-row').remove()">✕</button>
+      onclick="this.closest('.ep-edge-row').remove()">✕</button>
   </div>`;
 }
 
-window._epCoreSelectChange = function(sel) {
-  const manual = sel.closest('.ep-core-row').querySelector('.ep-core-manual');
+window._epEdgeSelectChange = function(sel) {
+  const manual = sel.closest('.ep-edge-row').querySelector('.ep-edge-manual');
   manual.style.display = sel.value === '__other__' ? 'block' : 'none';
 };
 
-function _renderEpCoreRows(epCores) {
-  return Object.entries(epCores).map(([name, conf]) =>
-    _epCoreRowHTML(name, conf.core_endpoint || '', conf.auth_token || '')
+function _renderEpEdgeRows(epEdges) {
+  return Object.entries(epEdges).map(([name, conf]) =>
+    _epEdgeRowHTML(name, conf.edge_endpoint || '', conf.auth_token || '')
   ).join('');
 }
 
-window._addEpCoreRow = function() {
-  const list = document.getElementById('cfg-ep-cores-list');
+window._addEpEdgeRow = function() {
+  const list = document.getElementById('cfg-ep-edges-list');
   if (!list) return;
   const div = document.createElement('div');
-  div.innerHTML = _epCoreRowHTML('', '', '');
+  div.innerHTML = _epEdgeRowHTML('', '', '');
   list.appendChild(div.firstElementChild);
 };
 
@@ -685,31 +685,31 @@ async function agentConfigure(nodeName, node) {
     api_key: pLive.api_key || fallback.portainer_key || '',
     poll_interval_s: pLive.poll_interval_s,
     skip_endpoints: pLive.skip_endpoints,
-    endpoint_cores: pLive.endpoint_cores,
+    endpoint_edges: pLive.endpoint_edges,
   };
   const cp = (node && node._agent_config && node._agent_config.control_plane) || {};
 
-  // Sélecteur "Core cible" — liste des Cores connus
-  const coreURL = c => { const ep = c.endpoint || c.node_endpoint || ''; return ep.startsWith('http') ? ep : 'http://' + ep; };
-  const coreNodes = (window._coreNodes || []).filter(n => n.status !== 'pending');
-  const currentCoreEP = cp.core_endpoint || '';
-  const knownCoreMatch = coreNodes.find(c => coreURL(c) === currentCoreEP);
-  const isCoreOther = currentCoreEP && !knownCoreMatch;
-  const coreSelectOpts = [
-    `<option value=""${!currentCoreEP ? ' selected' : ''}>${t('infra.configure.ep_core_select_placeholder')}</option>`,
-    ...coreNodes.map(c => `<option value="${esc(coreURL(c))}"${c === knownCoreMatch ? ' selected' : ''}>${esc(c.display_name||c.node_name)} — ${esc(coreURL(c))}</option>`),
-    `<option value="__other__"${isCoreOther ? ' selected' : ''}>${t('infra.configure.ep_core_other')}</option>`,
+  // Sélecteur "Passerelle cible" — liste des passerelles connus
+  const edgeURL = c => { const ep = c.endpoint || c.node_endpoint || ''; return ep.startsWith('http') ? ep : 'http://' + ep; };
+  const edgeNodes = (window._edgeNodes || []).filter(n => n.status !== 'pending');
+  const currentEdgeEP = cp.edge_endpoint || '';
+  const knownEdgeMatch = edgeNodes.find(c => edgeURL(c) === currentEdgeEP);
+  const isEdgeOther = currentEdgeEP && !knownEdgeMatch;
+  const edgeSelectOpts = [
+    `<option value=""${!currentEdgeEP ? ' selected' : ''}>${t('infra.configure.ep_edge_select_placeholder')}</option>`,
+    ...edgeNodes.map(c => `<option value="${esc(edgeURL(c))}"${c === knownEdgeMatch ? ' selected' : ''}>${esc(c.display_name||c.node_name)} — ${esc(edgeURL(c))}</option>`),
+    `<option value="__other__"${isEdgeOther ? ' selected' : ''}>${t('infra.configure.ep_edge_other')}</option>`,
   ].join('');
   const selStyle = 'background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text1);font-family:inherit;width:100%;';
-  const coreSelect = `<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);">${t('infra.configure.core_target')}
-    <select id="cfg-core-ep-select" style="${selStyle}" onchange="(function(s){const m=document.getElementById('cfg-core-ep-manual');if(m)m.style.display=s.value==='__other__'?'block':'none';})(this)">${coreSelectOpts}</select>
-    <input id="cfg-core-ep-manual" type="url" value="${esc(isCoreOther ? currentCoreEP : '')}" placeholder="http://core.example.com:8000"
-      style="${selStyle}display:${isCoreOther ? 'block' : 'none'};margin-top:4px;">
+  const edgeSelect = `<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);">${t('infra.configure.edge_target')}
+    <select id="cfg-edge-ep-select" style="${selStyle}" onchange="(function(s){const m=document.getElementById('cfg-edge-ep-manual');if(m)m.style.display=s.value==='__other__'?'block':'none';})(this)">${edgeSelectOpts}</select>
+    <input id="cfg-edge-ep-manual" type="url" value="${esc(isEdgeOther ? currentEdgeEP : '')}" placeholder="http://edge.example.com:8000"
+      style="${selStyle}display:${isEdgeOther ? 'block' : 'none'};margin-top:4px;">
   </label>`;
 
   const body = `<form id="${formId}" style="display:flex;flex-direction:column;gap:10px;">
-    ${sectionTitle(t('infra.configure.core_section'))}
-    ${coreSelect}
+    ${sectionTitle(t('infra.configure.edge_section'))}
+    ${edgeSelect}
     ${sectionTitle(t('infra.configure.docker_section'))}
     ${toggle('cfg-docker-enabled', t('infra.configure.enabled'), d.enabled !== false)}
     ${field('cfg-docker-socket', 'Socket path', d.socket_path, 'text', '/var/run/docker.sock')}
@@ -720,12 +720,12 @@ async function agentConfigure(nodeName, node) {
     ${field('cfg-portainer-poll', t('infra.configure.poll_interval'), p.poll_interval_s||30, 'number', '30')}
     ${field('cfg-portainer-skip', t('infra.configure.skip_endpoints'), (p.skip_endpoints||[]).join(', '), 'text', 'lucas.vm-docker, prod-server')}
     <div style="margin-top:10px;">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px;">${t('infra.configure.endpoint_cores')}</div>
-      <div id="cfg-ep-cores-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px;">
-        ${_renderEpCoreRows(p.endpoint_cores||{})}
+      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px;">${t('infra.configure.endpoint_edges')}</div>
+      <div id="cfg-ep-edges-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px;">
+        ${_renderEpEdgeRows(p.endpoint_edges||{})}
       </div>
-      <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="_addEpCoreRow()">${t('infra.configure.endpoint_cores_add')}</button>
-      <p style="margin:4px 0 0;font-size:10px;color:var(--text2);">${t('infra.configure.endpoint_cores_hint')}</p>
+      <button type="button" class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="_addEpEdgeRow()">${t('infra.configure.endpoint_edges_add')}</button>
+      <p style="margin:4px 0 0;font-size:10px;color:var(--text2);">${t('infra.configure.endpoint_edges_hint')}</p>
     </div>
     <p style="margin:8px 0 0;font-size:11px;color:var(--text2);">${t('infra.configure.restart_notice')}</p>
   </form>`;
@@ -742,13 +742,13 @@ window._submitAgentConfigure = async function(nodeName, formId) {
   const btn = document.getElementById('cfg-apply-btn');
   if (btn) { btn.disabled = true; btn.textContent = t('infra.configure.applying'); }
 
-  const cfgCoreSel = document.getElementById('cfg-core-ep-select');
-  const cfgCoreEP = cfgCoreSel?.value === '__other__'
-    ? document.getElementById('cfg-core-ep-manual')?.value?.trim()
-    : cfgCoreSel?.value?.trim();
+  const cfgEdgeSel = document.getElementById('cfg-edge-ep-select');
+  const cfgEdgeEP = cfgEdgeSel?.value === '__other__'
+    ? document.getElementById('cfg-edge-ep-manual')?.value?.trim()
+    : cfgEdgeSel?.value?.trim();
 
   const patch = {
-    ...(cfgCoreEP ? { control_plane: { core_endpoint: cfgCoreEP } } : {}),
+    ...(cfgEdgeEP ? { control_plane: { edge_endpoint: cfgEdgeEP } } : {}),
     docker: {
       enabled: document.getElementById('cfg-docker-enabled')?.checked ?? true,
       socket_path: document.getElementById('cfg-docker-socket')?.value || '/var/run/docker.sock',
@@ -759,16 +759,16 @@ window._submitAgentConfigure = async function(nodeName, formId) {
       api_key: document.getElementById('cfg-portainer-key')?.value || '',
       poll_interval_s: parseInt(document.getElementById('cfg-portainer-poll')?.value || '30', 10) || 30,
       skip_endpoints: (document.getElementById('cfg-portainer-skip')?.value || '').split(',').map(s => s.trim()).filter(Boolean),
-      endpoint_cores: (() => {
+      endpoint_edges: (() => {
         const result = {};
-        document.querySelectorAll('#cfg-ep-cores-list .ep-core-row').forEach(row => {
+        document.querySelectorAll('#cfg-ep-edges-list .ep-edge-row').forEach(row => {
           const name = row.querySelector('input[type=text]')?.value?.trim();
-          const sel  = row.querySelector('.ep-core-select');
+          const sel  = row.querySelector('.ep-edge-select');
           const ep   = (sel?.value === '__other__' || !sel)
-            ? row.querySelector('.ep-core-manual')?.value?.trim()
+            ? row.querySelector('.ep-edge-manual')?.value?.trim()
             : sel?.value?.trim();
           const tok  = row.querySelector('input[type=password]')?.value?.trim();
-          if (name && ep) result[name] = { core_endpoint: ep, auth_token: tok };
+          if (name && ep) result[name] = { edge_endpoint: ep, auth_token: tok };
         });
         return result;
       })(),
@@ -821,7 +821,7 @@ async function agentContainers(nodeName, displayName) {
       return `<tr>
         <td style="padding:6px 10px;font-size:12px;font-family:monospace;">${esc(c.host || '—')}</td>
         <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${esc(backends)}</td>
-        <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${esc(c.core_name || '—')}${tls}</td>
+        <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${esc(c.edge_name || '—')}${tls}</td>
       </tr>`;
     }).join('');
     return `<div style="overflow-x:auto;max-height:280px;overflow-y:auto;margin-bottom:16px;">
@@ -830,7 +830,7 @@ async function agentContainers(nodeName, displayName) {
           <tr style="background:var(--bg2);">
             <th style="padding:6px 10px;font-size:11px;font-weight:600;text-align:left;">${t('infra.col.host')}</th>
             <th style="padding:6px 10px;font-size:11px;font-weight:600;text-align:left;">${t('infra.col.backends')}</th>
-            <th style="padding:6px 10px;font-size:11px;font-weight:600;text-align:left;">Core</th>
+            <th style="padding:6px 10px;font-size:11px;font-weight:600;text-align:left;">Passerelle</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -943,14 +943,14 @@ async function showDeclaredNodeConfig(id) {
         svcName: node.name,
         image: cfg.image,
         envVars: cfg.env_vars,
-        ports: node.role === 'core' ? (() => {
+        ports: node.role === 'edge' ? (() => {
           const p = ['80:80','443:443'];
           if (cfg.http3) p.push('443:443/udp');
           p.push('8000:8000');
           if (cfg.cluster) p.push('8002:8002');
           return p;
         })() : [],
-        volumes: node.role === 'core'
+        volumes: node.role === 'edge'
           ? [`${node.name}_data:/etc/goproxify`]
           : (cfg.docker !== false
             ? ['/var/run/docker.sock:/var/run/docker.sock:ro', `${node.name}_data:/etc/goproxify`]
@@ -960,10 +960,10 @@ async function showDeclaredNodeConfig(id) {
       };
       window._cfgState = { tab: 'compose', inline: false };
       // Agent déclaré : stack unifié seulement si placement colocated (même hôte/compose)
-      let coreOpts = null;
+      let edgeOpts = null;
       if (node.role === 'agent') {
         const placement = (cfg.placement || '').trim();
-        const target = (cfg.target_core || '').trim();
+        const target = (cfg.target_edge || '').trim();
         const hostPart = (target.match(/https?:\/\/([^/:]+)/i) || [])[1] || '';
         const looksInternal = !!hostPart &&
           !/^\d+\.\d+\.\d+\.\d+$/.test(hostPart) &&
@@ -971,27 +971,27 @@ async function showDeclaredNodeConfig(id) {
           /^https?:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(:\d+)?$/i.test(target);
         const useUnified = placement === 'colocated' || (!placement && looksInternal);
         if (useUnified) {
-          const coreNode = nodes.find(n => {
-            if (n.role !== 'core') return false;
+          const edgeNode = nodes.find(n => {
+            if (n.role !== 'edge') return false;
             if (target && (target.includes(n.name) || target === n.name)) return true;
             return false;
-          }) || nodes.find(n => n.role === 'core');
-          if (coreNode) {
+          }) || nodes.find(n => n.role === 'edge');
+          if (edgeNode) {
             _wiz.declaredNodes = nodes;
-            coreOpts = _wizCoreOptsFromExisting({ node_name: coreNode.name, display_name: coreNode.name });
-            if (coreOpts) {
-              const internalURL = `http://${coreOpts.name}:8000`;
+            edgeOpts = _wizEdgeOptsFromExisting({ node_name: edgeNode.name, display_name: edgeNode.name });
+            if (edgeOpts) {
+              const internalURL = `http://${edgeOpts.name}:8000`;
               opts.envVars = (opts.envVars || [])
-                .filter(e => e.k !== 'GPX_CONTROL_PLANE_CORE_ENDPOINT' && e.k !== 'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME')
+                .filter(e => e.k !== 'GPX_CONTROL_PLANE_EDGE_ENDPOINT' && e.k !== 'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME')
                 .concat([
-                  { k: 'GPX_CONTROL_PLANE_CORE_ENDPOINT', v: internalURL },
-                  { k: 'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME', v: coreOpts.name },
+                  { k: 'GPX_CONTROL_PLANE_EDGE_ENDPOINT', v: internalURL },
+                  { k: 'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME', v: edgeOpts.name },
                 ]);
             }
           }
         }
       }
-      bodyHTML = coreOpts ? _renderConfigUI(coreOpts, opts) : _renderConfigUI(opts);
+      bodyHTML = edgeOpts ? _renderConfigUI(edgeOpts, opts) : _renderConfigUI(opts);
     } else if (cfg.compose_text || cfg.env_text) {
       // Legacy: show static compose_text/env_text
       const copyBtn = (eid, label) =>
@@ -1107,8 +1107,8 @@ function _detailsCardHTML(n) {
   } else if (n.role === 'admin') {
     body = `<div style="margin-top:10px;font-size:12px;color:var(--text2);">${t('infra.version')} <strong style="color:var(--text1);">v${esc(n.version||'—')}</strong></div>
       <div style="margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="navigate('settings')">${t('page.settings')}</button></div>`;
-  } else if (n.role === 'core') {
-    const idx = (window._coreNodes||[]).findIndex(c => (c.node_name||c.id) === (n.node_name||n.id));
+  } else if (n.role === 'edge') {
+    const idx = (window._edgeNodes||[]).findIndex(c => (c.node_name||c.id) === (n.node_name||n.id));
     body = `<div style="margin-top:10px;">
       <div style="font-size:11px;color:var(--text2);">${t('infra.endpoint')}</div>
       <div style="font-family:monospace;font-size:12px;">${esc(n.endpoint||n.node_endpoint||'—')}</div>
@@ -1117,10 +1117,10 @@ function _detailsCardHTML(n) {
     ${_detailsMeter('CPU', n.cpu_pct||0)}
     ${_detailsMeter('RAM', n.mem_pct||0)}
     <div style="display:flex;gap:6px;margin-top:14px;align-items:center;flex-wrap:wrap;">
-      ${idx >= 0 ? `<button class="btn-icon" title="${t('infra.title.traffic')}" onclick="openCore(${idx},'core-trafic')">
+      ${idx >= 0 ? `<button class="btn-icon" title="${t('infra.title.traffic')}" onclick="openEdge(${idx},'edge-trafic')">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
       </button>
-      <button class="btn-icon" title="${t('infra.title.general_settings')}" onclick="openCore(${idx},'core-general')">
+      <button class="btn-icon" title="${t('infra.title.general_settings')}" onclick="openEdge(${idx},'edge-general')">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       </button>` : ''}
       <button class="btn-icon" title="${t('infra.title.update')}" onclick="nodeAction('${esc(n.node_name)}','update')">
@@ -1137,8 +1137,8 @@ function _detailsCardHTML(n) {
     const iconEvents = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
     const iconConfigure = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`;
     body = `<div style="margin-top:10px;">
-      <div style="font-size:11px;color:var(--text2);">${t('infra.linked_core')}</div>
-      <div style="font-family:monospace;font-size:12px;">${esc(n.target_core||'—')}</div>
+      <div style="font-size:11px;color:var(--text2);">${t('infra.linked_edge')}</div>
+      <div style="font-family:monospace;font-size:12px;">${esc(n.target_edge||'—')}</div>
     </div>
     <div style="margin-top:8px;font-size:12px;color:var(--text2);">${t('infra.version')} <strong style="color:var(--text1);">v${esc(n.version||'—')}</strong></div>
     ${rts.length ? `<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">${rts.map(r=>`<span class="tag tag-neutral" style="font-size:10px;">${esc(r)}</span>`).join('')}</div>` : ''}
@@ -1161,7 +1161,7 @@ function _detailsCardHTML(n) {
 }
 
 function _detailsRelationActions(nodes) {
-  const liveCores  = nodes.filter(n => n.role === 'core' && n.status === 'online');
+  const liveEdges  = nodes.filter(n => n.role === 'edge' && n.status === 'online');
   const liveAgents = nodes.filter(n => n.role === 'agent' && n.status === 'online');
   const declaredAgents = nodes.filter(n => n.role === 'agent' && n.status === 'declared');
   let actions = [];
@@ -1170,13 +1170,13 @@ function _detailsRelationActions(nodes) {
   const iconCompare = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>`;
   const iconDeselect = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
 
-  if (liveCores.length === 1 && (liveAgents.length + declaredAgents.length) >= 1) {
-    const core = liveCores[0];
-    const coreName = core.display_name || core.node_name;
+  if (liveEdges.length === 1 && (liveAgents.length + declaredAgents.length) >= 1) {
+    const edge = liveEdges[0];
+    const edgeName = edge.display_name || edge.node_name;
     const nAgents = liveAgents.length + declaredAgents.length;
-    actions.push(`<button class="btn-icon" title="${t('infra.link_agents', { core: esc(coreName) })}" onclick="_topoLinkAgentsHint('${esc(coreName)}',${nAgents})">${iconLink}</button>`);
+    actions.push(`<button class="btn-icon" title="${t('infra.link_agents', { edge: esc(edgeName) })}" onclick="_topoLinkAgentsHint('${esc(edgeName)}',${nAgents})">${iconLink}</button>`);
   }
-  if (liveCores.length >= 2 && nodes.length === liveCores.length) {
+  if (liveEdges.length >= 2 && nodes.length === liveEdges.length) {
     actions.push(`<button class="btn-icon" title="${t('infra.tag.raft_cluster')}" onclick="_topoRaftHint()">${iconRaft}</button>`);
   }
   if (nodes.length >= 2) {
@@ -1187,9 +1187,9 @@ function _detailsRelationActions(nodes) {
     : '';
 }
 
-window._topoLinkAgentsHint = function(coreName, nAgents) {
+window._topoLinkAgentsHint = function(edgeName, nAgents) {
   modal(t('infra.link_agents_title'),
-    `<p style="margin:0 0 10px;font-size:13px;color:var(--text2);">${t('infra.link_agents_body', { n: nAgents, core: esc(coreName) })}</p>
+    `<p style="margin:0 0 10px;font-size:13px;color:var(--text2);">${t('infra.link_agents_body', { n: nAgents, edge: esc(edgeName) })}</p>
      <p style="margin:0;font-size:12px;color:var(--text2);">${t('infra.link_agents_hint')}</p>`,
     `<button class="btn btn-primary" onclick="closeModal()">${t('infra.understood')}</button>`);
 };
@@ -1274,10 +1274,10 @@ function _topoApplyLive(live) {
       wrap.appendChild(box);
     }
     const why = n.risk_factor !== 'none' ? ` · ${t('infra.live.factor.' + n.risk_factor)}` : '';
-    const traffic = n.role === 'core'
+    const traffic = n.role === 'edge'
       ? `<span>${t('infra.live.reqs', { rps: n.rps < 10 ? n.rps.toFixed(1) : Math.round(n.rps) })}</span>${_topoSparkline(h)}`
       : '';
-    box.innerHTML = `${traffic}<span class="topo-risk topo-risk-${n.risk_level}" title="${esc(t('infra.live.risk', { score: n.risk }) + why)}${n.low_traffic && n.role === 'core' ? ' — ' + esc(t('infra.live.low')) : ''}">${esc(t('infra.live.risk', { score: n.risk }))}</span>`;
+    box.innerHTML = `${traffic}<span class="topo-risk topo-risk-${n.risk_level}" title="${esc(t('infra.live.risk', { score: n.risk }) + why)}${n.low_traffic && n.role === 'edge' ? ' — ' + esc(t('infra.live.low')) : ''}">${esc(t('infra.live.risk', { score: n.risk }))}</span>`;
   }
 }
 

@@ -41,7 +41,7 @@ const INFRA_TYPES = [
     nameKey: 'onboarding.infra.standalone.name',
     descKey: 'onboarding.infra.standalone.desc',
     tagKeys: ['onboarding.infra.standalone.tag1', 'onboarding.infra.standalone.tag2', 'onboarding.infra.standalone.tag3'],
-    minCores: 1,
+    minEdges: 1,
     cmdExtra: '',
   },
   {
@@ -49,23 +49,23 @@ const INFRA_TYPES = [
     nameKey: 'onboarding.infra.cluster_ha.name',
     descKey: 'onboarding.infra.cluster_ha.desc',
     tagKeys: ['onboarding.infra.cluster_ha.tag1', 'onboarding.infra.cluster_ha.tag2', 'onboarding.infra.cluster_ha.tag3'],
-    minCores: 3,
-    cmdExtra: ' \\\n  --cluster-enabled \\\n  --cluster-group=cluster-1 \\\n  --node-id=core-1 \\\n  --raft-port=8002 \\\n  --peers=core-2:8002,core-3:8002',
+    minEdges: 3,
+    cmdExtra: ' \\\n  --cluster-enabled \\\n  --cluster-group=cluster-1 \\\n  --node-id=edge-1 \\\n  --raft-port=8002 \\\n  --peers=edge-2:8002,edge-3:8002',
   },
   {
     id: 'multi-region',
     nameKey: 'onboarding.infra.multi_region.name',
     descKey: 'onboarding.infra.multi_region.desc',
     tagKeys: ['onboarding.infra.multi_region.tag1', 'onboarding.infra.multi_region.tag2', 'onboarding.infra.multi_region.tag3'],
-    minCores: 3,
-    cmdExtra: ' \\\n  --cluster-enabled \\\n  --cluster-group=eu-cluster \\\n  --node-id=core-eu-1 \\\n  --raft-port=8002 \\\n  --region=eu-west \\\n  --peers=core-eu-2:8002,core-us-1:8002',
+    minEdges: 3,
+    cmdExtra: ' \\\n  --cluster-enabled \\\n  --cluster-group=eu-cluster \\\n  --node-id=edge-eu-1 \\\n  --raft-port=8002 \\\n  --region=eu-west \\\n  --peers=edge-eu-2:8002,edge-us-1:8002',
   },
   {
     id: 'kubernetes',
     nameKey: 'onboarding.infra.kubernetes.name',
     descKey: 'onboarding.infra.kubernetes.desc',
     tagKeys: ['onboarding.infra.kubernetes.tag1', 'onboarding.infra.kubernetes.tag2', 'onboarding.infra.kubernetes.tag3'],
-    minCores: 1,
+    minEdges: 1,
     cmdExtra: null,
   },
 ];
@@ -74,13 +74,13 @@ async function checkNeedOnboarding() {
   try {
     const nodes = await api('GET', '/nodes');
     const list = nodes || [];
-    // Un Core "connu" = a déjà envoyé un heartbeat (entrée dans la table nodes).
+    // Une passerelle "connu" = a déjà envoyé un heartbeat (entrée dans la table nodes).
     // Les statuts 'pending' et 'declared' ne comptent pas : le nœud n'a pas encore prouvé
-    // sa connexion. On ne retrigge pas le wizard si un Core reconnu est temporairement offline.
-    const hasCoreRegistered = list.some(
-      n => n.role === 'core' && n.status !== 'pending' && n.status !== 'declared'
+    // sa connexion. On ne retrigge pas le wizard si une passerelle reconnu est temporairement offline.
+    const hasEdgeRegistered = list.some(
+      n => n.role === 'edge' && n.status !== 'pending' && n.status !== 'declared'
     );
-    return !hasCoreRegistered;
+    return !hasEdgeRegistered;
   } catch { return false; }
 }
 
@@ -102,7 +102,7 @@ function renderWizardStep() {
     else if (onb.step === 2) body.innerHTML = wizardImport2Html();
     else body.innerHTML = wizardImportDoneHtml();
   } else if (onb.mode === 'migrate-config') {
-    if (onb.step === 1) body.innerHTML = wizardMigrateCoreHtml();   // vérif Core
+    if (onb.step === 1) body.innerHTML = wizardMigrateEdgeHtml();   // vérif passerelle
     else if (onb.step === 2) body.innerHTML = wizardMigrate1Html(); // format + contenu
     else if (onb.step === 3) body.innerHTML = wizardMigrate2Html(); // sélection proxies
     else body.innerHTML = wizardMigrateDoneHtml();
@@ -116,7 +116,7 @@ function wizardStepsHtml() {
   const labels = {
     'deploy':         [t('onboarding.step.infrastructure'), t('onboarding.step.deployment'), t('onboarding.step.connection')],
     'import-backup':  [t('onboarding.step.backup'), t('onboarding.step.selection'), t('onboarding.step.done')],
-    'migrate-config': [t('onboarding.step.core'), t('onboarding.step.import'), t('onboarding.step.selection'), t('onboarding.step.done')],
+    'migrate-config': [t('onboarding.step.edge'), t('onboarding.step.import'), t('onboarding.step.selection'), t('onboarding.step.done')],
   };
   const steps = labels[onb.mode] || [];
   // step 1 = index 0 dans le breadcrumb
@@ -154,22 +154,22 @@ function wizardArchHtml() {
             <div style="font-size:11px;color:var(--text2);margin-top:6px;">${t('onboarding.you_are_here')}</div>
           </div>
 
-          <!-- Flèche Admin↔Core -->
+          <!-- Flèche Admin↔Passerelle -->
           <div style="display:flex;flex-direction:column;align-items:center;padding:0 8px;gap:4px;">
             <div style="font-size:9px;color:var(--text3);">${t('onboarding.label_config')}</div>
             <svg width="28" height="16" viewBox="0 0 28 16" fill="none"><path d="M2 5h24M20 1l6 4-6 4" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M26 11H2M8 7l-6 4 6 4" stroke="var(--accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/></svg>
           </div>
 
-          <!-- Core(s) -->
+          <!-- Passerelle(s) -->
           <div style="text-align:center;min-width:120px;">
             <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:8px;padding:10px 16px;font-weight:700;font-size:13px;display:inline-flex;flex-direction:column;align-items:center;gap:6px;">
               <svg width="20" height="20" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              Core
+              Passerelle
             </div>
             <div style="font-size:11px;color:var(--text2);margin-top:6px;">${t('onboarding.instances_1_to_n')}</div>
           </div>
 
-          <!-- Flèche Core←Agent -->
+          <!-- Flèche passerelle←Agent -->
           <div style="display:flex;flex-direction:column;align-items:center;padding:0 8px;gap:4px;">
             <div style="font-size:9px;color:var(--text3);">${t('onboarding.label_routes')}</div>
             <svg width="28" height="12" viewBox="0 0 28 12" fill="none"><path d="M26 6H2M8 2L2 6l6 4" stroke="var(--green)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 2"/></svg>
@@ -207,9 +207,9 @@ function wizardArchHtml() {
             <svg width="18" height="18" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
           <div>
-            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${t('onboarding.role_core_title')}</div>
+            <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${t('onboarding.role_edge_title')}</div>
             <div style="font-size:12px;color:var(--text2);line-height:1.6;">
-              ${t('onboarding.role_core_desc')}
+              ${t('onboarding.role_edge_desc')}
             </div>
           </div>
         </div>
@@ -284,7 +284,7 @@ function wizardStep0Html() {
           <div style="text-align:center;min-width:90px;">
             <div style="background:var(--bg2);border:2px solid var(--accent);border-radius:8px;padding:7px 12px;font-weight:700;font-size:12px;display:inline-flex;flex-direction:column;align-items:center;gap:4px;">
               <svg width="16" height="16" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-              Core
+              Passerelle
             </div>
             <div style="font-size:10px;color:var(--text2);margin-top:4px;">${t('onboarding.instances_1_to_n')}</div>
           </div>
@@ -325,7 +325,7 @@ function wizardStep0Html() {
       </div>
     </div>
     <div class="wizard-nav">
-      <span class="wizard-skip" onclick="stopCorePolling();navigate('dashboard')">${t('onboarding.skip_wizard')}</span>
+      <span class="wizard-skip" onclick="stopEdgePolling();navigate('dashboard')">${t('onboarding.skip_wizard')}</span>
     </div>`;
 }
 
@@ -333,7 +333,7 @@ window.selectOnbMode = function(mode) {
   onb.mode = mode;
   onb.step = 1;
   renderWizardStep();
-  if (mode === 'detect') startCorePolling();
+  if (mode === 'detect') startEdgePolling();
 };
 
 window.confirmOnbMode = function() {
@@ -499,32 +499,32 @@ function wizardImportDoneHtml() {
 // ── Wizard migrate-config ──────────────────────────────────────────────────────
 let onbMigrateFormat = null;
 
-// ── Wizard migrate step 2 : vérification Core ────────────────────────────────
-function wizardMigrateCoreHtml() {
-  const cores = (window._cachedNodes || []).filter(n => n.role === 'core' && n.status === 'online');
-  const hasCores = cores.length > 0;
+// ── Wizard migrate step 2 : vérification passerelle ────────────────────────────────
+function wizardMigrateEdgeHtml() {
+  const edges = (window._cachedNodes || []).filter(n => n.role === 'edge' && n.status === 'online');
+  const hasEdges = edges.length > 0;
   return `
     <div class="wizard-card">
-      <div class="wizard-title">${t('onboarding.core_required.title')}</div>
-      <div class="wizard-sub">${t('onboarding.core_required.sub')}</div>
-      ${hasCores ? `
+      <div class="wizard-title">${t('onboarding.edge_required.title')}</div>
+      <div class="wizard-sub">${t('onboarding.edge_required.sub')}</div>
+      ${hasEdges ? `
         <div style="padding:14px;background:color-mix(in srgb,var(--green) 10%,transparent);border:1px solid color-mix(in srgb,var(--green) 30%,transparent);border-radius:8px;margin-bottom:16px;">
-          <div style="font-weight:700;font-size:13px;color:var(--green);margin-bottom:6px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" fill="none" stroke="var(--green)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ${t('onboarding.core_connected', { n: cores.length })}</div>
-          <div style="font-size:12px;color:var(--text2);">${cores.map(c => esc(c.node_name||c.id)).join(', ')}</div>
+          <div style="font-weight:700;font-size:13px;color:var(--green);margin-bottom:6px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" fill="none" stroke="var(--green)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> ${t('onboarding.edge_connected', { n: edges.length })}</div>
+          <div style="font-size:12px;color:var(--text2);">${edges.map(c => esc(c.node_name||c.id)).join(', ')}</div>
         </div>
-        <p style="font-size:13px;color:var(--text2);">${t('onboarding.core_connected_continue', { target: cores.length > 1 ? t('onboarding.core_target_plural') : t('onboarding.core_target_singular') })}</p>
+        <p style="font-size:13px;color:var(--text2);">${t('onboarding.edge_connected_continue', { target: edges.length > 1 ? t('onboarding.edge_target_plural') : t('onboarding.edge_target_singular') })}</p>
       ` : `
         <div style="padding:14px;background:color-mix(in srgb,var(--yellow) 10%,transparent);border:1px solid color-mix(in srgb,var(--yellow) 30%,transparent);border-radius:8px;margin-bottom:16px;">
-          <div style="font-weight:700;font-size:13px;color:var(--yellow);margin-bottom:6px;">${t('onboarding.core_none.title')}</div>
-          <div style="font-size:12px;color:var(--text2);">${t('onboarding.core_none.sub')}</div>
+          <div style="font-weight:700;font-size:13px;color:var(--yellow);margin-bottom:6px;">${t('onboarding.edge_none.title')}</div>
+          <div style="font-size:12px;color:var(--text2);">${t('onboarding.edge_none.sub')}</div>
         </div>
-        <p style="font-size:13px;color:var(--text2);">${t('onboarding.core_none.hint')}</p>
+        <p style="font-size:13px;color:var(--text2);">${t('onboarding.edge_none.hint')}</p>
       `}
     </div>
     <div class="wizard-nav">
       <span class="wizard-skip" onclick="onb.step=0;renderWizardStep()">${t('onboarding.back')}</span>
       <button class="btn btn-primary" onclick="onb.step=2;renderWizardStep()">
-        ${hasCores ? t('onboarding.import_config') : t('onboarding.continue_anyway')}
+        ${hasEdges ? t('onboarding.import_config') : t('onboarding.continue_anyway')}
       </button>
     </div>`;
 }
@@ -688,8 +688,8 @@ function wizardMigrateDoneHtml() {
 function wizardStep1Html() {
   return `
     <div class="wizard-card">
-      <div class="wizard-title">${t('onboarding.deploy.no_core.title')}</div>
-      <div class="wizard-sub">${t('onboarding.deploy.no_core.sub')}</div>
+      <div class="wizard-title">${t('onboarding.deploy.no_edge.title')}</div>
+      <div class="wizard-sub">${t('onboarding.deploy.no_edge.sub')}</div>
       <div class="infra-grid">
         ${INFRA_TYPES.map(inf => `
           <div class="infra-card${onb.infra === inf.id ? ' selected' : ''}" onclick="selectInfra('${inf.id}')">
@@ -727,15 +727,15 @@ window.wizardNext1 = function() {
 
 function _onbCompose() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minCores > 1;
+  const isCluster = infra.minEdges > 1;
   const clusterGroup = infra.id === 'multi-region' ? 'eu-cluster' : 'cluster-1';
 
   const clusterEnv = !isCluster ? '' : `
       - GPX_CLUSTER_ENABLED=true
       - GPX_CLUSTER_GROUP=${clusterGroup}
-      - GPX_CLUSTER_NODE_ID=core-1
+      - GPX_CLUSTER_NODE_ID=edge-1
       - GPX_CLUSTER_RAFT_PORT=8002
-      - GPX_CLUSTER_PEERS=core-2:8002,core-3:8002`;
+      - GPX_CLUSTER_PEERS=edge-2:8002,edge-3:8002`;
 
   const clusterPort = isCluster ? '\n      - "8002:8002"' : '';
 
@@ -750,14 +750,14 @@ function _onbCompose() {
     command: ["agent"]
     environment:
       - GPX_PAIRING_SECRET=\${GPX_PAIRING_SECRET}
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - goproxify_agent_data:/etc/goproxify
     networks:
       - goproxify_infra
     depends_on:
-      goproxify-core:
+      goproxify-edge:
         condition: service_started`;
 
   const acmeAdminEnv = (() => {
@@ -781,7 +781,7 @@ networks:
 
 volumes:
   goproxify_admin_data:
-  goproxify_core_data:${onb.withAgent ? '\n  goproxify_agent_data:' : ''}
+  goproxify_edge_data:${onb.withAgent ? '\n  goproxify_agent_data:' : ''}
 
 services:
 
@@ -796,7 +796,7 @@ services:
       - GPX_PAIRING_SECRET=\${GPX_PAIRING_SECRET}
       - GPX_FIRST_ADMIN_EMAIL=\${GPX_FIRST_ADMIN_EMAIL:-admin@example.com}
       - GPX_FIRST_ADMIN_PASSWORD=\${GPX_FIRST_ADMIN_PASSWORD}
-      - GPX_IDENTITY_CORE_NODE_NAME=\${CORE_NODE_NAME:-goproxify-core}${acmeAdminEnv}
+      - GPX_IDENTITY_EDGE_NODE_NAME=\${EDGE_NODE_NAME:-goproxify-edge}${acmeAdminEnv}
     ports:
       - "\${ADMIN_PORT:-9443}:9443"
     volumes:
@@ -810,13 +810,13 @@ services:
       retries: 5
       start_period: 10s
 
-  # ── Core ── Data Plane (reverse proxy HTTP/HTTPS/TCP/UDP) ─────────────
+  # ── passerelle ── Data Plane (reverse proxy HTTP/HTTPS/TCP/UDP) ─────────────
   # Entre en PENDING à la connexion — acceptez-le depuis l'interface Admin.
-  goproxify-core:
-    image: \${GOPROXIFY_REGISTRY}/core:\${GOPROXIFY_TAG}
-    container_name: goproxify-core
+  goproxify-edge:
+    image: \${GOPROXIFY_REGISTRY}/edge:\${GOPROXIFY_TAG}
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - GPX_PAIRING_SECRET=\${GPX_PAIRING_SECRET}${clusterEnv}
     ports:
@@ -825,7 +825,7 @@ services:
       - "443:443/udp"
       - "8000:8000"${clusterPort}
     volumes:
-      - goproxify_core_data:/etc/goproxify
+      - goproxify_edge_data:/etc/goproxify
     networks:
       - goproxify_infra
     depends_on:
@@ -836,7 +836,7 @@ ${agentService}`;
 
 function _onbEnv() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minCores > 1;
+  const isCluster = infra.minEdges > 1;
 
   return `# .env
 # 4 variables suffisent pour démarrer. Ne commitez pas ce fichier.
@@ -850,18 +850,18 @@ GPX_PAIRING_SECRET=
 GPX_FIRST_ADMIN_EMAIL=admin@example.com
 GPX_FIRST_ADMIN_PASSWORD=
 
-# ── CONNEXION ADMIN → CORE ────────────────────────────────────────────
-# Hostname/IP du Core joignable par l'Admin (port 8000)
-CORE_NODE_NAME=goproxify-core
+# ── CONNEXION ADMIN → EDGE ────────────────────────────────────────────
+# Hostname/IP de la passerelle joignable par l'Admin (port 8000)
+EDGE_NODE_NAME=goproxify-edge
 
 # ── IMAGE ─────────────────────────────────────────────────────────────
 GOPROXIFY_REGISTRY=ghcr.io/vincamok/goproxify
 GOPROXIFY_TAG=preview
 ${!isCluster ? '' : `
 # ── CLUSTER ───────────────────────────────────────────────────────────
-# Répliquez ce fichier sur chaque nœud Core en ajustant GPX_CLUSTER_NODE_ID.
-# GPX_CLUSTER_NODE_ID=core-2
-# GPX_CLUSTER_PEERS=core-1:8002,core-3:8002
+# Répliquez ce fichier sur chaque nœud Edge en ajustant GPX_CLUSTER_NODE_ID.
+# GPX_CLUSTER_NODE_ID=edge-2
+# GPX_CLUSTER_PEERS=edge-1:8002,edge-3:8002
 `}${(() => {
     const p = DNS_PROVIDERS.find(p => p.id === onb.dnsProvider);
     if (!p || onb.dnsProvider === 'none') return '';
@@ -886,15 +886,15 @@ goproxify admin \\
   --first-admin-email=admin@example.com \\
   --first-admin-password=<mot_de_passe>
 
-# ── Core (Data Plane) ─────────────────────────────────────────────────
-# L'Admin se connecte au Core (pas l'inverse). Exposez le port 8000.
-goproxify core \\
+# ── passerelle (Data Plane) ─────────────────────────────────────────────────
+# L'Admin se connecte à la passerelle (pas l'inverse). Exposez le port 8000.
+goproxify edge \\
   --pairing-secret=<GPX_PAIRING_SECRET>${(INFRA_TYPES.find(t=>t.id===onb.infra)||{}).cmdExtra||''}`;
 }
 
 function _onbK8s() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minCores > 1;
+  const isCluster = infra.minEdges > 1;
   const clusterGroup = infra.id === 'multi-region' ? 'eu-cluster' : 'cluster-1';
 
   return `# Kubernetes — ConfigMap + Secret par service
@@ -922,15 +922,15 @@ metadata:
 data:
   GPX_FIRST_ADMIN_EMAIL: "admin@example.com"
   GPX_ENGINE_LOG_LEVEL: "info"
-  GPX_IDENTITY_CORE_NODE_NAME: "goproxify-core"
+  GPX_IDENTITY_EDGE_NODE_NAME: "goproxify-edge"
   ADMIN_PORT: "9443"
 
 ---
-# ── ConfigMap Core ─────────────────────────────────────────────────────
+# ── ConfigMap passerelle ─────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: goproxify-core-config
+  name: goproxify-edge-config
   namespace: goproxify
 data:
   GPX_NETWORK_HTTP_PORT: "80"
@@ -938,9 +938,9 @@ data:
   GPX_NETWORK_INTERNAL_API_PORT: "8000"${!isCluster ? '' : `
   GPX_CLUSTER_ENABLED: "true"
   GPX_CLUSTER_GROUP: "${clusterGroup}"
-  GPX_CLUSTER_NODE_ID: "core-1"
+  GPX_CLUSTER_NODE_ID: "edge-1"
   GPX_CLUSTER_RAFT_PORT: "8002"
-  GPX_CLUSTER_PEERS: "core-2:8002,core-3:8002"`}
+  GPX_CLUSTER_PEERS: "edge-2:8002,edge-3:8002"`}
 ${!onb.withAgent ? '' : `
 ---
 # ── ConfigMap Agent ────────────────────────────────────────────────────
@@ -950,7 +950,7 @@ metadata:
   name: goproxify-agent-config
   namespace: goproxify
 data:
-  GPX_CONTROL_PLANE_CORE_ENDPOINT: "http://goproxify-core:8000"
+  GPX_CONTROL_PLANE_EDGE_ENDPOINT: "http://goproxify-edge:8000"
   GPX_DOCKER_RUNTIME: "docker"`}`;
 }
 
@@ -992,7 +992,7 @@ function wizardStep2Html() {
         </div>
         <div style="padding:10px 12px;border-radius:8px;border:1.5px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent);display:flex;align-items:center;gap:10px">
           <svg width="15" height="15" fill="none" stroke="var(--accent)" stroke-width="1.8" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          <div><div style="font-size:13px;font-weight:600">${t('onboarding.stack.core.title')}</div><div style="font-size:11px;color:var(--text2);margin-top:1px">${t('onboarding.stack.core.desc')}</div></div>
+          <div><div style="font-size:13px;font-weight:600">${t('onboarding.stack.edge.title')}</div><div style="font-size:11px;color:var(--text2);margin-top:1px">${t('onboarding.stack.edge.desc')}</div></div>
         </div>
         ${stackToggle('withAgent', t('onboarding.stack.agent.title'), t('onboarding.stack.agent.desc'))}
       </div>
@@ -1087,7 +1087,7 @@ window.copyOnbCmd = function() {
 window.wizardNext2 = function() {
   onb.step = 3;
   renderWizardStep();
-  startCorePolling();
+  startEdgePolling();
 };
 
 function wizardStep3Html() {
@@ -1101,18 +1101,18 @@ function wizardStep3Html() {
       <div id="wizard-wait-area">
         <div class="wizard-waiting" style="padding:20px 0">
           <div class="wizard-spinner"></div>
-          <p style="color:var(--text2);font-size:13px;margin-top:8px">${t('onboarding.waiting_core')}</p>
+          <p style="color:var(--text2);font-size:13px;margin-top:8px">${t('onboarding.waiting_edge')}</p>
         </div>
       </div>
     </div>
     <div class="wizard-nav">
-      <button class="btn btn-secondary" onclick="stopCorePolling();onb.step=2;renderWizardStep()">${t('onboarding.back')}</button>
-      <button class="btn btn-secondary" onclick="stopCorePolling();navigate('dashboard')">${t('onboarding.skip')}</button>
+      <button class="btn btn-secondary" onclick="stopEdgePolling();onb.step=2;renderWizardStep()">${t('onboarding.back')}</button>
+      <button class="btn btn-secondary" onclick="stopEdgePolling();navigate('dashboard')">${t('onboarding.skip')}</button>
     </div>`;
 }
 
-function startCorePolling() {
-  stopCorePolling();
+function startEdgePolling() {
+  stopEdgePolling();
   onb.pollTimer = setInterval(async () => {
     try {
       const nodes = await api('GET', '/nodes');
@@ -1123,27 +1123,27 @@ function startCorePolling() {
       const pendingArea = document.getElementById('wizard-pending-area');
       if (pendingArea) pendingArea.innerHTML = wizardPendingInnerHtml();
 
-      // Check for a connected Core (deploy mode only)
-      const cores = list.filter(n => n.role === 'core' && n.status === 'online');
-      if (cores.length > 0) {
-        stopCorePolling();
+      // Check for a connected Edge (deploy mode only)
+      const edges = list.filter(n => n.role === 'edge' && n.status === 'online');
+      if (edges.length > 0) {
+        stopEdgePolling();
         const area = document.getElementById('wizard-wait-area');
         if (area) area.innerHTML = `
           <div class="wizard-connected" style="text-align:center;padding:16px 0">
             <div style="width:56px;height:56px;border-radius:14px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><svg width="24" height="24" fill="none" stroke="var(--green)" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
             <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">
-              ${t('onboarding.cores_connected', { n: cores.length })}
+              ${t('onboarding.edges_connected', { n: edges.length })}
             </div>
-            <p style="color:var(--text2);font-size:13px">${cores.map(c => esc(c.node_name)).join(', ')}</p>
+            <p style="color:var(--text2);font-size:13px">${edges.map(c => esc(c.node_name)).join(', ')}</p>
             <button class="btn btn-primary" style="margin-top:14px" onclick="navigate('dashboard')">${t('onboarding.go_dashboard')}</button>
           </div>`;
-        toast(t('onboarding.core_connected_toast'), 'success');
+        toast(t('onboarding.edge_connected_toast'), 'success');
       }
     } catch {}
   }, 5000);
 }
 
-function stopCorePolling() {
+function stopEdgePolling() {
   if (onb.pollTimer) { clearInterval(onb.pollTimer); onb.pollTimer = null; }
 }
 
@@ -1182,8 +1182,8 @@ function wizardPendingHtml() {
       <div id="wizard-pending-area" style="margin-top:12px;">${wizardPendingInnerHtml()}</div>
     </div>
     <div class="wizard-nav">
-      <span class="wizard-skip" onclick="stopCorePolling();onb.step=0;onb.mode=null;renderWizardStep()">${t('onboarding.back_to_choice')}</span>
-      <button class="btn btn-secondary" onclick="stopCorePolling();navigate('dashboard')">${t('onboarding.dashboard')}</button>
+      <span class="wizard-skip" onclick="stopEdgePolling();onb.step=0;onb.mode=null;renderWizardStep()">${t('onboarding.back_to_choice')}</span>
+      <button class="btn btn-secondary" onclick="stopEdgePolling();navigate('dashboard')">${t('onboarding.dashboard')}</button>
     </div>`;
 }
 

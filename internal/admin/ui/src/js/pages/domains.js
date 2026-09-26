@@ -1,15 +1,15 @@
-// ── PAGE PARTAGÉE: Certificats TLS (Admin + Core) ─────────────────────────
-// ctx = { mode: 'admin'|'core' }
+// ── PAGE PARTAGÉE: Certificats TLS (Admin + Passerelle) ─────────────────────────
+// ctx = { mode: 'admin'|'edge' }
 //
 // Les deux modes partagent exactement le même design (bandeau, table, actions).
-// Différences : mode core filtre sur le Core sélectionné ; pas de colonne
-// « Core d'entrée » (contexte déjà connu) ; bouton « + Ajouter » admin only.
+// Différences : mode edge filtre sur la passerelle sélectionnée ; pas de colonne
+// « passerelle d'entrée » (contexte déjà connu) ; bouton « + Ajouter » admin only.
 
 async function renderCertsPage(ctx) {
   const mode    = ctx?.mode || 'admin';
   const isAdmin = mode === 'admin';
-  const core    = isAdmin ? null : state.selectedCore;
-  const coreLabel = core ? (core.display_name || core.node_name || core.id || '—') : '';
+  const edge    = isAdmin ? null : state.selectedEdge;
+  const edgeLabel = edge ? (edge.display_name || edge.node_name || edge.id || '—') : '';
 
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = isAdmin
@@ -17,15 +17,15 @@ async function renderCertsPage(ctx) {
     : '';
   content.innerHTML = `<p style="color:var(--text2)">${t('common.loading')}</p>`;
 
-  if (!isAdmin && !core) {
-    content.innerHTML = `<p style="color:var(--text2)">${t('trafic.no_core')}</p>`;
+  if (!isAdmin && !edge) {
+    content.innerHTML = `<p style="color:var(--text2)">${t('trafic.no_edge')}</p>`;
     return;
   }
 
   try {
     const [allDomains, tokens, nodes, tlsMetrics] = await Promise.all([
       api('GET', '/domains').catch(() => []),
-      api('GET', '/tokens?role=core').catch(() => []),
+      api('GET', '/tokens?role=edge').catch(() => []),
       api('GET', '/nodes').catch(() => []),
       api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
@@ -33,15 +33,15 @@ async function renderCertsPage(ctx) {
     for (const c of (tlsMetrics?.tls?.certs || [])) {
       if (c.domain) tlsMap[c.domain.toLowerCase()] = c;
     }
-    const cores = _buildDomainCores(tokens, nodes);
-    const coreName = id => {
-      const c = cores.find(c => c.id === id || c.node_name === id);
+    const edges = _buildDomainEdges(tokens, nodes);
+    const edgeName = id => {
+      const c = edges.find(c => c.id === id || c.node_name === id);
       return c ? (c.display_name || c.node_name || c.id) : (id || '—');
     };
 
     let rows = allDomains || [];
     if (!isAdmin) {
-      const refs = new Set([core?.id, core?.node_name, core?.display_name].filter(Boolean));
+      const refs = new Set([edge?.id, edge?.node_name, edge?.display_name].filter(Boolean));
       const matchingTokens = (tokens || []).filter(tok => !tok.revoked && (
         refs.has(tok.id) || refs.has(tok.node_name)
       ));
@@ -58,13 +58,13 @@ async function renderCertsPage(ctx) {
         } catch (_) {}
       }));
       const domainScopes = scopes.filter(s => s.scope_type === 'domain').map(s => s.value || s.scope_value).filter(Boolean);
-      const hasCoreScope = scopes.some(s => s.scope_type === 'core');
+      const hasEdgeScope = scopes.some(s => s.scope_type === 'edge');
       const receiveAll = matchingTokens.length > 0 &&
         (rbacRole === 'admin' || rbacRole === 'superadmin') && scopes.length === 0;
       const coversDomain = (domain) => domainScopes.some(v => _domainScopeCovers(v, domain));
       rows = rows.filter(d => {
-        if (tokenIds.has(d.core_id) || tokenIds.has(d.delegated_to_core_id)) return true;
-        if (matchingTokens.length && (receiveAll || hasCoreScope)) return true;
+        if (tokenIds.has(d.edge_id) || tokenIds.has(d.delegated_to_edge_id)) return true;
+        if (matchingTokens.length && (receiveAll || hasEdgeScope)) return true;
         if (matchingTokens.length && coversDomain(d.domain)) return true;
         return false;
       });
@@ -72,20 +72,20 @@ async function renderCertsPage(ctx) {
 
     const emptyMsg = isAdmin
       ? t('domains.empty_admin')
-      : t('domains.empty_core', { name: esc(coreLabel) });
+      : t('domains.empty_edge', { name: esc(edgeLabel) });
     const colSpan = isAdmin ? 6 : 5;
 
     content.innerHTML = `
       <div style="margin-bottom:14px;padding:10px 12px;background:color-mix(in srgb,var(--accent) 7%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);">
         <strong style="color:var(--text1);">${t('domains.banner_title')}</strong> —
         ${t('domains.banner_body')}
-        ${!isAdmin ? `<br><span style="opacity:.85">${t('domains.banner_filtered', { name: esc(coreLabel) })}</span>` : ''}
+        ${!isAdmin ? `<br><span style="opacity:.85">${t('domains.banner_filtered', { name: esc(edgeLabel) })}</span>` : ''}
       </div>
       <div class="card blueprint">
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>${t('trafic.domain')}</th>${isAdmin ? `<th>${t('domains.col.entry_core')}</th>` : ''}<th>${t('domains.col.dns_provider')}</th><th>${t('domains.col.certificate')}</th><th>${t('domains.col.delegation')}</th><th>${t('trafic.actions')}</th>
+              <th>${t('trafic.domain')}</th>${isAdmin ? `<th>${t('domains.col.entry_edge')}</th>` : ''}<th>${t('domains.col.dns_provider')}</th><th>${t('domains.col.certificate')}</th><th>${t('domains.col.delegation')}</th><th>${t('trafic.actions')}</th>
             </tr></thead>
             <tbody>
               ${rows.length ? rows.map(d => {
@@ -106,12 +106,12 @@ async function renderCertsPage(ctx) {
                   : '';
                 const prov = DNS_PROVIDERS.find(p => p.id === d.dns_provider);
                 const provLabel = prov && d.dns_provider !== 'none' ? prov.name : 'HTTP-01';
-                const delegLabel = d.delegated_to_core_id
-                  ? `<span class="tag tag-accent" title="${esc(d.delegated_endpoint||'')}">→ ${esc(coreName(d.delegated_to_core_id))}</span>`
+                const delegLabel = d.delegated_to_edge_id
+                  ? `<span class="tag tag-accent" title="${esc(d.delegated_endpoint||'')}">→ ${esc(edgeName(d.delegated_to_edge_id))}</span>`
                   : `<span style="color:var(--text3);font-size:12px">—</span>`;
                 return `<tr>
                   <td><b>${esc(d.domain)}</b></td>
-                  ${isAdmin ? `<td><span class="tag tag-neutral">${esc(coreName(d.core_id))}</span></td>` : ''}
+                  ${isAdmin ? `<td><span class="tag tag-neutral">${esc(edgeName(d.edge_id))}</span></td>` : ''}
                   <td style="color:var(--text2);font-size:12px">${esc(provLabel)}</td>
                   <td>${certTag}${tlsMetricsHtml}</td>
                   <td>${delegLabel}</td>
@@ -133,25 +133,25 @@ pages.certs = async function() {
   await renderCertsPage({ mode: 'admin' });
 };
 
-pages['core-certs'] = async function() {
-  await renderCertsPage({ mode: 'core' });
+pages['edge-certs'] = async function() {
+  await renderCertsPage({ mode: 'edge' });
 };
 
 async function refreshDomains() {
-  const mode = state.page === 'core-certs' ? 'core' : 'admin';
+  const mode = state.page === 'edge-certs' ? 'edge' : 'admin';
   return renderCertsPage({ mode });
 }
 
-/** Cores réels pour le sélecteur Domaines : tokens actifs (+ endpoint ou nœud online), dédup node_name. */
-function _buildDomainCores(tokens, nodes) {
+/** Passerelles réels pour le sélecteur Domaines : tokens actifs (+ endpoint ou nœud online), dédup node_name. */
+function _buildDomainEdges(tokens, nodes) {
   const now = Date.now();
   const onlineNames = new Set(
     (nodes || [])
-      .filter(n => n.role === 'core' && n.status === 'online')
+      .filter(n => n.role === 'edge' && n.status === 'online')
       .map(n => (n.node_name || n.display_name || '').trim())
       .filter(Boolean)
   );
-  const coreMap = new Map();
+  const edgeMap = new Map();
   for (const tok of (tokens || [])) {
     if (tok.revoked) continue;
     if (tok.expires_at && new Date(tok.expires_at).getTime() <= now) continue;
@@ -159,9 +159,9 @@ function _buildDomainCores(tokens, nodes) {
     if (!nn) continue;
     const endpoint = (tok.node_endpoint || '').trim();
     if (!endpoint && !onlineNames.has(nn)) continue;
-    const existing = coreMap.get(nn);
+    const existing = edgeMap.get(nn);
     if (!existing || (!existing.node_endpoint && endpoint)) {
-      coreMap.set(nn, {
+      edgeMap.set(nn, {
         id: tok.id,
         node_name: nn,
         display_name: nn,
@@ -170,7 +170,7 @@ function _buildDomainCores(tokens, nodes) {
       });
     }
   }
-  return [...coreMap.values()];
+  return [...edgeMap.values()];
 }
 
 function _domainHostCovered(host, pattern) {
@@ -203,20 +203,20 @@ function _domainScopeCovers(scopeVal, domain) {
 
 window.openDomainModal = async function(id) {
   let existing = null;
-  let cores = [];
+  let edges = [];
   let tokens = [];
   let scopeByToken = {};
   try {
     const [d, toks, nodes] = await Promise.all([
       id ? api('GET', `/domains/${id}`).catch(()=>null) : Promise.resolve(null),
-      api('GET', '/tokens?role=core').catch(() => []),
+      api('GET', '/tokens?role=edge').catch(() => []),
       api('GET', '/nodes').catch(() => []),
     ]);
     existing = d;
     tokens = toks || [];
-    cores = _buildDomainCores(tokens, nodes);
+    edges = _buildDomainEdges(tokens, nodes);
     // Charger les scopes domaine pour les alertes douces
-    await Promise.all(cores.map(async c => {
+    await Promise.all(edges.map(async c => {
       try {
         const scopes = await api('GET', `/tokens/${c.id}/scopes`) || [];
         scopeByToken[c.id] = scopes.filter(s => s.scope_type === 'domain').map(s => s.value);
@@ -226,25 +226,25 @@ window.openDomainModal = async function(id) {
     }));
   } catch {}
 
-  window._dmCores = cores;
+  window._dmEdges = edges;
   window._dmScopeByToken = scopeByToken;
 
   const sel = existing?.dns_provider || 'none';
   const provider = DNS_PROVIDERS.find(p => p.id === sel);
-  const hasDelegation = !!existing?.delegated_to_core_id;
+  const hasDelegation = !!existing?.delegated_to_edge_id;
   const certMethod = existing?.cert_method || (sel !== 'none' ? 'dns' : 'http');
-  const matchesCore = (c, ref) => !!ref && (c.id === ref || c.node_name === ref || c.display_name === ref);
-  const selectedCore = cores.find(c => matchesCore(c, existing?.core_id));
-  const selectedDelegatedCore = cores.find(c => matchesCore(c, existing?.delegated_to_core_id));
-  const selectedCoreValue = selectedCore ? selectedCore.id : '';
-  const selectedDelegatedCoreValue = selectedDelegatedCore ? selectedDelegatedCore.id : '';
-  const coreOptions = [
-    `<option value="">${t('domains.choose_core')}</option>`,
-    ...cores.map(c => `<option value="${esc(c.id)}" ${selectedCoreValue===c.id?'selected':''}>${esc(c.display_name||c.node_name||c.id)}</option>`),
+  const matchesEdge = (c, ref) => !!ref && (c.id === ref || c.node_name === ref || c.display_name === ref);
+  const selectedEdge = edges.find(c => matchesEdge(c, existing?.edge_id));
+  const selectedDelegatedEdge = edges.find(c => matchesEdge(c, existing?.delegated_to_edge_id));
+  const selectedEdgeValue = selectedEdge ? selectedEdge.id : '';
+  const selectedDelegatedEdgeValue = selectedDelegatedEdge ? selectedDelegatedEdge.id : '';
+  const edgeOptions = [
+    `<option value="">${t('domains.choose_edge')}</option>`,
+    ...edges.map(c => `<option value="${esc(c.id)}" ${selectedEdgeValue===c.id?'selected':''}>${esc(c.display_name||c.node_name||c.id)}</option>`),
   ].join('');
-  const delegatedCoreOptions = [
-    `<option value="">${t('domains.choose_target_core')}</option>`,
-    ...cores.map(c => `<option value="${esc(c.id)}" ${selectedDelegatedCoreValue===c.id?'selected':''}>${esc(c.display_name||c.node_name||c.id)}</option>`),
+  const delegatedEdgeOptions = [
+    `<option value="">${t('domains.choose_target_edge')}</option>`,
+    ...edges.map(c => `<option value="${esc(c.id)}" ${selectedDelegatedEdgeValue===c.id?'selected':''}>${esc(c.display_name||c.node_name||c.id)}</option>`),
   ].join('');
 
   modal(id ? t('domains.modal_edit', { domain: existing?.domain || '' }) : t('domains.modal_add'), `
@@ -259,10 +259,10 @@ window.openDomainModal = async function(id) {
         <input id="dm-domain" class="input" placeholder="${esc(t('domains.domain_ph'))}" value="${esc(existing?.domain||'')}" oninput="dmRefreshSoftWarn()">
       </div>
       <div class="field">
-        <label class="field-label">${t('domains.field_entry_core')}</label>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${t('domains.entry_core_hint')}</div>
-        <select id="dm-core" class="input" onchange="dmRefreshSoftWarn()">
-          ${coreOptions}
+        <label class="field-label">${t('domains.field_entry_edge')}</label>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${t('domains.entry_edge_hint')}</div>
+        <select id="dm-edge" class="input" onchange="dmRefreshSoftWarn()">
+          ${edgeOptions}
         </select>
       </div>
       <div class="field">
@@ -306,9 +306,9 @@ window.openDomainModal = async function(id) {
         <div style="font-size:11px;color:var(--text3);margin-bottom:8px">${t('domains.delegate_hint')}</div>
         <div id="dm-delegate-section" style="display:${hasDelegation?'flex':'none'};flex-direction:column;gap:10px">
           <div class="field">
-            <label class="field-label">${t('domains.field_target_core')}</label>
-            <select id="dm-delegate-core" class="input">
-              ${delegatedCoreOptions}
+            <label class="field-label">${t('domains.field_target_edge')}</label>
+            <select id="dm-delegate-edge" class="input">
+              ${delegatedEdgeOptions}
             </select>
           </div>
           <div class="field">
@@ -342,33 +342,33 @@ window.dmRefreshSoftWarn = function() {
   const el = document.getElementById('dm-soft-warn');
   if (!el) return;
   const domain = (document.getElementById('dm-domain')?.value || '').trim();
-  const coreId = document.getElementById('dm-core')?.value || '';
-  const cores = window._dmCores || [];
+  const edgeId = document.getElementById('dm-edge')?.value || '';
+  const edges = window._dmEdges || [];
   const scopeByToken = window._dmScopeByToken || {};
-  if (!domain && !coreId) {
+  if (!domain && !edgeId) {
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
   const msgs = [];
-  if (domain && !coreId) {
-    msgs.push(t('domains.warn_pick_core', { domain: esc(domain) }));
+  if (domain && !edgeId) {
+    msgs.push(t('domains.warn_pick_edge', { domain: esc(domain) }));
   }
-  if (domain && coreId) {
-    const core = cores.find(c => c.id === coreId);
-    const scopes = scopeByToken[coreId] || [];
-    const role = (core?.rbac_role || 'admin').toLowerCase();
+  if (domain && edgeId) {
+    const edge = edges.find(c => c.id === edgeId);
+    const scopes = scopeByToken[edgeId] || [];
+    const role = (edge?.rbac_role || 'admin').toLowerCase();
     const hasCovering = scopes.some(v => _domainScopeCovers(v, domain));
     const globalAdmin = role === 'admin' && scopes.length === 0;
     if (!globalAdmin && !hasCovering) {
-      msgs.push(t('domains.warn_no_scope', { core: esc(core?.node_name || coreId), domain: esc(domain) }));
+      msgs.push(t('domains.warn_no_scope', { edge: esc(edge?.node_name || edgeId), domain: esc(domain) }));
     }
-    const others = cores.filter(c => c.id !== coreId).filter(c => {
+    const others = edges.filter(c => c.id !== edgeId).filter(c => {
       const sc = scopeByToken[c.id] || [];
       return sc.some(v => _domainScopeCovers(v, domain));
     });
     if (others.length) {
-      msgs.push(t('domains.warn_other_scopes', { cores: others.map(c => `<code>${esc(c.node_name)}</code>`).join(', ') }));
+      msgs.push(t('domains.warn_other_scopes', { edges: others.map(c => `<code>${esc(c.node_name)}</code>`).join(', ') }));
     }
   }
   if (!msgs.length) {
@@ -426,16 +426,16 @@ window.dmToggleDelegate = function(checked) {
 
 window.saveDomain = async function(id) {
   const domain      = document.getElementById('dm-domain')?.value.trim();
-  const core_id     = document.getElementById('dm-core')?.value;
+  const edge_id     = document.getElementById('dm-edge')?.value;
   const dns_provider= document.getElementById('dm-provider')?.value || 'none';
   const cert_method = dns_provider !== 'none' ? 'dns'
     : (document.querySelector('input[name="dm-cert-method"]:checked')?.value || 'http');
   const delegated   = document.getElementById('dm-delegate-check')?.checked;
 
   if (!domain) { toast(t('domains.err_domain_required'), 'error'); return; }
-  if (!core_id) { toast(t('domains.err_entry_core_required'), 'error'); return; }
+  if (!edge_id) { toast(t('domains.err_entry_edge_required'), 'error'); return; }
 
-  const payload = { domain, core_id, dns_provider, cert_method };
+  const payload = { domain, edge_id, dns_provider, cert_method };
 
   const provider = DNS_PROVIDERS.find(p => p.id === dns_provider);
   if (provider?.fields) {
@@ -454,18 +454,18 @@ window.saveDomain = async function(id) {
   }
 
   if (delegated) {
-    payload.delegated_to_core_id = document.getElementById('dm-delegate-core')?.value;
+    payload.delegated_to_edge_id = document.getElementById('dm-delegate-edge')?.value;
     payload.delegated_endpoint   = document.getElementById('dm-delegate-endpoint')?.value.trim();
     const modeEl = document.querySelector('input[name="dm-delegation-mode"]:checked');
     payload.delegation_mode = modeEl ? modeEl.value : 'passthrough';
-    if (!payload.delegated_to_core_id) { toast(t('domains.err_target_core_required'), 'error'); return; }
+    if (!payload.delegated_to_edge_id) { toast(t('domains.err_target_edge_required'), 'error'); return; }
     if (!payload.delegated_endpoint) { toast(t('domains.err_endpoint_required'), 'error'); return; }
-    if (payload.delegated_to_core_id === core_id) {
+    if (payload.delegated_to_edge_id === edge_id) {
       toast(t('domains.err_target_different'), 'error');
       return;
     }
   } else {
-    payload.delegated_to_core_id = '';
+    payload.delegated_to_edge_id = '';
     payload.delegated_endpoint = '';
     payload.delegation_mode = 'passthrough';
   }

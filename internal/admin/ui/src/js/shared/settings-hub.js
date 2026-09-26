@@ -1,4 +1,4 @@
-// ── Hub Paramètres partagé (Admin + Core) ─────────────────────────────────
+// ── Hub Paramètres partagé (Admin + Passerelle) ─────────────────────────────────
 // sections: [{ label, desc, items: [{ page, icon, label, desc }] }]
 // headerHtml / footerHtml : HTML optionnel au-dessus / en-dessous des sections.
 

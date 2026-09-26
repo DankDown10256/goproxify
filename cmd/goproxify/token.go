@@ -34,12 +34,12 @@ func runToken() {
 		endpoint := flagValue(args, "-endpoint", "")
 		rbacRole := flagValue(args, "-rbac-role", "admin")
 		if role == "" || node == "" {
-			fmt.Fprintln(os.Stderr, "usage: goproxify token create -role core|agent -node <nom> [-ttl <durée>] [-endpoint <url>] [-rbac-role admin|operator|viewer]")
+			fmt.Fprintln(os.Stderr, "usage: goproxify token create -role edge|agent -node <nom> [-ttl <durée>] [-endpoint <url>] [-rbac-role admin|operator|viewer]")
 			fmt.Fprintln(os.Stderr, adminAuthHint())
 			os.Exit(1)
 		}
-		if role != "core" && role != "agent" {
-			fmt.Fprintf(os.Stderr, "-role doit être 'core' ou 'agent' (reçu: %q)\n", role)
+		if role != "edge" && role != "agent" {
+			fmt.Fprintf(os.Stderr, "-role doit être 'edge' ou 'agent' (reçu: %q)\n", role)
 			os.Exit(1)
 		}
 		ttlHours, err := parseTTLHours(ttlStr)
@@ -135,24 +135,24 @@ func runToken() {
 		fmt.Print(`Usage: goproxify token <sous-commande> [options]
 
 Sous-commandes :
-  create   Génère un token d'appairage Core/Agent (défaut si omis)
+  create   Génère un token d'appairage passerelle/Agent (défaut si omis)
   list     Liste les tokens existants
   revoke   Révoque un token
 
-goproxify token create -role core|agent -node <nom> [options]
-  -role        Rôle du nœud : core | agent
+goproxify token create -role edge|agent -node <nom> [options]
+  -role        Rôle du nœud : edge | agent
   -node        Nom du nœud (ex: serveur-production-1)
   -ttl         Durée de validité (ex: 24h, 7d, 0 = permanent)
-  -endpoint    URL du Core (enregistré dès la création si role=core)
+  -endpoint    URL de la passerelle (enregistré dès la création si role=edge)
   -rbac-role   admin | operator | viewer (défaut: admin)
   -admin-url   URL Admin (ou GPX_CONTROLPLANE_ADMIN_ENDPOINT)
   -token       Token/PAT Admin (ou GPX_CONTROLPLANE_AUTH_TOKEN)
 
-goproxify token list [-role core|agent] [-admin-url …] [-token …]
+goproxify token list [-role edge|agent] [-admin-url …] [-token …]
 
 goproxify token revoke <id> [-admin-url …] [-token …]
 
-Note : distinct de « goproxify core token » (tokens locaux du Core).
+Note : distinct de « goproxify edge token » (tokens locaux de la passerelle).
 `)
 
 	default:

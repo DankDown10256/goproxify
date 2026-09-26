@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // ParseRateLimit interprète "100/s", "100/s:50", "100" ou un float.
@@ -378,7 +378,7 @@ func ParseJWT(jwksURL, issuer, audience string) *router.JWTConfig {
 	}
 }
 
-// ParseMTLS construit la validation mTLS depuis le chemin du fichier CA (PEM) lisible par le Core.
+// ParseMTLS construit la validation mTLS depuis le chemin du fichier CA (PEM) lisible par la passerelle.
 // Les certificats clients sont exigés. "true" / "false" ou une valeur vide donnent nil.
 func ParseMTLS(caFile string) *router.MTLSConfig {
 	caFile = strings.TrimSpace(caFile)

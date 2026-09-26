@@ -3,7 +3,7 @@
 
 // Package acme gère l'obtention et le renouvellement des certificats Let's Encrypt
 // pour l'Administration via ACME DNS-01 (wildcards).
-// Les clés privées ne sont jamais écrites en base — elles sont poussées en RAM vers les Cores.
+// Les clés privées ne sont jamais écrites en base — elles sont poussées en RAM vers les passerelles.
 package acme
 
 import (

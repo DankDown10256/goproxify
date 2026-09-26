@@ -20,7 +20,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/fail2ban"
 	"github.com/vincamok/goproxify/internal/admin/security"
 	"github.com/vincamok/goproxify/internal/admin/vulnscan"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // SecurityHandler expose le dashboard sécurité.
@@ -32,12 +32,12 @@ type SecurityHandler struct {
 	VulnScan   *vulnscan.Scanner
 	CrowdSec   *crowdsec.Bouncer
 	ScanCtx    context.Context
-	// OnBansChange notifie un changement de bans (push vers les Cores).
+	// OnBansChange notifie un changement de bans (push vers les passerelles).
 	OnBansChange func()
-	// OnThreatConfigChange envoie la config du moteur de détection au Core visé
-	// (coreRef vide = tous les Cores).
-	OnThreatConfigChange func(coreRef string, cfg any)
-	// OnServerConfigChange envoie les timeouts HTTP/QUIC aux Cores (redémarrage requis).
+	// OnThreatConfigChange envoie la config du moteur de détection à la passerelle visée
+	// (edgeRef vide = toutes les passerelles).
+	OnThreatConfigChange func(edgeRef string, cfg any)
+	// OnServerConfigChange envoie les timeouts HTTP/QUIC aux passerelles (redémarrage requis).
 	OnServerConfigChange func(cfg any)
 }
 
@@ -121,7 +121,7 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getThreatConfig(w, r)
 	case r.Method == http.MethodPut && sub == "threat-config":
 		h.putThreatConfig(w, r)
-	// Timeouts HTTP/QUIC (statiques — redémarrage Core requis)
+	// Timeouts HTTP/QUIC (statiques — redémarrage passerelle requise)
 	case r.Method == http.MethodGet && sub == "server-config":
 		h.getServerConfig(w, r)
 	case r.Method == http.MethodPut && sub == "server-config":
@@ -473,7 +473,7 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 		limit = v
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, scenario, origin, type, duration, core_name, occurrences,
+		`SELECT id, ip, scenario, origin, type, duration, edge_name, occurrences,
 		        strftime('%Y-%m-%dT%H:%M:%SZ', last_seen_at), strftime('%Y-%m-%dT%H:%M:%SZ', created_at)
 		 FROM security_threats ORDER BY last_seen_at DESC LIMIT ?`,
 		limit)
@@ -486,7 +486,7 @@ func (h *SecurityHandler) listThreats(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t security.Threat
 		var lastSeenAt, createdAt string
-		if err := rows.Scan(&t.ID, &t.IP, &t.Scenario, &t.Origin, &t.Type, &t.Duration, &t.CoreName, &t.Occurrences, &lastSeenAt, &createdAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.IP, &t.Scenario, &t.Origin, &t.Type, &t.Duration, &t.EdgeName, &t.Occurrences, &lastSeenAt, &createdAt); err != nil {
 			continue
 		}
 		t.LastSeenAt, _ = time.Parse(time.RFC3339, lastSeenAt)
@@ -517,7 +517,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, core_name, detected_at FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
 		args...)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -528,7 +528,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c security.CVE
 		var detectedAt string
-		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.CoreName, &detectedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.EdgeName, &detectedAt); err != nil {
 			continue
 		}
 		c.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)
@@ -776,26 +776,26 @@ func (h *SecurityHandler) putCrowdSecConfig(w http.ResponseWriter, r *http.Reque
 
 // ── IPS Provider ─────────────────────────────────────────────────────────────
 
-// ipsProviderKey retourne la clé settings pour un Core donné.
-func ipsProviderKey(coreID string) string {
-	if coreID == "" {
+// ipsProviderKey retourne la clé settings pour une passerelle donné.
+func ipsProviderKey(edgeID string) string {
+	if edgeID == "" {
 		return "ips_provider"
 	}
-	return "ips_provider:" + coreID
+	return "ips_provider:" + edgeID
 }
 
-// threatConfigKey retourne la clé settings pour un Core donné.
-func threatConfigKey(coreID string) string {
-	if coreID == "" {
+// threatConfigKey retourne la clé settings pour une passerelle donné.
+func threatConfigKey(edgeID string) string {
+	if edgeID == "" {
 		return "threat_engine_config"
 	}
-	return "threat_engine_config:" + coreID
+	return "threat_engine_config:" + edgeID
 }
 
-// getIPSProvider retourne le fournisseur IPS actif pour le Core demandé.
+// getIPSProvider retourne le fournisseur IPS actif pour la passerelle demandé.
 func (h *SecurityHandler) getIPSProvider(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
-	key := ipsProviderKey(coreID)
+	edgeID := r.URL.Query().Get("edge")
+	key := ipsProviderKey(edgeID)
 	row := h.DB.QueryRowContext(r.Context(), `SELECT value FROM settings WHERE key=?`, key)
 	var provider string
 	if err := row.Scan(&provider); err != nil {
@@ -807,9 +807,9 @@ func (h *SecurityHandler) getIPSProvider(w http.ResponseWriter, r *http.Request)
 	jsonOK(w, map[string]string{"provider": provider})
 }
 
-// putIPSProvider enregistre le fournisseur choisi pour le Core demandé.
+// putIPSProvider enregistre le fournisseur choisi pour la passerelle demandé.
 func (h *SecurityHandler) putIPSProvider(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
+	edgeID := r.URL.Query().Get("edge")
 	var req struct {
 		Provider string `json:"provider"`
 	}
@@ -830,7 +830,7 @@ func (h *SecurityHandler) putIPSProvider(w http.ResponseWriter, r *http.Request)
 	_, err := h.DB.ExecContext(r.Context(),
 		`INSERT INTO settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-		ipsProviderKey(coreID), provider)
+		ipsProviderKey(edgeID), provider)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
 		return
@@ -841,9 +841,9 @@ func (h *SecurityHandler) putIPSProvider(w http.ResponseWriter, r *http.Request)
 // ── Threat Config ─────────────────────────────────────────────────────────────
 
 func (h *SecurityHandler) getThreatConfig(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
+	edgeID := r.URL.Query().Get("edge")
 	row := h.DB.QueryRowContext(r.Context(),
-		`SELECT value FROM settings WHERE key=?`, threatConfigKey(coreID))
+		`SELECT value FROM settings WHERE key=?`, threatConfigKey(edgeID))
 	var raw string
 	if err := row.Scan(&raw); err != nil {
 		jsonOK(w, map[string]any{"enabled": false})
@@ -854,7 +854,7 @@ func (h *SecurityHandler) getThreatConfig(w http.ResponseWriter, r *http.Request
 }
 
 func (h *SecurityHandler) putThreatConfig(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
+	edgeID := r.URL.Query().Get("edge")
 	var cfg json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json")
@@ -863,30 +863,30 @@ func (h *SecurityHandler) putThreatConfig(w http.ResponseWriter, r *http.Request
 	_, err := h.DB.ExecContext(r.Context(),
 		`INSERT INTO settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-		threatConfigKey(coreID), string(cfg))
+		threatConfigKey(edgeID), string(cfg))
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	if h.OnThreatConfigChange != nil {
-		h.OnThreatConfigChange(coreID, cfg)
+		h.OnThreatConfigChange(edgeID, cfg)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── Server Config (timeouts HTTP/QUIC) ───────────────────────────────────────
 
-func serverConfigKey(coreID string) string {
-	if coreID == "" {
+func serverConfigKey(edgeID string) string {
+	if edgeID == "" {
 		return "server_config"
 	}
-	return "server_config:" + coreID
+	return "server_config:" + edgeID
 }
 
 func (h *SecurityHandler) getServerConfig(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
+	edgeID := r.URL.Query().Get("edge")
 	row := h.DB.QueryRowContext(r.Context(),
-		`SELECT value FROM settings WHERE key=?`, serverConfigKey(coreID))
+		`SELECT value FROM settings WHERE key=?`, serverConfigKey(edgeID))
 	var raw string
 	if err := row.Scan(&raw); err != nil {
 		jsonOK(w, map[string]any{})
@@ -897,7 +897,7 @@ func (h *SecurityHandler) getServerConfig(w http.ResponseWriter, r *http.Request
 }
 
 func (h *SecurityHandler) putServerConfig(w http.ResponseWriter, r *http.Request) {
-	coreID := r.URL.Query().Get("core")
+	edgeID := r.URL.Query().Get("edge")
 	var cfg json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json")
@@ -906,7 +906,7 @@ func (h *SecurityHandler) putServerConfig(w http.ResponseWriter, r *http.Request
 	_, err := h.DB.ExecContext(r.Context(),
 		`INSERT INTO settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-		serverConfigKey(coreID), string(cfg))
+		serverConfigKey(edgeID), string(cfg))
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
 		return
@@ -1125,5 +1125,5 @@ func (h *SecurityHandler) intelTopIPs(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, out)
 }
 
-// ThreatConfigKey expose la clé settings de la config Sentinel d'un Core (outil MCP de simulation).
-func ThreatConfigKey(coreID string) string { return threatConfigKey(coreID) }
+// ThreatConfigKey expose la clé settings de la config Sentinel d'une passerelle (outil MCP de simulation).
+func ThreatConfigKey(edgeID string) string { return threatConfigKey(edgeID) }

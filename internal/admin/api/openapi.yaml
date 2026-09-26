@@ -329,11 +329,11 @@ paths:
       tags: [proxies]
       summary: Liste des proxies
       parameters:
-        - name: core
+        - name: edge
           in: query
           schema:
             type: string
-          description: Filtrer par nœud Core (UUID ou nom)
+          description: Filtrer par nœud passerelle (UUID ou nom)
       responses:
         "200":
           description: OK
@@ -461,7 +461,7 @@ paths:
   /api/v1/nodes:
     get:
       tags: [nodes]
-      summary: Liste des nœuds (Cores)
+      summary: Liste des nœuds (Passerelles)
       responses:
         "200":
           description: OK

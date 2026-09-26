@@ -34,9 +34,9 @@ type Entry struct {
 	Level     string    `json:"level"`
 	Component string    `json:"component"`
 	NodeName  string    `json:"node_name,omitempty"`
-	// NodeID est l'identifiant stable du nœud (coreID/token), écrasé côté
+	// NodeID est l'identifiant stable du nœud (edgeID/token), écrasé côté
 	// Admin sur chaque entrée — voir stampLogBatchNode dans
-	// internal/admin/corews/manager.go. Contrairement à NodeName, il ne
+	// internal/admin/edgews/manager.go. Contrairement à NodeName, il ne
 	// change pas si le nœud est renommé, ce qui permet de filtrer
 	// l'historique complet d'un nœud malgré un renommage.
 	NodeID        string     `json:"node_id,omitempty"`
@@ -52,7 +52,7 @@ type Entry struct {
 	UserID        string     `json:"user_id,omitempty"`
 	RequestID     string     `json:"request_id,omitempty"`
 	RetainedUntil *time.Time `json:"retained_until,omitempty"`
-	// RealIP est l'IP réelle fournie par le Core en mode pseudonymisation.
+	// RealIP est l'IP réelle fournie par la passerelle en mode pseudonymisation.
 	// Elle n'est JAMAIS renvoyée dans les réponses API — uniquement chiffrée en DB.
 	RealIP string `json:"-"`
 }
@@ -124,7 +124,7 @@ func (s *Store) SetRetention(accessDays, systemDays int) {
 }
 
 // SetPseudonymizeKey active la pseudonymisation RGPD (AES-GCM).
-// Passer nil pour désactiver (les IPs sont alors stockées en clair ou anonymisées côté Core).
+// Passer nil pour désactiver (les IPs sont alors stockées en clair ou anonymisées côté passerelle).
 func (s *Store) SetPseudonymizeKey(key []byte) {
 	s.pseudoMu.Lock()
 	s.pseudoKey = key

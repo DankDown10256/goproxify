@@ -6,7 +6,7 @@ package delegation
 import (
 	"testing"
 
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 func TestHostCoveredByDomain(t *testing.T) {
@@ -32,11 +32,11 @@ func TestHostCoveredByDomain(t *testing.T) {
 	}
 }
 
-func TestFilterRoutesForCore(t *testing.T) {
+func TestFilterRoutesForEdge(t *testing.T) {
 	bindings := []Binding{{
 		Domain:            "*.dankdown.fr",
-		ResponsibleCoreID: "front-uuid",
-		TargetCoreID:      "lucas-uuid",
+		ResponsibleEdgeID: "front-uuid",
+		TargetEdgeID:      "lucas-uuid",
 	}}
 	routes := []router.Route{
 		{ID: "1", Host: "api.dankdown.fr"},
@@ -44,17 +44,17 @@ func TestFilterRoutesForCore(t *testing.T) {
 		{ID: "3", Host: "hvi.dankdown.fr"},
 	}
 
-	front := FilterRoutesForCore("front-uuid", "goproxify-core", routes, bindings)
+	front := FilterRoutesForEdge("front-uuid", "goproxify-edge", routes, bindings)
 	if len(front) != 1 || front[0].Host != "other.example.fr" {
 		t.Fatalf("front got %#v", front)
 	}
 
-	lucas := FilterRoutesForCore("lucas-uuid", "core-lucas", routes, bindings)
+	lucas := FilterRoutesForEdge("lucas-uuid", "edge-lucas", routes, bindings)
 	if len(lucas) != 3 {
 		t.Fatalf("lucas got %d routes, want 3", len(lucas))
 	}
 
-	other := FilterRoutesForCore("dev-uuid", "core-dev", routes, bindings)
+	other := FilterRoutesForEdge("dev-uuid", "edge-dev", routes, bindings)
 	if len(other) != 1 || other[0].Host != "other.example.fr" {
 		t.Fatalf("other got %#v", other)
 	}

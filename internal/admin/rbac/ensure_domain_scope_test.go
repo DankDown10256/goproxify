@@ -45,11 +45,11 @@ func TestEnsureDomainScope(t *testing.T) {
 	restrictedTok := uuid.New().String()
 	viewerTok := uuid.New().String()
 	must(`INSERT INTO tokens (id, token, role, node_name, rbac_role) VALUES (?,?,?,?,?)`,
-		adminTok, "tok-admin", "core", "core-admin", "admin")
+		adminTok, "tok-admin", "edge", "edge-admin", "admin")
 	must(`INSERT INTO tokens (id, token, role, node_name, rbac_role) VALUES (?,?,?,?,?)`,
-		restrictedTok, "tok-rest", "core", "core-rest", "admin")
+		restrictedTok, "tok-rest", "edge", "edge-rest", "admin")
 	must(`INSERT INTO tokens (id, token, role, node_name, rbac_role) VALUES (?,?,?,?,?)`,
-		viewerTok, "tok-view", "core", "core-view", "viewer")
+		viewerTok, "tok-view", "edge", "edge-view", "viewer")
 	must(`INSERT INTO token_scopes (id, token_id, scope_type, scope_value) VALUES (?,?,?,?)`,
 		uuid.New().String(), restrictedTok, "domain", "*.other.fr")
 

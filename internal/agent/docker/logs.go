@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// LogForwarder collecte les logs des conteneurs labellisés et les transmet au Core.
+// LogForwarder collecte les logs des conteneurs labellisés et les transmet à la passerelle.
 type LogForwarder struct {
 	client        *Client
 	adminEndpoint string

@@ -11,10 +11,10 @@ import (
 	"testing"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 )
 
-func TestLoadPortalConfigPerCore(t *testing.T) {
+func TestLoadPortalConfigPerEdge(t *testing.T) {
 	db, err := admindb.Open(filepath.Join(t.TempDir(), "portal.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -25,16 +25,16 @@ func TestLoadPortalConfigPerCore(t *testing.T) {
 	b := PortalConfig{Enabled: false, PublicHost: "b.example", SSHPort: 2223, HTTPPort: 8445}
 	ra, _ := json.Marshal(a)
 	rb, _ := json.Marshal(b)
-	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"core-a", string(ra))
-	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"core-b", string(rb))
+	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"edge-a", string(ra))
+	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"edge-b", string(rb))
 
-	gotA := loadPortalConfig(db, "core-a")
-	gotB := loadPortalConfig(db, "core-b")
-	if !gotA.Enabled || gotA.PublicHost != "a.example" || gotA.CoreName != "core-a" {
-		t.Fatalf("core-a: %+v", gotA)
+	gotA := loadPortalConfig(db, "edge-a")
+	gotB := loadPortalConfig(db, "edge-b")
+	if !gotA.Enabled || gotA.PublicHost != "a.example" || gotA.EdgeName != "edge-a" {
+		t.Fatalf("edge-a: %+v", gotA)
 	}
 	if gotB.Enabled || gotB.PublicHost != "b.example" || gotB.SSHPort != 2223 {
-		t.Fatalf("core-b: %+v", gotB)
+		t.Fatalf("edge-b: %+v", gotB)
 	}
 }
 
@@ -49,8 +49,8 @@ func TestLoadPortalConfigLegacyFallback(t *testing.T) {
 	raw, _ := json.Marshal(legacy)
 	_ = admindb.SetSetting(db, settingPortalConfigLegacy, string(raw))
 
-	got := loadPortalConfig(db, "core-new")
-	if !got.Enabled || got.PublicHost != "legacy.example" || got.CoreName != "core-new" {
+	got := loadPortalConfig(db, "edge-new")
+	if !got.Enabled || got.PublicHost != "legacy.example" || got.EdgeName != "edge-new" {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -64,7 +64,7 @@ func TestPortalDestinationsCRUDAndCatalog(t *testing.T) {
 
 	h := &PortalHandler{DB: db, Log: nil}
 	d := PortalDestination{
-		CoreName: "core-a", Kind: "ssh", Name: "vm1", Host: "10.0.0.1", Port: 22,
+		EdgeName: "edge-a", Kind: "ssh", Name: "vm1", Host: "10.0.0.1", Port: 22,
 		Tags: []string{"Prod", "prod", " db "},
 	}
 	if err := validateDestination(&d); err != nil {
@@ -73,15 +73,15 @@ func TestPortalDestinationsCRUDAndCatalog(t *testing.T) {
 	tags, _ := json.Marshal(d.Tags)
 	d.ID = "d1"
 	_, err = db.Exec(`INSERT INTO portal_destinations
-		(id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled)
+		(id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled)
 		VALUES (?,?,?,?,?,?,?,?,?,1)`,
-		d.ID, d.CoreName, d.Kind, d.Name, d.Host, d.Port, "", "", string(tags))
+		d.ID, d.EdgeName, d.Kind, d.Name, d.Host, d.Port, "", "", string(tags))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"core-a", `{"enabled":true,"public_host":"p.example"}`)
-	cfg := loadPortalConfig(db, "core-a")
+	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"edge-a", `{"enabled":true,"public_host":"p.example"}`)
+	cfg := loadPortalConfig(db, "edge-a")
 	if len(cfg.Catalog) != 1 || cfg.Catalog[0].Name != "vm1" {
 		t.Fatalf("catalog: %+v", cfg.Catalog)
 	}
@@ -89,12 +89,12 @@ func TestPortalDestinationsCRUDAndCatalog(t *testing.T) {
 		t.Fatalf("tags: %v", cfg.Catalog[0].Tags)
 	}
 
-	all := listDestinationsAsCatalog(db, "core-b")
+	all := listDestinationsAsCatalog(db, "edge-b")
 	if all == nil {
 		all = []portal.CatalogTarget{}
 	}
 	if len(all) != 0 {
-		t.Fatalf("core-b should be empty: %v", all)
+		t.Fatalf("edge-b should be empty: %v", all)
 	}
 	_ = h // keep handler for future HTTP tests
 }
@@ -107,13 +107,13 @@ func TestMigrateLegacyCatalog(t *testing.T) {
 	defer db.Close()
 
 	raw := `{"enabled":true,"catalog":[{"id":"c1","name":"old","kind":"ssh","host":"1.1.1.1","port":22,"tags":["x"]}]}`
-	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"core-m", raw)
-	cfg := loadPortalConfig(db, "core-m")
+	_ = admindb.SetSetting(db, settingPortalConfigPrefix+"edge-m", raw)
+	cfg := loadPortalConfig(db, "edge-m")
 	if len(cfg.Catalog) != 1 || cfg.Catalog[0].ID != "c1" {
 		t.Fatalf("%+v", cfg.Catalog)
 	}
 	// second load must not duplicate
-	cfg2 := loadPortalConfig(db, "core-m")
+	cfg2 := loadPortalConfig(db, "edge-m")
 	if len(cfg2.Catalog) != 1 {
 		t.Fatalf("dup: %+v", cfg2.Catalog)
 	}
@@ -126,14 +126,14 @@ func TestPreviewDestinationsFilter(t *testing.T) {
 	}
 	defer db.Close()
 	_, _ = db.Exec(`INSERT INTO portal_destinations
-		(id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled)
+		(id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled)
 		VALUES
-		('d1','core-a','ssh','pub','1.1.1.1',22,'','','[]',1),
-		('d2','core-a','ssh','prod','1.1.1.2',22,'','','["prod"]',1),
-		('d3','core-a','ssh','dev','1.1.1.3',22,'','','["dev"]',1)`)
+		('d1','edge-a','ssh','pub','1.1.1.1',22,'','','[]',1),
+		('d2','edge-a','ssh','prod','1.1.1.2',22,'','','["prod"]',1),
+		('d3','edge-a','ssh','dev','1.1.1.3',22,'','','["dev"]',1)`)
 
 	h := &PortalHandler{DB: db, Log: nil}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/portal/destinations/preview?core=core-a&tags=prod", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/portal/destinations/preview?edge=edge-a&tags=prod", nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -148,7 +148,7 @@ func TestPreviewDestinationsFilter(t *testing.T) {
 		t.Fatalf("%+v body=%s", out, rr.Body.String())
 	}
 
-	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/portal/destinations/preview?core=core-a&tags=", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/portal/destinations/preview?edge=edge-a&tags=", nil)
 	rr2 := httptest.NewRecorder()
 	h.ServeHTTP(rr2, req2)
 	_ = json.Unmarshal(rr2.Body.Bytes(), &out)

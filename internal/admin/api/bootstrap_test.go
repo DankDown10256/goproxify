@@ -30,7 +30,7 @@ func TestBootstrapTicketCreateAndPublic(t *testing.T) {
 		},
 	}
 
-	body := `{"host_name":"Host A","core_endpoint":"http://core:8000","payload":{"compose_text":"services:\n  x:\n","env_text":"A=1","note":"hi"}}`
+	body := `{"host_name":"Host A","edge_endpoint":"http://edge:8000","payload":{"compose_text":"services:\n  x:\n","env_text":"A=1","note":"hi"}}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap-tickets", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ServeCreate(rec, req)
@@ -75,8 +75,8 @@ func TestBootstrapTicketCreateAndPublic(t *testing.T) {
 	if err := json.Unmarshal(rec3.Body.Bytes(), &pub); err != nil {
 		t.Fatal(err)
 	}
-	if pub["core_endpoint"] != "http://core:8000" {
-		t.Fatalf("core_endpoint %+v", pub)
+	if pub["edge_endpoint"] != "http://edge:8000" {
+		t.Fatalf("edge_endpoint %+v", pub)
 	}
 
 	req4 := httptest.NewRequest(http.MethodGet, "/i/"+tok+".sh", nil)

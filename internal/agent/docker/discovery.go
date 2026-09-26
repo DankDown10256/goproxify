@@ -22,7 +22,7 @@ type LifecycleEventFn func(containerID, containerName, action string)
 // Discovery écoute les événements Docker et rapporte les changements à l'Administration.
 type Discovery struct {
 	client       *Client
-	coreEndpoint string
+	edgeEndpoint string
 	agentName    string
 	mu           sync.RWMutex
 	authToken    string
@@ -34,11 +34,11 @@ type Discovery struct {
 }
 
 // NewDiscovery crée un Discovery.
-func NewDiscovery(client *Client, coreEndpoint, authToken, labelPrefix, agentName string,
+func NewDiscovery(client *Client, edgeEndpoint, authToken, labelPrefix, agentName string,
 	netMgr *NetworkManager, log *slog.Logger) *Discovery {
 	return &Discovery{
 		client:       client,
-		coreEndpoint: coreEndpoint,
+		edgeEndpoint: edgeEndpoint,
 		agentName:    agentName,
 		authToken:    authToken,
 		labelPrefix:  labelPrefix,
@@ -134,8 +134,8 @@ func (d *Discovery) ScanAll(ctx context.Context) {
 			continue
 		}
 		if d.netManager != nil && netName != "" {
-			if err := d.netManager.ConnectCoreToNetwork(ctx, netName); err != nil {
-				d.log.Warn("docker: connexion Core au réseau (scan initial)", "network", netName, "err", err)
+			if err := d.netManager.ConnectEdgeToNetwork(ctx, netName); err != nil {
+				d.log.Warn("docker: connexion passerelle au réseau (scan initial)", "network", netName, "err", err)
 			}
 		}
 		for _, spec := range specs {
@@ -171,8 +171,8 @@ func (d *Discovery) handleEvent(ctx context.Context, ev Event) {
 		d.log.Info("docker: conteneur découvert", "name", name, "hosts", len(specs))
 
 		if d.netManager != nil && firstNet != "" {
-			if err := d.netManager.ConnectCoreToNetwork(ctx, firstNet); err != nil {
-				d.log.Warn("docker: connexion Core au réseau", "network", firstNet, "err", err)
+			if err := d.netManager.ConnectEdgeToNetwork(ctx, firstNet); err != nil {
+				d.log.Warn("docker: connexion passerelle au réseau", "network", firstNet, "err", err)
 			}
 		}
 		for _, spec := range specs {
@@ -239,7 +239,7 @@ func (d *Discovery) resolveNetworkWhitelist(ctx context.Context, spec *ProxySpec
 	spec.SentinelWhitelist = existing
 }
 
-// report envoie la config proxy vers le Core.
+// report envoie la config proxy vers la passerelle.
 func (d *Discovery) report(ctx context.Context, spec *ProxySpec) {
 	shortID := spec.ContainerID
 	if len(shortID) > 12 {
@@ -269,21 +269,21 @@ func (d *Discovery) report(ctx context.Context, spec *ProxySpec) {
 	d.mu.RUnlock()
 
 	body, _ := json.Marshal(payload)
-	url := d.coreEndpoint + "/internal/v1/agent/containers"
+	url := d.edgeEndpoint + "/internal/v1/agent/containers"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		d.log.Warn("docker: report vers Core", "host", spec.Host, "err", err)
+		d.log.Warn("docker: report vers passerelle", "host", spec.Host, "err", err)
 		return
 	}
 	defer resp.Body.Close()
-	d.log.Info("docker: proxy rapporté au Core", "host", spec.Host, "status", resp.StatusCode)
+	d.log.Info("docker: proxy rapporté à la passerelle", "host", spec.Host, "status", resp.StatusCode)
 }
 
-// reportStop notifie le Core qu'un conteneur est arrêté.
+// reportStop notifie la passerelle qu'un conteneur est arrêté.
 func (d *Discovery) reportStop(ctx context.Context, id, name string) {
 	payload := map[string]any{
 		"container_id": id,
@@ -296,13 +296,13 @@ func (d *Discovery) reportStop(ctx context.Context, id, name string) {
 	d.mu.RUnlock()
 
 	body, _ := json.Marshal(payload)
-	url := d.coreEndpoint + "/internal/v1/agent/containers"
+	url := d.edgeEndpoint + "/internal/v1/agent/containers"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, url, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		d.log.Warn("docker: report stop vers Core", "err", err)
+		d.log.Warn("docker: report stop vers passerelle", "err", err)
 		return
 	}
 	defer resp.Body.Close()

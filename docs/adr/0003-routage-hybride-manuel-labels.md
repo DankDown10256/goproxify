@@ -16,7 +16,7 @@ Deux paradigmes coexistent pour configurer des proxies : le mode impératif (UI/
 1. **Mode Manuel (impératif) :** CRUD via l'UI/API/CLI. Persisté dans SQLite. Source `"manual"`.
 2. **Mode Labels (déclaratif) :** Découvert par l'Agent via le socket Docker. Source `"label"`. **Lecture seule dans l'UI** (affiché en grisé).
 
-Les proxies `source: "label"` ne peuvent pas être modifiés via l'Administration. Pour les modifier, l'opérateur met à jour les labels Docker Compose. L'Agent transmet le changement à l'Administration qui met à jour le Core.
+Les proxies `source: "label"` ne peuvent pas être modifiés via l'Administration. Pour les modifier, l'opérateur met à jour les labels Docker Compose. L'Agent transmet le changement à l'Administration qui met à jour la passerelle.
 
 Un **Générateur de Labels** interactif est intégré à l'UI pour guider la rédaction des labels Docker Compose.
 

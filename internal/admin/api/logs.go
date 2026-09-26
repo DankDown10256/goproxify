@@ -21,7 +21,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 )
 
-// LogsSettingsPusher pousse les settings de logging vers les Cores.
+// LogsSettingsPusher pousse les settings de logging vers les passerelles.
 type LogsSettingsPusher interface {
 	PushIPAnonymize(ctx context.Context, enabled bool)
 	PushIPPseudonymize(ctx context.Context, enabled bool)

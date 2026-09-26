@@ -12,7 +12,7 @@ import (
 func TestNodeTokenSealOpenAndHash(t *testing.T) {
 	os.Unsetenv("GPX_NODE_TOKEN_KEY")
 	ConfigureNodeTokenKey("jwt-secret-for-test")
-	plain := "gpx_core_abc123deadbeef"
+	plain := "gpx_edge_abc123deadbeef"
 	stored, hash := PrepareNodeTokenForStore(plain)
 	if hash != HashNodeToken(plain) {
 		t.Fatal("hash mismatch")

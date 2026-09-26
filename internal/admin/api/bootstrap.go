@@ -34,7 +34,7 @@ type BootstrapHandler struct {
 type bootstrapTicketRow struct {
 	Token        string
 	HostName     string
-	CoreEndpoint string
+	EdgeEndpoint string
 	Payload      json.RawMessage
 	ExpiresAt    time.Time
 	CreatedAt    time.Time
@@ -44,7 +44,7 @@ func (h *BootstrapHandler) ensureTable() {
 	_, _ = h.DB.Exec(`CREATE TABLE IF NOT EXISTS bootstrap_tickets (
 		token         TEXT PRIMARY KEY,
 		host_name     TEXT NOT NULL DEFAULT '',
-		core_endpoint TEXT NOT NULL DEFAULT '',
+		edge_endpoint TEXT NOT NULL DEFAULT '',
 		payload       TEXT NOT NULL DEFAULT '{}',
 		expires_at    DATETIME NOT NULL,
 		created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -68,7 +68,7 @@ func (h *BootstrapHandler) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	h.ensureTable()
 	var req struct {
 		HostName     string          `json:"host_name"`
-		CoreEndpoint string          `json:"core_endpoint"`
+		EdgeEndpoint string          `json:"edge_endpoint"`
 		Payload      json.RawMessage `json:"payload"`
 		TTLHours     int             `json:"ttl_hours"`
 		AutoAccept   *bool           `json:"auto_accept"`
@@ -109,8 +109,8 @@ func (h *BootstrapHandler) ServeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().UTC().Add(ttl)
 	_, err = h.DB.ExecContext(r.Context(),
-		`INSERT INTO bootstrap_tickets(token, host_name, core_endpoint, payload, expires_at) VALUES(?,?,?,?,?)`,
-		tok, strings.TrimSpace(req.HostName), strings.TrimSpace(req.CoreEndpoint), string(payloadBytes), exp,
+		`INSERT INTO bootstrap_tickets(token, host_name, edge_endpoint, payload, expires_at) VALUES(?,?,?,?,?)`,
+		tok, strings.TrimSpace(req.HostName), strings.TrimSpace(req.EdgeEndpoint), string(payloadBytes), exp,
 	)
 	if err != nil {
 		if h.Log != nil {
@@ -154,7 +154,7 @@ func (h *BootstrapHandler) ServeCreate(w http.ResponseWriter, r *http.Request) {
 		"qr_code":       "data:image/png;base64," + base64.StdEncoding.EncodeToString(qrPNG),
 		"expires_at":    exp.Format(time.RFC3339),
 		"host_name":     req.HostName,
-		"core_endpoint": req.CoreEndpoint,
+		"edge_endpoint": req.EdgeEndpoint,
 	})
 }
 
@@ -201,7 +201,7 @@ func (h *BootstrapHandler) ServePublic(w http.ResponseWriter, r *http.Request) {
 		}
 		jsonOK(w, map[string]any{
 			"host_name":     row.HostName,
-			"core_endpoint": row.CoreEndpoint,
+			"edge_endpoint": row.EdgeEndpoint,
 			"payload":       json.RawMessage(row.Payload),
 			"expires_at":    row.ExpiresAt.Format(time.RFC3339),
 			"script_url":    scriptURL,
@@ -217,8 +217,8 @@ func (h *BootstrapHandler) load(r *http.Request, tok string) (*bootstrapTicketRo
 	var row bootstrapTicketRow
 	var payload string
 	err := h.DB.QueryRowContext(r.Context(),
-		`SELECT token, host_name, core_endpoint, payload, expires_at, created_at FROM bootstrap_tickets WHERE token=?`, tok,
-	).Scan(&row.Token, &row.HostName, &row.CoreEndpoint, &payload, &row.ExpiresAt, &row.CreatedAt)
+		`SELECT token, host_name, edge_endpoint, payload, expires_at, created_at FROM bootstrap_tickets WHERE token=?`, tok,
+	).Scan(&row.Token, &row.HostName, &row.EdgeEndpoint, &payload, &row.ExpiresAt, &row.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -255,11 +255,11 @@ code{font-size:12px;word-break:break-all}
 .hl{border-color:#3b82f6}
 </style></head><body>`)
 	b.WriteString(`<h1>Configuration — ` + esc(row.HostName) + `</h1>`)
-	b.WriteString(`<p class="muted">Ticket d’intégration vers le Core. Expire le ` + esc(row.ExpiresAt.UTC().Format(time.RFC3339)) + `.</p>`)
+	b.WriteString(`<p class="muted">Ticket d’intégration vers la passerelle. Expire le ` + esc(row.ExpiresAt.UTC().Format(time.RFC3339)) + `.</p>`)
 	b.WriteString(`<div class="card hl"><label>Sur le serveur (Docker)</label><pre>` + esc(installCmd) + `</pre>`)
 	b.WriteString(`<p class="muted" style="margin:8px 0 0">Écrit compose/.env puis lance <code>docker compose up -d</code>.</p></div>`)
-	if row.CoreEndpoint != "" {
-		b.WriteString(`<div class="card"><label>Core (cible)</label><code>` + esc(row.CoreEndpoint) + `</code></div>`)
+	if row.EdgeEndpoint != "" {
+		b.WriteString(`<div class="card"><label>Passerelle (cible)</label><code>` + esc(row.EdgeEndpoint) + `</code></div>`)
 	}
 	if note != "" {
 		b.WriteString(`<div class="card"><label>Note</label><p style="margin:0">` + esc(note) + `</p></div>`)
@@ -301,8 +301,8 @@ func (h *BootstrapHandler) writeScript(w http.ResponseWriter, r *http.Request, r
 	b.WriteString("#!/usr/bin/env bash\n")
 	b.WriteString("set -euo pipefail\n")
 	b.WriteString("# GoProxify bootstrap — host: " + shellSingleQuote(row.HostName) + "\n")
-	if row.CoreEndpoint != "" {
-		b.WriteString("# Core: " + shellSingleQuote(row.CoreEndpoint) + "\n")
+	if row.EdgeEndpoint != "" {
+		b.WriteString("# Passerelle: " + shellSingleQuote(row.EdgeEndpoint) + "\n")
 	}
 	b.WriteString("DIR=\"${GPX_BOOTSTRAP_DIR:-./goproxify-bootstrap}\"\n")
 	b.WriteString("mkdir -p \"$DIR\"\n")

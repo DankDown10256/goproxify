@@ -1,7 +1,7 @@
-// ── PAGE: Prism (Admin + Core) ─────────────────────────────────────────
+// ── PAGE: Prism (Admin + Passerelle) ─────────────────────────────────────────
 // Une seule vue ; les entrées de menu ne font que poser des filtres.
-//   Admin (prism)      → tous les Cores / proxies / domaines
-//   Core  (core-prism) → filtre node_name verrouillé sur le Core sélectionné
+//   Admin (prism)      → toutes les passerelles / proxies / domaines
+//   Passerelle  (edge-prism) → filtre node_name verrouillé sur la passerelle sélectionnée
 // Extrait de pages-all.js — phase 3. Dépend de shared/fmt.js (fmtBytes).
 
 // A — Cache SVG monde en dehors de la fonction pour survivre aux navigations
@@ -15,8 +15,8 @@ let prismScope = { node_name: '', lockNode: false };
 /** Présélection de filtres (proxy / IP / path / période) avant d'ouvrir la vue. */
 let prismPreset = null;
 
-function corePrismNodeName() {
-  const c = state.selectedCore;
+function edgePrismNodeName() {
+  const c = state.selectedEdge;
   return (c?.node_name || c?.display_name || c?.id || '').trim();
 }
 
@@ -44,18 +44,18 @@ function openPrism(opts = {}) {
 }
 window.openPrism = openPrism;
 
-/** Raccourci Trafic : ouvre Prism pour un proxy (Admin global ou Core sélectionné). */
-window.openPrismForProxy = function(host, coreId) {
+/** Raccourci Trafic : ouvre Prism pour un proxy (Admin global ou passerelle sélectionnée). */
+window.openPrismForProxy = function(host, edgeId) {
   window._prismProxyInit = host || '';
-  if (state.selectedCore) {
-    navigate('core-prism');
+  if (state.selectedEdge) {
+    navigate('edge-prism');
     return;
   }
-  // Admin : vue globale filtrée sur le proxy (pas besoin de sélectionner un Core)
+  // Admin : vue globale filtrée sur le proxy (pas besoin de sélectionner une passerelle)
   navigate('prism');
 };
 
-// Admin — vue d'ensemble (tous les Cores / proxies)
+// Admin — vue d'ensemble (toutes les passerelles / proxies)
 pages.prism = function() {
   openPrism({
     proxy: window._prismProxyInit || '',
@@ -64,10 +64,10 @@ pages.prism = function() {
   });
 };
 
-// Core — scoped au nœud sélectionné
-pages['core-prism'] = function() {
+// Passerelle — scoped au nœud sélectionné
+pages['edge-prism'] = function() {
   openPrism({
-    node_name: corePrismNodeName(),
+    node_name: edgePrismNodeName(),
     lockNode: true,
     proxy: window._prismProxyInit || '',
     ip: window._prismIpInit || '',
@@ -78,9 +78,9 @@ pages['core-prism'] = function() {
 function prismScopeBanner() {
   const node = prismScope.node_name;
   if (node) {
-    const label = state.selectedCore?.display_name || state.selectedCore?.node_name || node;
+    const label = state.selectedEdge?.display_name || state.selectedEdge?.node_name || node;
     return `<div style="margin-bottom:12px;padding:8px 12px;background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);">
-      ${t('prism.banner_core', { name: esc(label) })}
+      ${t('prism.banner_edge', { name: esc(label) })}
     </div>`;
   }
   return `<div style="margin-bottom:12px;padding:8px 12px;background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);">
@@ -96,11 +96,11 @@ async function renderPrismPage() {
   const initTo = prismPreset?.to || '';
   prismPreset = null;
 
-  // Alimente le sélecteur Core (vue Admin) si pas encore en cache
-  if (!prismScope.lockNode && !(window._coreNodes || []).length) {
+  // Alimente le sélecteur passerelle (vue Admin) si pas encore en cache
+  if (!prismScope.lockNode && !(window._edgeNodes || []).length) {
     try {
       const nodes = await api('GET', '/nodes').catch(() => []);
-      window._coreNodes = (nodes || []).filter(n => n.role === 'core');
+      window._edgeNodes = (nodes || []).filter(n => n.role === 'edge');
     } catch { /* ignore */ }
   }
 
@@ -131,7 +131,7 @@ async function renderPrismPage() {
 
   let proxies = [], selProxy = initProxy, selIp = initIp, selPathFilter = initPath;
   let selFrom = '', selTo = '', pathSearch = '', pathOffset = 0;
-  // Filtre Core libre en vue Admin (verrouillé si menu Core)
+  // Filtre passerelle libre en vue Admin (verrouillé si menu passerelle)
   let selNode = prismScope.node_name || '';
   const pathLimit = 20;
   let liveMode = false;
@@ -189,7 +189,7 @@ async function renderPrismPage() {
 
   function prismFilterChipsHtml() {
     const chips = [];
-    if (selNode && !lockNode) chips.push(['node', 'Core', selNode]);
+    if (selNode && !lockNode) chips.push(['node', 'Edge', selNode]);
     if (selProxy) chips.push(['proxy', 'Proxy', selProxy]);
     if (selIp) chips.push(['ip', 'IP', selIp]);
     if (selPathFilter) chips.push(['path', 'Chemin', selPathFilter]);
@@ -464,16 +464,16 @@ async function renderPrismPage() {
 
   function filtersHtml() {
     const proxyOpts = proxies.map(p=>`<option value="${esc(p.domain)}" ${p.domain===selProxy?'selected':''}>${esc(p.domain)}</option>`).join('');
-    const cores = (window._coreNodes || []).filter(n => n.role === 'core' || !n.role);
-    const coreOpts = cores.map(c => {
+    const edges = (window._edgeNodes || []).filter(n => n.role === 'edge' || !n.role);
+    const edgeOpts = edges.map(c => {
       const name = c.node_name || c.display_name || c.id || '';
       const label = c.display_name || c.node_name || c.id || '—';
       return `<option value="${esc(name)}" ${name===selNode?'selected':''}>${esc(label)}</option>`;
     }).join('');
-    const coreSelect = lockNode ? '' : `
-        <select id="prism-node" class="form-input" style="max-width:180px" data-prism="node" title="${esc(t('prism.filter_core'))}">
-          <option value="">Tous les Cores</option>
-          ${coreOpts}
+    const edgeSelect = lockNode ? '' : `
+        <select id="prism-node" class="form-input" style="max-width:180px" data-prism="node" title="${esc(t('prism.filter_edge'))}">
+          <option value="">Toutes les passerelles</option>
+          ${edgeOpts}
         </select>`;
     const icoCompare = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>`;
     const icoLive = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
@@ -483,7 +483,7 @@ async function renderPrismPage() {
     return `
       <div class="prism-filters">
         <div class="prism-fg">
-          ${coreSelect}
+          ${edgeSelect}
           <select id="prism-proxy" class="form-input" style="max-width:160px" data-prism="proxy">
             <option value="">Tous les proxies</option>
             ${proxyOpts}
@@ -1341,7 +1341,7 @@ async function renderPrismPage() {
     else {
       Object.assign(logsFilters, opts);
       if (selNode) logsFilters.node_name = selNode;
-      navigate(state.selectedCore ? 'core-logs-access' : 'logs');
+      navigate(state.selectedEdge ? 'edge-logs-access' : 'logs');
     }
   }
 

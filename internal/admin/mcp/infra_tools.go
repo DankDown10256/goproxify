@@ -39,7 +39,7 @@ func infraTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "get_topology_live",
-			"description": "État temps réel de la topologie : pour chaque nœud Core/Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec le facteur dominant (offline, blocked, errors, resources), plus le nombre de bans actifs.",
+			"description": "État temps réel de la topologie : pour chaque nœud passerelle/Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec le facteur dominant (offline, blocked, errors, resources), plus le nombre de bans actifs.",
 			"inputSchema": schema(),
 		},
 		{
@@ -49,9 +49,9 @@ func infraTools() []map[string]any {
 		},
 		{
 			"name":        "create_declared_node",
-			"description": "Déclare un nœud Core ou Agent (upsert par rôle+nom) pour le suivi wizard / auto-accept.",
+			"description": "Déclare un nœud passerelle ou Agent (upsert par rôle+nom) pour le suivi wizard / auto-accept.",
 			"inputSchema": schema(
-				req("role", "string", "core ou agent"),
+				req("role", "string", "edge ou agent"),
 				req("name", "string", "Nom du nœud"),
 				opt("region", "string", "Région"),
 				opt("environment", "string", "Environnement"),
@@ -65,10 +65,10 @@ func infraTools() []map[string]any {
 		},
 		{
 			"name":        "create_bootstrap_ticket",
-			"description": "Crée un ticket bootstrap (QR + lien /i/{token} + curl|bash) ancré au Core pour intégrer un hôte.",
+			"description": "Crée un ticket bootstrap (QR + lien /i/{token} + curl|bash) ancré à la passerelle pour intégrer un hôte.",
 			"inputSchema": schema(
 				opt("host_name", "string", "Nom de l'hôte (affichage)"),
-				opt("core_endpoint", "string", "Endpoint Core cible (ex: http://core:8000)"),
+				opt("edge_endpoint", "string", "Endpoint passerelle cible (ex: http://edge:8000)"),
 				opt("payload", "object", "Payload JSON (compose/.env dérivés côté UI)"),
 				opt("ttl_hours", "number", "TTL en heures (1–168, défaut 24)"),
 				opt("auto_accept", "boolean", "Auto-accept des nœuds déclarés liés (défaut true)"),
@@ -77,7 +77,7 @@ func infraTools() []map[string]any {
 		},
 		{
 			"name":        "accept_node",
-			"description": "Accepte un nœud Core/Agent en attente (pending_nodes) après présentation du pairing secret.",
+			"description": "Accepte un nœud passerelle/Agent en attente (pending_nodes) après présentation du pairing secret.",
 			"inputSchema": schema(req("id", "string", "ID du nœud pending")),
 		},
 		{
@@ -123,8 +123,8 @@ func (h *Handler) toolCreateBootstrapTicket(r *http.Request, args map[string]any
 	if v := argStr(args, "host_name"); v != "" {
 		body["host_name"] = v
 	}
-	if v := argStr(args, "core_endpoint"); v != "" {
-		body["core_endpoint"] = v
+	if v := argStr(args, "edge_endpoint"); v != "" {
+		body["edge_endpoint"] = v
 	}
 	if ttl := argInt(args, "ttl_hours", 0); ttl > 0 {
 		body["ttl_hours"] = ttl

@@ -14,10 +14,10 @@ import (
 
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 )
 
-// PortalPageTemplatePusher pousse les templates Access vers les Cores.
+// PortalPageTemplatePusher pousse les templates Access vers les passerelles.
 type PortalPageTemplatePusher interface {
 	PushPortalTemplates(ctx context.Context)
 }
@@ -30,7 +30,7 @@ type PortalPageTemplateDTO struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// PortalPageTemplatesHandler CRUD clés stables + sync Core.
+// PortalPageTemplatesHandler CRUD clés stables + sync passerelle.
 type PortalPageTemplatesHandler struct {
 	DB     *sql.DB
 	Log    *slog.Logger

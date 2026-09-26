@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// coreIdentity lit juste la section identity d'un core.json pour les assertions.
-func coreIdentity(t *testing.T, path string) map[string]any {
+// edgeIdentity lit juste la section identity d'une passerelle.json pour les assertions.
+func edgeIdentity(t *testing.T, path string) map[string]any {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -28,19 +28,19 @@ func coreIdentity(t *testing.T, path string) map[string]any {
 	return identity
 }
 
-// TestBootstrapCoreIdempotent vérifie que BootstrapCore ne touche plus au
+// TestBootstrapEdgeIdempotent vérifie que BootstrapEdge ne touche plus au
 // fichier une fois qu'il existe — c'est la garantie de stabilité de
 // l'identité (node_name, token_id) entre deux démarrages du même
 // conteneur sur le même volume.
-func TestBootstrapCoreIdempotent(t *testing.T) {
+func TestBootstrapEdgeIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "frontal")
-	if err := BootstrapCore(path); err != nil {
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "frontal")
+	if err := BootstrapEdge(path); err != nil {
 		t.Fatalf("premier bootstrap : %v", err)
 	}
-	id1 := coreIdentity(t, path)
+	id1 := edgeIdentity(t, path)
 	tokenID1, _ := id1["token_id"].(string)
 	if tokenID1 == "" {
 		t.Fatal("token_id vide après le premier bootstrap")
@@ -50,12 +50,12 @@ func TestBootstrapCoreIdempotent(t *testing.T) {
 	}
 
 	// Deuxième "démarrage" avec une variable d'environnement différente —
-	// reproduit un redéploiement Portainer où CORE_NODE_NAME a changé.
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "goproxify-core")
-	if err := BootstrapCore(path); err != nil {
+	// reproduit un redéploiement Portainer où EDGE_NODE_NAME a changé.
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "goproxify-edge")
+	if err := BootstrapEdge(path); err != nil {
 		t.Fatalf("second bootstrap : %v", err)
 	}
-	id2 := coreIdentity(t, path)
+	id2 := edgeIdentity(t, path)
 	if id2["token_id"] != tokenID1 {
 		t.Fatalf("token_id a changé entre deux démarrages : %v -> %v", tokenID1, id2["token_id"])
 	}
@@ -64,22 +64,22 @@ func TestBootstrapCoreIdempotent(t *testing.T) {
 	}
 }
 
-// TestLoadCoreNodeNameStableAcrossEnvChange vérifie que LoadCore ignore
-// GPX_IDENTITY_CORE_NODE_NAME une fois identity.node_name déjà présent
+// TestLoadEdgeNodeNameStableAcrossEnvChange vérifie que LoadEdge ignore
+// GPX_IDENTITY_EDGE_NODE_NAME une fois identity.node_name déjà présent
 // dans le fichier — c'est la valeur écrite au tout premier bootstrap qui
 // fait foi, pas la variable d'environnement du redémarrage courant.
-func TestLoadCoreNodeNameStableAcrossEnvChange(t *testing.T) {
+func TestLoadEdgeNodeNameStableAcrossEnvChange(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "frontal")
-	if err := BootstrapCore(path); err != nil {
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "frontal")
+	if err := BootstrapEdge(path); err != nil {
 		t.Fatal(err)
 	}
 
 	// Le redémarrage suivant arrive avec une valeur différente de la variable.
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "proxify-core")
-	cfg, err := LoadCore(path)
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "proxify-edge")
+	cfg, err := LoadEdge(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,48 +113,48 @@ func TestBootstrapAdminSQLiteDSNMatchesHistoricalPath(t *testing.T) {
 	}
 }
 
-// TestBootstrapCoreLogPathsMatchHistoricalPaths verrouille les chemins de
-// logs générés par BootstrapCore face au même risque de divergence
+// TestBootstrapEdgeLogPathsMatchHistoricalPaths verrouille les chemins de
+// logs générés par BootstrapEdge face au même risque de divergence
 // silencieuse (fichiers différents du nom historique, logs éparpillés entre
 // ancien et nouveau fichier sur le même volume).
-func TestBootstrapCoreLogPathsMatchHistoricalPaths(t *testing.T) {
+func TestBootstrapEdgeLogPathsMatchHistoricalPaths(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("GPX_STORAGE_BASE_PATH", dir)
-	path := filepath.Join(dir, "core.json")
-	if err := BootstrapCore(path); err != nil {
+	path := filepath.Join(dir, "edge.json")
+	if err := BootstrapEdge(path); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := LoadCore(path)
+	cfg, err := LoadEdge(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, "logs", "core_access.log"); cfg.Engine.AccessLogPath != want {
+	if want := filepath.Join(dir, "logs", "edge_access.log"); cfg.Engine.AccessLogPath != want {
 		t.Fatalf("access_log_path = %q, attendu %q", cfg.Engine.AccessLogPath, want)
 	}
-	if want := filepath.Join(dir, "logs", "core_system.log"); cfg.Engine.SystemLogPath != want {
+	if want := filepath.Join(dir, "logs", "edge_system.log"); cfg.Engine.SystemLogPath != want {
 		t.Fatalf("system_log_path = %q, attendu %q", cfg.Engine.SystemLogPath, want)
 	}
 }
 
-// TestBootstrapCoreTokenIDStableAcrossManyRestarts simule plusieurs
+// TestBootstrapEdgeTokenIDStableAcrossManyRestarts simule plusieurs
 // redémarrages consécutifs (le scénario réel : le conteneur redémarre
 // plusieurs fois) et vérifie que token_id et node_name ne bougent jamais
 // une fois le fichier créé.
-func TestBootstrapCoreTokenIDStableAcrossManyRestarts(t *testing.T) {
+func TestBootstrapEdgeTokenIDStableAcrossManyRestarts(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "frontal")
-	if err := BootstrapCore(path); err != nil {
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "frontal")
+	if err := BootstrapEdge(path); err != nil {
 		t.Fatal(err)
 	}
-	want := coreIdentity(t, path)
+	want := edgeIdentity(t, path)
 
 	for i := 0; i < 5; i++ {
-		if err := BootstrapCore(path); err != nil {
+		if err := BootstrapEdge(path); err != nil {
 			t.Fatalf("redémarrage %d : %v", i, err)
 		}
-		got := coreIdentity(t, path)
+		got := edgeIdentity(t, path)
 		if got["token_id"] != want["token_id"] || got["node_name"] != want["node_name"] {
 			t.Fatalf("redémarrage %d : identité changée, got=%v want=%v", i, got, want)
 		}

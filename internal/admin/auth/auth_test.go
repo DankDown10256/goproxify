@@ -103,7 +103,7 @@ func TestGenerateToken(t *testing.T) {
 	cases := []struct {
 		role, prefix string
 	}{
-		{"core", "gpx_core_"},
+		{"edge", "gpx_edge_"},
 		{"agent", "gpx_join_"},
 	}
 	for _, tc := range cases {
@@ -118,8 +118,8 @@ func TestGenerateToken(t *testing.T) {
 	}
 
 	// Unicité : deux appels doivent produire des tokens différents
-	t1 := auth.GenerateToken("core", "n1")
-	t2 := auth.GenerateToken("core", "n1")
+	t1 := auth.GenerateToken("edge", "n1")
+	t2 := auth.GenerateToken("edge", "n1")
 	if t1 == t2 {
 		t.Error("GenerateToken: deux appels identiques ne devraient pas produire le même token")
 	}

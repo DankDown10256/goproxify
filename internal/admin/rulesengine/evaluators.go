@@ -240,7 +240,7 @@ func (e *Engine) evalBanRepeat(ctx context.Context, c Condition) (bool, map[stri
 	}, nil
 }
 
-// evalNodeOffline : un Core/Agent sans heartbeat depuis plus de OfflineMinutes.
+// evalNodeOffline : une passerelle/Agent sans heartbeat depuis plus de OfflineMinutes.
 func (e *Engine) evalNodeOffline(ctx context.Context, c Condition) (bool, map[string]any, error) {
 	offlineMin := c.OfflineMinutes
 	if offlineMin <= 0 {

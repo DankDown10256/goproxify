@@ -1,22 +1,22 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package delegation filtre les proxies selon les domaines délégués inter-Cores.
-// Un host couvert par un domaine délégué ne doit être poussé qu'au Core cible
-// (delegated_to_core_id), pas au Core responsable ni aux autres.
+// Package delegation filtre les proxies selon les domaines délégués inter-passerelles.
+// Un host couvert par un domaine délégué ne doit être poussé qu'à la passerelle cible
+// (delegated_to_edge_id), pas à la passerelle responsable ni aux autres.
 package delegation
 
 import (
 	"strings"
 
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // Binding décrit une délégation de domaine active.
 type Binding struct {
 	Domain            string // ex: *.dankdown.fr
-	ResponsibleCoreID string // core_id (UUID token ou node_name)
-	TargetCoreID      string // delegated_to_core_id
+	ResponsibleEdgeID string // edge_id (UUID token ou node_name)
+	TargetEdgeID      string // delegated_to_edge_id
 }
 
 // HostCoveredByDomain indique si host est couvert par le motif de domaine.
@@ -41,16 +41,16 @@ func RouteCoveredByDomain(r *router.Route, domainPattern string) bool {
 	return false
 }
 
-func coreRefMatch(coreID, nodeName, ref string) bool {
+func edgeRefMatch(edgeID, nodeName, ref string) bool {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return false
 	}
-	return coreID == ref || nodeName == ref
+	return edgeID == ref || nodeName == ref
 }
 
-// FilterRoutesForCore retire les proxies couverts par une délégation sauf pour le Core cible.
-func FilterRoutesForCore(coreID, nodeName string, routes []router.Route, bindings []Binding) []router.Route {
+// FilterRoutesForEdge retire les proxies couverts par une délégation sauf pour la passerelle cible.
+func FilterRoutesForEdge(edgeID, nodeName string, routes []router.Route, bindings []Binding) []router.Route {
 	if len(bindings) == 0 || len(routes) == 0 {
 		return routes
 	}
@@ -62,7 +62,7 @@ func FilterRoutesForCore(coreID, nodeName string, routes []router.Route, binding
 			if !RouteCoveredByDomain(&r, b.Domain) {
 				continue
 			}
-			if !coreRefMatch(coreID, nodeName, b.TargetCoreID) {
+			if !edgeRefMatch(edgeID, nodeName, b.TargetEdgeID) {
 				keep = false
 			}
 			break

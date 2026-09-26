@@ -39,14 +39,14 @@ func TestCreateDeclaredNodeTool(t *testing.T) {
 	h := &Handler{DB: db}
 	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	created, err := h.toolCreateDeclaredNode(r, map[string]any{
-		"role": "core", "name": "core-edge", "region": "eu",
+		"role": "edge", "name": "edge-main", "region": "eu",
 		"config": map[string]any{"ha_group": "g1"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := created.(map[string]any)
-	if m["name"] != "core-edge" || m["id"] == "" {
+	if m["name"] != "edge-main" || m["id"] == "" {
 		t.Fatalf("create: %v", created)
 	}
 	listed, err := h.toolListDeclaredNodes(r)
@@ -73,9 +73,9 @@ func TestCreateBootstrapTicketTool(t *testing.T) {
 	}
 	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	out, err := h.toolCreateBootstrapTicket(r, map[string]any{
-		"host_name":     "edge-1",
-		"core_endpoint": "http://192.0.2.10:8000",
-		"node_names":    []any{"core-edge"},
+		"host_name":     "host-1",
+		"edge_endpoint": "http://192.0.2.10:8000",
+		"node_names":    []any{"edge-main"},
 		"ttl_hours":     float64(12),
 	})
 	if err != nil {

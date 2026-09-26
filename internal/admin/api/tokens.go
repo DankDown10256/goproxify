@@ -25,19 +25,19 @@ import (
 type TokensHandler struct {
 	DB            *sql.DB
 	Log           *slog.Logger
-	Cores         CoreConnector    // optionnel — enregistre les Cores WS dès qu'un endpoint est fourni
+	Edges         EdgeConnector    // optionnel — enregistre les passerelles WS dès qu'un endpoint est fourni
 	Pusher        ScopePusher      // optionnel — re-pousse routes/certs après mutation de périmètre
 	ArchStore     *archstore.Store // optionnel — référentiel architecture disque
-	OnAgentRevoke func(agentID string) // optionnel — ferme la WS Agent sur les Cores
+	OnAgentRevoke func(agentID string) // optionnel — ferme la WS Agent sur les passerelles
 }
 
-// CoreConnector est implémenté par corews.Manager.
-type CoreConnector interface {
-	Register(coreID, nodeName, endpoint, rbacRole string)
-	Unregister(coreID string)
+// EdgeConnector est implémenté par edgews.Manager.
+type EdgeConnector interface {
+	Register(edgeID, nodeName, endpoint, rbacRole string)
+	Unregister(edgeID string)
 }
 
-// ScopePusher resynchronise les Cores après un changement de token_scopes.
+// ScopePusher resynchronise les passerelles après un changement de token_scopes.
 type ScopePusher interface {
 	PushRoutes(ctx context.Context)
 	PushCerts(ctx context.Context)
@@ -149,8 +149,8 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, http.StatusBadRequest, "api.err.json_body")
 		return
 	}
-	if req.Role != "core" && req.Role != "agent" {
-		writeErr(w, r, http.StatusBadRequest, "api.err.role_core_agent")
+	if req.Role != "edge" && req.Role != "agent" {
+		writeErr(w, r, http.StatusBadRequest, "api.err.role_edge_agent")
 		return
 	}
 	if req.NodeName == "" {
@@ -168,7 +168,7 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 	tok := adminauth.GenerateToken(req.Role, req.NodeName)
 	id := uuid.New().String()
 
-	endpoint := normalizeCoreEndpoint(req.NodeEndpoint)
+	endpoint := normalizeEdgeEndpoint(req.NodeEndpoint)
 
 	var expiresAt *time.Time
 	if req.TTLHours > 0 {
@@ -190,13 +190,13 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Cores != nil && req.Role == "core" && endpoint != "" {
-		h.Cores.Register(id, req.NodeName, endpoint, req.RBACRole)
+	if h.Edges != nil && req.Role == "edge" && endpoint != "" {
+		h.Edges.Register(id, req.NodeName, endpoint, req.RBACRole)
 	}
 
-	if h.ArchStore != nil && req.Role == "core" {
+	if h.ArchStore != nil && req.Role == "edge" {
 		if err := h.ArchStore.Upsert(archstore.NodeEntry{
-			ID: id, Role: "core", Name: req.NodeName,
+			ID: id, Role: "edge", Name: req.NodeName,
 			Endpoint: endpoint, RBACRole: req.RBACRole,
 		}); err != nil {
 			h.Log.Error("tokens: architecture.json", "err", err)
@@ -221,8 +221,8 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// normalizeCoreEndpoint accepte "10.0.0.1", "10.0.0.1:8000" ou une URL complète.
-func normalizeCoreEndpoint(raw string) string {
+// normalizeEdgeEndpoint accepte "10.0.0.1", "10.0.0.1:8000" ou une URL complète.
+func normalizeEdgeEndpoint(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
@@ -258,8 +258,8 @@ func (h *TokensHandler) revoke(w http.ResponseWriter, r *http.Request, id string
 		writeErr(w, r, http.StatusNotFound, "api.err.token_not_found")
 		return
 	}
-	if h.Cores != nil {
-		h.Cores.Unregister(id)
+	if h.Edges != nil {
+		h.Edges.Unregister(id)
 	}
 	if role == "agent" && h.OnAgentRevoke != nil {
 		agentID := nodeName
@@ -288,8 +288,8 @@ func (h *TokensHandler) deletePermanent(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, r, http.StatusNotFound, "api.err.token_not_found")
 		return
 	}
-	if h.Cores != nil {
-		h.Cores.Unregister(id)
+	if h.Edges != nil {
+		h.Edges.Unregister(id)
 	}
 
 	actor := adminauth.UserIDFromContext(r.Context())
@@ -365,7 +365,7 @@ func (h *TokensHandler) addScope(w http.ResponseWriter, r *http.Request, tokenID
 		writeErr(w, r, http.StatusBadRequest, "api.err.json_body")
 		return
 	}
-	if req.ScopeType != "domain" && req.ScopeType != "server" && req.ScopeType != "proxy" && req.ScopeType != "core" {
+	if req.ScopeType != "domain" && req.ScopeType != "server" && req.ScopeType != "proxy" && req.ScopeType != "edge" {
 		writeErr(w, r, http.StatusBadRequest, "api.err.scope_type")
 		return
 	}
@@ -421,7 +421,7 @@ func (h *TokensHandler) removeScope(w http.ResponseWriter, r *http.Request, toke
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resyncAfterScopeChange pousse routes + certs filtrés aux Cores (périmètre à jour).
+// resyncAfterScopeChange pousse routes + certs filtrés aux passerelles (périmètre à jour).
 func (h *TokensHandler) resyncAfterScopeChange() {
 	if h.Pusher == nil {
 		return

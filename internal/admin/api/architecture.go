@@ -23,7 +23,7 @@ type ArchitectureHandler struct {
 	DB    *sql.DB
 	Log   *slog.Logger
 	Store *archstore.Store // nil = persistance disque désactivée
-	// OnRestore est appelé après une restauration réussie (réalignement de la base, reconnexion des Cores).
+	// OnRestore est appelé après une restauration réussie (réalignement de la base, reconnexion des passerelles).
 	OnRestore func()
 }
 

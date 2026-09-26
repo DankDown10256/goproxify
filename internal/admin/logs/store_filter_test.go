@@ -9,8 +9,8 @@ import (
 )
 
 func TestMatchesFilterKindAccessSystem(t *testing.T) {
-	access := Entry{Status: 200, Component: "core", NodeName: "core-1", Level: "info", Domain: "a.example", Method: "GET", Path: "/"}
-	sysCore := Entry{Status: 0, Component: "core", NodeName: "core-1", Level: "info", Message: "started"}
+	access := Entry{Status: 200, Component: "edge", NodeName: "edge-1", Level: "info", Domain: "a.example", Method: "GET", Path: "/"}
+	sysEdge := Entry{Status: 0, Component: "edge", NodeName: "edge-1", Level: "info", Message: "started"}
 	sysAdmin := Entry{Status: 0, Component: "admin", NodeName: "admin", Level: "warn", Message: "reload"}
 	sysAgent := Entry{Status: 0, Component: "agent", NodeName: "agent-1", Level: "info", Message: "line"}
 
@@ -21,13 +21,13 @@ func TestMatchesFilterKindAccessSystem(t *testing.T) {
 		want bool
 	}{
 		{"access accepts http", access, SearchParams{Kind: "access"}, true},
-		{"access rejects system", sysCore, SearchParams{Kind: "access"}, false},
-		{"system accepts core", sysCore, SearchParams{Kind: "system"}, true},
+		{"access rejects system", sysEdge, SearchParams{Kind: "access"}, false},
+		{"system accepts edge", sysEdge, SearchParams{Kind: "system"}, true},
 		{"system accepts admin", sysAdmin, SearchParams{Kind: "system"}, true},
 		{"system accepts agent", sysAgent, SearchParams{Kind: "system"}, true},
 		{"system rejects access", access, SearchParams{Kind: "system"}, false},
-		{"core access scoped", access, SearchParams{Kind: "access", Component: "core", NodeName: "core-1"}, true},
-		{"core access wrong node", access, SearchParams{Kind: "access", Component: "core", NodeName: "other"}, false},
+		{"edge access scoped", access, SearchParams{Kind: "access", Component: "edge", NodeName: "edge-1"}, true},
+		{"edge access wrong node", access, SearchParams{Kind: "access", Component: "edge", NodeName: "other"}, false},
 		{"admin system all comps", sysAgent, SearchParams{Kind: "system"}, true},
 		{"admin system filter admin", sysAdmin, SearchParams{Kind: "system", Component: "admin"}, true},
 		{"admin system filter admin rejects agent", sysAgent, SearchParams{Kind: "system", Component: "admin"}, false},
@@ -44,11 +44,11 @@ func TestMatchesFilterKindAccessSystem(t *testing.T) {
 // TestMatchesFilterNodeIDStableAcrossRename vérifie que le filtre par NodeID
 // (identifiant stable du nœud) continue de matcher une entrée même quand
 // NodeName a changé — c'est tout l'intérêt de NodeID face à un renommage
-// (ex. re-pairing après régénération de core.json).
+// (ex. re-pairing après régénération de edge.json).
 func TestMatchesFilterNodeIDStableAcrossRename(t *testing.T) {
 	oldEntry := Entry{Status: 200, NodeID: "token-abc", NodeName: "Frontal"}
-	newEntry := Entry{Status: 200, NodeID: "token-abc", NodeName: "goproxify-core"}
-	other := Entry{Status: 200, NodeID: "token-xyz", NodeName: "goproxify-core"}
+	newEntry := Entry{Status: 200, NodeID: "token-abc", NodeName: "goproxify-edge"}
+	other := Entry{Status: 200, NodeID: "token-xyz", NodeName: "goproxify-edge"}
 
 	p := SearchParams{NodeID: "token-abc"}
 	if !matchesFilter(oldEntry, p) {
@@ -63,7 +63,7 @@ func TestMatchesFilterNodeIDStableAcrossRename(t *testing.T) {
 
 	// Quand NodeID est fourni, NodeName ne doit plus être pris en compte
 	// (sinon un nœud reconfiguré perdrait son propre historique).
-	pBoth := SearchParams{NodeID: "token-abc", NodeName: "goproxify-core"}
+	pBoth := SearchParams{NodeID: "token-abc", NodeName: "goproxify-edge"}
 	if !matchesFilter(oldEntry, pBoth) {
 		t.Fatal("node_id devrait primer sur node_name dans le filtre")
 	}
@@ -86,7 +86,7 @@ func TestMatchesFilterSearchIncludesNodeName(t *testing.T) {
 // TestBuildWhereNodeIDPrimeOverNodeName vérifie que la clause SQL générée
 // filtre sur node_id (et pas node_name) dès que NodeID est fourni.
 func TestBuildWhereNodeIDPrimeOverNodeName(t *testing.T) {
-	where, args := buildWhere(SearchParams{NodeID: "token-abc", NodeName: "goproxify-core"})
+	where, args := buildWhere(SearchParams{NodeID: "token-abc", NodeName: "goproxify-edge"})
 	if !strings.Contains(where, "node_id=?") {
 		t.Fatalf("clause attendue sur node_id, got %q", where)
 	}

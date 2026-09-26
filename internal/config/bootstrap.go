@@ -37,7 +37,7 @@ func BootstrapAdmin(path string) error {
 
 	basePath := envOr("GPX_STORAGE_BASE_PATH", "/etc/goproxify")
 	apiPort := envIntOr("GPX_SERVER_API_PORT", 9443)
-	nodeName := envOr("GPX_IDENTITY_CORE_NODE_NAME", "goproxify-core")
+	nodeName := envOr("GPX_IDENTITY_EDGE_NODE_NAME", "goproxify-edge")
 	logLevel := envOr("GPX_ENGINE_LOG_LEVEL", "info")
 	adminEmail := envOr("GPX_FIRST_ADMIN_EMAIL", "")
 	adminPassword := envOr("GPX_FIRST_ADMIN_PASSWORD", "")
@@ -72,7 +72,7 @@ func BootstrapAdmin(path string) error {
 			},
 		},
 		"identity": map[string]any{
-			"core_node_name": nodeName,
+			"edge_node_name": nodeName,
 		},
 	}
 
@@ -83,19 +83,19 @@ func BootstrapAdmin(path string) error {
 	return nil
 }
 
-// BootstrapCore génère core.json s'il est absent.
-func BootstrapCore(path string) error {
+// BootstrapEdge génère edge.json s'il est absent.
+func BootstrapEdge(path string) error {
 	if fileExists(path) {
 		return nil
 	}
 
-	nodeName := envOr("GPX_IDENTITY_CORE_NODE_NAME", "goproxify-core")
+	nodeName := envOr("GPX_IDENTITY_EDGE_NODE_NAME", "goproxify-edge")
 	basePath := envOr("GPX_STORAGE_BASE_PATH", "/etc/goproxify")
 	logLevel := envOr("GPX_ENGINE_LOG_LEVEL", "info")
 
 	tokenID, err := randomHex(16) // 16 bytes = 32 hex chars, UUID-like
 	if err != nil {
-		return fmt.Errorf("bootstrap core: génération token_id: %w", err)
+		return fmt.Errorf("bootstrap edge: génération token_id: %w", err)
 	}
 
 	cfg := map[string]any{
@@ -114,12 +114,12 @@ func BootstrapCore(path string) error {
 		"engine": map[string]any{
 			"log_level":  logLevel,
 			"log_format": "json",
-			// Chemins historiques (template services/core/config.json qui
+			// Chemins historiques (template services/edge/config.json qui
 			// équipait les images jusqu'à d25555a) — un nom de fichier
 			// différent ne perd aucune donnée mais éparpille les logs entre
 			// l'ancien et le nouveau fichier sur le même volume.
-			"access_log_path": filepath.Join(basePath, "logs", "core_access.log"),
-			"system_log_path": filepath.Join(basePath, "logs", "core_system.log"),
+			"access_log_path": filepath.Join(basePath, "logs", "edge_access.log"),
+			"system_log_path": filepath.Join(basePath, "logs", "edge_system.log"),
 		},
 		"geoip": map[string]any{
 			"auto_download": true,
@@ -131,16 +131,16 @@ func BootstrapCore(path string) error {
 	}
 
 	if err := writeJSON(path, cfg); err != nil {
-		return fmt.Errorf("bootstrap core: %w", err)
+		return fmt.Errorf("bootstrap edge: %w", err)
 	}
-	slog.Info("bootstrap: core.json créé", "path", path)
+	slog.Info("bootstrap: edge.json créé", "path", path)
 	return nil
 }
 
 // BootstrapAgent génère agent.json s'il est absent.
 // Si le fichier existe mais manque les sections docker/portainer, elles sont
 // ajoutées depuis les env vars (migration transparente lors de la mise à jour).
-// GPX_CONTROL_PLANE_CORE_ENDPOINT est requis si l'agent est sur un hôte distant.
+// GPX_CONTROL_PLANE_EDGE_ENDPOINT est requis si l'agent est sur un hôte distant.
 func BootstrapAgent(path string) error {
 	dockerEnabled := true
 	if v := os.Getenv("GPX_DOCKER_ENABLED"); v == "false" || v == "0" {
@@ -160,7 +160,7 @@ func BootstrapAgent(path string) error {
 		return migrateAgentDockerConfig(path, dockerEnabled, dockerRuntime, portainerEnabled, portainerURL, portainerAPIKey, portainerPollS)
 	}
 
-	coreEndpoint := envOr("GPX_CONTROL_PLANE_CORE_ENDPOINT", "http://goproxify-core:8000")
+	edgeEndpoint := envOr("GPX_CONTROL_PLANE_EDGE_ENDPOINT", "http://goproxify-edge:8000")
 	adminEndpoint := envOr("GPX_CONTROL_PLANE_ADMIN_ENDPOINT", "")
 	joinToken := envOr("GPX_CONTROL_PLANE_JOIN_TOKEN", "")
 	nodeName := envOr("GPX_IDENTITY_AGENT_NODE_NAME", "")
@@ -171,7 +171,7 @@ func BootstrapAgent(path string) error {
 			"node_name": nodeName,
 		},
 		"control_plane": map[string]any{
-			"core_endpoint":  coreEndpoint,
+			"edge_endpoint":  edgeEndpoint,
 			"admin_endpoint": adminEndpoint,
 			"join_token":     joinToken,
 		},

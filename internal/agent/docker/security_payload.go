@@ -10,7 +10,7 @@ import (
 	"github.com/vincamok/goproxify/internal/labels"
 )
 
-// AttachSecurityPayload ajoute les champs de sécurité et de comportement au payload Agent→Core.
+// AttachSecurityPayload ajoute les champs de sécurité et de comportement au payload Agent→Passerelle.
 func AttachSecurityPayload(payload map[string]any, spec *ProxySpec) {
 	if spec == nil {
 		return

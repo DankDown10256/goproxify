@@ -1,6 +1,6 @@
 # Labo de tests GoProxify
 
-Environnement isolé, branché sur la stack Docker existante (`goproxify_net`), pour éprouver le Core
+Environnement isolé, branché sur la stack Docker existante (`goproxify_net`), pour éprouver la passerelle
 **sans toucher aux routes réelles** : toutes les routes du labo sont en `*.lab.test`.
 
 > Procédure complète, résultats et dépannage : [docs/tests-lab.md](../../docs/tests-lab.md).
@@ -9,7 +9,7 @@ Environnement isolé, branché sur la stack Docker existante (`goproxify_net`), 
 
 ## Démarrage
 
-> Déploiement direct du compose (Portainer…) : seuls `lab-backend` et `lab-toxiproxy` démarrent (`CORE_IP` vaut `127.0.0.1` par défaut, sans effet sur eux). Les runners (`k6`, `tools`, `zap`, `nuclei`) exigent `CORE_IP` = IP du Core sur `goproxify_net` : passez par `lab.sh`.
+> Déploiement direct du compose (Portainer…) : seuls `lab-backend` et `lab-toxiproxy` démarrent (`EDGE_IP` vaut `127.0.0.1` par défaut, sans effet sur eux). Les runners (`k6`, `tools`, `zap`, `nuclei`) exigent `EDGE_IP` = IP de la passerelle sur `goproxify_net` : passez par `lab.sh`.
 
 ```bash
 docker compose up -d          # stack principale (.env rempli, dont GPX_FIRST_ADMIN_*)
@@ -34,7 +34,7 @@ docker exec lab-tools bash /lab/scripts/chaos.sh
 docker exec lab-k6 sh -c "sh /hosts.sh && k6 run /scripts/smoke.js"   # baseline | spike | stress | soak | mixed
 ```
 
-Les scripts trouvent eux-mêmes l'IP du Core (`scripts/hosts.sh`) : `CORE_IP` n'est pas nécessaire. ZAP, Nuclei et `soak` restent en mode local.
+Les scripts trouvent eux-mêmes l'IP de la passerelle (`scripts/hosts.sh`) : `EDGE_IP` n'est pas nécessaire. ZAP, Nuclei et `soak` restent en mode local.
 
 ## Sur une stack partagée avec la production
 
@@ -64,7 +64,7 @@ docker exec -e LAB_ADMIN_TOKEN=... lab-tools bash /lab/scripts/cleanup.sh
 | Charge | `lab.sh load smoke\|baseline\|mixed` | k6 | latence p95/p99, taux d'erreur, trafic mixte (gros corps, upload, SSE, backend lent/instable) |
 | Pic | `lab.sh load spike` | k6 | 20 → 1000 VUs en 10 s, absence d'effondrement, reprise |
 | Rupture | `lab.sh load stress` | k6 | débit maximal avant >10 % d'erreurs (arrêt automatique) |
-| Endurance | `lab.sh soak` | k6 + docker stats | fuites mémoire/PIDs du Core (`results/soak-core-stats.csv`) ; `DURATION=2h RATE=500` |
+| Endurance | `lab.sh soak` | k6 + docker stats | fuites mémoire/PIDs de la passerelle (`results/soak-edge-stats.csv`) ; `DURATION=2h RATE=500` |
 | Attaques ciblées | `lab.sh attacks` | bash/curl/nc | WAF block/detect, XFF/X-Real-IP usurpés, hop-by-hop, Host inconnu/dupliqué, TRACE, en-têtes 64 Ko, corps trop gros, smuggling CL+TE, rate-limit, slowloris, API Admin (sans jeton, JWT `alg=none`, brute-force login) |
 | Chaos | `lab.sh chaos` | Toxiproxy | latence, backend coupé, RST, timeout amont, bande passante : erreur rapide + reprise automatique |
 | Scanners | `lab.sh up-vuln && lab.sh zap` / `nuclei` | ZAP, Nuclei, Juice Shop | détection de vulnérabilités via le WAF (mode detect) |

@@ -128,7 +128,7 @@ func trafficByNode(db *sql.DB, r *http.Request, since time.Time) (map[string]tra
 	return out, nil
 }
 
-// live répond à GET /api/v1/nodes/live : santé, débit et risque de chaque nœud (Cores + Agents).
+// live répond à GET /api/v1/nodes/live : santé, débit et risque de chaque nœud (Passerelles + Agents).
 func (h *NodesHandler) live(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	traffic, err := trafficByNode(h.DB, r, now.Add(-liveWindow))
@@ -141,7 +141,7 @@ func (h *NodesHandler) live(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var nodes []nodeRow
-	if rows, err := h.DB.QueryContext(r.Context(), `SELECT `+nodeSelectCols+` FROM nodes WHERE role='core' ORDER BY node_name`); err == nil {
+	if rows, err := h.DB.QueryContext(r.Context(), `SELECT `+nodeSelectCols+` FROM nodes WHERE role='edge' ORDER BY node_name`); err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var n nodeRow
@@ -150,7 +150,7 @@ func (h *NodesHandler) live(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	nodes = append(nodes, h.fetchAgentNodesFromCores(r.Context())...)
+	nodes = append(nodes, h.fetchAgentNodesFromEdges(r.Context())...)
 
 	res := topologyLive{WindowSec: int(liveWindow.Seconds()), GeneratedAt: now.UTC(), Nodes: make([]nodeLive, 0, len(nodes))}
 	for _, n := range nodes {

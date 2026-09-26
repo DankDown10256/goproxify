@@ -17,10 +17,10 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
-// RoutePusher est implémenté par corews.Manager / corepush.Pusher.
+// RoutePusher est implémenté par edgews.Manager / edgepush.Pusher.
 type RoutePusher interface {
 	PushRoutes(ctx context.Context)
 	DeleteRoute(ctx context.Context, id string)
@@ -55,7 +55,7 @@ func (h *ProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sub = parts[1]
 	}
 
-	if id == "migrate-to-core" {
+	if id == "migrate-to-edge" {
 		(&MigrateProxiesHandler{DB: h.DB, Log: h.Log}).ServeHTTP(w, r)
 		return
 	}
@@ -121,15 +121,15 @@ func (h *ProxiesHandler) list(w http.ResponseWriter, r *http.Request) {
 	userRole := rbac.UserRole(r.Context(), h.DB, userID)
 	userGrants, _ := rbac.UserEffectiveGrants(r.Context(), h.DB, userID)
 
-	// Filtre optionnel par périmètre token Core (?core=uuid|node_name).
-	coreRef := r.URL.Query().Get("core")
-	var coreAccess rbac.CoreAccess
-	filterByCore := coreRef != ""
-	if filterByCore {
-		coreAccess = rbac.ResolveCoreAccess(r.Context(), h.DB, coreRef)
-		if coreAccess.TokenID == "" {
-			// Core inconnu : aucune route (évite de tout exposer par erreur).
-			coreAccess.Role = "viewer"
+	// Filtre optionnel par périmètre token passerelle (?edge=uuid|node_name).
+	edgeRef := r.URL.Query().Get("edge")
+	var edgeAccess rbac.EdgeAccess
+	filterByEdge := edgeRef != ""
+	if filterByEdge {
+		edgeAccess = rbac.ResolveEdgeAccess(r.Context(), h.DB, edgeRef)
+		if edgeAccess.TokenID == "" {
+			// Passerelle inconnue : aucune route (évite de tout exposer par erreur).
+			edgeAccess.Role = "viewer"
 		}
 	}
 
@@ -149,7 +149,7 @@ func (h *ProxiesHandler) list(w http.ResponseWriter, r *http.Request) {
 		if !rbac.CanReadProxyWithGrants(userRole, userGrants, &route) {
 			continue
 		}
-		if filterByCore && !rbac.RouteAllowedByToken(coreAccess.Role, coreAccess.Scopes, &route) {
+		if filterByEdge && !rbac.RouteAllowedByToken(edgeAccess.Role, edgeAccess.Scopes, &route) {
 			continue
 		}
 		result = append(result, p)
@@ -424,7 +424,7 @@ func (h *ProxiesHandler) loadProxy(r *http.Request, id string) (*proxyRow, error
 }
 
 // pushProxyConfig pousse d'abord les pages d'erreur (si disponible), puis les routes.
-// Évite qu'un Core applique un template_id avant d'avoir reçu le HTML.
+// Évite qu'une passerelle applique un template_id avant d'avoir reçu le HTML.
 func (h *ProxiesHandler) pushProxyConfig(ctx context.Context) {
 	if ep, ok := h.Pusher.(errorPagesPusher); ok {
 		ep.PushErrorPages(ctx)

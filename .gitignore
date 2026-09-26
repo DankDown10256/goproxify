@@ -27,7 +27,7 @@ dev-data/
 
 # --- Configs avec secrets réels (les *.json de dev sont versionnés) ---
 config/admin.prod.json
-config/core.prod.json
+config/edge.prod.json
 config/agent.prod.json
 *.prod.json
 *.local.json
@@ -96,5 +96,5 @@ testdata/output/
 bench/
 
 # --- Backup files ---
-*.gpx-core-backup
+*.gpx-edge-backup
 *.gpx-admin-backup

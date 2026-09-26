@@ -1,39 +1,39 @@
-// ── PAGE: Options portail Access (scopé au Core sélectionné)
+// ── PAGE: Options portail Access (scopé à la passerelle sélectionnée)
 pages.portal = async function() {
-  const core = state.selectedCore;
-  const coreName = core?.node_name || '';
-  const coreLabel = core?.display_name || coreName || '—';
-  if (!coreName) {
+  const edge = state.selectedEdge;
+  const edgeName = edge?.node_name || '';
+  const edgeLabel = edge?.display_name || edgeName || '—';
+  if (!edgeName) {
     document.getElementById('topbar-actions').innerHTML = '';
     document.getElementById('content').innerHTML = `
       <div class="empty">
-        <p style="font-size:15px;font-weight:600">${esc(t('portal.need_core') || 'Sélectionnez un Core')}</p>
-        <p style="font-size:13px;margin-top:4px;color:var(--text2)">${esc(t('portal.need_core_hint') || 'Le portail se configure par Core.')}</p>
+        <p style="font-size:15px;font-weight:600">${esc(t('portal.need_edge') || 'Sélectionnez une passerelle')}</p>
+        <p style="font-size:13px;margin-top:4px;color:var(--text2)">${esc(t('portal.need_edge_hint') || 'Le portail se configure par passerelle.')}</p>
       </div>`;
     return;
   }
 
   document.getElementById('topbar-actions').innerHTML = `
-    <button class="btn btn-secondary" id="portal-top-push">${esc(t('portal.push') || 'Pousser au Core')}</button>
+    <button class="btn btn-secondary" id="portal-top-push">${esc(t('portal.push') || 'Pousser à la passerelle')}</button>
     <button class="btn btn-primary" id="portal-top-save">${esc(t('common.save') || 'Enregistrer')}</button>`;
   const content = document.getElementById('content');
   content.innerHTML = `<div class="muted">${esc(t('common.loading') || '…')}</div>`;
   try {
     const [cfg, metricsPt] = await Promise.all([
-      api('GET', '/portal?core=' + encodeURIComponent(coreName)).catch(() => ({})),
+      api('GET', '/portal?edge=' + encodeURIComponent(edgeName)).catch(() => ({})),
       api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
-    renderPortalPage(cfg || {}, coreName, coreLabel, metricsPt);
+    renderPortalPage(cfg || {}, edgeName, edgeLabel, metricsPt);
   } catch (e) {
     content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
   }
 };
 
-function renderPortalPage(cfg, coreName, coreLabel, metricsData) {
+function renderPortalPage(cfg, edgeName, edgeLabel, metricsData) {
   const content = document.getElementById('content');
   const enabled = !!cfg.enabled;
   const host = cfg.public_host || '';
-  const q = '?core=' + encodeURIComponent(coreName);
+  const q = '?edge=' + encodeURIComponent(edgeName);
   const pSessions = metricsData?.portal?.sessions || {};
   const sessOneShot = pSessions.one_shot ?? null;
   const sessMulti = pSessions.multi ?? null;
@@ -51,8 +51,8 @@ function renderPortalPage(cfg, coreName, coreLabel, metricsData) {
             ${esc(t('portal.title') || 'Portail d\'accès')}
           </div>
           <div style="font-size:13px;color:var(--text2);line-height:1.45;max-width:52ch">
-            ${esc(t('portal.desc') || 'Active le portail public sur ce Core (UI HTTPS + SSH UUID).')}
-            <span style="display:block;margin-top:6px;color:var(--text);font-weight:500">${esc(coreLabel)}</span>
+            ${esc(t('portal.desc') || 'Active le portail public sur cette passerelle (UI HTTPS + SSH UUID).')}
+            <span style="display:block;margin-top:6px;color:var(--text);font-weight:500">${esc(edgeLabel)}</span>
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
@@ -128,12 +128,12 @@ function renderPortalPage(cfg, coreName, coreLabel, metricsData) {
         http_port: +document.getElementById('portal-http').value || 8444,
         session_ttl_sec: +document.getElementById('portal-ttl').value || 60,
         session_mode: document.getElementById('portal-mode').value || 'one_shot',
-        core_name: coreName,
+        edge_name: edgeName,
       };
       const saved = await api('PUT', '/portal' + q, body);
       msg.textContent = t('portal.saved') || 'Enregistré et poussé.';
       msg.style.color = 'var(--accent)';
-      renderPortalPage(saved || body, coreName, coreLabel);
+      renderPortalPage(saved || body, edgeName, edgeLabel);
       bindPortalTopActions();
     } catch (e) {
       msg.textContent = e.message || String(e);
@@ -162,18 +162,18 @@ function renderPortalPage(cfg, coreName, coreLabel, metricsData) {
   bindPortalTopActions();
 }
 
-// ── PAGE: Audit Access (scopé au Core sélectionné)
+// ── PAGE: Audit Access (scopé à la passerelle sélectionnée)
 pages['portal-audit'] = async function() {
-  const core = state.selectedCore;
-  const coreName = core?.node_name || '';
-  const coreLabel = core?.display_name || coreName || '—';
+  const edge = state.selectedEdge;
+  const edgeName = edge?.node_name || '';
+  const edgeLabel = edge?.display_name || edgeName || '—';
   const content = document.getElementById('content');
-  if (!coreName) {
+  if (!edgeName) {
     document.getElementById('topbar-actions').innerHTML = '';
     content.innerHTML = `
       <div class="empty">
-        <p style="font-size:15px;font-weight:600">${esc(t('portal.need_core') || 'Sélectionnez un Core')}</p>
-        <p style="font-size:13px;margin-top:4px;color:var(--text2)">${esc(t('portal.need_core_hint') || 'Le portail se configure par Core.')}</p>
+        <p style="font-size:15px;font-weight:600">${esc(t('portal.need_edge') || 'Sélectionnez une passerelle')}</p>
+        <p style="font-size:13px;margin-top:4px;color:var(--text2)">${esc(t('portal.need_edge_hint') || 'Le portail se configure par passerelle.')}</p>
       </div>`;
     return;
   }
@@ -189,7 +189,7 @@ pages['portal-audit'] = async function() {
         </div>
         <p class="muted" style="font-size:12px;margin:0;line-height:1.45">
           ${esc(t('portal.audit_hint') || 'Métadonnées de session uniquement (pas de terminal ni secrets).')}
-          <span style="display:block;margin-top:6px;color:var(--text);font-weight:500">${esc(coreLabel)}</span>
+          <span style="display:block;margin-top:6px;color:var(--text);font-weight:500">${esc(edgeLabel)}</span>
         </p>
       </div>
       <div id="portal-audit-list" class="muted" style="font-size:12px">…</div>
@@ -200,7 +200,7 @@ pages['portal-audit'] = async function() {
     if (!box) return;
     box.textContent = '…';
     try {
-      const d = await api('GET', '/portal/audit?core=' + encodeURIComponent(coreName) + '&limit=50') || {};
+      const d = await api('GET', '/portal/audit?edge=' + encodeURIComponent(edgeName) + '&limit=50') || {};
       const events = d.events || [];
       if (!events.length) {
         box.textContent = t('portal.audit_empty') || 'Aucun événement.';

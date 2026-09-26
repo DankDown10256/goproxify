@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vincamok/goproxify/internal/core/proxystore"
+	"github.com/vincamok/goproxify/internal/edge/proxystore"
 )
 
 func runMigrateYAML() {
@@ -36,12 +36,12 @@ func runMigrateYAML() {
 	}
 }
 
-// dataRootFromEnv mirrors the logic in internal/core/proxyfiles.go.
+// dataRootFromEnv mirrors the logic in internal/edge/proxyfiles.go.
 func dataRootFromEnv() string {
 	if p := os.Getenv("GPX_DATA_PATH"); p != "" {
 		return p
 	}
-	if p := os.Getenv("GPX_CORE_CACHE_PATH"); p != "" {
+	if p := os.Getenv("GPX_EDGE_CACHE_PATH"); p != "" {
 		for i := len(p) - 1; i >= 0; i-- {
 			if p[i] == '/' || p[i] == '\\' {
 				return p[:i]

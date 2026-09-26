@@ -19,7 +19,7 @@ function _rbacBadge(r) {
 }
 
 function _scopeTagCls(type) {
-  return { domain:'tag-blue', server:'tag-orange', proxy:'tag-accent', core:'tag-outline' }[type] || 'tag-neutral';
+  return { domain:'tag-blue', server:'tag-orange', proxy:'tag-accent', edge:'tag-outline' }[type] || 'tag-neutral';
 }
 
 function _tokenScopeTypeLabels() {
@@ -27,7 +27,7 @@ function _tokenScopeTypeLabels() {
     domain: t('tokens.scope_type_domain'),
     server: t('tokens.scope_type_server'),
     proxy: t('tokens.scope_type_proxy'),
-    core: t('tokens.scope_type_core'),
+    edge: t('tokens.scope_type_edge'),
   };
 }
 
@@ -124,7 +124,7 @@ async function refreshTokens() {
                     <div style="font-weight:600;font-size:13px">${esc(tok.node_name)}</div>
                     <div style="font-size:10px;color:var(--text2);font-family:monospace;margin-top:2px">${esc((tok.token||'').substring(0,16))}…</div>
                   </td>
-                  <td><span class="tag ${tok.role==='core'?'tag-blue':'tag-yellow'}" style="font-size:10px">${esc(tok.role)}</span></td>
+                  <td><span class="tag ${tok.role==='edge'?'tag-blue':'tag-yellow'}" style="font-size:10px">${esc(tok.role)}</span></td>
                   <td>${_rbacBadge(tok.rbac_role)}</td>
                   <td class="mono" style="font-size:11px;color:var(--text2)">${esc(tok.node_endpoint||'—')}</td>
                   <td style="font-size:12px">${tok.expires_at ? fmtDate(tok.expires_at) : `<span class="tag tag-neutral" style="font-size:10px">${t('tokens.never')}</span>`}</td>
@@ -205,7 +205,7 @@ async function renderScopeContent(tokenId) {
           <option value="domain">${t('tokens.scope_type_domain')}</option>
           <option value="server">${t('tokens.scope_type_server')}</option>
           <option value="proxy">${t('tokens.scope_type_proxy_id')}</option>
-          <option value="core">${t('tokens.scope_type_core')}</option>
+          <option value="edge">${t('tokens.scope_type_edge')}</option>
         </select>
         <input id="scope-input-${esc(tokenId)}" class="input" style="width:200px;height:32px;font-size:13px" placeholder="${esc(t('tokens.scope_ph'))}">
         <button class="btn btn-primary" style="height:32px;padding:0 12px;font-size:13px" onclick="addScopeToToken('${esc(tokenId)}')">${t('tokens.scope_add')}</button>
@@ -251,7 +251,7 @@ window.openTokenModal = function() {
       <div class="field">
         <label class="field-label">${t('tokens.field_node_type')}</label>
         <select id="t-role" class="input">
-          <option value="core">Core</option>
+          <option value="edge">Passerelle</option>
           <option value="agent">Agent</option>
         </select>
       </div>

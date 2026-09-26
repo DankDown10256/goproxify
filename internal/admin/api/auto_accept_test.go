@@ -31,7 +31,7 @@ func TestNodeAutoAcceptDeclaredAndBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = db.Exec(`CREATE TABLE bootstrap_tickets (
-		token TEXT PRIMARY KEY, host_name TEXT, core_endpoint TEXT,
+		token TEXT PRIMARY KEY, host_name TEXT, edge_endpoint TEXT,
 		payload TEXT, expires_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
 	if err != nil {
 		t.Fatal(err)
@@ -53,8 +53,8 @@ func TestNodeAutoAcceptDeclaredAndBootstrap(t *testing.T) {
 	}
 
 	exp := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
-	payload := `{"auto_accept":true,"node_names":["agent-y","core-1"]}`
-	_, err = db.Exec(`INSERT INTO bootstrap_tickets(token, host_name, core_endpoint, payload, expires_at)
+	payload := `{"auto_accept":true,"node_names":["agent-y","edge-1"]}`
+	_, err = db.Exec(`INSERT INTO bootstrap_tickets(token, host_name, edge_endpoint, payload, expires_at)
 		VALUES('tok1','H','http://c:8000',?,?)`, payload, exp)
 	if err != nil {
 		t.Fatal(err)

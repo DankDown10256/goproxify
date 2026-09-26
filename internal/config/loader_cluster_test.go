@@ -15,12 +15,12 @@ func TestParseClusterPeersCSV(t *testing.T) {
 		want map[string]string
 	}{
 		{
-			"core-2:8002,core-3:8002",
-			map[string]string{"core-2": "http://core-2:8002", "core-3": "http://core-3:8002"},
+			"edge-2:8002,edge-3:8002",
+			map[string]string{"edge-2": "http://edge-2:8002", "edge-3": "http://edge-3:8002"},
 		},
 		{
-			"core-2=http://10.0.0.2:8002",
-			map[string]string{"core-2": "http://10.0.0.2:8002"},
+			"edge-2=http://10.0.0.2:8002",
+			map[string]string{"edge-2": "http://10.0.0.2:8002"},
 		},
 		{"", map[string]string{}},
 		{
@@ -50,7 +50,7 @@ func TestParseClusterPeersCSV(t *testing.T) {
 
 func TestApplyClusterPeersEnv(t *testing.T) {
 	t.Setenv("GPX_CLUSTER_PEERS", "peer-a:8002,peer-b:8002")
-	cfg := &CoreConfig{}
+	cfg := &EdgeConfig{}
 	applyClusterPeersEnv(cfg)
 	if cfg.Cluster.Peers["peer-a"] != "http://peer-a:8002" {
 		t.Fatalf("peers %#v", cfg.Cluster.Peers)
@@ -63,20 +63,20 @@ func TestApplyClusterPeersEnv(t *testing.T) {
 	}
 }
 
-func TestLoadCoreClusterEnv(t *testing.T) {
+func TestLoadEdgeClusterEnv(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GPX_CLUSTER_ENABLED", "true")
 	t.Setenv("GPX_CLUSTER_GROUP", "ha-1")
-	t.Setenv("GPX_CLUSTER_NODE_ID", "core-a")
+	t.Setenv("GPX_CLUSTER_NODE_ID", "edge-a")
 	t.Setenv("GPX_CLUSTER_RAFT_PORT", "8002")
-	t.Setenv("GPX_CLUSTER_PEERS", "core-b:8002")
-	t.Setenv("GPX_IDENTITY_CORE_NODE_NAME", "core-a-env")
+	t.Setenv("GPX_CLUSTER_PEERS", "edge-b:8002")
+	t.Setenv("GPX_IDENTITY_EDGE_NODE_NAME", "edge-a-env")
 
-	cfg, err := LoadCore(path)
+	cfg, err := LoadEdge(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,32 +86,32 @@ func TestLoadCoreClusterEnv(t *testing.T) {
 	if cfg.Cluster.GroupName != "ha-1" {
 		t.Fatalf("group %q", cfg.Cluster.GroupName)
 	}
-	if cfg.Cluster.NodeID != "core-a" {
+	if cfg.Cluster.NodeID != "edge-a" {
 		t.Fatalf("node_id %q", cfg.Cluster.NodeID)
 	}
 	if cfg.Cluster.RaftPort != 8002 {
 		t.Fatalf("raft_port %d", cfg.Cluster.RaftPort)
 	}
-	if cfg.Cluster.Peers["core-b"] != "http://core-b:8002" {
+	if cfg.Cluster.Peers["edge-b"] != "http://edge-b:8002" {
 		t.Fatalf("peers %#v", cfg.Cluster.Peers)
 	}
-	if cfg.Identity.NodeName != "core-a-env" {
+	if cfg.Identity.NodeName != "edge-a-env" {
 		t.Fatalf("identity %q", cfg.Identity.NodeName)
 	}
 }
 
-// TestLoadCoreClusterGroupNameEnv vérifie que GPX_CLUSTER_GROUP_NAME (le nom
+// TestLoadEdgeClusterGroupNameEnv vérifie que GPX_CLUSTER_GROUP_NAME (le nom
 // utilisé dans les déploiements réels, cf. suivi/changelog.md) est bien lu,
 // et pas seulement son alias court GPX_CLUSTER_GROUP.
-func TestLoadCoreClusterGroupNameEnv(t *testing.T) {
+func TestLoadEdgeClusterGroupNameEnv(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GPX_CLUSTER_GROUP_NAME", "ha-1")
 
-	cfg, err := LoadCore(path)
+	cfg, err := LoadEdge(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,19 +120,19 @@ func TestLoadCoreClusterGroupNameEnv(t *testing.T) {
 	}
 }
 
-// TestLoadCoreClusterPeersEnvQuoted reproduit un déploiement docker-compose
+// TestLoadEdgeClusterPeersEnvQuoted reproduit un déploiement docker-compose
 // où GPX_CLUSTER_PEERS est écrit entre guillemets dans "environment:" — ces
 // guillemets sont transmis tels quels au process (pas de shell pour les
 // retirer) et cassaient auparavant le parsing (ID de pair et URL corrompus).
-func TestLoadCoreClusterPeersEnvQuoted(t *testing.T) {
+func TestLoadEdgeClusterPeersEnvQuoted(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "core.json")
+	path := filepath.Join(dir, "edge.json")
 	if err := os.WriteFile(path, []byte(`{"cluster":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GPX_CLUSTER_PEERS", `"backup=http://192.0.2.90:8002"`)
 
-	cfg, err := LoadCore(path)
+	cfg, err := LoadEdge(path)
 	if err != nil {
 		t.Fatal(err)
 	}

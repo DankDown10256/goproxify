@@ -16,20 +16,20 @@
 |---|---|
 | `internal/admin/` (hors `ui/`) | `admin` |
 | `internal/admin/ui/` | `webapp` |
-| `internal/core/` | `core` |
+| `internal/edge/` | `edge` |
 | `internal/agent/` | `agent` |
 | `internal/landing/` ou `services/landing/` | `landing` |
 | Modification multi-service | chaque service concerné indépendamment |
 | Documentation uniquement (`README.md`, `docs/`, `suivi/`) | aucun bump requis (sauf si une release fonctionnelle est publiée en même temps) |
 
-Les services sont **versionnés indépendamment** : `admin` peut être en `0.3.1` pendant que `core` est en `0.2.0`.
+Les services sont **versionnés indépendamment** : `admin` peut être en `0.3.1` pendant que `edge` est en `0.2.0`.
 
 ### Bump automatique CI (PATCH)
 
 Le pipeline [`.harness/build.yaml`](../.harness/build.yaml) (`bump_version`) :
 
 1. Calcule le diff depuis le dernier commit `ci: bump versions`
-2. Mappe les chemins modifiés vers les services (table ci-dessus ; `cmd/goproxify/`, `go.mod` → binaires admin/core/agent/landing)
+2. Mappe les chemins modifiés vers les services (table ci-dessus ; `cmd/goproxify/`, `go.mod` → binaires admin/edge/agent/landing)
 3. Incrémente **uniquement le PATCH** des services touchés (y compris `landing`)
 4. Si seuls des fichiers hors-scope (docs, etc.) ont changé → **aucun commit de bump**
 5. Stage `build_all` : si `versions.json` est inchangé vs `HEAD~1` → **skip compile + pushes** images (marqueur `.skip-image-push`)
@@ -58,7 +58,7 @@ Le fichier [`versions.json`](../versions.json) à la racine du dépôt est l'uni
 - Pipeline Harness `.harness/build.yaml` (`bump_version`) — bump PATCH puis `sync-versions.sh`
 - Pipeline Harness `.harness/publish-ghcr.yaml` — tags SemVer **et** `:preview` sur `ghcr.io`
 
-Les versions ldflags sont exposées au runtime via `internal/buildinfo` : bandeau de démarrage des services, `GET /api/v1/health` (admin + webapp), heartbeats Core/Agent (tuiles Infrastructure), Paramètres Admin / Core.
+Les versions ldflags sont exposées au runtime via `internal/buildinfo` : bandeau de démarrage des services, `GET /api/v1/health` (admin + webapp), heartbeats passerelle/Agent (tuiles Infrastructure), Paramètres Admin / Passerelle.
 
 ---
 
@@ -80,13 +80,13 @@ Bump au merge : **`admin` PATCH** `0.2.11` → `0.2.12`, **`webapp` PATCH** `0.2
 
 ### [Unreleased] — Tokens API utilisateur (PAT)
 
-À bumper au merge fonctionnel : **`admin` MINOR** (ex. `0.2.4` → `0.3.0`), **`webapp` MINOR** (ex. `0.2.1` → `0.3.0`). Core / Agent / Landing inchangés.
+À bumper au merge fonctionnel : **`admin` MINOR** (ex. `0.2.4` → `0.3.0`), **`webapp` MINOR** (ex. `0.2.1` → `0.3.0`). Passerelle / Agent / Landing inchangés.
 
 #### Admin (MINOR)
 - PAT self-service `gpx_pat_*` : CRUD `/api/v1/me/tokens`, scopes ressource, hash SHA-256, expiration optionnelle
 - API REST : `RequireAuth` (JWT session **ou** PAT) + gate de scopes pour les PAT
 - MCP `/mcp` : **PAT uniquement** ; chaque outil MCP exige le scope correspondant ; intersection avec le rôle courant
-- Distinct des tokens d’appairage `gpx_core_*` / `gpx_agent_*`
+- Distinct des tokens d’appairage `gpx_edge_*` / `gpx_agent_*`
 
 #### Webapp (MINOR)
 - UI **Mes tokens API** — création (scopes + expiration), copie unique du secret, liste, révocation
@@ -105,8 +105,8 @@ Bump au merge : **`admin` PATCH** `0.2.11` → `0.2.12`, **`webapp` PATCH** `0.2
 - `internal/admin/rbac/rbac.go` : logique de vérification centralisée (canReadProxy, canWriteProxy, canDeleteProxy)
 
 #### Webapp `0.2.1`
-- **Page Trafic partagée Admin/Core** : `renderTraficPage({mode})` unique ; toolbar complète (Grouper/Trier/Import/CSV/sélecteur colonnes 2-5), filtres Statut/Type(HTTP·HTTPS·TCP·UDP·TCP+UDP)/Source(Docker·K8s·Managed), vue tuiles par défaut
-- Mode Core : bandeau statut Core (nom/CPU/mém), pas de chips Core sur les cartes, pas de bouton "Nouveau flux" (admin only)
+- **Page Trafic partagée Admin/Passerelle** : `renderTraficPage({mode})` unique ; toolbar complète (Grouper/Trier/Import/CSV/sélecteur colonnes 2-5), filtres Statut/Type(HTTP·HTTPS·TCP·UDP·TCP+UDP)/Source(Docker·K8s·Managed), vue tuiles par défaut
+- Mode passerelle : bandeau statut passerelle (nom/CPU/mém), pas de chips passerelle sur les cartes, pas de bouton "Nouveau flux" (admin only)
 - État persistant (`window._tv/_tc/_tg/_ts/_tf`) survit à la navigation entre pages
 - Extraction de `trafic.js` dans un module dédié `js/pages/trafic.js` (hors `pages-all.js`)
 - Tous les boutons d'action conditionnés par `Role.canWrite()` / `Role.canDelete()`
@@ -124,7 +124,7 @@ Bump au merge : **`admin` PATCH** `0.2.11` → `0.2.12`, **`webapp` PATCH** `0.2
 - Endpoint `GET|PUT /api/v1/logs/settings` — gestion de la rétention des logs
 - Endpoint `GET /api/v1/prism/backend-errors` — erreurs backend (Prism)
 
-#### Core `0.2.0`
+#### Passerelle `0.2.0`
 - **Load balancing adaptatif** : score = CPU×0.6 + Mém×0.4, poll `/internal/v1/nodes/metrics` toutes les 15 s
 - **Canary routing** : `CanaryConfig` (weight %, sélection par header/cookie/pourcentage)
 - **Shadow mirror** : duplication de requête en goroutine, timeout 5 s, sans bloquer la réponse
@@ -149,11 +149,11 @@ Bump au merge : **`admin` PATCH** `0.2.11` → `0.2.12`, **`webapp` PATCH** `0.2
 
 ### [0.1.0] — 2026-07-15 *(release initiale)*
 
-#### Tous les services `0.1.0` (admin, core, agent, webapp, landing)
+#### Tous les services `0.1.0` (admin, edge, agent, webapp, landing)
 - Structure du projet, binaire unique multi-composants
 - Admin : API REST complète, UI Web (proxies, nœuds, logs, Prism, certificats, alertes, backups, cluster)
-- Core : HTTP/HTTPS/HTTP2/HTTP3, WebSocket, gRPC, TCP/UDP L4, TLS terminaison + passthrough, WAF, rate limiting, cache Prism, mode cluster Raft
+- Passerelle : HTTP/HTTPS/HTTP2/HTTP3, WebSocket, gRPC, TCP/UDP L4, TLS terminaison + passthrough, WAF, rate limiting, cache Prism, mode cluster Raft
 - Agent : discovery Docker (labels), télémétrie CPU/mémoire, mise à jour automatique, VPN WireGuard
 - Landing : site vitrine statique servi par Nginx (`services/landing/`)
-- Cache local Core (autonomie sans Admin), import de configs (nginx, Traefik, Caddy…)
-- CLI : `admin`, `core`, `agent`, `token`, `backup`, `import`, `update`, `alert`, `status`, `access`, `nodes`, `declared`, `bootstrap`, `version`
+- Cache local passerelle (autonomie sans Admin), import de configs (nginx, Traefik, Caddy…)
+- CLI : `admin`, `edge`, `agent`, `token`, `backup`, `import`, `update`, `alert`, `status`, `access`, `nodes`, `declared`, `bootstrap`, `version`

@@ -8,18 +8,18 @@
 
 | Data | Component | Storage | Default retention |
 |---|---|---|---|
-| Client IP address | Core (access log) | Log file on Core + forwarded to Admin SQLite | 365 days |
-| HTTP method, path, host, status, latency | Core (access log) | Log file on Core + Admin SQLite | 365 days |
-| User-Agent header | Core (access log) | Log file on Core + Admin SQLite | 365 days |
-| Referrer header | Core (access log) | Log file on Core + Admin SQLite | 365 days |
-| WAF rule matches (categories only, no payload) | Core (access log) | Admin SQLite | 365 days |
-| Banned IP + ban reason + expiry | Core / Admin | Admin SQLite | 730 days |
+| Client IP address | Edge (access log) | Log file on Edge + forwarded to Admin SQLite | 365 days |
+| HTTP method, path, host, status, latency | Edge (access log) | Log file on Edge + Admin SQLite | 365 days |
+| User-Agent header | Edge (access log) | Log file on Edge + Admin SQLite | 365 days |
+| Referrer header | Edge (access log) | Log file on Edge + Admin SQLite | 365 days |
+| WAF rule matches (categories only, no payload) | Passerelle (access log) | Admin SQLite | 365 days |
+| Banned IP + ban reason + expiry | Passerelle / Admin | Admin SQLite | 730 days |
 | Admin user email + bcrypt password hash | Admin | Admin SQLite | Until deleted |
 | Admin user session JWT | Admin | In-memory + cookie (browser session) | Until logout or expiry |
 | Audit log (who did what, when) | Admin | Admin SQLite | 90 days |
-| GeoIP lookups | Core | In-memory only, MaxMind DB on Core disk | Never stored per-request |
-| SSH portal session metadata (target, duration) | Core / Admin | Admin SQLite | Until deleted |
-| SSH portal credentials (login/key) | Core | AES-GCM encrypted on Core disk, never sent to Admin | Until deleted |
+| GeoIP lookups | Edge | In-memory only, MaxMind DB on Edge disk | Never stored per-request |
+| SSH portal session metadata (target, duration) | Passerelle / Admin | Admin SQLite | Until deleted |
+| SSH portal credentials (login/key) | Edge | AES-GCM encrypted on Edge disk, never sent to Admin | Until deleted |
 
 **What GoProxify does NOT collect:**
 - Request bodies (WAF inspects them in memory; they are never logged)
@@ -34,7 +34,7 @@
 
 ### IP anonymisation in access logs (recommended for GDPR)
 
-Enable in `core.json`:
+Enable in `edge.json`:
 
 ```json
 {
@@ -73,7 +73,7 @@ Older entries are purged automatically every night.
 
 ### IP pseudonymisation (recommandé pour RGPD strict)
 
-Mode plus fort que l'anonymisation : l'IP est **chiffrée** (AES-GCM 256 bits) en base SQLite côté Admin. Le fichier de log du Core reçoit toujours une IP tronquée. L'IP réelle ne peut être obtenue que par un utilisateur possédant le scope `gdpr:reveal` (voir §3 bis).
+Mode plus fort que l'anonymisation : l'IP est **chiffrée** (AES-GCM 256 bits) en base SQLite côté Admin. Le fichier de log de la passerelle reçoit toujours une IP tronquée. L'IP réelle ne peut être obtenue que par un utilisateur possédant le scope `gdpr:reveal` (voir §3 bis).
 
 Activer via Admin UI → **Logs → Settings → Pseudonymisation IP** ou via API :
 
@@ -82,11 +82,11 @@ PUT /api/v1/logs/settings
 { "ip_pseudonymize": true }
 ```
 
-Ou dans `core.json` (non supporté — ce réglage est Admin-side).
+Ou dans `edge.json` (non supporté — ce réglage est Admin-side).
 
 | Comportement | Anonymisation | Pseudonymisation |
 |---|---|---|
-| IP dans fichier Core | tronquée (x.x.x.0) | tronquée (x.x.x.0) |
+| IP dans fichier passerelle | tronquée (x.x.x.0) | tronquée (x.x.x.0) |
 | IP dans SQLite Admin | tronquée | chiffrée AES-GCM |
 | Taps Fail2Ban/Sentinel | IP réelle ✓ | IP réelle ✓ |
 | Révélation possible ? | ❌ irréversible | ✓ avec scope `gdpr:reveal` |
@@ -169,15 +169,15 @@ Chaque révélation crée automatiquement une entrée dans le journal d'audit (`
 
 ## 3. GeoIP (MaxMind GeoLite2)
 
-The Core downloads **GeoLite2-Country** at startup (if `geoip.auto_download: true`). This database is:
-- Stored locally on the Core volume (`/etc/goproxify/geoip/`)
+The Edge downloads **GeoLite2-Country** at startup (if `geoip.auto_download: true`). This database is:
+- Stored locally on the Edge volume (`/etc/goproxify/geoip/`)
 - Never sent anywhere
 - Used only for allow/block decisions and Prism dashboard enrichment (country of request)
 - The IP itself is never sent to MaxMind at runtime
 
 MaxMind's terms require attribution and accept that the database is used offline. No personal data is transmitted to MaxMind during normal operation.
 
-To disable auto-download, set `geoip.auto_download: false` in `core.json` and supply your own database.
+To disable auto-download, set `geoip.auto_download: false` in `edge.json` and supply your own database.
 
 ---
 
@@ -214,8 +214,8 @@ Before going to production, ensure:
 
 | Measure | Details |
 |---|---|
-| TLS in transit | All Admin↔Core↔browser communication is TLS — certificates in RAM only on Core |
-| SSH vault encryption | AES-GCM, key never leaves Core |
+| TLS in transit | All Admin↔Edge↔browser communication is TLS — certificates in RAM only on Edge |
+| SSH vault encryption | AES-GCM, key never leaves passerelle |
 | Admin authentication | JWT ECDSA P-256, bcrypt passwords, optional MFA (TOTP / WebAuthn) |
 | Audit log | All admin operations are recorded with actor, timestamp, action |
 | Role-based access | Teams + scopes limit who can read logs or security data |

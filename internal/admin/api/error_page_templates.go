@@ -16,10 +16,10 @@ import (
 	"github.com/google/uuid"
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/errorpages"
+	"github.com/vincamok/goproxify/internal/edge/errorpages"
 )
 
-// ErrorPageTemplatePusher pousse la bibliothèque vers les Cores.
+// ErrorPageTemplatePusher pousse la bibliothèque vers les passerelles.
 type ErrorPageTemplatePusher interface {
 	PushErrorPages(ctx context.Context)
 }
@@ -48,7 +48,7 @@ type ErrorPageTemplateDTO struct {
 	UpdatedAt   time.Time           `json:"updated_at"`
 }
 
-// ErrorPageTemplatesHandler CRUD + sync Core.
+// ErrorPageTemplatesHandler CRUD + sync passerelle.
 type ErrorPageTemplatesHandler struct {
 	DB       *sql.DB
 	Log      *slog.Logger

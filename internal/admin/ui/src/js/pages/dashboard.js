@@ -15,9 +15,9 @@ pages.dashboard = async function() {
     ]);
 
     const allNodes    = nodes || [];
-    const coreNodes   = allNodes.filter(n => n.role === 'core');
+    const edgeNodes   = allNodes.filter(n => n.role === 'edge');
     const agentNodes  = allNodes.filter(n => n.role === 'agent');
-    const coresOnline = coreNodes.filter(n => n.status === 'online').length;
+    const edgesOnline = edgeNodes.filter(n => n.status === 'online').length;
     const allProxies  = proxies || [];
     const enabledCnt  = allProxies.filter(p => p.enabled !== false).length;
     const allDomains  = domains || [];
@@ -33,18 +33,18 @@ pages.dashboard = async function() {
 
     const nodesOffline = allNodes.filter(n => n.status !== 'online');
 
-    const hasCritical = certsExpired.length > 0 || nodesOffline.filter(n => n.role === 'core').length > 0;
+    const hasCritical = certsExpired.length > 0 || nodesOffline.filter(n => n.role === 'edge').length > 0;
     const hasWarning  = !hasCritical && (certsSoon.length > 0 || nodesOffline.length > 0 || health?.status !== 'ok');
     const statusColor = hasCritical ? 'var(--red)' : hasWarning ? 'var(--yellow)' : 'var(--green)';
     const statusLabel = hasCritical ? t('dash.status.critical') : hasWarning ? t('dash.status.warning') : t('dash.status.ok');
     const statusDot   = '●';
 
-    const onlineCores = coreNodes.filter(n => n.status === 'online');
-    const avgCpu = onlineCores.length
-      ? Math.round(onlineCores.reduce((s, n) => s + (n.cpu_pct || 0), 0) / onlineCores.length)
+    const onlineEdges = edgeNodes.filter(n => n.status === 'online');
+    const avgCpu = onlineEdges.length
+      ? Math.round(onlineEdges.reduce((s, n) => s + (n.cpu_pct || 0), 0) / onlineEdges.length)
       : null;
-    const avgMem = onlineCores.length
-      ? Math.round(onlineCores.reduce((s, n) => s + (n.mem_pct || 0), 0) / onlineCores.length)
+    const avgMem = onlineEdges.length
+      ? Math.round(onlineEdges.reduce((s, n) => s + (n.mem_pct || 0), 0) / onlineEdges.length)
       : null;
 
     const auditEntries = auditData?.entries || [];
@@ -129,8 +129,8 @@ pages.dashboard = async function() {
       })),
       ...nodesOffline.map(n => ({
         icon: `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
-        color: n.role === 'core' ? 'var(--red)' : 'var(--yellow)',
-        text: t('dash.node_offline', { role: n.role === 'core' ? 'Core' : 'Agent', name: esc(n.display_name || n.node_name) }),
+        color: n.role === 'edge' ? 'var(--red)' : 'var(--yellow)',
+        text: t('dash.node_offline', { role: n.role === 'edge' ? 'Passerelle' : 'Agent', name: esc(n.display_name || n.node_name) }),
         action: `navigate('infrastructure')`,
         actionLabel: t('dash.see'),
       })),
@@ -170,10 +170,10 @@ pages.dashboard = async function() {
         </div>
         <div class="card blueprint" style="padding:20px 22px;cursor:default">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-          <div class="card-kicker">${t('nav.cores')}</div>
+          <div class="card-kicker">${t('nav.edges')}</div>
           <div style="font-size:22px;font-weight:700;font-family:var(--font-heading);margin:6px 0 8px;line-height:1">
-            ${coresOnline}<span style="font-size:15px;font-weight:400;opacity:.45"> / ${coreNodes.length}</span>
-            ${nodesOffline.some(n=>n.role==='core') ? `<span style="font-size:12px;color:var(--red);margin-left:6px">● ${t('dash.cores_offline')}</span>` : ''}
+            ${edgesOnline}<span style="font-size:15px;font-weight:400;opacity:.45"> / ${edgeNodes.length}</span>
+            ${nodesOffline.some(n=>n.role==='edge') ? `<span style="font-size:12px;color:var(--red);margin-left:6px">● ${t('dash.edges_offline')}</span>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;gap:4px">
             <div style="display:flex;align-items:center;gap:8px;font-size:11px;opacity:.65"><span style="width:28px">CPU</span>${miniBar(avgCpu)}</div>
@@ -223,23 +223,23 @@ pages.dashboard = async function() {
         <div class="card blueprint" style="overflow:hidden">
           <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div class="card-header">
-            <span class="card-title">${t('nav.cores')}</span>
+            <span class="card-title">${t('nav.edges')}</span>
             <button class="btn btn-ghost btn-sm" onclick="navigate('infrastructure')" style="font-size:11px">${t('dash.see_all')}</button>
           </div>
-          ${coreNodes.length ? `
+          ${edgeNodes.length ? `
           <div style="padding:0 0 8px">
-            ${coreNodes.map((n, i) => {
+            ${edgeNodes.map((n, i) => {
               const online = n.status === 'online';
               const cpu = n.cpu_pct != null ? Math.round(n.cpu_pct) : null;
               const mem = n.mem_pct != null ? Math.round(n.mem_pct) : null;
               const cpuColor = cpu > 85 ? 'var(--red)' : cpu > 65 ? 'var(--yellow)' : 'var(--accent)';
               const memColor = mem > 85 ? 'var(--red)' : mem > 65 ? 'var(--yellow)' : 'var(--accent)';
-              const coreMetrics = mProxies.find(p => p.core_id === n.id || p.core_name === (n.node_name || n.id));
-              const p95ms = coreMetrics?.p95_ms;
-              const rps   = coreMetrics?.requests_per_second;
+              const edgeMetrics = mProxies.find(p => p.edge_id === n.id || p.edge_name === (n.node_name || n.id));
+              const p95ms = edgeMetrics?.p95_ms;
+              const rps   = edgeMetrics?.requests_per_second;
               return `<div style="display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;transition:background .15s"
                            onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''"
-                           onclick="selectCore(window._coreNodes[${i}])">
+                           onclick="selectEdge(window._edgeNodes[${i}])">
                 <div style="width:8px;height:8px;border-radius:50%;background:${online?'var(--green)':'var(--red)'};flex-shrink:0"></div>
                 <div style="flex:1;min-width:0">
                   <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n.display_name||n.node_name)}</div>
@@ -263,7 +263,7 @@ pages.dashboard = async function() {
             }).join('')}
           </div>` : `
           <div style="padding:32px 20px;text-align:center;color:var(--text2);font-size:13px">
-            ${t('dash.no_cores')}
+            ${t('dash.no_edges')}
             <button class="btn btn-primary btn-sm" style="display:block;margin:12px auto 0" onclick="navigate('tokens')">${t('dash.create_token')}</button>
           </div>`}
         </div>
@@ -293,8 +293,8 @@ pages.dashboard = async function() {
 
       </div>`;
 
-    window._coreNodes = coreNodes;
-    window.openCore = function(i, page) { selectCore(window._coreNodes[i], page); };
-    if (typeof refreshNavCores === 'function') refreshNavCores();
+    window._edgeNodes = edgeNodes;
+    window.openEdge = function(i, page) { selectEdge(window._edgeNodes[i], page); };
+    if (typeof refreshNavEdges === 'function') refreshNavEdges();
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };

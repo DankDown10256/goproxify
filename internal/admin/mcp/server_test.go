@@ -13,11 +13,11 @@ import (
 	"testing"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/proxystore"
+	"github.com/vincamok/goproxify/internal/edge/proxystore"
 )
 
-// fakeCoreServer simule les endpoints /internal/v1/proxies du Core pour les tests MCP.
-func fakeCoreServer(t *testing.T) *httptest.Server {
+// fakeEdgeServer simule les endpoints /internal/v1/proxies de la passerelle pour les tests MCP.
+func fakeEdgeServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	store := make(map[string]*proxystore.Envelope)
 	mux := http.NewServeMux()
@@ -67,11 +67,11 @@ func setupMCPDB(t *testing.T) *Handler {
 	}
 	t.Cleanup(func() { db.Close() })
 
-	// Injecter un faux Core dans la table tokens pour que ListTargets le trouve.
-	srv := fakeCoreServer(t)
+	// Injecter un faux passerelle dans la table tokens pour que ListTargets le trouve.
+	srv := fakeEdgeServer(t)
 	t.Cleanup(srv.Close)
 	_, _ = db.Exec(`INSERT INTO tokens (id, node_name, role, token, node_endpoint, revoked)
-		VALUES ('tok-test','core-test','core','gpx_core_testtoken123',?,0)`, srv.URL)
+		VALUES ('tok-test','edge-test','edge','gpx_edge_testtoken123',?,0)`, srv.URL)
 
 	return &Handler{DB: db, Log: slog.Default()}
 }

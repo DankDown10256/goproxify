@@ -30,8 +30,8 @@ Sous-commandes :
   waf      Config WAF d'un proxy
   rules    Moteur de règles automatiques
 
-goproxify security threat get  [-core <id>] [-admin-url …] [-token …]
-goproxify security threat set  [-core <id>] -file <config.json> [-admin-url …] [-token …]
+goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
+goproxify security threat set  [-edge <id>] -file <config.json> [-admin-url …] [-token …]
 
 goproxify security bans list   [-admin-url …] [-token …]
 goproxify security bans add    -ip <ip> [-reason <raison>] [-ttl <durée>] [-admin-url …] [-token …]
@@ -66,10 +66,10 @@ func runSecurityThreat() {
 			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
 			os.Exit(1)
 		}
-		coreID := flagValue(args, "-core", "")
+		edgeID := flagValue(args, "-edge", "")
 		path := "/api/v1/security/threat-config"
-		if coreID != "" {
-			path += "?core=" + url.QueryEscape(coreID)
+		if edgeID != "" {
+			path += "?edge=" + url.QueryEscape(edgeID)
 		}
 		var cfg json.RawMessage
 		if _, err := client.DoJSON("GET", path, nil, &cfg); err != nil {
@@ -101,10 +101,10 @@ func runSecurityThreat() {
 			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
 			os.Exit(1)
 		}
-		coreID := flagValue(args, "-core", "")
+		edgeID := flagValue(args, "-edge", "")
 		path := "/api/v1/security/threat-config"
-		if coreID != "" {
-			path += "?core=" + url.QueryEscape(coreID)
+		if edgeID != "" {
+			path += "?edge=" + url.QueryEscape(edgeID)
 		}
 		if _, err := client.DoJSON("PUT", path, cfg, nil, 200, 204); err != nil {
 			fmt.Fprintf(os.Stderr, "threat set : %v\n", err)

@@ -1,0 +1,69 @@
+# Suspicious path blacklist — GoProxify threat engine
+# One path prefix per line. Lines starting with # are ignored.
+# Replace this file in the volume to update without restarting.
+#
+# Credentials / config leaks
+/.env
+/.env.local
+/.env.backup
+/.env.bak
+/.env.production
+/.git/config
+/.git/HEAD
+/.svn/entries
+/.htpasswd
+/.htaccess
+/config.php
+/configuration.php
+/wp-config.php
+/wp-config.php.bak
+/config.inc.php
+/database.yml
+/settings.py
+/secrets.yml
+/credentials.json
+/id_rsa
+/.ssh/
+# Admin panels
+/wp-admin/
+/wp-login.php
+/phpmyadmin/
+/phpMyAdmin/
+/pma/
+/admin/
+/administrator/
+/panel/
+/cpanel/
+/webadmin/
+/controlpanel/
+# Common shells / webshells
+/shell.php
+/c99.php
+/r57.php
+/b374k.php
+/cmd.php
+/webshell.php
+/eval.php
+/backdoor.php
+# Framework exploits
+/xmlrpc.php
+/wp-json/wp/v2/users
+/vendor/phpunit/
+/actuator/
+/actuator/env
+/actuator/health
+/actuator/dump
+/console
+/h2-console
+/jolokia/
+/api/swagger.json
+/swagger-ui.html
+/v2/api-docs
+# Path traversal
+/../
+/..%2F
+/%2e%2e/
+# Common scan paths
+/etc/passwd
+/proc/self/environ
+/windows/win.ini

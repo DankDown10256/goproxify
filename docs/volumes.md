@@ -18,21 +18,21 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 
 ---
 
-## `goproxify_core_data` → `/etc/goproxify` (Core)
+## `goproxify_edge_data` → `/etc/goproxify` (Passerelle)
 
 | Chemin dans le volume | Contenu |
 |---|---|
 | `proxies/` | Configurations de production des proxies (fichiers YAML, un par proxy) |
 | `proxies-revisions/` | Historique des révisions pipeline (`<id>--<rev>.yaml`) |
-| `core-cache.gpx` | Cache interne du Core (état runtime, reconnexion rapide) |
-| `core-tokens.db` | Base SQLite des tokens d'authentification des nœuds (Admin → Core) |
-| `core-node-id` | Identité stable du nœud Core |
+| `edge-cache.gpx` | Cache interne de la passerelle (état runtime, reconnexion rapide) |
+| `edge-tokens.db` | Base SQLite des tokens d'authentification des nœuds (Admin → passerelle) |
+| `edge-node-id` | Identité stable du nœud passerelle |
 | `geoip/GeoLite2-Country.mmdb` | Base GeoIP téléchargée automatiquement (si `GPX_GEOIP_AUTO_DOWNLOAD=true`) |
 | `bans/` | Bannissements IP persistés |
 | `threat-lists/` | Listes de menaces téléchargées (IPs malveillantes, etc.) |
 | `logs/access.log` | Journal d'accès HTTP du reverse proxy |
 
-> **Note :** `proxies/` et `proxies-revisions/` sont la source de vérité du Core. Le Core reçoit sa configuration depuis l'Admin via WebSocket au démarrage — ces fichiers sont ensuite mis à jour à chaque changement de configuration.
+> **Note :** `proxies/` et `proxies-revisions/` sont la source de vérité de la passerelle. La passerelle reçoit sa configuration depuis l'Admin via WebSocket au démarrage — ces fichiers sont ensuite mis à jour à chaque changement de configuration.
 
 ---
 
@@ -40,7 +40,7 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 
 | Chemin dans le volume | Contenu |
 |---|---|
-| `agent.token` | Token de connexion au Core (obtenu lors du pairing initial) |
+| `agent.token` | Token de connexion à la passerelle (obtenu lors du pairing initial) |
 | `agent.hmac` | Secret HMAC pour la vérification des messages WebSocket |
 | `agent-hmacs.json` | Store des HMACs persistés |
 | `join-tokens-used.json` | Tokens de join déjà consommés (anti-rejeu) |
@@ -92,5 +92,5 @@ docker compose up -d goproxify-agent
 ### Inspecter le contenu d'un volume
 
 ```bash
-docker run --rm -v goproxify_core_data:/data alpine ls -la /data
+docker run --rm -v goproxify_edge_data:/data alpine ls -la /data
 ```

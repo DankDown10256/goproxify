@@ -13,7 +13,7 @@ import (
 // PortalAuditEntry row Admin (métadonnées uniquement).
 type PortalAuditEntry struct {
 	ID       int64  `json:"id"`
-	CoreName string `json:"core_name"`
+	EdgeName string `json:"edge_name"`
 	Ts       string `json:"ts"`
 	Actor    string `json:"actor"`
 	TargetID string `json:"target_id"`
@@ -27,18 +27,18 @@ func (h *PortalHandler) handleAudit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, http.StatusMethodNotAllowed, "api.err.method")
 		return
 	}
-	core := portalCoreParam(r)
+	edge := portalEdgeParam(r)
 	limit := 100
 	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
 			limit = n
 		}
 	}
-	q := `SELECT id, core_name, ts, actor, target_id, facade, success, detail FROM portal_audit`
+	q := `SELECT id, edge_name, ts, actor, target_id, facade, success, detail FROM portal_audit`
 	var rows *sql.Rows
 	var err error
-	if core != "" {
-		rows, err = h.DB.Query(q+` WHERE core_name=? ORDER BY id DESC LIMIT ?`, core, limit)
+	if edge != "" {
+		rows, err = h.DB.Query(q+` WHERE edge_name=? ORDER BY id DESC LIMIT ?`, edge, limit)
 	} else {
 		rows, err = h.DB.Query(q+` ORDER BY id DESC LIMIT ?`, limit)
 	}
@@ -51,7 +51,7 @@ func (h *PortalHandler) handleAudit(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e PortalAuditEntry
 		var success int
-		if err := rows.Scan(&e.ID, &e.CoreName, &e.Ts, &e.Actor, &e.TargetID, &e.Facade, &success, &e.Detail); err != nil {
+		if err := rows.Scan(&e.ID, &e.EdgeName, &e.Ts, &e.Actor, &e.TargetID, &e.Facade, &success, &e.Detail); err != nil {
 			continue
 		}
 		e.Success = success != 0
@@ -60,8 +60,8 @@ func (h *PortalHandler) handleAudit(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, map[string]any{"events": out})
 }
 
-// InsertPortalAudit persisté depuis WS Core.
-func InsertPortalAudit(db *sql.DB, core, ts, actor, targetID, facade string, success bool, detail string) {
+// InsertPortalAudit persisté depuis WS passerelle.
+func InsertPortalAudit(db *sql.DB, edge, ts, actor, targetID, facade string, success bool, detail string) {
 	if db == nil {
 		return
 	}
@@ -69,6 +69,6 @@ func InsertPortalAudit(db *sql.DB, core, ts, actor, targetID, facade string, suc
 	if success {
 		suc = 1
 	}
-	_, _ = db.Exec(`INSERT INTO portal_audit (core_name, ts, actor, target_id, facade, success, detail)
-		VALUES (?,?,?,?,?,?,?)`, core, ts, actor, targetID, facade, suc, detail)
+	_, _ = db.Exec(`INSERT INTO portal_audit (edge_name, ts, actor, target_id, facade, success, detail)
+		VALUES (?,?,?,?,?,?,?)`, edge, ts, actor, targetID, facade, suc, detail)
 }

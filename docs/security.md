@@ -70,7 +70,7 @@ Chaque règle contribue un score (1–5 selon la sévérité). Le seuil `anomaly
 | `restricted` | 930200–930999 | Accès à des fichiers sensibles (`.env`, `.git/`, `wp-config.php`, dumps SQL, `phpinfo.php`) |
 | `leakage` | 951100–951999 | **Inspection de la réponse** : erreurs SQL, stack traces PHP/Java, clés AWS dans les corps de réponse |
 
-Les jeux de règles sont activés par défaut. Chaque catégorie peut être désactivée individuellement dans l'UI Admin (page Core > WAF) ou via `exclude_ids`.
+Les jeux de règles sont activés par défaut. Chaque catégorie peut être désactivée individuellement dans l'UI Admin (page passerelle > WAF) ou via `exclude_ids`.
 
 ### Inspection de la réponse (CRS 951xxx)
 
@@ -123,7 +123,7 @@ gpx_waf_behavior_signals_total{host, signal}
 
 ## Sentinel (moteur de détection comportementale)
 
-Le Sentinel s'applique **avant le routage**, indépendamment des proxies. Il analyse chaque requête au niveau du Core.
+Le Sentinel s'applique **avant le routage**, indépendamment des proxies. Il analyse chaque requête au niveau de la passerelle.
 
 ### Signaux détectés
 
@@ -162,7 +162,7 @@ Les compteurs (rate, erreurs 4xx) sont **bornés en mémoire** (~262 k IPs suivi
 
 Avec `tarpit.enabled`, une requête bloquée par Sentinel (signal en mode `block`) ou venant d'une IP bannie par Sentinel (ban dont la source est `threat`, y compris les bans posés par le WAF) n'est pas refusée aussitôt : la connexion est retenue `delay_ms` avant la réponse `403`. Un bot qui attend chaque réponse immobilise ses propres connexions et perd du débit.
 
-- **Borné** : au plus `max_concurrent` requêtes retenues en même temps. Au-delà, ou tarpit désactivé, le refus est immédiat comme avant : le tarpit ne peut pas épuiser les connexions du Core.
+- **Borné** : au plus `max_concurrent` requêtes retenues en même temps. Au-delà, ou tarpit désactivé, le refus est immédiat comme avant : le tarpit ne peut pas épuiser les connexions de la passerelle.
 - Un client qui se déconnecte libère son slot aussitôt.
 - Les bans Fail2Ban, CrowdSec et manuels, ainsi que les profils IP, ne sont **pas** retenus.
 - Chaque requête retenue garde une goroutine et un socket ouverts : garder `max_concurrent` raisonnable, et `delay_ms` inférieur au `WriteTimeout` du serveur (max 30 s).
@@ -188,7 +188,7 @@ goproxify.sentinel.whitelist.network: "true"  # sous-réseau Docker du conteneur
 
 ## Backpressure par route
 
-Protège les backends (et la mémoire du Core) quand ils ralentissent : au-delà d'un plafond de requêtes simultanées, les requêtes attendent dans une file bornée puis sont rejetées.
+Protège les backends (et la mémoire de la passerelle) quand ils ralentissent : au-delà d'un plafond de requêtes simultanées, les requêtes attendent dans une file bornée puis sont rejetées.
 
 ```json
 "backpressure": { "max_inflight": 200, "queue": 100, "queue_timeout_ms": 1000 }
@@ -200,7 +200,7 @@ Protège les backends (et la mémoire du Core) quand ils ralentissent : au-delà
 | `queue` | Requêtes en attente au-delà du plafond. `0` = rejet immédiat |
 | `queue_timeout_ms` | Attente maximale en file (défaut `1000`) |
 
-Une requête rejetée (file pleine, délai dépassé, client parti) reçoit `503` avec `Retry-After: 1`. Les upgrades WebSocket ne consomment pas de slot. Le plafond est propre à chaque instance de Core (non partagé en cluster) et repart de zéro à chaque rechargement de la route.
+Une requête rejetée (file pleine, délai dépassé, client parti) reçoit `503` avec `Retry-After: 1`. Les upgrades WebSocket ne consomment pas de slot. Le plafond est propre à chaque instance de passerelle (non partagé en cluster) et repart de zéro à chaque rechargement de la route.
 
 ```
 gpx_backpressure_inflight{host}
@@ -212,7 +212,7 @@ gpx_backpressure_rejected_total{host, reason}   # queue_full | timeout | cancele
 
 ## Gestion des bans
 
-Les bans sont centralisés dans l'Admin et propagés aux Cores via WebSocket.
+Les bans sont centralisés dans l'Admin et propagés aux passerelles via WebSocket.
 
 ### Sources de ban
 
@@ -230,7 +230,7 @@ Détection d'échecs d'authentification sans dépendance externe. Configurable :
 
 ### CrowdSec
 
-Bouncer LAPI en mode stream : les décisions CrowdSec sont poussées en temps réel au Core (ban 403). Compatible déploiement Docker.
+Bouncer LAPI en mode stream : les décisions CrowdSec sont poussées en temps réel à la passerelle (ban 403). Compatible déploiement Docker.
 
 ---
 
@@ -247,7 +247,7 @@ Le moteur de règles (`Admin > Automatisation > Règles automatiques`) permet de
 | `engine_silent` | Fail2Ban ou CrowdSec inactif depuis N minutes | `engine_type` (`fail2ban`\|`crowdsec`), `silent_minutes` |
 | `proxy_error_rate` | Taux d'erreurs 5xx d'un proxy > seuil | `proxy_id` optionnel, `error_rate_threshold`, `error_rate_window` |
 | `ban_repeat` | IP bannie N fois ou plus sur une période | `repeat_count`, `repeat_window` |
-| `node_offline` | Core/Agent sans heartbeat depuis N minutes (`nodes.last_seen_at`) | `node_name` optionnel (vide = tous), `offline_minutes` (défaut 5) |
+| `node_offline` | Passerelle/Agent sans heartbeat depuis N minutes (`nodes.last_seen_at`) | `node_name` optionnel (vide = tous), `offline_minutes` (défaut 5) |
 | `cert_expiring` | Certificat TLS expirant sous N jours (`certs.expires_at`) | `domain` optionnel (vide = tous), `days_left` (défaut 15) |
 
 ### Actions disponibles
@@ -277,9 +277,9 @@ Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éven
 
 ## Timeouts serveur HTTP/QUIC
 
-Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux Cores via WebSocket et persisté dans `core.json`.
+Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux passerelles via WebSocket et persisté dans `edge.json`.
 
-> ⚠️ Un **redémarrage du Core** est nécessaire pour appliquer les timeouts.
+> ⚠️ Un **redémarrage de la passerelle** est nécessaire pour appliquer les timeouts.
 
 | Paramètre | Défaut | Description |
 |---|---|---|
@@ -289,7 +289,7 @@ Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux C
 | `idle_seconds` | 120 | Temps max d'inactivité sur une connexion keep-alive |
 | `max_header_kb` | 32 | Taille max cumulée des en-têtes de requête (Ko) ; au-delà : `431`. `0` = défaut |
 
-Le Core refuse aussi les méthodes `TRACE` et `TRACK` (`405`) sur toutes les routes.
+La passerelle refuse aussi les méthodes `TRACE` et `TRACK` (`405`) sur toutes les routes.
 
 ---
 
@@ -321,7 +321,7 @@ Deux déclencheurs sont disponibles dans les règles d'alerte (Admin → **Alert
 
 Le payload du webhook `backend_down` contient :
 ```json
-{ "url": "http://10.0.0.5:3000", "node_name": "core-eu-west" }
+{ "url": "http://10.0.0.5:3000", "node_name": "edge-eu-west" }
 ```
 
 Ces événements peuvent être routés vers n'importe quel canal d'alerte (email, Slack webhook, ntfy, Jira…) via les règles d'alerte standard.
@@ -358,7 +358,7 @@ Le masquage du fingerprint serveur (`Server`, `X-Powered-By`) est activable ind�
 
 ## Profils IP et GeoIP
 
-- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur tous les Cores ; les profils `allow` servent au filtrage CDN. Les CIDRs sont agrégés (doublons et préfixes contenus fusionnés), les plages privées sont exclues des profils `deny` et les feeds inchangés ne sont pas retéléchargés (ETag / 304). Spamhaus DROP, DShield et Feodo sont désactivés par défaut car inclus dans FireHOL Level 1. Un feed en échec est retenté avec un backoff (15 min → 6 h max), la dernière liste valide reste appliquée, l'état est visible dans l'UI, et une mise à jour qui perd plus de la moitié d'une liste (feed vide ou tronqué) est rejetée. Après N échecs consécutifs (3 par défaut, réglage `ipprofile.alert_after_failures`, `0` = désactivé), le déclencheur d'alerte `ip_profile_refresh_failed` est émis une fois par série.
+- **Profils IP** : listes de blocage ou d'autorisation avec mise à jour automatique depuis des sources publiques (Tor, Cloudflare, AWS, Spamhaus, FireHOL…). Les profils `deny` bloquent sur toutes les passerelles ; les profils `allow` servent au filtrage CDN. Les CIDRs sont agrégés (doublons et préfixes contenus fusionnés), les plages privées sont exclues des profils `deny` et les feeds inchangés ne sont pas retéléchargés (ETag / 304). Spamhaus DROP, DShield et Feodo sont désactivés par défaut car inclus dans FireHOL Level 1. Un feed en échec est retenté avec un backoff (15 min → 6 h max), la dernière liste valide reste appliquée, l'état est visible dans l'UI, et une mise à jour qui perd plus de la moitié d'une liste (feed vide ou tronqué) est rejetée. Après N échecs consécutifs (3 par défaut, réglage `ipprofile.alert_after_failures`, `0` = désactivé), le déclencheur d'alerte `ip_profile_refresh_failed` est émis une fois par série.
 - **GeoIP** : autorisation ou blocage par pays (MaxMind GeoLite2, téléchargé automatiquement au démarrage).
 
 ---

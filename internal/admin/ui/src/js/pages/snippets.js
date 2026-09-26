@@ -67,7 +67,7 @@ window.openSnippetModal = async function(id) {
     </div>
     <div id="s-type-hint" style="display:${existing?.type==='waf'?'flex':'none'};align-items:flex-start;gap:8px;padding:8px 12px;background:color-mix(in srgb,var(--blue) 8%,transparent);border:1px solid color-mix(in srgb,var(--blue) 25%,var(--border));border-radius:6px;font-size:12px;color:var(--text2);margin-bottom:8px">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;color:var(--blue)"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      <span>Un snippet <code>waf</code> attaché à un proxy remplace la config WAF globale du Core pour ce proxy uniquement.</span>
+      <span>Un snippet <code>waf</code> attaché à un proxy remplace la config WAF globale de la passerelle pour ce proxy uniquement.</span>
     </div>
     <div class="field">
       <label class="field-label">${t('snippets.description')}</label>
@@ -97,7 +97,7 @@ window.saveSnippet = async function(id) {
     if (payload.type === 'waf') {
       setTimeout(async () => {
         try {
-          const status = await api('GET', '/cores/waf-status');
+          const status = await api('GET', '/edges/waf-status');
           const nodes = Object.keys(status || {});
           if (nodes.length > 0) toast(t('snippets.waf_applied') || `WAF appliqué (${nodes.join(', ')})`, 'success');
         } catch {}

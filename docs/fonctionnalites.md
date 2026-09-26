@@ -8,13 +8,13 @@ The product comes in **three complementary personalities**:
 
 | Component | Role | Persistence | Exposed ports |
 |---|---|---|---|
-| **Core** | Data Plane — high-performance routing engine + WS hub (+ optional Access) | RAM + encrypted cache | `:80`, `:443` TCP+UDP, `:8000` internal + WS; Access `:2222` / `:8444` if enabled |
+| **Edge** | Data Plane — high-performance routing engine + WS hub (+ optional Access) | RAM + encrypted cache | `:80`, `:443` TCP+UDP, `:8000` internal + WS; Access `:2222` / `:8444` if enabled |
 | **Admin** | Control Plane — UI, API, MCP, alerting, Access | SQLite | `:9443` |
 | **Agent** | Discovery & Telemetry — Docker sidecar | Volatile | `:9191` Prometheus, `:51820` WireGuard (no inbound port for control plane) |
 
 ---
 
-## 2. Core — Data Plane
+## 2. Edge — Data Plane
 
 ### Supported protocols
 
@@ -34,13 +34,13 @@ The product comes in **three complementary personalities**:
 - **SNI Passthrough**: passive detection by reading the first 5 bytes of the Client Hello (no decryption)
 - **ALPN negotiation**: `h2` and `http/1.1`
 - **mTLS client**: client certificate validation (Milestone 5)
-- **Inter-Core delegation**: an entry Core can forward a domain to another Core — **Passthrough** (raw TLS tunnel) or **Terminate** (TLS at entry + HTTP(S) proxy + `X-Forwarded-For`) modes. See [docs/delegation.md](delegation.md).
+- **Inter-Edge delegation**: an entry Edge can forward a domain to another Edge — **Passthrough** (raw TLS tunnel) or **Terminate** (TLS at entry + HTTP(S) proxy + `X-Forwarded-For`) modes. See [docs/delegation.md](delegation.md).
 
 ### Autonomous operation without Admin
 
-The Core can operate **autonomously** if the Admin is temporarily unreachable:
+The Edge can operate **autonomously** if the Admin is temporarily unreachable:
 
-- Automatic backup of the routing table and certificates in an **encrypted local cache** (`/etc/goproxify/core-cache.gpx`)
+- Automatic backup of the routing table and certificates in an **encrypted local cache** (`/etc/goproxify/edge-cache.gpx`)
 - Triggered on each push received from Admin + configurable interval
 - On startup without reachable Admin: automatic load from cache
 - **Automatic reconnect** as soon as Admin becomes available again → cache update
@@ -67,7 +67,7 @@ The Core can operate **autonomously** if the Admin is temporarily unreachable:
 | WAF | Native Go engine, 13 OWASP CRS-4 rule sets, request **and** response inspection, detect/block mode, custom rules hot-reload — see [docs/security.md](security.md#waf) |
 | Sentinel | Per-IP behavioral detection: sliding window, immediate ban on signal, global anti-DDoS RPS, optional bounded **tarpit** (holds the response to blocked IPs) — see [docs/security.md](security.md#sentinel) |
 | Native Go Fail2Ban | Automatic banning after N failures, no external dependency |
-| CrowdSec | LAPI stream bouncer → bans pushed to Core (403), Docker compatible |
+| CrowdSec | LAPI stream bouncer → bans pushed to Edge (403), Docker compatible |
 | Automatic rules engine | Event-driven conditions (critical CVE, ban spike, silent engine, error rate, repeat offender IP, node offline, cert expiring) → actions (disable proxy, ban IP, alert, strict mode, webhook call, trigger backup); cooldown, dry-run, history — see [docs/security.md](security.md#automatic-rules-engine) |
 | SSO | GitHub OAuth2, LDAP/Active Directory, SAML 2.0, OIDC (Google, Microsoft/Entra, Auth0, Okta, Keycloak, Zitadel, Casdoor, Dex, Authentik, Authelia) |
 | JWT validation | JWKS (planned) |
@@ -84,15 +84,15 @@ Each route can declare a `RequestTransform` block (Admin UI → proxy → **Tran
 | `add_response_headers` | Headers to inject into the client response |
 | `remove_response_headers` | Headers to strip from the client response |
 
-The middleware applies first in the chain, before WAF and upstream routing. Hot-reload without Core restart.
+The middleware applies first in the chain, before WAF and upstream routing. Hot-reload without Edge restart.
 
-### L4 mTLS Core↔Core tunnel
+### L4 mTLS Edge↔Edge tunnel
 
-The `internal/core/tunnel` package provides a persistent encrypted TCP channel between two Cores (inter-datacenter L4 traffic, relay for backends unreachable from the entry Core).
+The `internal/edge/tunnel` package provides a persistent encrypted TCP channel between two Edges (inter-datacenter L4 traffic, relay for backends unreachable from the entry Edge).
 
 **Architecture:**
 ```
-Core A (client)          Core B (server)
+Edge A (client)          Edge B (server)
    │                          │
    ├─ mTLS TLS 1.3 ──────────▶│:9443
    │   CONNECT-like:           │
@@ -114,25 +114,25 @@ Core A (client)          Core B (server)
 - **Retry policy** with configurable exponential backoff
 - **Sticky sessions** via cookie
 - **Slow-start** (`slow_start_sec`): a backend that is newly added or recovers from an outage ramps up from ~5 % to 100 % of its share over the configured window; sticky sessions keep their backend. Metric `gpx_backend_slowstart_shifted_total`
-- **Configurable server timeouts**: `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurable from Admin (Security > Server settings) and propagated to Cores via WebSocket
+- **Configurable server timeouts**: `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, `ReadHeaderTimeout` HTTP/QUIC — configurable from Admin (Security > Server settings) and propagated to Edges via WebSocket
 
 ### Observability
 
-- **Live topology** (Infrastructure → Topology): Admin → Cores → Agents map refreshed every 5 s in place, each node showing health, request rate (req/s over the last 60 s, with a 2-minute sparkline) and a **risk score 0-100** (highest of: offline, rejection rate 403/429, 5xx rate, CPU/RAM pressure; the dominant cause is shown). API `GET /api/v1/nodes/live`, CLI `goproxify nodes live`, MCP `get_topology_live` — see [docs/api_specs.md](api_specs.md#get-apiv1nodeslive)
+- **Live topology** (Infrastructure → Topology): Admin → Edges → Agents map refreshed every 5 s in place, each node showing health, request rate (req/s over the last 60 s, with a 2-minute sparkline) and a **risk score 0-100** (highest of: offline, rejection rate 403/429, 5xx rate, CPU/RAM pressure; the dominant cause is shown). API `GET /api/v1/nodes/live`, CLI `goproxify nodes live`, MCP `get_topology_live` — see [docs/api_specs.md](api_specs.md#get-apiv1nodeslive)
 
 - **Async JSON access log**: client IP, domain, method, HTTP code, duration, upstream, HTTP version
 - **Structured JSON system log** for all components, with rotation
-- **Prometheus metrics** exposed on `/metrics` — full instrumentation of all services: `gpx_core_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — see `docs/services.md`
-- **OpenTelemetry tracing** (OTLP/HTTP, W3C Trace Context): one server span per request continuing an incoming `traceparent`, a client span per backend call (`traceparent` forwarded to the backend, so the trace spans caller → Core → backend), Sentinel / ban decisions as span events (`sentinel.signal`, `ban.blocked`, no IP recorded) and route attributes (`gpx.route.id`, `gpx.route.host`). `X-Trace-Id` is returned to the client. Enable with `engine.tracing_endpoint` (`host:port` for plain HTTP, or a full `https://…` URL) or from Admin (`tracing_endpoint`, pushed to Cores; applied live); `engine.tracing_sample_ratio` (default `1`) samples new traces while honoring the caller's decision. Without an endpoint the Core stays transparent: an incoming `traceparent` is still forwarded, nothing is exported. `/metrics` is not traced
+- **Prometheus metrics** exposed on `/metrics` — full instrumentation of all services: `gpx_edge_*`, `gpx_backend_*`, `gpx_backend_up`, `gpx_peer_sync_duration_seconds`, `gpx_waf_profiles_active`, `gpx_portal_sessions_active`, `gpx_pipeline_*`, `gpx_tls_*`, `gpx_auth_*`, `gpx_ratelimit_*`, `gpx_traffic_*`, `gpx_routing_*`, `gpx_f2b_*`, `gpx_crowdsec_*`, `gpx_rulesengine_*`, `gpx_vulnscan_*`, `gpx_admin_http_*` — see `docs/services.md`
+- **OpenTelemetry tracing** (OTLP/HTTP, W3C Trace Context): one server span per request continuing an incoming `traceparent`, a client span per backend call (`traceparent` forwarded to the backend, so the trace spans caller → Edge → backend), Sentinel / ban decisions as span events (`sentinel.signal`, `ban.blocked`, no IP recorded) and route attributes (`gpx.route.id`, `gpx.route.host`). `X-Trace-Id` is returned to the client. Enable with `engine.tracing_endpoint` (`host:port` for plain HTTP, or a full `https://…` URL) or from Admin (`tracing_endpoint`, pushed to Edges; applied live); `engine.tracing_sample_ratio` (default `1`) samples new traces while honoring the caller's decision. Without an endpoint the Edge stays transparent: an incoming `traceparent` is still forwarded, nothing is exported. `/metrics` is not traced
 - **JSON audit log**: full traceability of all operations
 
 ### GoProxify Access (SSH / shell portal)
 
-Operator portal served by the **Core** (not Admin):
+Operator portal served by the **Edge** (not Admin):
 
-- **Dual façade**: web terminal (xterm.js) + standard `ssh` client with UUID token (`ssh -p 2222 <uuid>@<core>`)
+- **Dual façade**: web terminal (xterm.js) + standard `ssh` client with UUID token (`ssh -p 2222 <uuid>@<edge>`)
 - **Targets**: VM / bare-metal (`sshd`) or Docker containers (`docker exec` via Agent)
-- **Vault**: SSH login + password or private key, encrypted on the Core (never exposed to Admin)
+- **Vault**: SSH login + password or private key, encrypted on the Edge (never exposed to Admin)
 - Optional **2FA** (TOTP / OTP email); TTL / one-shot sessions / revocation; metadata audit
 - Config & catalogue pushed from Admin (see §3)
 
@@ -151,22 +151,22 @@ Operator portal served by the **Core** (not Admin):
 Endpoints on `:9443` — two families:
 
 - `/api/v1/` — session JWT authentication (human administrators) **or** PAT `gpx_pat_*`
-- `/internal/v1/` — pairing token authentication (Cores and Agents, backward compat)
+- `/internal/v1/` — pairing token authentication (Edges and Agents, backward compat)
 
 | Resource | Operations |
 |---|---|
-| Proxies (HTTP, TCP, UDP) | Full CRUD + immediate push to Core(s) |
+| Proxies (HTTP, TCP, UDP) | Full CRUD + immediate push to Edge(s) |
 | Users | Create, edit, delete, password reset |
 | Teams | Access organization by scope |
-| Pairing tokens | Generate, list, revoke (`gpx_core_*`, `gpx_join_*`) |
+| Pairing tokens | Generate, list, revoke (`gpx_edge_*`, `gpx_join_*`) |
 | User API tokens (PAT) | Self-service `/api/v1/me/tokens` — resource scopes, optional expiry |
 | Snippets | Reusable profiles: IP, TLS, CORS, rate-limit, auth providers, DNS providers |
 | Nodes | Registration, cluster state, accept/reject pending |
 | Agents | List, approve / revoke (pending → approved workflow) |
 | Declared / bootstrap | Wizard declared nodes; QR tickets `/i/{token}` + `curl|bash` |
-| Domains | Apex / wildcards, entry Core, ACME DNS, **delegation** Passthrough or Terminate to another Core |
+| Domains | Apex / wildcards, entry Edge, ACME DNS, **delegation** Passthrough or Terminate to another Edge |
 | Security | Bans, CrowdSec threats, CVE, Fail2Ban, overview |
-| Access | Destination catalogue, SMTP user invite, HTML templates, portal options per Core, audit |
+| Access | Destination catalogue, SMTP user invite, HTML templates, portal options per Edge, audit |
 
 ### MCP server
 
@@ -196,40 +196,40 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 
 ### Architecture wizard
 
-The **Infrastructure → + Add** entry opens an **architecture canvas** (hosts + palette): Core / Agent / Admin placement, Access / Portainer / K8s options, multi-Core and HA groups. For each host, copy-paste install packs + bootstrap ticket (QR / `/i/{token}` link / `curl|bash`) anchored to the Core. Nodes declared from the canvas can be **auto-accepted** on connection.
+The **Infrastructure → + Add** entry opens an **architecture canvas** (hosts + palette): Edge / Agent / Admin placement, Access / Portainer / K8s options, multi-Edge and HA groups. For each host, copy-paste install packs + bootstrap ticket (QR / `/i/{token}` link / `curl|bash`) anchored to the Edge. Nodes declared from the canvas can be **auto-accepted** on connection.
 
-The canvas state lives in **`architecture.json`** (Admin `state/` folder), the reference file of the architecture: declared nodes, Cores, RBAC scopes. The Admin reconnects the Cores it describes at startup (address taken from `endpoint`, or from the node's `reachable_host`), aligns its database on the file, and keeps the previous **50 versions** of the file (`goproxify architecture versions|restore`, `GET /api/v1/architecture/versions`). Cores of an HA group announce their Raft peers in their heartbeat, so the Admin discovers the other members without extra configuration.
+The canvas state lives in **`architecture.json`** (Admin `state/` folder), the reference file of the architecture: declared nodes, Edges, RBAC scopes. The Admin reconnects the Edges it describes at startup (address taken from `endpoint`, or from the node's `reachable_host`), aligns its database on the file, and keeps the previous **50 versions** of the file (`goproxify architecture versions|restore`, `GET /api/v1/architecture/versions`). Edges of an HA group announce their Raft peers in their heartbeat, so the Admin discovers the other members without extra configuration.
 
-### Multi-Core delegation
+### Multi-Edge delegation
 
-A domain can be **delegated**: the entry Core (DNS / public IP) forwards traffic to a target Core.
+A domain can be **delegated**: the entry Edge (DNS / public IP) forwards traffic to a target Edge.
 
-| Mode | Behavior | Client IP on target Core |
+| Mode | Behavior | Client IP on target Edge |
 |---|---|---|
-| **Passthrough** | Raw TLS tunnel (SNI) | Entry Core's IP |
+| **Passthrough** | Raw TLS tunnel (SNI) | Entry Edge's IP |
 | **Terminate** | TLS terminated at entry + HTTP(S) proxy + `X-Forwarded-For` | Public IP (if seen by entry) |
 
 Detailed documentation: [delegation.md](delegation.md).
 
 ### WebSocket control plane
 
-Admin maintains a **persistent WS connection** to each registered Core (Admin→Core). This connection replaces HTTP push calls to `/internal/v1/*`:
+Admin maintains a **persistent WS connection** to each registered Edge (Admin→Edge). This connection replaces HTTP push calls to `/internal/v1/*`:
 
 - **Automatic reconnect**: exponential backoff 1s → 60s + jitter
 - **Full-sync on reconnect**: complete state automatically resent
 - **Message queue**: messages emitted during a disconnect are queued and delivered on reconnect
-- **Immediate propagation**: any config change is sent in real time to the affected Core
+- **Immediate propagation**: any config change is sent in real time to the affected Edge
 
 ### Agent approval
 
-Agents connecting for the first time via `JOIN_TOKEN` appear in `pending` status. The operator approves via UI or API (`POST /api/v1/agents/:id/approve`). The Core immediately sends the first `agent_hmac` via WS.
+Agents connecting for the first time via `JOIN_TOKEN` appear in `pending` status. The operator approves via UI or API (`POST /api/v1/agents/:id/approve`). The Edge immediately sends the first `agent_hmac` via WS.
 
 ### TLS / ACME DNS-01 management
 
 - **Wildcard Let's Encrypt certificates** via DNS-01 challenge
 - Supported DNS providers: **OVH, Cloudflare, Gandi, Route53, Hetzner**
 - Automatic renewal 30 days before expiry
-- Push decoded certificates to Core in RAM only (never on disk on Core side)
+- Push decoded certificates to Edge in RAM only (never on disk on Edge side)
 
 ### Certificate Hub (v0.8)
 
@@ -238,12 +238,12 @@ Feature suite around the TLS certificate lifecycle.
 **ACME monitoring — single entry point** (`/acme-monitor`, sidebar Access → Monitoring ACME)
 - Unifies what used to be three separate menus ("Certificates", "Certificate deployment", "ACME Monitoring") into one page — the other two are removed
 - Dashboard: status per cert (`ok` / `warning ≤30d` / `critical ≤7d` / `expired`), global KPIs, inline renewal button
-- Per-row actions: **Deploy** (opens the Deploy Hub drawer below) and **Edit** (opens the source domain's modal — DNS provider, manual PEM, entry Core, delegation — disabled when the cert has no linked domain, e.g. manual import); `domain_id` field in `GET /api/v1/certs/acme-monitor` links the emitted cert back to its `domains` row
+- Per-row actions: **Deploy** (opens the Deploy Hub drawer below) and **Edit** (opens the source domain's modal — DNS provider, manual PEM, entry Edge, delegation — disabled when the cert has no linked domain, e.g. manual import); `domain_id` field in `GET /api/v1/certs/acme-monitor` links the emitted cert back to its `domains` row
 - Automatic alerts: `cert_expiring_soon` (warning ≤30d, critical ≤7d) emitted to the existing alert engine
 - **Multi-DNS providers**: manage multiple named providers (e.g. `cloudflare-prod`, `ovh-zone2`) via the "DNS Providers" section of the ACME Monitoring page; each provider has a type (`cloudflare`, `ovh`, `gandi`, `hetzner`, `route53`) and JSON credentials; full CRUD via `/api/v1/acme/providers`
 
 **External certificate import**
-- `POST /api/v1/certs/import`: PEM + private key upload — domain auto-extracted from SAN/CN, upserted in DB, real-time push to Cores
+- `POST /api/v1/certs/import`: PEM + private key upload — domain auto-extracted from SAN/CN, upserted in DB, real-time push to Edges
 - Modal interface in the `acme-monitor` page
 
 **Deploy Hub** (reachable via the "Deploy" button on each cert row in ACME Monitoring — no longer a standalone menu)
@@ -277,14 +277,14 @@ Alertmanager-inspired model: each rule independently defines its scope, triggers
 - Target node(s)
 - Domain pattern (glob: `infra.*.com`, `*.prod.*`)
 - Team(s)
-- Component (`core` / `agent` / `admin`)
+- Component (`edge` / `agent` / `admin`)
 - Minimum severity (`info` / `warning` / `critical`)
 
 **Configurable triggers**:
-- Core/Agent node offline
+- Edge/Agent node offline
 - Certificate expiring in < N days
 - CVE detected on a backend
-  - The HTTP scanner rejects private targets (RFC1918/ULA), localhost and cloud metadata by default (anti-SSRF). To scan Docker/LAN backends: `GPX_VULNSCAN_ALLOW_PRIVATE=true` on Admin, or via the toggle in the UI (Security > CVE Scanner, Core view only — the manual scan trigger, the private-network toggle and the scanner status card all live on the Core side; the Admin view shows only the aggregated CVE list across all Cores, with a Core column identifying which Core reported each CVE).
+  - The HTTP scanner rejects private targets (RFC1918/ULA), localhost and cloud metadata by default (anti-SSRF). To scan Docker/LAN backends: `GPX_VULNSCAN_ALLOW_PRIVATE=true` on Admin, or via the toggle in the UI (Security > CVE Scanner, Edge view only — the manual scan trigger, the private-network toggle and the scanner status card all live on the Edge side; the Admin view shows only the aggregated CVE list across all Edges, with an Edge column identifying which Edge reported each CVE).
 - New Fail2Ban ban (threshold: N bans/hour)
 - Critical CrowdSec decision
 - Sensitive configuration change
@@ -297,7 +297,7 @@ Alertmanager-inspired model: each rule independently defines its scope, triggers
 
 ### Scheduled backups
 
-- **Core**: routing table snapshot (JSON), per-proxy versioning, navigable history, per-proxy rollback
+- **Edge**: routing table snapshot (JSON), per-proxy versioning, navigable history, per-proxy rollback
 - **Admin**: JSON dump (users, token metadata without secrets, snippets, alert channels/rules, declared nodes, plus configuration tables: settings incl. MCP IP allowlist, automatic rules, teams/scopes, workspaces, domains, cert deploy targets, auth providers, IP profiles, tunnel configs, error/portal pages, fail2ban/CrowdSec config); secrets redacted (a redacted secret never overwrites an existing value on restore); optional AES-GCM encryption via `GPX_BACKUP_KEY`
 - **Configurable cron** scheduling, configurable retention (number of snapshots)
 - Restore with diff preview before applying
@@ -312,7 +312,7 @@ Supported formats: nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels, C
 ### Coordinated cluster update
 
 - Version inconsistency detection between nodes (via heartbeat)
-- Alert if Cores or Agents run different versions
+- Alert if Edges or Agents run different versions
 - Triggered from UI (per node or entire cluster) or via CLI
 - Configurable rolling update (one node at a time, validation between each)
 - Cluster rollback orchestrated from Admin
@@ -336,7 +336,7 @@ Supported formats: nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels, C
 
 - Listens to Docker events via Unix socket (`/var/run/docker.sock`, mounted read-only)
 - Detects `goproxify.*` labels on containers at startup and in real time (start/stop/die)
-- **Hot-connects** the Core to the application's private Docker bridge network (apps expose no port on the host)
+- **Hot-connects** the Edge to the application's private Docker bridge network (apps expose no port on the host)
 - Transmits network configuration to Admin (validated token)
 - Discovered proxies marked `source: "label"` → read-only in UI
 
@@ -380,10 +380,10 @@ Symmetrically to Docker mode, the Agent can discover annotated Kubernetes resour
 
 ### Horizontal auto-scaling
 
-- Configurable triggers: container CPU (Agent telemetry) and/or request rate / P95 latency (Core metrics)
+- Configurable triggers: container CPU (Agent telemetry) and/or request rate / P95 latency (Edge metrics)
 - Coordinated decision by Admin (min/max instance rules)
 - Instance creation/deletion via `docker compose up --scale` or `docker run`
-- Hot-add to Core routing table without interruption
+- Hot-add to Edge routing table without interruption
 - Compatible with resource-weighted adaptive load balancing
 - Configurable cooldown between decisions (anti-flapping)
 
@@ -410,18 +410,18 @@ Delays and thresholds configurable per container via `goproxify.healthcheck.*` l
 
 - Collection of labelled container logs (`docker logs --follow`) opt-in (`goproxify.logs: "true"`)
 - Real-time streaming to Admin
-- Correlation with Core/Agent/Admin logs in Logs view
+- Correlation with Edge/Agent/Admin logs in Logs view
 - Configurable rotation and retention per container
 
 ### System telemetry
 
 - Reads `/proc/stat` and `/proc/meminfo`
 - Prometheus export on `:9191/metrics`
-- Data used by Core adaptive load balancing (host + containers via WS)
+- Data used by Edge adaptive load balancing (host + containers via WS)
 
 ### Persistent WS connectivity
 
-Agent maintains a **persistent WS connection** to the Core (Agent→Core). This connection:
+Agent maintains a **persistent WS connection** to the Edge (Agent→Edge). This connection:
 
 - **Replaces the HTTP 30s heartbeat**: heartbeat sent via WS if connected, HTTP as fallback
 - **Transmits discovered containers** in real time via `containers` message
@@ -436,13 +436,13 @@ Agent maintains a **persistent WS connection** to the Core (Agent→Core). This 
 
 ### Adaptive LB
 
-Docker metrics (**CPU**, **memory**, **disk IO**) of `goproxify.enable` containers are streamed to the Core every **10s** via WS (`metrics`). Score per IP:
+Docker metrics (**CPU**, **memory**, **disk IO**) of `goproxify.enable` containers are streamed to the Edge every **10s** via WS (`metrics`). Score per IP:
 
 `cpu×0.5 + mem×0.3 + disk_io×0.2` — lowest score backend receives the request.
 
 - **Local pool**: multiple containers with the same `goproxify.host` → one `docker-host:…` multi-backend route.
 - **Failover**: proxy failure → ~15s quarantine → try another pool backend (no 502 as long as one healthy remains).
-- **Cross-Core**: if the same host is discovered on Core A and Core B, peer sync + `gateway/tunnel` tunnel to the remote IP via the owner Core (see [architecture.md](architecture.md#adaptive-load-balancing)).
+- **Cross-Edge**: if the same host is discovered on Edge A and Edge B, peer sync + `gateway/tunnel` tunnel to the remote IP via the owner Edge (see [architecture.md](architecture.md#adaptive-load-balancing)).
 
 P95 latency / error_rate: fields planned in payload, not used in v1 score.
 
@@ -450,7 +450,7 @@ P95 latency / error_rate: fields planned in payload, not used in v1 score.
 
 **Manual** configuration on the proxy (UI / API): `CanaryConfig` (weight %, header, cookie) and `ShadowConfig` (fire-and-forget mirror).
 
-Docker labels `goproxify.canary` / `goproxify.shadow`: automatic detection via Agent discovery — the Core activates `CanaryConfig` / `ShadowConfig` on the `docker-host:` route without manual config. The canary/shadow container stays outside the LB pool (same `goproxify.host` as normal backends).
+Docker labels `goproxify.canary` / `goproxify.shadow`: automatic detection via Agent discovery — the Edge activates `CanaryConfig` / `ShadowConfig` on the `docker-host:` route without manual config. The canary/shadow container stays outside the LB pool (same `goproxify.host` as normal backends).
 
 ### Network connectivity
 
@@ -505,9 +505,9 @@ goproxify <command> [options]
 | Command | Role |
 |---|---|
 | `admin` | Start Admin (Control Plane + Web UI) |
-| `core` | Start Core (Data Plane — Reverse Proxy) |
+| `edge` | Start Edge (Data Plane — Reverse Proxy) |
 | `agent` | Start Agent (Discovery & Telemetry) |
-| `token create/list/revoke` | Core/Agent pairing tokens (Admin API) |
+| `token create/list/revoke` | Edge/Agent pairing tokens (Admin API) |
 | `backup create/list/restore` | Admin snapshots + routing export (Admin API) |
 | `import` | Import nginx/Traefik/Caddy/HAProxy (parse local, apply remote) |
 | `proxy list/get/enable/disable/delete` | Proxy route management |
@@ -532,7 +532,7 @@ goproxify <command> [options]
 | `nodes` | List / live health-throughput-risk (`nodes live`) / accept / reject nodes (Infrastructure) |
 | `declared` | Architecture wizard declared nodes |
 | `bootstrap` | QR / curl\|bash host integration tickets |
-| `core cache show/refresh/export/clear` | Core local cache management |
+| `edge cache show/refresh/export/clear` | Edge locale cache management |
 | `update check/apply/rollback` | Docker image updates (via Agent) |
 | `version` | Display binary version |
 | `help` | Display help |
@@ -543,13 +543,13 @@ Common options: `-config <path>`, `-admin-url <url>`, `-token <token>` (or `GPX_
 
 ## 8. High Availability
 
-### Core — independent groups
+### Edge — independent groups
 
-- Cores organize into **groups** (by datacenter, region, customer…)
+- Edges organize into **groups** (by datacenter, region, customer…)
 - Each group elects its **coordinator via the Raft algorithm** (majority required)
 - Any config change is validated by the group majority before applying
 - If the network partitions a group, only the majority half can elect a coordinator
-- On loss of Admin access, each Core falls back to its **encrypted local cache**
+- On loss of Admin access, each Edge falls back to its **encrypted local cache**
 
 ### Admin — rqlite
 
@@ -570,11 +570,11 @@ Common options: `-config <path>`, `-admin-url <url>`, `-token <token>` (or `GPX_
 | Mode | Details |
 |---|---|
 | **Docker Compose** | `docker compose up -d` — recommended, `docker-compose.yml` and `docker-compose-dev.yml` files provided |
-| **Bare-metal** | Interactive `setup.sh` script — module selection (Admin / Core / Agent) |
+| **Bare-metal** | Interactive `setup.sh` script — module selection (Admin / Edge / Agent) |
 | **systemd** | Hardened service (systemd units with sandboxing) |
 | **setcap** | `setcap cap_net_bind_service` to listen on ports < 1024 without root |
 
-Configuration: JSON files in `config/` (`admin.json`, `core.json`, `agent.json`) + `GPX_*` prefixed environment variables (production priority).
+Configuration: JSON files in `config/` (`admin.json`, `edge.json`, `agent.json`) + `GPX_*` prefixed environment variables (production priority).
 
 ---
 
@@ -584,12 +584,12 @@ Configuration: JSON files in `config/` (`admin.json`, `core.json`, `agent.json`)
 |---|---|
 | Language | Go — single binary, zero runtime dependency |
 | Protocols | HTTP/1.1, HTTP/2, HTTP/3 QUIC (UDP), WebSocket, gRPC, TCP/UDP L4 |
-| **Control plane** | **Persistent WebSocket (nhooyr.io/websocket) — Admin→Core(WS), Agent→Core(WS)** |
+| **Control plane** | **Persistent WebSocket (nhooyr.io/websocket) — Admin→Edge(WS), Agent→Edge(WS)** |
 | TLS | `crypto/tls` + `GetCertificate` (RAM only), passive SNI passthrough, ACME DNS-01 wildcard |
 | Routing table | `sync.Map` — atomic updates without interruption |
 | Persistence | Embedded SQLite `modernc.org/sqlite` (CGO-free) — Admin only |
 | Admin HA | rqlite (distributed SQLite, 3 nodes, Raft) |
-| Core HA | Raft algorithm per group, encrypted local cache |
+| Edge HA | Raft algorithm per group, encrypted local cache |
 | Configuration | Viper — JSON + `GPX_*` env var override |
 | Discovery | Docker Engine API via Unix socket (`/var/run/docker.sock`) |
 | Metrics | Prometheus (`/metrics`), OpenTelemetry |

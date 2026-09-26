@@ -14,7 +14,7 @@ De zéro à l'application fonctionnelle, toutes méthodes.
 4. [Méthode B — Portainer (Stack avec stack.env)](#4-méthode-b--portainer-stack-avec-stackenv)
 5. [Méthode C — Portainer (Stack tout-en-un, sans fichier d'env)](#5-méthode-c--portainer-stack-tout-en-un-sans-fichier-denv)
 6. [Méthode D — CLI (binaire natif)](#6-méthode-d--cli-binaire-natif)
-7. [Multi-hôtes — Core supplémentaire sur un serveur distant](#7-multi-hôtes--core-supplémentaire-sur-un-serveur-distant)
+7. [Multi-hôtes — passerelle supplémentaire sur un serveur distant](#7-multi-hôtes--passerelle-supplémentaire-sur-un-serveur-distant)
 8. [Multi-hôtes — Agent sur un serveur distant](#8-multi-hôtes--agent-sur-un-serveur-distant)
 9. [Premier démarrage — initialisation de l'Admin](#9-premier-démarrage--initialisation-de-ladmin)
 10. [Vérifier que tout est opérationnel](#10-vérifier-que-tout-est-opérationnel)
@@ -45,7 +45,7 @@ Navigateur Admin
       │ HTTPS :9443
       ▼
 ┌─────────────┐      API interne :8000      ┌─────────────┐
-│    ADMIN    │ ─────────────────────────►  │    CORE     │ :80/:443 ◄── trafic web
+│    ADMIN    │ ─────────────────────────►  │    EDGE     │ :80/:443 ◄── trafic web
 │ Interface   │                             │ Reverse     │
 │ de gestion  │                             │ Proxy       │
 └─────────────┘                             └──────▲──────┘
@@ -57,14 +57,14 @@ Navigateur Admin
                                             └─────────────┘
 ```
 
-- **Core** : reçoit le trafic HTTP/HTTPS des utilisateurs finaux. Porte 80, 443.  
-- **Admin** : interface web de configuration. Porte 9443. Communique avec le Core via son API interne (port 8000 — ne pas exposer sur Internet).  
-- **Agent** : tourne sur chaque hôte Docker. Lit `docker.sock`, remonte les conteneurs et métriques au Core. N'expose aucun port.
+- **Passerelle** : reçoit le trafic HTTP/HTTPS des utilisateurs finaux. Porte 80, 443.  
+- **Admin** : interface web de configuration. Porte 9443. Communique avec la passerelle via son API interne (port 8000 — ne pas exposer sur Internet).  
+- **Agent** : tourne sur chaque hôte Docker. Lit `docker.sock`, remonte les conteneurs et métriques à la passerelle. N'expose aucun port.
 
 **Deux exemples d'architecture** (il en existe bien d'autres) :
 
-- **Home lab** — 1 Admin · 1 Core · 1 Agent sur une machine : sections 3 à 6.
-- **Entreprise redondé** — 1 Admin · 2 Cores (passerelles, derrière un DNS round-robin ou une IP virtuelle) · 4 hôtes internes avec un Agent chacun : Admin + Core 1 comme le home lab, puis section 7 (second Core) et section 8 (un Agent par hôte). Le trafic se lit de haut en bas : Internet → passerelles → Agents (proxies HTTP(S) par labels) ou hôtes (proxies TCP/UDP). L'Admin est le lien de gestion des Cores.
+- **Home lab** — 1 Admin · 1 passerelle · 1 Agent sur une machine : sections 3 à 6.
+- **Entreprise redondé** — 1 Admin · 2 passerelles (derrière un DNS round-robin ou une IP virtuelle) · 4 hôtes internes avec un Agent chacun : Admin + Passerelle 1 comme le home lab, puis section 7 (seconde passerelle) et section 8 (un Agent par hôte). Le trafic se lit de haut en bas : Internet → passerelles → Agents (proxies HTTP(S) par labels) ou hôtes (proxies TCP/UDP). L'Admin est le lien de gestion des passerelles.
 
 **Secret de couplage (`GPX_PAIRING_SECRET`)** : les trois services partagent la même valeur. C'est le seul mécanisme d'authentification au démarrage. Générez-le aléatoirement, ne le réutilisez jamais entre environnements.
 
@@ -75,7 +75,7 @@ Navigateur Admin
 ### 3.1 Générer les secrets
 
 ```bash
-# Secret de couplage (partagé Admin + Core + Agent)
+# Secret de couplage (partagé Admin + Passerelle + Agent)
 PAIRING=$(openssl rand -hex 32)
 
 # Secret JWT (Admin uniquement)
@@ -101,7 +101,7 @@ GPX_FIRST_ADMIN_EMAIL=admin@example.com
 GPX_FIRST_ADMIN_PASSWORD=$PASSWORD
 ADMIN_PORT=9443
 TZ=Europe/Paris
-CORE_NODE_NAME=goproxify-core
+EDGE_NODE_NAME=goproxify-edge
 AGENT_NODE_NAME=goproxify-agent
 EOF
 ```
@@ -115,7 +115,7 @@ networks:
 
 volumes:
   goproxify_admin_data:
-  goproxify_core_data:
+  goproxify_edge_data:
   goproxify_agent_data:
 
 services:
@@ -130,7 +130,7 @@ services:
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
       - GPX_FIRST_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL}
       - GPX_FIRST_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD}
-      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
       - GPX_SERVER_API_PORT=9443
     ports:
       - "${ADMIN_PORT:-9443}:9443"
@@ -138,22 +138,22 @@ services:
       - goproxify_admin_data:/etc/goproxify
     networks: [goproxify_net]
 
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - TZ=${TZ:-Europe/Paris}
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
-      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
       - "8000:8000"
     volumes:
-      - goproxify_core_data:/etc/goproxify
+      - goproxify_edge_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-admin]
 
@@ -165,14 +165,14 @@ services:
     environment:
       - TZ=${TZ:-Europe/Paris}
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=${AGENT_NODE_NAME:-goproxify-agent}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
-    depends_on: [goproxify-core]
+    depends_on: [goproxify-edge]
 ```
 
 ### 3.4 Démarrer
@@ -207,7 +207,7 @@ GPX_FIRST_ADMIN_EMAIL=admin@example.com
 GPX_FIRST_ADMIN_PASSWORD=<motdepasse>
 ADMIN_PORT=9443
 TZ=Europe/Paris
-CORE_NODE_NAME=goproxify-core
+EDGE_NODE_NAME=goproxify-edge
 AGENT_NODE_NAME=goproxify-agent
 ```
 
@@ -238,7 +238,7 @@ networks:
 
 volumes:
   goproxify_admin_data:
-  goproxify_core_data:
+  goproxify_edge_data:
   goproxify_agent_data:
 
 services:
@@ -253,7 +253,7 @@ services:
       - GPX_PAIRING_SECRET=CHANGE_ME_PAIRING_HEX32
       - GPX_FIRST_ADMIN_EMAIL=admin@example.com
       - GPX_FIRST_ADMIN_PASSWORD=CHANGE_ME_PASSWORD_MIN12
-      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=goproxify-edge
       - GPX_SERVER_API_PORT=9443
     ports:
       - "9443:9443"
@@ -261,21 +261,21 @@ services:
       - goproxify_admin_data:/etc/goproxify
     networks: [goproxify_net]
 
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - TZ=Europe/Paris
       - GPX_PAIRING_SECRET=CHANGE_ME_PAIRING_HEX32
-      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=goproxify-edge
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
-      - goproxify_core_data:/etc/goproxify
+      - goproxify_edge_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-admin]
 
@@ -287,13 +287,13 @@ services:
     environment:
       - TZ=Europe/Paris
       - GPX_PAIRING_SECRET=CHANGE_ME_PAIRING_HEX32
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
       - GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
-    depends_on: [goproxify-core]
+    depends_on: [goproxify-edge]
 ```
 
 Remplacer tous les `CHANGE_ME_*` avant de cliquer **Deploy**.
@@ -328,9 +328,9 @@ export GPX_PAIRING_SECRET=$(openssl rand -hex 32)
 export GPX_SECURITY_JWT_SECRET=$(openssl rand -hex 32)
 export GPX_FIRST_ADMIN_EMAIL=admin@example.com
 export GPX_FIRST_ADMIN_PASSWORD=MonMotDePasse42!
-export GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+export GPX_IDENTITY_EDGE_NODE_NAME=goproxify-edge
 export GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
-export GPX_CONTROL_PLANE_CORE_ENDPOINT=http://localhost:8000
+export GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://localhost:8000
 export GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://localhost:9443
 ```
 
@@ -341,9 +341,9 @@ export GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://localhost:9443
 goproxify admin
 ```
 
-**Terminal 2 — Core :**
+**Terminal 2 — passerelle :**
 ```bash
-goproxify core
+goproxify edge
 ```
 
 **Terminal 3 — Agent :**
@@ -369,39 +369,39 @@ EnvironmentFile=/etc/goproxify/admin.env
 WantedBy=multi-user.target
 ```
 
-Répéter pour `core` et `agent` (avec leurs fichiers `.env` respectifs).
+Répéter pour `edge` et `agent` (avec leurs fichiers `.env` respectifs).
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now goproxify-admin goproxify-core goproxify-agent
+systemctl enable --now goproxify-admin goproxify-edge goproxify-agent
 ```
 
 ---
 
-## 7. Multi-hôtes — Core supplémentaire sur un serveur distant
+## 7. Multi-hôtes — passerelle supplémentaire sur un serveur distant
 
-Quand vous avez un **deuxième serveur** qui doit gérer du trafic HTTP/HTTPS indépendamment, déployez-y un Core seul. L'Admin central reste unique et pilote tous les Cores.
+Quand vous avez un **deuxième serveur** qui doit gérer du trafic HTTP/HTTPS indépendamment, déployez-y une passerelle seule. L'Admin central reste unique et pilote toutes les passerelles.
 
 ```
 ┌─────────────┐  WS :8000  ┌──────────────────┐  :80/:443
-│    ADMIN    │ ──────────► │  Core principal  │ ◄── trafic web A
+│    ADMIN    │ ──────────► │ passerelle principale  │ ◄── trafic web A
 │  (serveur 1)│             └──────────────────┘
 │             │  WS :8000  ┌──────────────────┐  :80/:443
-│             │ ──────────► │  Core secondaire │ ◄── trafic web B
+│             │ ──────────► │ passerelle secondaire │ ◄── trafic web B
 └─────────────┘             └──────────────────┘
 ```
 
 ### 7.1 Prérequis réseau
 
-Le port **8000** du Core secondaire doit être joignable depuis le serveur Admin (et depuis les Agents qui s'y connectent). Ouvrir uniquement vers les IPs concernées :
+Le port **8000** de la passerelle secondaire doit être joignable depuis le serveur Admin (et depuis les Agents qui s'y connectent). Ouvrir uniquement vers les IPs concernées :
 
 ```bash
-# Exemple UFW — sur le serveur Core secondaire
+# Exemple UFW — sur le serveur passerelle secondaire
 ufw allow from <IP_ADMIN> to any port 8000
 ufw allow from <IP_AGENT> to any port 8000
 ```
 
-### 7.2 Déployer le Core secondaire
+### 7.2 Déployer la passerelle secondaire
 
 Sur le serveur distant, créer un `docker-compose.yml` minimal :
 
@@ -411,20 +411,20 @@ networks:
     name: goproxify_net
 
 volumes:
-  core-lucas_data:
+  edge-lucas_data:
 
 services:
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - TZ=Europe/Paris
-      # Même valeur que l'Admin et le Core principal
+      # Même valeur que l'Admin et la passerelle principale
       - GPX_PAIRING_SECRET=<MÊME_PAIRING_SECRET>
-      # Nom unique pour ce Core — doit correspondre exactement au nom configuré dans l'Admin
-      - GPX_IDENTITY_CORE_NODE_NAME=core-lucas
+      # Nom unique pour cette passerelle — doit correspondre exactement au nom configuré dans l'Admin
+      - GPX_IDENTITY_EDGE_NODE_NAME=edge-lucas
     ports:
       - "80:80"
       - "443:443"
@@ -432,7 +432,7 @@ services:
       # Exposer 8000 pour que l'Admin (et les Agents distants) puissent s'y connecter
       - "8000:8000"
     volumes:
-      - core-lucas_data:/etc/goproxify
+      - edge-lucas_data:/etc/goproxify
     networks: [goproxify_net]
 ```
 
@@ -440,40 +440,40 @@ services:
 docker compose up -d
 ```
 
-### 7.3 Enregistrer le Core secondaire dans l'Admin
+### 7.3 Enregistrer la passerelle secondaire dans l'Admin
 
-L'Admin doit connaître l'adresse du Core secondaire. Deux façons :
+L'Admin doit connaître l'adresse de la passerelle secondaire. Deux façons :
 
 **Via le Wizard architecture** (recommandé) :
 1. Admin → **Infrastructure → Wizard**
-2. Ajouter un hôte de type Core, indiquer l'IP/hostname du serveur distant
+2. Ajouter un hôte de type passerelle, indiquer l'IP/hostname du serveur distant
 3. Cliquer **Enregistrer** — l'Admin tente immédiatement la connexion WS
 
 **Via les variables d'environnement de l'Admin** :
 ```bash
 # Ajouter dans le .env de l'Admin (redémarrage requis)
-GPX_IDENTITY_CORE_NODE_NAME=core-lucas        # nom du Core secondaire tel que configuré sur lui
-GPX_CORE_EXTRA_ENDPOINTS=http://<IP_CORE_SECONDAIRE>:8000
+GPX_IDENTITY_EDGE_NODE_NAME=edge-lucas        # nom de la passerelle secondaire tel que configuré sur lui
+GPX_EDGE_EXTRA_ENDPOINTS=http://<IP_EDGE_SECONDAIRE>:8000
 ```
 
 ### 7.4 Vérifier la connexion
 
-Dans l'Admin → **Infrastructure → Nœuds** : le Core secondaire doit passer de `declared` à `online` en quelques secondes après son démarrage.
+Dans l'Admin → **Infrastructure → Nœuds** : la passerelle secondaire doit passer de `declared` à `online` en quelques secondes après son démarrage.
 
-Si le Core reste en `Non connecté / En attente` :
+Si la passerelle reste en `Non connecté / En attente` :
 
 ```bash
 # Depuis le serveur Admin : le port 8000 est-il joignable ?
-curl http://<IP_CORE_SECONDAIRE>:8000/healthz
+curl http://<IP_EDGE_SECONDAIRE>:8000/healthz
 
-# Logs du Core secondaire — doit afficher "full_sync reçu de l'Admin"
-docker logs goproxify-core | tail -50
+# Logs de la passerelle secondaire — doit afficher "full_sync reçu de l'Admin"
+docker logs goproxify-edge | tail -50
 
 # Vérifier que GPX_PAIRING_SECRET est identique sur les deux machines
-docker exec goproxify-core env | grep GPX_PAIRING_SECRET
+docker exec goproxify-edge env | grep GPX_PAIRING_SECRET
 ```
 
-> **`GPX_IDENTITY_CORE_NODE_NAME` est critique.** La valeur configurée sur le Core doit correspondre exactement au nom que l'Admin utilise pour le joindre. Une divergence provoque un état `declared` permanent sans message d'erreur explicite.
+> **`GPX_IDENTITY_EDGE_NODE_NAME` est critique.** La valeur configurée sur la passerelle doit correspondre exactement au nom que l'Admin utilise pour le joindre. Une divergence provoque un état `declared` permanent sans message d'erreur explicite.
 
 ---
 
@@ -481,11 +481,11 @@ docker exec goproxify-core env | grep GPX_PAIRING_SECRET
 
 
 
-Quand l'Agent tourne sur un hôte **différent** du Core :
+Quand l'Agent tourne sur un hôte **différent** de la passerelle :
 
-### 7.1 Exposer le port 8000 du Core
+### 7.1 Exposer le port 8000 de la passerelle
 
-Sur le serveur Core, ouvrir le port 8000 dans le pare-feu **uniquement vers les IPs des serveurs agents** (ne pas exposer sur Internet) :
+Sur le serveur passerelle, ouvrir le port 8000 dans le pare-feu **uniquement vers les IPs des serveurs agents** (ne pas exposer sur Internet) :
 
 ```bash
 # Exemple UFW
@@ -497,9 +497,9 @@ ufw allow from <IP_AGENT> to any port 8000
 Sur le serveur Agent :
 
 ```bash
-# GPX_CONTROL_PLANE_CORE_ENDPOINT pointe vers l'IP ou domaine du Core, pas localhost
-export GPX_CONTROL_PLANE_CORE_ENDPOINT=http://<IP_DU_CORE>:8000
-export GPX_PAIRING_SECRET=<même valeur que le Core>
+# GPX_CONTROL_PLANE_EDGE_ENDPOINT pointe vers l'IP ou domaine de la passerelle, pas localhost
+export GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://<IP_DU_EDGE>:8000
+export GPX_PAIRING_SECRET=<même valeur que la passerelle>
 export GPX_IDENTITY_AGENT_NODE_NAME=agent-prod-1  # nom unique par agent
 ```
 
@@ -520,9 +520,9 @@ services:
     restart: unless-stopped
     command: ["agent"]
     environment:
-      - GPX_PAIRING_SECRET=<PAIRING_SECRET_DU_CORE>
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://<IP_DU_CORE>:8000
-      - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<IP_DU_CORE>:9443
+      - GPX_PAIRING_SECRET=<PAIRING_SECRET_DU_EDGE>
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://<IP_DU_EDGE>:8000
+      - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<IP_DU_EDGE>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=agent-prod-1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -566,7 +566,7 @@ goproxify admin -reset-password -email admin@example.com -password NouveauMotDeP
 
 Dans l'Admin → **Infrastructure** :
 
-- Le **Core** doit apparaître comme `online`
+- Le **Passerelle** doit apparaître comme `online`
 - L'**Agent** doit apparaître comme `online` (quelques secondes après le démarrage)
 
 Si un nœud reste en `declared` ou n'apparaît pas → voir [§10 Dépannage](#10-dépannage-courant).
@@ -575,7 +575,7 @@ Si un nœud reste en `declared` ou n'apparaît pas → voir [§10 Dépannage](#1
 
 1. Admin → **Proxies → Nouveau proxy**
 2. Remplir : domaine, protocole cible, port cible
-3. Activer le proxy → le Core commence à router le trafic immédiatement
+3. Activer le proxy → la passerelle commence à router le trafic immédiatement
 
 Pour les certificats HTTPS automatiques (ACME Let's Encrypt) :
 
@@ -598,7 +598,7 @@ docker compose ps
 
 ```bash
 docker compose logs -f goproxify-admin
-docker compose logs -f goproxify-core
+docker compose logs -f goproxify-edge
 docker compose logs -f goproxify-agent
 ```
 
@@ -608,10 +608,10 @@ docker compose logs -f goproxify-agent
 # Admin accessible
 curl -k https://localhost:9443/healthz
 
-# Core accessible (API interne — depuis le même réseau que les agents)
+# Passerelle accessible (API interne — depuis le même réseau que les agents)
 curl http://localhost:8000/healthz
 
-# Core proxy HTTP
+# Passerelle proxy HTTP
 curl -I http://localhost/
 ```
 
@@ -619,7 +619,7 @@ curl -I http://localhost/
 
 | Endroit | Ce qu'on vérifie |
 |---------|-----------------|
-| Infrastructure → Nœuds | Core et Agent en `online` |
+| Infrastructure → Nœuds | Passerelle et Agent en `online` |
 | Infrastructure → Agent → Détail | CPU/RAM remontés (heartbeat actif) |
 | Proxies | Statut `actif` sur les règles configurées |
 | Logs | Pas d'erreur `401` ni `connection refused` |
@@ -630,11 +630,11 @@ curl -I http://localhost/
 
 ### L'Agent n'apparaît pas dans l'Admin
 
-Cause la plus fréquente : `GPX_PAIRING_SECRET` différent entre l'Agent et le Core.
+Cause la plus fréquente : `GPX_PAIRING_SECRET` différent entre l'Agent et la passerelle.
 
 ```bash
 # Comparer — les deux valeurs doivent être identiques
-docker exec goproxify-core  env | grep GPX_PAIRING_SECRET
+docker exec goproxify-edge  env | grep GPX_PAIRING_SECRET
 docker exec goproxify-agent env | grep GPX_PAIRING_SECRET
 
 # Logs de l'agent — chercher status=401
@@ -643,14 +643,14 @@ docker logs goproxify-agent | grep -i "401\|heartbeat\|refused"
 
 > `GPX_IDENTITY_AGENT_NODE_NAME` est **optionnel** : sans lui, un ID stable est auto-généré au premier démarrage et persisté dans le volume (`/etc/goproxify/agent-node-id`). Si le volume est absent ou recréé, l'agent change d'identité et apparaît comme un nouveau nœud.
 
-### Le Core reste en `declared` (jamais `online`)
+### La passerelle reste en `declared` (jamais `online`)
 
 ```bash
-# L'agent peut-il joindre le Core sur le port 8000 ?
-docker exec goproxify-agent curl -s http://goproxify-core:8000/healthz
+# L'agent peut-il joindre la passerelle sur le port 8000 ?
+docker exec goproxify-agent curl -s http://goproxify-edge:8000/healthz
 
 # Vérifier que GPX_PAIRING_SECRET est identique sur les trois services
-docker exec goproxify-core env | grep GPX_PAIRING_SECRET
+docker exec goproxify-edge env | grep GPX_PAIRING_SECRET
 docker exec goproxify-admin env | grep GPX_PAIRING_SECRET
 ```
 
@@ -691,3 +691,27 @@ networks:
 - [CLI](cli.md) — toutes les commandes et options du binaire
 - [FAQ](faq.md) — questions fréquentes
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — contribuer au projet
+
+---
+
+## Migration depuis la version « Core »
+
+Le composant historique « Core » s'appelle désormais **passerelle** (`edge` dans les commandes, variables, images et fichiers). Les bases SQLite de l'Admin et les fichiers du volume de la passerelle (`core.json`, `core-cache.gpx`, `core-tokens.db`) sont migrés automatiquement au premier démarrage, et les anciennes variables `…CORE…` restent acceptées avec un avertissement.
+
+Reste à adapter à la main :
+
+| Avant | Après |
+|---|---|
+| service/conteneur `goproxify-core`, image `…/core` | `goproxify-edge`, `…/edge` |
+| `goproxify core` | `goproxify edge` |
+| `GPX_CORE_*`, `GPX_IDENTITY_CORE_NODE_NAME`, `GPX_CONTROL_PLANE_CORE_ENDPOINT` | `GPX_EDGE_*`, `GPX_IDENTITY_EDGE_NODE_NAME`, `GPX_CONTROL_PLANE_EDGE_ENDPOINT` |
+| métriques `gpx_core_*` | `gpx_edge_*` (dashboards et alertes) |
+| champs JSON `core_*`, options CLI `-core`, paramètres d'outils MCP | `edge_*`, `-edge` |
+
+Pour garder les données du volume existant, déclarez-le sous son ancien nom :
+
+```yaml
+volumes:
+  goproxify_edge_data:
+    name: goproxify_core_data
+```

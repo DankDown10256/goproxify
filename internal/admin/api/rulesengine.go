@@ -306,7 +306,7 @@ func (h *RulesEngineHandler) conditionTypes(w http.ResponseWriter, r *http.Reque
 		},
 		{
 			"type":  "node_offline",
-			"label": "Core/Agent hors ligne",
+			"label": "Passerelle/Agent hors ligne",
 			"params": []string{"node_name", "offline_minutes"},
 		},
 		{

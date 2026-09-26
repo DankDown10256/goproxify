@@ -110,7 +110,7 @@ func (s *Server) handleInternalThreats(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "JSON invalide", http.StatusBadRequest)
 		return
 	}
-	coreName := s.callerNodeName(r)
+	edgeName := s.callerNodeName(r)
 	changed := false
 	for _, t := range batch {
 		if t.IP == "" {
@@ -118,11 +118,11 @@ func (s *Server) handleInternalThreats(w http.ResponseWriter, r *http.Request) {
 		}
 		typ := nvlStr(t.Type, "ban")
 		res, err := s.db.Exec(
-			`INSERT INTO security_threats (ip, scenario, origin, type, duration, core_name) VALUES (?,?,?,?,?,?)
+			`INSERT INTO security_threats (ip, scenario, origin, type, duration, edge_name) VALUES (?,?,?,?,?,?)
 			 ON CONFLICT (ip, scenario) DO UPDATE SET
 			   origin = excluded.origin, type = excluded.type, duration = excluded.duration,
-			   core_name = excluded.core_name, occurrences = occurrences + 1, last_seen_at = CURRENT_TIMESTAMP`,
-			t.IP, t.Scenario, t.Origin, typ, t.Duration, coreName,
+			   edge_name = excluded.edge_name, occurrences = occurrences + 1, last_seen_at = CURRENT_TIMESTAMP`,
+			t.IP, t.Scenario, t.Origin, typ, t.Duration, edgeName,
 		)
 		if err != nil {
 			continue
@@ -172,18 +172,18 @@ func (s *Server) handleInternalCVEs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "JSON invalide", http.StatusBadRequest)
 		return
 	}
-	coreName := s.callerNodeName(r)
+	edgeName := s.callerNodeName(r)
 	for _, c := range batch {
 		s.db.Exec( //nolint:errcheck
-			`INSERT INTO security_cves (backend_url, cve_id, cvss_score, description, core_name) VALUES (?,?,?,?,?)
-			 ON CONFLICT (backend_url, cve_id) DO UPDATE SET core_name = excluded.core_name`,
-			c.BackendURL, c.CVEID, c.CVSSScore, c.Description, coreName,
+			`INSERT INTO security_cves (backend_url, cve_id, cvss_score, description, edge_name) VALUES (?,?,?,?,?)
+			 ON CONFLICT (backend_url, cve_id) DO UPDATE SET edge_name = excluded.edge_name`,
+			c.BackendURL, c.CVEID, c.CVSSScore, c.Description, edgeName,
 		)
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// callerNodeName retrouve le Core/Agent émetteur à partir du token d'appairage
+// callerNodeName retrouve la passerelle/Agent émetteur à partir du token d'appairage
 // utilisé pour authentifier la requête (route protégée par RequireBearerToken).
 func (s *Server) callerNodeName(r *http.Request) string {
 	tokenStr := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))

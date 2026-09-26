@@ -14,7 +14,7 @@ GoProxify deploys as a **single Go binary**. The instance personality is determi
                            │  HMAC-SHA256
                            ▼
   ┌──────────────────────────────────────────────────────────┐
-  │  CORE  (Data Plane — central WS hub)                     │
+  │  EDGE  (Data Plane — central WS hub)                     │
   │  HTTP/1·2·3 QUIC · TCP/UDP L4                            │
   │  TLS in RAM · AES-256 local cache                        │
   │  :80 :443 :443/UDP  :8000 (internal WS hub)              │
@@ -29,22 +29,22 @@ GoProxify deploys as a **single Go binary**. The instance personality is determi
   └──────────────────────────────────────────────────────────┘
 ```
 
-The Core is the **single connection hub** — only it needs an accessible port. Admin and Agent initiate the WS connection from their side; the Core makes no outbound calls to them.
+The Edge is the **single connection hub** — only it needs an accessible port. Admin and Agent initiate the WS connection from their side; the Edge makes no outbound calls to them.
 
 ---
 
 ## Example layouts
 
-Two reference layouts (also on the landing page), read top to bottom: Internet → gateways (Cores) → Agents (HTTP(S) proxies via labels) or hosts (TCP/UDP proxies). The Admin is the management link to the Cores.
+Two reference layouts (also on the landing page), read top to bottom: Internet → gateways (Edges) → Agents (HTTP(S) proxies via labels) or hosts (TCP/UDP proxies). The Admin is the management link to the Edges.
 
-- **Home lab**: 1 Admin · 1 Core · 1 Agent. HTTP(S) sites reach Docker containers through the Agent; TCP/UDP services go straight to a host, no Agent needed.
-- **Enterprise, redundant**: 1 Admin · 2 Cores behind DNS round-robin or a virtual IP · 4 internal hosts, each running an Agent. Both Cores route over the internal network; the Admin manages both.
+- **Home lab**: 1 Admin · 1 Edge · 1 Agent. HTTP(S) sites reach Docker containers through the Agent; TCP/UDP services go straight to a host, no Agent needed.
+- **Enterprise, redundant**: 1 Admin · 2 Edges behind DNS round-robin or a virtual IP · 4 internal hosts, each running an Agent. Both Edges route over the internal network; the Admin manages both.
 
 Install steps: [deployment.md](deployment.md).
 
 ## Components
 
-### Core (Data Plane)
+### Edge (Data Plane)
 
 **Responsibility:** High-performance network engine. Persists nothing to disk.
 
@@ -58,19 +58,19 @@ Install steps: [deployment.md](deployment.md).
 
 ### Admin (Control Plane)
 
-**Responsibility:** Central orchestrator. Admin persistence (config, users, tokens) in SQLite; proxies as **YAML files** on the Core (`proxies/*.yaml`).
+**Responsibility:** Central orchestrator. Admin persistence (config, users, tokens) in SQLite; proxies as **YAML files** on the Edge (`proxies/*.yaml`).
 
 **Key points:**
 - Detects absence of SQLite on first launch → mandatory initialization screen
 - Two config sources: Manual (UI/API) and Declarative (Docker labels via Agent)
 - Proxies from labels appear **read-only** (greyed out) in the UI
-- Acquires wildcard certificates via ACME DNS-01 and pushes them decoded to the Core
-- Generates cryptographic pairing tokens (`gpx_core_*`, `gpx_join_*`)
-- Maintains an **outbound WS connection** to each Core — no inbound port required on the Admin side
+- Acquires wildcard certificates via ACME DNS-01 and pushes them decoded to the Edge
+- Generates cryptographic pairing tokens (`gpx_edge_*`, `gpx_join_*`)
+- Maintains an **outbound WS connection** to each Edge — no inbound port required on the Admin side
 
 **Port:** `:9443`
 
-**Architecture wizard:** the UI composes a topology (hosts + services), derives install packages and emits bootstrap tickets (`/i/{token}`) anchored to the Core. Admin stays the interface; Core is the integration target.
+**Architecture wizard:** the UI composes a topology (hosts + services), derives install packages and emits bootstrap tickets (`/i/{token}`) anchored to the Edge. Admin stays the interface; Edge is the integration target.
 
 ### Agent (Discovery & Telemetry)
 
@@ -78,12 +78,12 @@ Install steps: [deployment.md](deployment.md).
 
 **Key points:**
 - Watches `/var/run/docker.sock` — apps expose **no port** on the host
-- Hot-connects the Core container to the application's private bridge network
+- Hot-connects the Edge container to the application's private bridge network
 - Reads `/proc/stat` and `/proc/meminfo` (heartbeat) and per-container Docker stats (CPU / memory / disk IO) for adaptive LB
-- Streams metrics via WS (`metrics`, every 10s) to the Core
+- Streams metrics via WS (`metrics`, every 10s) to the Edge
 - Canary / Shadow labels: manual proxy configuration (auto-detection via labels planned)
 - Prometheus export on `:9191/metrics`
-- **No inbound port required** — the Agent initiates the WS connection to the Core
+- **No inbound port required** — the Agent initiates the WS connection to the Edge
 
 **Portainer multi-host:**
 
@@ -92,7 +92,7 @@ The Agent can watch a remote Portainer API to discover containers across multipl
 | Field | Type | Description |
 |-------|------|-------------|
 | `skip_endpoints` | `[]string` | Portainer endpoint names to skip during discovery |
-| `endpoint_cores` | `map[string]{ core_endpoint, auth_token }` | Route an endpoint's routes to an alternate GoProxify Core |
+| `endpoint_edges` | `map[string]{ edge_endpoint, auth_token }` | Route an endpoint's routes to an alternate GoProxify Edge |
 
 Example:
 ```json
@@ -101,9 +101,9 @@ Example:
     "url": "https://portainer:9443",
     "api_key": "ptr_xxx",
     "skip_endpoints": ["local"],
-    "endpoint_cores": {
-      "edge-dc2": {
-        "core_endpoint": "http://core-2.example.com:8000",
+    "endpoint_edges": {
+      "host-dc2": {
+        "edge_endpoint": "http://edge-2.example.com:8000",
         "auth_token": "gpx_agent_..."
       }
     }
@@ -111,7 +111,7 @@ Example:
 }
 ```
 
-Routes discovered on `edge-dc2` are relayed to `core-dc2` (Core→Core relay via internal endpoint `:8000`) rather than to the Agent's default Core.
+Routes discovered on `host-dc2` are relayed to `edge-dc2` (Edge→Edge relay via internal endpoint `:8000`) rather than to the Agent's default Edge.
 
 ---
 
@@ -128,20 +128,20 @@ score = cpu×0.5 + mem×0.3 + disk_io×0.2   # 0–100, lowest wins
 ```
 
 - **Agent**: `GET /containers/{id}/stats?stream=false` for `goproxify.enable=true` containers, then WS `metrics` message.
-- **Core**: `AgentMetricsStore` fed by WS (no more Admin HTTP polling for LB).
+- **Edge**: `AgentMetricsStore` fed by WS (no more Admin HTTP polling for LB).
 
-### Local pool (same Core)
+### Local pool (same Edge)
 
-Multiple containers with the **same** `goproxify.host`, discovered by one or more Agents attached to **this** Core, are merged into a `docker-host:<hostname>` multi-backend route (`LBAdaptive` by default).
+Multiple containers with the **same** `goproxify.host`, discovered by one or more Agents attached to **this** Edge, are merged into a `docker-host:<hostname>` multi-backend route (`LBAdaptive` by default).
 
 ```
-Agent(s) ──containers──▶ Core
+Agent(s) ──containers──▶ Edge
                               └── route docker-host:app.example.com
                                     backends: [IP_A:port, IP_B:port]
                                     lb: adaptive
 ```
 
-The Core reaches Docker IPs via the bridge network (ports **not** published on the host).
+The Edge reaches Docker IPs via the bridge network (ports **not** published on the host).
 
 ### Immediate failover
 
@@ -153,24 +153,24 @@ If dial / proxy to a backend fails:
 
 Without ≥ 2 backends, no failover is possible.
 
-### Cross-Core (Agent A / Core A + Agent B / Core B)
+### Cross-Edge (Agent A / Edge A + Agent B / Edge B)
 
 Goal: the **same site** reachable via a container behind each stack, without a production VXLAN mesh.
 
 ```
                     ┌─ dial local ──────────────▶ container A (Docker IP)
- Client ──▶ Core A ─┤
-                    └─ OwnerCoreEndpoint=B ──tunnel──▶ Core B ──▶ container B
+ Client ──▶ Edge A ─┤
+                    └─ OwnerEdgeEndpoint=B ──tunnel──▶ Edge B ──▶ container B
 ```
 
-1. **Admin** pushes `push_gateway_peers`: list `{name, endpoint, token}` for each Core.
-2. Each Core **syncs** (~15s) `GET /internal/v1/agent/containers` and `GET /internal/v1/lb/scores` from its peers.
-3. If the same host exists locally **and** at a peer → remote backends annotated `owner_core_endpoint`.
-4. Remote dial: `POST /internal/v1/gateway/tunnel` `{target:"IP:port"}` (Bearer of the owner Core) → TCP pipe. Only IPs **locally owned** by the owner are allowed.
+1. **Admin** pushes `push_gateway_peers`: list `{name, endpoint, token}` for each Edge.
+2. Each Edge **syncs** (~15s) `GET /internal/v1/agent/containers` and `GET /internal/v1/lb/scores` from its peers.
+3. If the same host exists locally **and** at a peer → remote backends annotated `owner_edge_endpoint`.
+4. Remote dial: `POST /internal/v1/gateway/tunnel` `{target:"IP:port"}` (Bearer of the owner Edge) → TCP pipe. Only IPs **locally owned** by the owner are allowed.
 
-Prerequisites: internal `:8000` endpoints reachable between Cores; Core tokens registered in Admin.
+Prerequisites: internal `:8000` endpoints reachable between Edges; Edge tokens registered in Admin.
 
-This mechanism is **distinct** from [domain delegation](delegation.md) (DNS entry → one target Core for an entire domain).
+This mechanism is **distinct** from [domain delegation](delegation.md) (DNS entry → one target Edge for an entire domain).
 
 ---
 
@@ -180,7 +180,7 @@ This mechanism is **distinct** from [domain delegation](delegation.md) (DNS entr
 1. App starts with labels    →  2. Agent detects (Unix socket)
    (ports not published)
                                            ↓
-5. HTTPS request routed      ←  4. Core receives config + cert (RAM)
+5. HTTPS request routed      ←  4. Edge receives config + cert (RAM)
    (private Docker network)           ↑
                                   3. Admin validates, ACME DNS-01, push
 ```
@@ -202,28 +202,28 @@ labels:
 
 | Port | Protocol | Component | Exposure | Usage |
 |---|---|---|---|---|
-| 80 | TCP | Core | Public | HTTP (redirect or plaintext) |
-| 443 | TCP | Core | Public | HTTPS (TLS termination) |
-| 443 | UDP | Core | Public | HTTP/3 QUIC |
-| 8000 | TCP | Core | Internal only | WS hub + internal API — receives WS connections from Admin and Agent |
+| 80 | TCP | Edge | Public | HTTP (redirect or plaintext) |
+| 443 | TCP | Edge | Public | HTTPS (TLS termination) |
+| 443 | UDP | Edge | Public | HTTP/3 QUIC |
+| 8000 | TCP | Edge | Internal only | WS hub + internal API — receives WS connections from Admin and Agent |
 | 9443 | TCP | Admin | Operator | REST API + Web UI |
 | 9191 | TCP | Agent | Internal only | Prometheus metrics |
 | 51820 | UDP | Agent | Internal only | WireGuard (optional) |
 
-> **Golden rule:** only port 8000 of the Core needs to be reachable from Admin and Agent networks. Admin and Agent require no inbound port for the control plane.
+> **Golden rule:** only port 8000 of the Edge needs to be reachable from Admin and Agent networks. Admin and Agent require no inbound port for the control plane.
 
 ---
 
-## Inter-Core delegation
+## Inter-Edge delegation
 
-Multiple Cores can share domains. The **entry Core** receives public traffic; the **target Core** hosts the application proxies.
+Multiple Edges can share domains. The **entry Edge** receives public traffic; the **target Edge** hosts the application proxies.
 
 Two modes (Domains page in Admin):
 
-| Mode | Flow | Client certificate | Client IP on target Core |
+| Mode | Flow | Client certificate | Client IP on target Edge |
 |---|---|---|---|
-| **Passthrough** | TCP TLS tunnel (SNI) | Target Core | Entry Core's IP |
-| **Terminate** | TLS at entry → HTTPS proxy to target | Entry Core | Client IP via `X-Forwarded-For` |
+| **Passthrough** | TCP TLS tunnel (SNI) | Target Edge | Entry Edge's IP |
+| **Terminate** | TLS at entry → HTTPS proxy to target | Entry Edge | Client IP via `X-Forwarded-For` |
 
 Full guide: [delegation.md](delegation.md).
 
@@ -231,7 +231,7 @@ Full guide: [delegation.md](delegation.md).
 
 ## `/etc/goproxify/` directory layout
 
-Admin and Core each have a Docker volume mounted at `/etc/goproxify/` (separate containers). Proxy JSON files are **not** on the Admin.
+Admin and Edge each have a Docker volume mounted at `/etc/goproxify/` (separate containers). Proxy JSON files are **not** on the Admin.
 
 ```
 # Admin volume (goproxify_admin_data)
@@ -242,26 +242,26 @@ Admin and Core each have a Docker volume mounted at `/etc/goproxify/` (separate 
 └── logs/
     └── admin.log
 
-# Core volume (goproxify_core_data) — only place to look for proxy files
+# Edge volume (goproxify_edge_data) — only place to look for proxy files
 /etc/goproxify/
-├── proxies/                      # prod (1 flat JSON / proxy) — created at Core boot
+├── proxies/                      # prod (1 flat JSON / proxy) — created at Edge boot
 │   └── app.example.com.json
 ├── proxies-revisions/            # pending → dry-run → promote
 │   └── <proxy-id>--<rev>.json
-├── core-cache.gpx
-├── core-tokens.db
+├── edge-cache.gpx
+├── edge-tokens.db
 ├── geoip/
 ├── certs/
 └── logs/
-    ├── core_system.log
-    └── core_access.log
+    ├── edge_system.log
+    └── edge_access.log
 ```
 
 ---
 
 ## Log formats
 
-### System log (`admin.log`, `agent.log`, `core_system.log`)
+### System log (`admin.log`, `agent.log`, `edge_system.log`)
 
 ```json
 {
@@ -274,12 +274,12 @@ Admin and Core each have a Docker volume mounted at `/etc/goproxify/` (separate 
 }
 ```
 
-### HTTP access log (`core_access.log`)
+### HTTP access log (`edge_access.log`)
 
 ```json
 {
   "time": "2026-07-15T23:55:01.123Z",
-  "component": "core-router",
+  "component": "edge-router",
   "client_ip": "193.56.21.10",
   "host": "app.example.com",
   "method": "GET",
@@ -306,28 +306,28 @@ All WS messages use a JSON envelope:
 
 The `seq` field is an incrementing counter per sender. A gap in the sequence triggers an automatic `full_sync`.
 
-### Admin → Core flow
+### Admin → Edge flow
 
-1. Admin opens `GET ws://core:8000/ws/admin` with header `X-Goproxify-Signature: hmac-sha256 <timestamp>.<sig>`
-2. Core validates the HMAC-SHA256 and accepts the connection
-3. Core immediately replies with a `full_sync` to align state
+1. Admin opens `GET ws://edge:8000/ws/admin` with header `X-Goproxify-Signature: hmac-sha256 <timestamp>.<sig>`
+2. Edge validates the HMAC-SHA256 and accepts the connection
+3. Edge immediately replies with a `full_sync` to align state
 4. Admin sends messages as configuration changes occur: `push_routes`, `push_cert`, `delete_route`…
 5. If the connection is lost: Admin reconnects with exponential backoff 1s → 60s + jitter
 
-### Agent → Core flow
+### Agent → Edge flow
 
 1. First start: Agent presents its `JOIN_TOKEN` (generated by Admin UI, TTL 24h) in the WS upgrade header
-2. Core creates the Agent entry in `pending` state and notifies Admin via the Admin WS connection
-3. Operator approves in the UI → Core sends an `approve` message with the first `agent_hmac`
+2. Edge creates the Agent entry in `pending` state and notifies Admin via the Admin WS connection
+3. Operator approves in the UI → Edge sends an `approve` message with the first `agent_hmac`
 4. Agent stores the `agent_hmac` and uses it for all future reconnections
-5. Core emits a `rotate_hmac` message every hour; the Agent adopts the new secret without interruption
+5. Edge emits a `rotate_hmac` message every hour; the Agent adopts the new secret without interruption
 6. Agent streams continuously: `heartbeat` (30s), `containers` (on change), `metrics` (10s), `event`, `log`
-7. Core → Agent: `command` (restart, update), `rescan`
+7. Edge → Agent: `command` (restart, update), `rescan`
 
 ### Resilience
 
 - Application-level ping/pong every 30s; 3 unanswered pings → reconnect
-- Admin disconnect → Core preserves cache; zero traffic interruption
+- Admin disconnect → Edge preserves cache; zero traffic interruption
 - Agent disconnect → backends marked `unhealthy` after 90s of absence
 
 ---
@@ -335,17 +335,17 @@ The `seq` field is an incrementing counter per sender. A gap in the sequence tri
 ## Token security
 
 ```
-Admin  ─HMAC-SHA256──►  Core (ws/admin)
+Admin  ─HMAC-SHA256──► Edge (ws/admin)
                               │
                               │  message: approve
                               ▼
-        Agent (JOIN_TOKEN) ──►  Core (ws/agent)  ──► rotating agent_hmac (1h)
+        Agent (JOIN_TOKEN) ──► Edge (ws/agent)  ──► rotating agent_hmac (1h)
 ```
 
 | Token | Format | Usage | Lifetime |
 |-------|--------|-------|----------|
-| `gpx_join_*` | Random opaque | Agent first connection → Core | 24h (single use) |
-| `agent_hmac` | HMAC-SHA256 secret | Agent reconnections → Core | Rotated every 1h |
-| `admin_hmac_secret` | Symmetric key | Admin → Core handshake | Static, configurable |
+| `gpx_join_*` | Random opaque | Agent first connection → Edge | 24h (single use) |
+| `agent_hmac` | HMAC-SHA256 secret | Agent reconnections → Edge | Rotated every 1h |
+| `admin_hmac_secret` | Symmetric key | Admin → Edge handshake | Static, configurable |
 | JWT ECDSA P-256 | Signed JWT | Admin UI sessions | 8h |
 | `gpx_api_*` | Revocable opaque | External API access | Permanent or configured TTL |

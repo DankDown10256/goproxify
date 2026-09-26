@@ -24,14 +24,14 @@ func newTestDB(t *testing.T, name string) *sql.DB {
 	t.Cleanup(func() { _ = db.Close() })
 	for _, q := range []string{
 		`CREATE TABLE tokens (id TEXT PRIMARY KEY, role TEXT, node_name TEXT, node_endpoint TEXT, rbac_role TEXT, revoked INTEGER DEFAULT 0)`,
-		`CREATE TABLE declared_nodes (id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('core','agent')), name TEXT NOT NULL,
+		`CREATE TABLE declared_nodes (id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('edge','agent')), name TEXT NOT NULL,
 			region TEXT NOT NULL DEFAULT '', environment TEXT NOT NULL DEFAULT '', config TEXT NOT NULL DEFAULT '{}',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE token_scopes (id TEXT PRIMARY KEY, token_id TEXT NOT NULL, scope_type TEXT NOT NULL, scope_value TEXT NOT NULL,
 			UNIQUE(token_id, scope_type, scope_value))`,
-		`CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT UNIQUE NOT NULL, core_id TEXT NOT NULL DEFAULT '',
+		`CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT UNIQUE NOT NULL, edge_id TEXT NOT NULL DEFAULT '',
 			dns_provider TEXT NOT NULL DEFAULT 'none', dns_credentials TEXT NOT NULL DEFAULT '{}', cert_method TEXT NOT NULL DEFAULT 'http',
-			delegated_to_core_id TEXT NOT NULL DEFAULT '', delegated_endpoint TEXT NOT NULL DEFAULT '', delegation_mode TEXT NOT NULL DEFAULT 'passthrough')`,
+			delegated_to_edge_id TEXT NOT NULL DEFAULT '', delegated_endpoint TEXT NOT NULL DEFAULT '', delegation_mode TEXT NOT NULL DEFAULT 'passthrough')`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -56,12 +56,12 @@ func TestApplyToDBFileIsTheReference(t *testing.T) {
 
 	// La base contient un nœud que le fichier ne connaît pas : il doit disparaître.
 	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name) VALUES('dn_old','agent','ancien')`)
-	_, _ = db.Exec(`INSERT INTO tokens(id, role, node_name, node_endpoint) VALUES('c1','core','frontal','http://goproxify-core:8000')`)
+	_, _ = db.Exec(`INSERT INTO tokens(id, role, node_name, node_endpoint) VALUES('c1','edge','frontal','http://goproxify-edge:8000')`)
 	_, _ = db.Exec(`INSERT INTO token_scopes(id, token_id, scope_type, scope_value) VALUES('s_old','c1','domain','vieux.fr')`)
 
 	for _, n := range []NodeEntry{
-		{ID: "dn_b", Role: "core", Name: "backup", Config: json.RawMessage(`{"reachable_host": "192.0.2.20:8000", "cluster": true}`)},
-		{ID: "c1", Role: "core", Name: "frontal", Endpoint: "http://goproxify-core:8000",
+		{ID: "dn_b", Role: "edge", Name: "backup", Config: json.RawMessage(`{"reachable_host": "192.0.2.20:8000", "cluster": true}`)},
+		{ID: "c1", Role: "edge", Name: "frontal", Endpoint: "http://goproxify-edge:8000",
 			Scopes: []ScopeEntry{{ID: "s_new", Type: "domain", Value: "nouveau.fr"}}},
 	} {
 		if err := s.Upsert(n); err != nil {
@@ -83,7 +83,7 @@ func TestApplyToDBFileIsTheReference(t *testing.T) {
 		t.Fatal("nœud du wizard : doit être dans la base")
 	}
 	if count(t, db, `SELECT COUNT(*) FROM declared_nodes WHERE id='c1'`) != 0 {
-		t.Fatal("Core appairé sans config : pas de ligne declared_nodes")
+		t.Fatal("Passerelle appairée sans config : pas de ligne declared_nodes")
 	}
 	if count(t, db, `SELECT COUNT(*) FROM token_scopes WHERE id='s_old'`) != 0 || count(t, db, `SELECT COUNT(*) FROM token_scopes WHERE id='s_new'`) != 1 {
 		t.Fatal("les périmètres doivent suivre le fichier")
@@ -97,7 +97,7 @@ func TestApplyToDBFileIsTheReference(t *testing.T) {
 
 func TestApplyToDBIgnoresEmptyFile(t *testing.T) {
 	db := newTestDB(t, "apply_empty")
-	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name) VALUES('dn_keep','core','garde')`)
+	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name) VALUES('dn_keep','edge','garde')`)
 	rep, err := New(t.TempDir()).ApplyToDB(context.Background(), db)
 	if err != nil || rep != (ApplyReport{}) {
 		t.Fatalf("rapport %+v err %v", rep, err)
@@ -110,7 +110,7 @@ func TestApplyToDBIgnoresEmptyFile(t *testing.T) {
 func TestSeedFromDBNeverOverwrites(t *testing.T) {
 	db := newTestDB(t, "seed")
 	ctx := context.Background()
-	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name, config) VALUES('dn_a','core','a','{"x":1}')`)
+	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name, config) VALUES('dn_a','edge','a','{"x":1}')`)
 
 	s := New(t.TempDir())
 	if err := s.SeedFromDB(ctx, db); err != nil {
@@ -121,7 +121,7 @@ func TestSeedFromDBNeverOverwrites(t *testing.T) {
 		t.Fatalf("amorçage attendu depuis la base, reçu %+v", nodes)
 	}
 
-	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name) VALUES('dn_b','core','b')`)
+	_, _ = db.Exec(`INSERT INTO declared_nodes(id, role, name) VALUES('dn_b','edge','b')`)
 	if err := s.SeedFromDB(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestSyncDomainsFromDBKeepsNodes(t *testing.T) {
 	db := newTestDB(t, "sync_domains")
 	_, _ = db.Exec(`INSERT INTO domains(id, domain) VALUES('d1','exemple.fr')`)
 	s := New(t.TempDir())
-	if err := s.Upsert(NodeEntry{ID: "n1", Role: "core", Name: "frontal", Endpoint: "http://c:8000"}); err != nil {
+	if err := s.Upsert(NodeEntry{ID: "n1", Role: "edge", Name: "frontal", Endpoint: "http://c:8000"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SyncDomainsFromDB(context.Background(), db); err != nil {
@@ -154,13 +154,13 @@ func TestSyncDomainsFromDBKeepsNodes(t *testing.T) {
 
 func TestVersionsKeepPreviousFileAndRestoreIsReversible(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Upsert(NodeEntry{ID: "a", Role: "core", Name: "un", Endpoint: "http://un:8000"}); err != nil {
+	if err := s.Upsert(NodeEntry{ID: "a", Role: "edge", Name: "un", Endpoint: "http://un:8000"}); err != nil {
 		t.Fatal(err)
 	}
 	if v, _ := s.Versions(); len(v) != 0 {
 		t.Fatalf("première écriture : rien à conserver, reçu %v", v)
 	}
-	if err := s.Upsert(NodeEntry{ID: "b", Role: "core", Name: "deux", Endpoint: "http://deux:8000"}); err != nil {
+	if err := s.Upsert(NodeEntry{ID: "b", Role: "edge", Name: "deux", Endpoint: "http://deux:8000"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Delete("a"); err != nil {
@@ -197,7 +197,7 @@ func TestRestoreRejectsPathTraversal(t *testing.T) {
 func TestVersionsArePruned(t *testing.T) {
 	s := New(t.TempDir())
 	for i := 0; i < maxVersions+8; i++ {
-		if err := s.Upsert(NodeEntry{ID: "a", Role: "core", Name: "n", Endpoint: fmt.Sprintf("http://n:%d", 8000+i)}); err != nil {
+		if err := s.Upsert(NodeEntry{ID: "a", Role: "edge", Name: "n", Endpoint: fmt.Sprintf("http://n:%d", 8000+i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -216,11 +216,11 @@ func TestControlEndpointPrefersEndpointThenReachableHost(t *testing.T) {
 		n    NodeEntry
 		want string
 	}{
-		{NodeEntry{Role: "core", Endpoint: "http://goproxify-core:8000", Config: json.RawMessage(`{"reachable_host":"192.0.2.4:8000"}`)}, "http://goproxify-core:8000"},
-		{NodeEntry{Role: "core", Config: json.RawMessage(`{"reachable_host":"192.0.2.91:8000"}`)}, "http://192.0.2.91:8000"},
-		{NodeEntry{Role: "core", Config: json.RawMessage(`{"reachable_host":"https://c.example.com:8000"}`)}, "https://c.example.com:8000"},
-		{NodeEntry{Role: "core", Config: json.RawMessage(`{"reachable_host":""}`)}, ""},
-		{NodeEntry{Role: "core"}, ""},
+		{NodeEntry{Role: "edge", Endpoint: "http://goproxify-edge:8000", Config: json.RawMessage(`{"reachable_host":"192.0.2.4:8000"}`)}, "http://goproxify-edge:8000"},
+		{NodeEntry{Role: "edge", Config: json.RawMessage(`{"reachable_host":"192.0.2.91:8000"}`)}, "http://192.0.2.91:8000"},
+		{NodeEntry{Role: "edge", Config: json.RawMessage(`{"reachable_host":"https://c.example.com:8000"}`)}, "https://c.example.com:8000"},
+		{NodeEntry{Role: "edge", Config: json.RawMessage(`{"reachable_host":""}`)}, ""},
+		{NodeEntry{Role: "edge"}, ""},
 		{NodeEntry{Role: "agent", Config: json.RawMessage(`{"reachable_host":"192.0.2.9:1"}`)}, ""},
 	}
 	for i, tc := range cases {
@@ -232,7 +232,7 @@ func TestControlEndpointPrefersEndpointThenReachableHost(t *testing.T) {
 
 func TestUpsertEndpointDoesNotDuplicateReachableHost(t *testing.T) {
 	s := New(t.TempDir())
-	if err := s.Upsert(NodeEntry{ID: "dn_b", Role: "core", Name: "backup",
+	if err := s.Upsert(NodeEntry{ID: "dn_b", Role: "edge", Name: "backup",
 		Config: json.RawMessage(`{"reachable_host":"192.0.2.91:8000"}`)}); err != nil {
 		t.Fatal(err)
 	}
@@ -244,27 +244,27 @@ func TestUpsertEndpointDoesNotDuplicateReachableHost(t *testing.T) {
 		t.Fatalf("endpoint recopié depuis reachable_host: %q", nodes[0].Endpoint)
 	}
 	// une adresse différente (ex. réseau Docker interne) reste écrite : ce n'est pas un doublon
-	if err := s.UpsertEndpoint("dn_b", "http://goproxify-core:8000", ""); err != nil {
+	if err := s.UpsertEndpoint("dn_b", "http://goproxify-edge:8000", ""); err != nil {
 		t.Fatal(err)
 	}
-	if nodes, _ = s.List(); nodes[0].Endpoint != "http://goproxify-core:8000" {
+	if nodes, _ = s.List(); nodes[0].Endpoint != "http://goproxify-edge:8000" {
 		t.Fatalf("endpoint différent attendu, reçu %q", nodes[0].Endpoint)
 	}
 }
 
-func TestEnsureCoreNeverDuplicates(t *testing.T) {
+func TestEnsureEdgeNeverDuplicates(t *testing.T) {
 	s := New(t.TempDir())
 	// nœud du wizard sans endpoint : reste tel quel quand un token du même nom se crée sous un autre ID
-	if err := s.Upsert(NodeEntry{ID: "dn_b", Role: "core", Name: "backup",
+	if err := s.Upsert(NodeEntry{ID: "dn_b", Role: "edge", Name: "backup",
 		Config: json.RawMessage(`{"reachable_host":"192.0.2.91:8000"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.EnsureCore("tok-1", "backup", "http://192.0.2.91:8000", "admin"); err != nil {
+	if err := s.EnsureEdge("tok-1", "backup", "http://192.0.2.91:8000", "admin"); err != nil {
 		t.Fatal(err)
 	}
-	// Core inconnu : ajouté une fois, puis idempotent
+	// Passerelle inconnue : ajouté une fois, puis idempotent
 	for i := 0; i < 3; i++ {
-		if err := s.EnsureCore("c-a", "core-a", "http://core-a:8000", "admin"); err != nil {
+		if err := s.EnsureEdge("c-a", "edge-a", "http://edge-a:8000", "admin"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -273,7 +273,7 @@ func TestEnsureCoreNeverDuplicates(t *testing.T) {
 		t.Fatalf("attendu dn_b et c-a, reçu %+v", nodes)
 	}
 	// même ID que le nœud du wizard et même adresse que reachable_host : pas d'endpoint recopié
-	if err := s.EnsureCore("dn_b", "backup", "http://192.0.2.91:8000", "admin"); err != nil {
+	if err := s.EnsureEdge("dn_b", "backup", "http://192.0.2.91:8000", "admin"); err != nil {
 		t.Fatal(err)
 	}
 	if nodes, _ = s.List(); nodes[0].Endpoint != "" || nodes[0].RBACRole != "admin" {
@@ -281,7 +281,7 @@ func TestEnsureCoreNeverDuplicates(t *testing.T) {
 	}
 	// une réécriture identique ne crée pas de nouvelle version
 	before, _ := s.Versions()
-	_ = s.EnsureCore("c-a", "core-a", "http://core-a:8000", "admin")
+	_ = s.EnsureEdge("c-a", "edge-a", "http://edge-a:8000", "admin")
 	if after, _ := s.Versions(); len(after) != len(before) {
 		t.Fatalf("aucune version attendue pour un contenu inchangé (%d → %d)", len(before), len(after))
 	}

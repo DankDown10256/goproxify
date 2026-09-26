@@ -206,7 +206,7 @@ window.openUserModal = async function(id) {
                 <option value="domain">domain</option>
                 <option value="server">server</option>
                 <option value="proxy">proxy</option>
-                <option value="core">core</option>
+                <option value="edge">edge</option>
               </select>
               <input class="input" id="um-sc-val" placeholder="*.corp.io" style="flex:1;min-width:120px;">
               <select id="um-sc-mode" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;background:var(--input-bg,var(--bg2));color:var(--text);">
@@ -320,7 +320,7 @@ window.openTeamModal = async function(id) {
   let _acProxies = [];
   try { _acProxies = await api('GET', '/proxies').catch(() => []); } catch {}
   let _acNodes = [];
-  try { _acNodes = (await api('GET', '/nodes').catch(() => [])).filter(n => n.role === 'core'); } catch {}
+  try { _acNodes = (await api('GET', '/nodes').catch(() => [])).filter(n => n.role === 'edge'); } catch {}
 
   const renderScopes = () => {
     const el = document.getElementById('tm-scopes-list');
@@ -351,7 +351,7 @@ window.openTeamModal = async function(id) {
                 <label class="seg-opt"><input type="radio" name="tm-sc-type" value="domain" checked>domain</label>
                 <label class="seg-opt"><input type="radio" name="tm-sc-type" value="server">server</label>
                 <label class="seg-opt"><input type="radio" name="tm-sc-type" value="proxy">proxy</label>
-                <label class="seg-opt"><input type="radio" name="tm-sc-type" value="core">core</label>
+                <label class="seg-opt"><input type="radio" name="tm-sc-type" value="edge">edge</label>
               </div>
               <div id="tm-sc-wrap">
                 <input class="input" id="tm-sc-val" autocomplete="off" style="width:100%;box-sizing:border-box;" placeholder="*.corp.io">
@@ -394,7 +394,7 @@ window.openTeamModal = async function(id) {
       const urls = new Set();
       _acProxies.forEach(p => { try { const r = JSON.parse(p.config||'{}'); (r.backends||[]).forEach(b => { if (b.url) urls.add(b.url); }); } catch {} });
       items = [...urls];
-    } else if (type === 'core') {
+    } else if (type === 'edge') {
       items = _acNodes.map(n => n.node_name || n.display_name || n.id).filter(Boolean);
     }
     return items.filter(s => !q || s.toLowerCase().includes(q));
@@ -433,7 +433,7 @@ window.openTeamModal = async function(id) {
 
   document.querySelectorAll('input[name="tm-sc-type"]').forEach(r => {
     r.addEventListener('change', () => {
-      const placeholders = { domain: '*.corp.io', server: 'http://10.0.0.*', proxy: 'uuid…', core: 'core-paris-*' };
+      const placeholders = { domain: '*.corp.io', server: 'http://10.0.0.*', proxy: 'uuid…', edge: 'edge-paris-*' };
       acInput.placeholder = placeholders[r.value] || '';
       acList.style.display = 'none';
       acInput.value = '';

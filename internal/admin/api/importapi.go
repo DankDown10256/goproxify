@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/backup"
 	"github.com/vincamok/goproxify/internal/admin/importer"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // ImportHandler gère l'import de sauvegardes et la migration de configs.

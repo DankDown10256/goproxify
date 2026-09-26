@@ -4,18 +4,18 @@
 # Se branche sur le réseau de la stack principale (goproxify_net) : lancer
 # d'abord `docker compose up -d` à la racine. Piloter via tests/lab/lab.sh.
 #
-# Les runners résolvent *.lab.test vers l'IP du Core (extra_hosts, CORE_IP
+# Les runners résolvent *.lab.test vers l'IP de la passerelle (extra_hosts, EDGE_IP
 # fournie par lab.sh) : les tests passent donc par le vrai routage par Host.
 # =============================================================================
 
 x-lab-hosts: &lab-hosts
   extra_hosts:
-    - "lab-fast.lab.test:${CORE_IP:-127.0.0.1}"
-    - "lab-waf-block.lab.test:${CORE_IP:-127.0.0.1}"
-    - "lab-waf-detect.lab.test:${CORE_IP:-127.0.0.1}"
-    - "lab-ratelimit.lab.test:${CORE_IP:-127.0.0.1}"
-    - "lab-chaos.lab.test:${CORE_IP:-127.0.0.1}"
-    - "lab-juice.lab.test:${CORE_IP:-127.0.0.1}"
+    - "lab-fast.lab.test:${EDGE_IP:-127.0.0.1}"
+    - "lab-waf-block.lab.test:${EDGE_IP:-127.0.0.1}"
+    - "lab-waf-detect.lab.test:${EDGE_IP:-127.0.0.1}"
+    - "lab-ratelimit.lab.test:${EDGE_IP:-127.0.0.1}"
+    - "lab-chaos.lab.test:${EDGE_IP:-127.0.0.1}"
+    - "lab-juice.lab.test:${EDGE_IP:-127.0.0.1}"
 
 networks:
   goproxify_net:
@@ -206,10 +206,10 @@ services:
       S_attacks: |
         #!/usr/bin/env bash
         # Batterie d'attaques ciblées avec verdict PASS/FAIL. Code retour = nombre d'échecs.
-        # Périmètre : le labo local uniquement (*.lab.test, Core du labo, Admin du labo).
+        # Périmètre : le labo local uniquement (*.lab.test, Passerelle du labo, Admin du labo).
         set -u
         . /lab/scripts/hosts.sh
-        CORE_HOST=$${CORE_HOST:-goproxify-core}
+        EDGE_HOST=$${EDGE_HOST:-goproxify-edge}
         ADMIN=$${LAB_ADMIN_URL:-http://goproxify-admin:9443}
         fail=0
 
@@ -222,7 +222,7 @@ services:
           ko "$$d : obtenu $$got, attendu $$*"
         }
 
-        # Garde-fou : après un redéploiement, lab-backend recompile son code et le Core répond 502 en attendant.
+        # Garde-fou : après un redéploiement, lab-backend recompile son code et la passerelle répond 502 en attendant.
         # Sans cela, tous les contrôles échouent pour une raison sans rapport avec la sécurité.
         ready=0
         for _ in $$(seq 1 30); do
@@ -251,16 +251,16 @@ services:
         last_xff=$$(echo "$$out" | jq -r '.headers["X-Forwarded-For"][0] // ""' | awk -F', *' '{print $$NF}')
         real=$$(echo "$$out" | jq -r '.headers["X-Real-Ip"][0] // ""')
         # Ce runner est sur un réseau privé = proxy de confiance par défaut : X-Real-IP fourni peut légitimement être repris.
-        # On vérifie donc que le Core ajoute bien l'IP réelle du pair en fin de X-Forwarded-For.
-        [ "$$last_xff" != "6.6.6.6" ] && ok "Core ajoute l'IP du pair en fin de XFF (xff=$$last_xff)" || ko "XFF non complété par le Core (xff=$$last_xff)"
+        # On vérifie donc que la passerelle ajoute bien l'IP réelle du pair en fin de X-Forwarded-For.
+        [ "$$last_xff" != "6.6.6.6" ] && ok "Passerelle ajoute l'IP du pair en fin de XFF (xff=$$last_xff)" || ko "XFF non complété par la passerelle (xff=$$last_xff)"
         echo "  info  X-Real-IP reçu par le backend : $${real:-<absent>} (attendu si le pair est un proxy de confiance)"
         hop=$$(curl -s -H 'Connection: X-Secret' -H 'X-Secret: 1' http://lab-fast.lab.test/echo | jq -r '.headers["X-Secret"] // empty')
         [ -z "$$hop" ] && ok "en-tête hop-by-hop (Connection:) retiré" || ko "hop-by-hop X-Secret transmis"
 
         echo "== Routage / Host =="
-        expect_in "Host inconnu"               "$$(code -H 'Host: inconnu.lab.test' "http://$$CORE_HOST/")"  404 421 502 503
+        expect_in "Host inconnu"               "$$(code -H 'Host: inconnu.lab.test' "http://$$EDGE_HOST/")"  404 421 502 503
         raw_status() { # requête brute (curl ne sait pas envoyer deux Host)
-          exec 3<>"/dev/tcp/$$CORE_HOST/80" || { echo 000; return; }
+          exec 3<>"/dev/tcp/$$EDGE_HOST/80" || { echo 000; return; }
           printf '%b' "$$1" >&3
           read -r -t 10 line <&3; exec 3>&-
           echo "$$line" | awk '{print $$2}'
@@ -274,7 +274,7 @@ services:
 
         echo "== Request smuggling (CL + TE) =="
         resp=$$(printf 'POST / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /admin HTTP/1.1\r\nHost: lab-fast.lab.test\r\n\r\n' \
-          | nc -w 5 "$$CORE_HOST" 80 | grep -c '^HTTP/1.1 ')
+          | nc -w 5 "$$EDGE_HOST" 80 | grep -c '^HTTP/1.1 ')
         [ "$${resp:-0}" -le 1 ] && ok "un seul verdict HTTP pour une requête CL+TE ($$resp)" || ko "$$resp réponses : smuggling possible"
 
         echo "== Rate limiting =="
@@ -283,7 +283,7 @@ services:
         [ $$n429 -gt 0 ] && ok "429 renvoyés en rafale ($$n429/120)" || ko "aucun 429 sur 120 requêtes rapides (rps=10 burst=20)"
 
         echo "== Robustesse connexions lentes (slowloris) =="
-        exec 3<>"/dev/tcp/$$CORE_HOST/80"
+        exec 3<>"/dev/tcp/$$EDGE_HOST/80"
         printf 'GET / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nX-Slow: ' >&3
         start=$$(date +%s)
         read -r -t 45 -n1 <&3 || true   # rend la main dès que le serveur ferme (ou après 45 s)
@@ -310,7 +310,7 @@ services:
         exit $$fail
       S_chaos: |
         #!/usr/bin/env bash
-        # Chaos réseau côté backend via Toxiproxy : le Core doit dégrader proprement (5xx rapide, pas de blocage)
+        # Chaos réseau côté backend via Toxiproxy : la passerelle doit dégrader proprement (5xx rapide, pas de blocage)
         # et se rétablir seul. Code retour = nombre d'échecs.
         set -u
         . /lab/scripts/hosts.sh
@@ -342,7 +342,7 @@ services:
         read -r c t <<<"$$(req 20)"
         case "$$c" in 502|503|504) awk -v t="$$t" 'BEGIN{exit !(t<10)}' && ok "erreur $$c rapide ($${t}s)" || ko "erreur $$c mais lente ($${t}s)";; *) ko "code inattendu $$c";; esac
         curl -s -X POST "$$T/proxies/backend" -H 'Content-Type: application/json' -d '{"enabled":true}' >/dev/null
-        recovers && ok "reprise automatique après retour du backend" || ko "Core n'a pas repris le backend (circuit non refermé ?)"
+        recovers && ok "reprise automatique après retour du backend" || ko "Passerelle n'a pas repris le backend (circuit non refermé ?)"
 
         echo "== Connexion réinitialisée (RST) =="
         toxic '{"type":"reset_peer","attributes":{"timeout":0}}'
@@ -352,7 +352,7 @@ services:
         echo "== Backend muet (timeout) =="
         toxic '{"type":"timeout","attributes":{"timeout":0}}'
         read -r c t <<<"$$(req 90)"
-        case "$$c" in 502|503|504) ok "timeout amont -> $$c après $${t}s";; *) ko "timeout amont -> $$c ($${t}s) : le Core bloque le client ?";; esac
+        case "$$c" in 502|503|504) ok "timeout amont -> $$c après $${t}s";; *) ko "timeout amont -> $$c ($${t}s) : la passerelle bloque le client ?";; esac
         reset; recovers && ok "rétablissement après timeout" || ko "pas de rétablissement"
 
         echo "== Bande passante 50 Ko/s sur 1 Mo (client lent / backend lent) =="
@@ -365,9 +365,9 @@ services:
         exit $$fail
       S_hosts: |
         #!/bin/sh
-        # Résout *.lab.test vers l'IP du Core (trouvée par DNS Docker) : évite CORE_IP et extra_hosts.
-        ip=$$(getent hosts "$${CORE_HOST:-goproxify-core}" | awk '{print $$1; exit}')
-        [ -n "$$ip" ] || { echo "goproxify-core introuvable sur goproxify_net (stack principale démarrée ?)" >&2; exit 1; }
+        # Résout *.lab.test vers l'IP de la passerelle (trouvée par DNS Docker) : évite EDGE_IP et extra_hosts.
+        ip=$$(getent hosts "$${EDGE_HOST:-goproxify-edge}" | awk '{print $$1; exit}')
+        [ -n "$$ip" ] || { echo "goproxify-edge introuvable sur goproxify_net (stack principale démarrée ?)" >&2; exit 1; }
         grep -v '\.lab\.test' /etc/hosts > /tmp/hosts.new
         for h in lab-fast lab-waf-block lab-waf-detect lab-ratelimit lab-chaos lab-juice; do echo "$$ip $$h.lab.test" >> /tmp/hosts.new; done
         cat /tmp/hosts.new > /etc/hosts
@@ -493,7 +493,7 @@ services:
         export const handleSummary = summary("moderate");
       K_saturation: |
         // Saturation : 50 VUs sans pause pendant ~1 min (modèle fermé). Mesure le DÉBIT ATTEINT par le système
-        // (k6 + Core + backend sur la même machine). Les latences reflètent alors la file d'attente
+        // (k6 + Passerelle + backend sur la même machine). Les latences reflètent alors la file d'attente
         // (loi de Little : latence moyenne ≈ VUs / débit) : aucun seuil de latence, erreurs seulement.
         import { get, summary } from "./common.js";
 
@@ -588,7 +588,7 @@ services:
 
         export const handleSummary = summary("stress");
       K_soak: |
-        // Endurance : charge modérée constante (DURATION, défaut 30m). Surveiller RSS / goroutines / FD du Core
+        // Endurance : charge modérée constante (DURATION, défaut 30m). Surveiller RSS / goroutines / FD de la passerelle
         // pendant le run (lab.sh soak lance aussi la collecte docker stats).
         import { get, summary } from "./common.js";
 
@@ -652,9 +652,9 @@ services:
         export const handleSummary = summary("mixed");
       K_hosts: |
         #!/bin/sh
-        # Résout *.lab.test vers l'IP du Core (trouvée par DNS Docker) : évite CORE_IP et extra_hosts.
-        ip=$$(getent hosts "$${CORE_HOST:-goproxify-core}" | awk '{print $$1; exit}')
-        [ -n "$$ip" ] || { echo "goproxify-core introuvable sur goproxify_net (stack principale démarrée ?)" >&2; exit 1; }
+        # Résout *.lab.test vers l'IP de la passerelle (trouvée par DNS Docker) : évite EDGE_IP et extra_hosts.
+        ip=$$(getent hosts "$${EDGE_HOST:-goproxify-edge}" | awk '{print $$1; exit}')
+        [ -n "$$ip" ] || { echo "goproxify-edge introuvable sur goproxify_net (stack principale démarrée ?)" >&2; exit 1; }
         grep -v '\.lab\.test' /etc/hosts > /tmp/hosts.new
         for h in lab-fast lab-waf-block lab-waf-detect lab-ratelimit lab-chaos lab-juice; do echo "$$ip $$h.lab.test" >> /tmp/hosts.new; done
         cat /tmp/hosts.new > /etc/hosts
@@ -677,7 +677,7 @@ services:
       - LAB_ADMIN_URL=http://goproxify-admin:9443
       - LAB_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL:-}
       - LAB_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD:-}
-      - LAB_CORE=http://goproxify-core
+      - LAB_EDGE=http://goproxify-edge
     volumes:
       - ./scripts:/lab/scripts:ro
       - ./results:/lab/results

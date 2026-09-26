@@ -20,7 +20,7 @@ Ce document décrit le menu **Sauvegardes** de l'Administration : le fonctionnem
 
 | Entité | Contenu | Remarques |
 |---|---|---|
-| Proxies | Configuration complète de chaque proxy (route, TLS, WAF, headers…) + état activé | Restauration : republication vers les Cores |
+| Proxies | Configuration complète de chaque proxy (route, TLS, WAF, headers…) + état activé | Restauration : republication vers les passerelles |
 | Utilisateurs | `id`, e-mail, rôle | **Sans mot de passe** (voir §3) |
 | Tokens de nœuds | `id`, rôle, rôle RBAC, nom et endpoint du nœud, expiration | Secret **jamais** exporté ; tokens révoqués ignorés |
 | Scopes de tokens | `token_scopes` | |
@@ -58,11 +58,11 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 | Clés RGPD (`gdpr_keys`) | Clés de chiffrement : à sauvegarder séparément, hors snapshot |
 | Logs, journal d'audit, historique de bans, menaces, CVE, alertes émises, événements de nœuds | Données d'état volumineuses, reconstituables |
 | Historique d'exécution des règles automatiques, historique de déploiement de certificats | Historique |
-| Certificats TLS et clés privées | Non inclus dans le snapshot Admin (voir cache chiffré du Core : `core-cache.gpx`) |
+| Certificats TLS et clés privées | Non inclus dans le snapshot Admin (voir cache chiffré de la passerelle : `edge-cache.gpx`) |
 | Autres snapshots (`backup_snapshots`) et historique des proxies (`proxy_history`) | Éviter la récursivité ; l'historique a son propre mécanisme de restauration |
 | Nœuds actifs / agents enregistrés (`nodes`, `pending_nodes`) | État dynamique ; les nœuds se ré-enregistrent |
 
-> Les fichiers de configuration (`admin`, `core`, `agent:<nom>`) ne sont inclus que si la sauvegarde est générée avec `ExportConfigs` (section `configs`).
+> Les fichiers de configuration (`admin`, `edge`, `agent:<nom>`) ne sont inclus que si la sauvegarde est générée avec `ExportConfigs` (section `configs`).
 
 ## 4. Gestion des secrets
 
@@ -79,7 +79,7 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 
 | Point | Comportement |
 |---|---|
-| Restauration d'un snapshot (bouton *Restaurer*) | Applique tout : utilisateurs, tokens, PAT, snippets, canaux, règles d'alerte, nœuds déclarés, tables de configuration ; en mode **overwrite** (les lignes existantes de même identifiant sont remplacées) ; proxies republiés vers les Cores ; planifications de sauvegarde rechargées |
+| Restauration d'un snapshot (bouton *Restaurer*) | Applique tout : utilisateurs, tokens, PAT, snippets, canaux, règles d'alerte, nœuds déclarés, tables de configuration ; en mode **overwrite** (les lignes existantes de même identifiant sont remplacées) ; proxies republiés vers les passerelles ; planifications de sauvegarde rechargées |
 | Snapshot de sécurité | Avant tout écrasement (restauration de snapshot ou import en `overwrite`), un snapshot `avant-restauration-<date>` / `avant-import-<date>` est pris automatiquement ; s'il échoue, l'opération est annulée. Il permet de revenir en arrière |
 | Version | Une sauvegarde dont la `version` n'est pas `1` est refusée |
 | Résultat | Compteurs par entité : proxies, utilisateurs, tokens, PAT, snippets, canaux, règles, lignes de configuration, nœuds déclarés, ignorés, erreurs |

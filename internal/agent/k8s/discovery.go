@@ -32,7 +32,7 @@ const (
 )
 
 // Discovery surveille les Services et Ingress Kubernetes portant le label
-// goproxify.enabled=true et pousse les routes correspondantes vers le Core.
+// goproxify.enabled=true et pousse les routes correspondantes vers la passerelle.
 type Discovery struct {
 	cfg         *config.AgentConfig
 	adminURL    string
@@ -52,7 +52,7 @@ type Discovery struct {
 func New(cfg *config.AgentConfig, log *slog.Logger) (*Discovery, error) {
 	d := &Discovery{
 		cfg:         cfg,
-		adminURL:    cfg.ControlPlane.CoreEndpoint,
+		adminURL:    cfg.ControlPlane.EdgeEndpoint,
 		authToken:   cfg.ControlPlane.AuthToken,
 		labelPrefix: cfg.Kubernetes.LabelPrefix,
 		log:         log,
@@ -290,7 +290,7 @@ func (d *Discovery) watchStream(ctx context.Context, path string, fn func(k8sWat
 	}
 }
 
-// upsertService traduit un Service K8s en route proxy et la pousse au Core.
+// upsertService traduit un Service K8s en route proxy et la pousse à la passerelle.
 func (d *Discovery) upsertService(ctx context.Context, svc k8sService) {
 	ann := svc.Metadata.Annotations
 	if ann == nil {
@@ -321,7 +321,7 @@ func (d *Discovery) upsertService(ctx context.Context, svc k8sService) {
 	d.pushRoute(ctx, svcKey(svc.Metadata), ann, host, backendURL, ann[p+"tls"] == "true")
 }
 
-// upsertIngress traduit un Ingress K8s en routes proxy et les pousse au Core.
+// upsertIngress traduit un Ingress K8s en routes proxy et les pousse à la passerelle.
 func (d *Discovery) upsertIngress(ctx context.Context, ing k8sIngress) {
 	ann := ing.Metadata.Annotations
 	if ann == nil {
@@ -374,7 +374,7 @@ func (d *Discovery) upsertIngress(ctx context.Context, ing k8sIngress) {
 	}
 }
 
-// routePayload construit le payload Agent→Core d'une route. Les annotations suivent exactement la
+// routePayload construit le payload Agent→Passerelle d'une route. Les annotations suivent exactement la
 // sémantique des labels Docker (waf, rate_limit, jwt, mtls, backpressure…) : elles passent par le même
 // parseur, préfixe configurable normalisé vers "goproxify.". Retourne nil si l'hôte est invalide.
 func (d *Discovery) routePayload(key string, ann map[string]string, host, backendURL string, tls bool) (map[string]any, *docker.ProxySpec) {
@@ -415,7 +415,7 @@ func (d *Discovery) routePayload(key string, ann map[string]string, host, backen
 	return payload, spec
 }
 
-// pushRoute envoie un payload agentContainerPayload compatible au Core.
+// pushRoute envoie un payload agentContainerPayload compatible à la passerelle.
 func (d *Discovery) pushRoute(ctx context.Context, key string, ann map[string]string, host, backendURL string, tls bool) {
 	payload, spec := d.routePayload(key, ann, host, backendURL, tls)
 	if payload == nil {
@@ -463,7 +463,7 @@ func (d *Discovery) deleteByKey(ctx context.Context, key string) {
 	if host == "" {
 		return
 	}
-	// Le Core génère l'ID de route "docker-host:{host}" via handleAgentContainerStart.
+	// La passerelle génère l'ID de route "docker-host:{host}" via handleAgentContainerStart.
 	routeID := "docker-host:" + host
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		d.adminURL+"/internal/v1/routes/"+url.PathEscape(routeID), nil)

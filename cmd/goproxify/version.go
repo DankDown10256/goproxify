@@ -6,7 +6,7 @@ package main
 // Injectées au build via -ldflags (voir Makefile, versions lues depuis versions.json) :
 //
 //	-X 'main.VersionAdmin=0.2.0'
-//	-X 'main.VersionCore=0.2.0'
+//	-X 'main.VersionEdge=0.2.0'
 //	-X 'main.VersionAgent=0.2.0'
 //	-X 'main.VersionWebapp=0.2.0'
 //	-X 'main.VersionLanding=0.1.0'
@@ -14,7 +14,7 @@ package main
 //	-X 'main.GitCommit=abc1234'
 var (
 	VersionAdmin   = "dev"
-	VersionCore    = "dev"
+	VersionEdge    = "dev"
 	VersionAgent   = "dev"
 	VersionWebapp  = "dev"
 	VersionLanding = "dev"

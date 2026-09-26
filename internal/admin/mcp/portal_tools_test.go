@@ -36,11 +36,11 @@ func TestPortalGetConfigTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_ = admindb.SetSetting(db, "portal.config.core-a", `{"enabled":true,"public_host":"access.example","ssh_port":2222}`)
+	_ = admindb.SetSetting(db, "portal.config.edge-a", `{"enabled":true,"public_host":"access.example","ssh_port":2222}`)
 
 	h := &Handler{DB: db}
 	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
-	out, err := h.toolGetPortalConfig(r, map[string]any{"core": "core-a"})
+	out, err := h.toolGetPortalConfig(r, map[string]any{"edge": "edge-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestPortalCreateDestinationTool(t *testing.T) {
 	h := &Handler{DB: db}
 	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	created, err := h.toolCreatePortalDestination(r, map[string]any{
-		"core_name": "core-a", "name": "bastion", "kind": "ssh",
+		"edge_name": "edge-a", "name": "bastion", "kind": "ssh",
 		"host": "10.0.0.1", "port": float64(22), "tags": []any{"prod"},
 	})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestPortalCreateDestinationTool(t *testing.T) {
 	if m["name"] != "bastion" || m["id"] == "" {
 		t.Fatalf("create: %v", created)
 	}
-	listed, err := h.toolListPortalDestinations(r, map[string]any{"core": "core-a"})
+	listed, err := h.toolListPortalDestinations(r, map[string]any{"edge": "edge-a"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func (s *Store) ApplyToDB(ctx context.Context, db *sql.DB) (ApplyReport, error) 
 		}
 	}
 
-	tokenIDs, err := idSet(ctx, tx, `SELECT id FROM tokens WHERE role='core'`)
+	tokenIDs, err := idSet(ctx, tx, `SELECT id FROM tokens WHERE role='edge'`)
 	if err != nil {
 		return rep, err
 	}
@@ -59,10 +59,10 @@ func (s *Store) ApplyToDB(ctx context.Context, db *sql.DB) (ApplyReport, error) 
 	// Nœuds déclarés : upsert de ceux du fichier, suppression des autres.
 	wanted := map[string]bool{}
 	for _, n := range arch.Nodes {
-		if n.Role != "core" && n.Role != "agent" {
+		if n.Role != "edge" && n.Role != "agent" {
 			continue
 		}
-		// Un nœud sans config est un simple Core appairé (token) : il n'a pas de ligne declared_nodes.
+		// Un nœud sans config est un simple passerelle appairée (token) : il n'a pas de ligne declared_nodes.
 		if !n.wizardDeclared() {
 			continue
 		}
@@ -95,7 +95,7 @@ func (s *Store) ApplyToDB(ctx context.Context, db *sql.DB) (ApplyReport, error) 
 		rep.Removed++
 	}
 
-	// Périmètres RBAC des Cores appairés.
+	// Périmètres RBAC des passerelles appairées.
 	for _, n := range arch.Nodes {
 		if !tokenIDs[n.ID] || len(n.Scopes) == 0 {
 			continue
@@ -134,15 +134,15 @@ func (s *Store) ApplyToDB(ctx context.Context, db *sql.DB) (ApplyReport, error) 
 				creds = "{}"
 			}
 			_, err := tx.ExecContext(ctx,
-				`INSERT INTO domains(id, domain, core_id, dns_provider, dns_credentials, cert_method,
-				   delegated_to_core_id, delegated_endpoint, delegation_mode)
+				`INSERT INTO domains(id, domain, edge_id, dns_provider, dns_credentials, cert_method,
+				   delegated_to_edge_id, delegated_endpoint, delegation_mode)
 				 VALUES(?,?,?,?,?,?,?,?,?)
-				 ON CONFLICT(id) DO UPDATE SET domain=excluded.domain, core_id=excluded.core_id,
+				 ON CONFLICT(id) DO UPDATE SET domain=excluded.domain, edge_id=excluded.edge_id,
 				   dns_provider=excluded.dns_provider, dns_credentials=excluded.dns_credentials,
-				   cert_method=excluded.cert_method, delegated_to_core_id=excluded.delegated_to_core_id,
+				   cert_method=excluded.cert_method, delegated_to_edge_id=excluded.delegated_to_edge_id,
 				   delegated_endpoint=excluded.delegated_endpoint, delegation_mode=excluded.delegation_mode`,
-				d.ID, d.Domain, d.CoreID, d.DNSProvider, creds, d.CertMethod,
-				d.DelegatedToCoreID, d.DelegatedEndpoint, d.DelegationMode)
+				d.ID, d.Domain, d.EdgeID, d.DNSProvider, creds, d.CertMethod,
+				d.DelegatedToEdgeID, d.DelegatedEndpoint, d.DelegationMode)
 			if err != nil {
 				note(fmt.Errorf("domains %s: %w", d.ID, err))
 				continue
@@ -232,12 +232,12 @@ func buildFromDB(ctx context.Context, db *sql.DB) (*Architecture, error) {
 	}
 	trows, err := db.QueryContext(ctx,
 		`SELECT id, node_name, COALESCE(node_endpoint,''), COALESCE(rbac_role,'admin')
-		 FROM tokens WHERE role='core' AND revoked=0`)
+		 FROM tokens WHERE role='edge' AND revoked=0`)
 	if err == nil {
 		for trows.Next() {
 			var id, name, ep, rbac string
 			if trows.Scan(&id, &name, &ep, &rbac) == nil && !seen[id] {
-				nodes = append(nodes, NodeEntry{ID: id, Role: "core", Name: name, Endpoint: ep, RBACRole: rbac})
+				nodes = append(nodes, NodeEntry{ID: id, Role: "edge", Name: name, Endpoint: ep, RBACRole: rbac})
 				seen[id] = true
 			}
 		}
@@ -270,8 +270,8 @@ func buildFromDB(ctx context.Context, db *sql.DB) (*Architecture, error) {
 
 func loadDomains(ctx context.Context, db *sql.DB) ([]DomainEntry, error) {
 	drows, err := db.QueryContext(ctx,
-		`SELECT id, domain, core_id, dns_provider, COALESCE(dns_credentials,'{}'),
-		        cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode
+		`SELECT id, domain, edge_id, dns_provider, COALESCE(dns_credentials,'{}'),
+		        cert_method, delegated_to_edge_id, delegated_endpoint, delegation_mode
 		 FROM domains ORDER BY domain`)
 	if err != nil {
 		return nil, err
@@ -280,8 +280,8 @@ func loadDomains(ctx context.Context, db *sql.DB) ([]DomainEntry, error) {
 	var domains []DomainEntry
 	for drows.Next() {
 		var d DomainEntry
-		if drows.Scan(&d.ID, &d.Domain, &d.CoreID, &d.DNSProvider, &d.DNSCredentials,
-			&d.CertMethod, &d.DelegatedToCoreID, &d.DelegatedEndpoint, &d.DelegationMode) == nil {
+		if drows.Scan(&d.ID, &d.Domain, &d.EdgeID, &d.DNSProvider, &d.DNSCredentials,
+			&d.CertMethod, &d.DelegatedToEdgeID, &d.DelegatedEndpoint, &d.DelegationMode) == nil {
 			domains = append(domains, d)
 		}
 	}

@@ -13,7 +13,7 @@ import (
 
 var metricsSummaryClient = &http.Client{Timeout: 5 * time.Second}
 
-// metricsSummary proxies GET /internal/v1/metrics/summary from the Core with the given node ID.
+// metricsSummary proxies GET /internal/v1/metrics/summary from the Edge with the given node ID.
 func (h *NodesHandler) metricsSummary(w http.ResponseWriter, r *http.Request, id string) {
 	// Lookup node_name from nodes table
 	var nodeName string
@@ -29,7 +29,7 @@ func (h *NodesHandler) metricsSummary(w http.ResponseWriter, r *http.Request, id
 	var endpoint, token string
 	err = h.DB.QueryRowContext(r.Context(),
 		`SELECT node_endpoint, token FROM tokens
-		 WHERE node_name=? AND role='core' AND revoked=0 AND node_endpoint != ''
+		 WHERE node_name=? AND role='edge' AND revoked=0 AND node_endpoint != ''
 		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		 ORDER BY created_at DESC LIMIT 1`, nodeName,
 	).Scan(&endpoint, &token)
@@ -45,7 +45,7 @@ func (h *NodesHandler) metricsSummary(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	// tokens.token peut être chiffré au repos (voir auth.SealNodeToken) ;
-	// Core n'a que le hash du token en clair (pushAdminToken le déchiffre
+	// Passerelle n'a que le hash du token en clair (pushAdminToken le déchiffre
 	// avant envoi) — sans ce déchiffrement symétrique, 401 permanent dès
 	// que le chiffrement est actif.
 	req.Header.Set("Authorization", "Bearer "+auth.PlainNodeToken(token))
@@ -53,15 +53,15 @@ func (h *NodesHandler) metricsSummary(w http.ResponseWriter, r *http.Request, id
 	resp, err := metricsSummaryClient.Do(req)
 	if err != nil {
 		if h.Log != nil {
-			h.Log.Warn("metrics-summary: Core injoignable", "node", nodeName, "err", err)
+			h.Log.Warn("metrics-summary: Passerelle injoignable", "node", nodeName, "err", err)
 		}
-		writeErr(w, r, http.StatusBadGateway, "api.err.core_unreachable")
+		writeErr(w, r, http.StatusBadGateway, "api.err.edge_unreachable")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		writeErr(w, r, http.StatusBadGateway, "api.err.core_error")
+		writeErr(w, r, http.StatusBadGateway, "api.err.edge_error")
 		return
 	}
 

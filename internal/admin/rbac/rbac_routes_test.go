@@ -6,7 +6,7 @@ package rbac
 import (
 	"testing"
 
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 func TestFilterRoutesByScopes_AdminSansScope_Tout(t *testing.T) {
@@ -69,11 +69,11 @@ func TestFilterRoutesByScopes_ViewerSansScope_Rien(t *testing.T) {
 	}
 }
 
-func TestRouteAllowedByToken_CoreScope_Tout(t *testing.T) {
+func TestRouteAllowedByToken_EdgeScope_Tout(t *testing.T) {
 	route := &router.Route{ID: "1", Host: "anywhere.fr"}
-	scopes := []Scope{{Type: "core", Value: "core-lucas"}}
+	scopes := []Scope{{Type: "edge", Value: "edge-lucas"}}
 	if !RouteAllowedByToken("admin", scopes, route) {
-		t.Fatal("scope core doit autoriser toutes les routes")
+		t.Fatal("scope edge doit autoriser toutes les routes")
 	}
 }
 

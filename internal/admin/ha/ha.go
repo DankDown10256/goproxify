@@ -17,7 +17,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/vincamok/goproxify/internal/core/raft"
+	"github.com/vincamok/goproxify/internal/edge/raft"
 )
 
 // Manager coordonne l'élection HA et le forwarding des écritures.

@@ -15,9 +15,9 @@ import (
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
-	"github.com/vincamok/goproxify/internal/admin/corews"
+	"github.com/vincamok/goproxify/internal/admin/edgews"
 	"github.com/vincamok/goproxify/internal/admin/logs"
-	corelog "github.com/vincamok/goproxify/internal/core/logger"
+	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
 )
 
 // --- Middleware & helpers -------------------------------------------------
@@ -67,7 +67,7 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 		} else if sw.status >= 400 {
 			level = "warn"
 		}
-		ip := corelog.RealIP(r)
+		ip := edgelog.RealIP(r)
 		s.logStore.Write(logs.Entry{
 			Level:     level,
 			Component: "admin",
@@ -83,13 +83,13 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// runtimeSettings construit les settings runtime poussés aux Cores.
-func (s *Server) runtimeSettings() corews.Settings {
-	settings := corews.Settings{
+// runtimeSettings construit les settings runtime poussés aux passerelles.
+func (s *Server) runtimeSettings() edgews.Settings {
+	settings := edgews.Settings{
 		TracingEndpoint: s.cfg.App.TracingEndpoint,
-		LogLevel:        s.cfg.CoreDefaults.LogLevel,
-		LogFormat:       s.cfg.CoreDefaults.LogFormat,
-		AccessLogPath:   s.cfg.CoreDefaults.AccessLogPath,
+		LogLevel:        s.cfg.EdgeDefaults.LogLevel,
+		LogFormat:       s.cfg.EdgeDefaults.LogFormat,
+		AccessLogPath:   s.cfg.EdgeDefaults.AccessLogPath,
 		AdminPublicURL:  s.resolveAdminPublicURL(),
 	}
 	if v := admindb.GetSetting(s.db, "logs.ip_anonymize", ""); v != "" {
@@ -138,7 +138,7 @@ func publicOriginFromRequest(r *http.Request) string {
 	return strings.TrimRight(origin, "/")
 }
 
-// maybeRememberPublicURL mémorise l'origine vue par le navigateur et la pousse aux Cores.
+// maybeRememberPublicURL mémorise l'origine vue par le navigateur et la pousse aux passerelles.
 // Ignoré si GPX_ADMIN_PUBLIC_URL est défini (override explicite).
 func (s *Server) maybeRememberPublicURL(r *http.Request) {
 	if os.Getenv("GPX_ADMIN_PUBLIC_URL") != "" {

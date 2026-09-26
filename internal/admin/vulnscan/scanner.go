@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/ssrf"
 )
 
@@ -266,7 +266,7 @@ func progressPct(done, total int) int {
 }
 
 func (s *Scanner) loadBackends() []string {
-	envs, err := coreproxy.LoadEnabledEnvelopes(context.Background(), s.db)
+	envs, err := edgeproxy.LoadEnabledEnvelopes(context.Background(), s.db)
 	if err != nil {
 		return nil
 	}

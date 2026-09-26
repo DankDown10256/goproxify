@@ -41,24 +41,24 @@ function _cfgComposeText(opts, mode) {
   return `services:\n${_cfgComposeSvc(opts, mode)}\n\nvolumes:\n  ${name}_data:\n${netBlock}`;
 }
 
-function _cfgComposeTextFull(coreOpts, agentOpts, mode) {
-  const coreSvc  = _cfgComposeSvc(coreOpts, mode);
+function _cfgComposeTextFull(edgeOpts, agentOpts, mode) {
+  const edgeSvc  = _cfgComposeSvc(edgeOpts, mode);
   const agentSvc = _cfgComposeSvc(agentOpts, mode).replace(
     '    networks:\n      - goproxify_net',
-    `    depends_on:\n      - ${coreOpts.svcName||coreOpts.name}\n    networks:\n      - goproxify_net`
+    `    depends_on:\n      - ${edgeOpts.svcName||edgeOpts.name}\n    networks:\n      - goproxify_net`
   );
-  const coreVol  = `  ${coreOpts.name}_data:`;
+  const edgeVol  = `  ${edgeOpts.name}_data:`;
   const agentVol = agentOpts.volumes.filter(v=>!v.includes('docker.sock') && !v.includes('podman.sock')).map(v=>`  ${v.split(':')[0]}:`).join('\n');
-  return `services:\n${coreSvc}\n\n${agentSvc}\n\nvolumes:\n${coreVol}\n${agentVol}\n${coreOpts.netBlock}`;
+  return `services:\n${edgeSvc}\n\n${agentSvc}\n\nvolumes:\n${edgeVol}\n${agentVol}\n${edgeOpts.netBlock}`;
 }
 
 function _cfgEnvFileText(opts) {
   return opts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
 }
 
-function _cfgEnvFileTextFull(coreOpts, agentOpts) {
+function _cfgEnvFileTextFull(edgeOpts, agentOpts) {
   const seen = new Set();
-  return [...coreOpts.envVars, ...agentOpts.envVars]
+  return [...edgeOpts.envVars, ...agentOpts.envVars]
     .filter(({k}) => { if (seen.has(k)) return false; seen.add(k); return true; })
     .map(({k,v}) => `${k}=${v}`).join('\n');
 }
@@ -100,22 +100,22 @@ function _cfgContentHTML(opts, uid, adminOpts) {
     + (!inline ? _cfgLabel(_cfgEnvFileName(tab)) + _cfgPre(p + 'cfg-env', envText) : '');
 }
 
-function _cfgContentHTMLFull(coreOpts, agentOpts, uid, adminOpts) {
+function _cfgContentHTMLFull(edgeOpts, agentOpts, uid, adminOpts) {
   const state = window._cfgStates[uid] || window._cfgState;
   const { tab, inline } = state;
   const p = uid ? uid + '-' : '';
   if (tab === 'cli') {
-    return _cfgLabel('Core — Commande Docker') + _cfgPre(p + 'cfg-cli-core', _cfgCliText(coreOpts))
+    return _cfgLabel('Passerelle — Commande Docker') + _cfgPre(p + 'cfg-cli-edge', _cfgCliText(edgeOpts))
       + _cfgLabel('Agent — Commande Docker') + _cfgPre(p + 'cfg-cli-agent', _cfgCliText(agentOpts))
       + (adminOpts ? _cfgLabel('Admin — Commande Docker') + _cfgPre(p + 'cfg-cli-admin', _cfgCliText(adminOpts)) : '');
   }
   const mode = _cfgMode(state);
   const compose = adminOpts
-    ? _cfgComposeTextFullAdmin(coreOpts, agentOpts, adminOpts, mode)
-    : _cfgComposeTextFull(coreOpts, agentOpts, mode);
+    ? _cfgComposeTextFullAdmin(edgeOpts, agentOpts, adminOpts, mode)
+    : _cfgComposeTextFull(edgeOpts, agentOpts, mode);
   const envText = adminOpts
-    ? _cfgEnvFileTextFull(coreOpts, agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n')
-    : _cfgEnvFileTextFull(coreOpts, agentOpts);
+    ? _cfgEnvFileTextFull(edgeOpts, agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n')
+    : _cfgEnvFileTextFull(edgeOpts, agentOpts);
   return _cfgLabel('docker-compose.yml') + _cfgPre(p + 'cfg-compose', compose)
     + (!inline ? _cfgLabel(_cfgEnvFileName(tab)) + _cfgPre(p + 'cfg-env', envText) : '');
 }
@@ -194,9 +194,9 @@ function _renderConfigUI(opts, optsExtra, uid, adminOpts) {
 
 // ── Constructeurs d'options ────────────────────────────────────────────────
 
-function _buildCoreOpts(d) {
+function _buildEdgeOpts(d) {
   const cat      = window._gpxCatalog;
-  const name     = (d.wc_name || 'core-1').trim();
+  const name     = (d.wc_name || 'edge-1').trim();
   const restart  = d.wc_restart || 'unless-stopped';
   const logLevel = d.wc_log || 'info';
   const cluster  = !!d.wc_cluster;
@@ -205,7 +205,7 @@ function _buildCoreOpts(d) {
   const group    = (d.wc_cluster_group || 'ha-1').trim();
   const peers    = (d.wc_cluster_peers || '').trim();
   const envVars = [
-    { k:'GPX_IDENTITY_CORE_NODE_NAME', v: name },
+    { k:'GPX_IDENTITY_EDGE_NODE_NAME', v: name },
     { k:'GPX_PAIRING_SECRET',          v: _wiz.pairingSecret || '' },
     { k:'GPX_ENGINE_LOG_LEVEL',        v: logLevel },
     cluster ? { k:'GPX_CLUSTER_ENABLED',    v: 'true' } : null,
@@ -213,13 +213,13 @@ function _buildCoreOpts(d) {
     cluster ? { k:'GPX_CLUSTER_NODE_ID',    v: nodeID } : null,
     cluster ? { k:'GPX_CLUSTER_GROUP_NAME', v: group } : null,
     cluster && peers ? { k:'GPX_CLUSTER_PEERS', v: peers } : null,
-    // Compat wizard infra historique (ignoré par Core ; peers poussés par Admin sinon)
+    // Compat wizard infra historique (ignoré par passerelle ; peers poussés par Admin sinon)
     cluster && d.wc_raft_leader && !peers ? { k:'GPX_CLUSTER_RAFT_LEADER', v: d.wc_raft_leader } : null,
     portal ? { k:'GPX_PORTAL_ENABLED', v: 'true' } : null,
   ].filter(Boolean);
-  const image    = cat ? cat.image('core') : 'ghcr.io/vincamok/goproxify/core:preview';
+  const image    = cat ? cat.image('edge') : 'ghcr.io/vincamok/goproxify/edge:preview';
   const netBlock = cat ? cat.netBlock()    : '\nnetworks:\n  goproxify_net:\n    driver: bridge';
-  const ports    = cat ? cat.portStrings('core', { http3: d.wc_http3, cluster, portal }) : (function(){
+  const ports    = cat ? cat.portStrings('edge', { http3: d.wc_http3, cluster, portal }) : (function(){
     const p = ['80:80','443:443'];
     if (d.wc_http3) p.push('443:443/udp');
     p.push('8000:8000');
@@ -227,8 +227,8 @@ function _buildCoreOpts(d) {
     if (portal)  { p.push('2222:2222'); p.push('8444:8444'); }
     return p;
   })();
-  _wiz.coreSvcName = name;
-  return { name, svcName: name, image, envVars, ports, volumes:[`${name}_data:/etc/goproxify`], netBlock, restart, command: 'core' };
+  _wiz.edgeSvcName = name;
+  return { name, svcName: name, image, envVars, ports, volumes:[`${name}_data:/etc/goproxify`], netBlock, restart, command: 'edge' };
 }
 
 function _buildAgentOpts(d) {
@@ -236,9 +236,9 @@ function _buildAgentOpts(d) {
   const isFull   = _wiz.scenario === 'full';
   const name     = (d.wa_name || 'agent-1').trim();
   const restart  = d.wa_restart || (isFull ? d.wc_restart : 'unless-stopped') || 'unless-stopped';
-  const coreName = isFull ? (d.wc_name || 'goproxify-core') : null;
-  const coreURL  = d.wa_core_url || (coreName ? `http://${coreName}:8000` : 'http://goproxify-core:8000');
-  const coreContainer = d.wa_core_container_name || coreName || '';
+  const edgeName = isFull ? (d.wc_name || 'goproxify-edge') : null;
+  const edgeURL  = d.wa_edge_url || (edgeName ? `http://${edgeName}:8000` : 'http://goproxify-edge:8000');
+  const edgeContainer = d.wa_edge_container_name || edgeName || '';
   const runtime  = d.wa_runtime || (d.wa_podman ? 'podman' : (d.wa_docker !== false ? 'docker' : ''));
   const useContainerRuntime = runtime === 'docker' || runtime === 'podman';
   const sockHost = runtime === 'podman' ? '/run/podman/podman.sock' : '/var/run/docker.sock';
@@ -246,13 +246,13 @@ function _buildAgentOpts(d) {
   const adminURL  = d.wa_admin_url || (adminName ? `http://${adminName}:9443` : '');
   const envVars = [
     { k:'GPX_IDENTITY_AGENT_NODE_NAME',          v: name },
-    { k:'GPX_CONTROL_PLANE_CORE_ENDPOINT',       v: coreURL },
+    { k:'GPX_CONTROL_PLANE_EDGE_ENDPOINT',       v: edgeURL },
     adminURL ? { k:'GPX_CONTROL_PLANE_ADMIN_ENDPOINT', v: adminURL } : null,
     { k:'GPX_PAIRING_SECRET',                    v: _wiz.pairingSecret || '' },
     d.wa_region ? { k:'GPX_IDENTITY_REGION',  v: d.wa_region } : null,
     useContainerRuntime ? { k:'GPX_DOCKER_ENABLED',  v: 'true' } : null,
     useContainerRuntime ? { k:'GPX_DOCKER_RUNTIME', v: runtime } : null,
-    useContainerRuntime && coreContainer ? { k:'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME', v: coreContainer } : null,
+    useContainerRuntime && edgeContainer ? { k:'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME', v: edgeContainer } : null,
     d.wa_k8s       ? { k:'GPX_KUBERNETES_ENABLED',     v: 'true' } : null,
     d.wa_portainer ? { k:'GPX_PORTAINER_ENABLED',      v: 'true' } : null,
     d.wa_portainer&&d.wa_portainer_url ? { k:'GPX_PORTAINER_URL',     v: d.wa_portainer_url } : null,
@@ -270,13 +270,13 @@ function _buildAgentOpts(d) {
 function _buildAdminOpts(d) {
   const cat      = window._gpxCatalog;
   const name     = 'goproxify-admin';
-  const coreName = (d.wa_core_name || _wiz.coreSvcName || 'goproxify-core').trim();
+  const edgeName = (d.wa_edge_name || _wiz.edgeSvcName || 'goproxify-edge').trim();
   const envVars  = [
     { k: 'GPX_SECURITY_JWT_SECRET',     v: d.wa_jwt_secret || '' },
     { k: 'GPX_PAIRING_SECRET',          v: _wiz.pairingSecret || '' },
     { k: 'GPX_FIRST_ADMIN_EMAIL',       v: d.wa_admin_email || 'admin@example.com' },
     { k: 'GPX_FIRST_ADMIN_PASSWORD',    v: d.wa_admin_password || 'CHANGE_ME' },
-    { k: 'GPX_IDENTITY_CORE_NODE_NAME', v: coreName },
+    { k: 'GPX_IDENTITY_EDGE_NODE_NAME', v: edgeName },
     { k: 'GPX_SERVER_API_PORT',         v: '9443' },
   ];
   const image    = cat ? cat.image('admin') : 'ghcr.io/vincamok/goproxify/admin:preview';
@@ -285,23 +285,23 @@ function _buildAdminOpts(d) {
   return { name, svcName: name, image, envVars, ports, volumes: [`${name}_data:/etc/goproxify`], netBlock, restart: 'unless-stopped', command: 'admin' };
 }
 
-function _cfgComposeTextAdmin(coreOpts, adminOpts, mode) {
-  const coreSvc  = _cfgComposeSvc(coreOpts, mode);
+function _cfgComposeTextAdmin(edgeOpts, adminOpts, mode) {
+  const edgeSvc  = _cfgComposeSvc(edgeOpts, mode);
   const adminSvc = _cfgComposeSvc(adminOpts, mode);
-  const coreVol  = `  ${coreOpts.name}_data:`;
+  const edgeVol  = `  ${edgeOpts.name}_data:`;
   const adminVol = `  ${adminOpts.name}_data:`;
-  return `services:\n${coreSvc}\n\n${adminSvc}\n\nvolumes:\n${coreVol}\n${adminVol}\n${coreOpts.netBlock}`;
+  return `services:\n${edgeSvc}\n\n${adminSvc}\n\nvolumes:\n${edgeVol}\n${adminVol}\n${edgeOpts.netBlock}`;
 }
 
-function _cfgComposeTextFullAdmin(coreOpts, agentOpts, adminOpts, mode) {
-  const coreSvc  = _cfgComposeSvc(coreOpts, mode);
+function _cfgComposeTextFullAdmin(edgeOpts, agentOpts, adminOpts, mode) {
+  const edgeSvc  = _cfgComposeSvc(edgeOpts, mode);
   const agentSvc = _cfgComposeSvc(agentOpts, mode).replace(
     '    networks:\n      - goproxify_net',
-    `    depends_on:\n      - ${coreOpts.svcName||coreOpts.name}\n    networks:\n      - goproxify_net`
+    `    depends_on:\n      - ${edgeOpts.svcName||edgeOpts.name}\n    networks:\n      - goproxify_net`
   );
   const adminSvc = _cfgComposeSvc(adminOpts, mode);
-  const coreVol  = `  ${coreOpts.name}_data:`;
+  const edgeVol  = `  ${edgeOpts.name}_data:`;
   const agentVol = agentOpts.volumes.filter(v=>!v.includes('docker.sock') && !v.includes('podman.sock')).map(v=>`  ${v.split(':')[0]}:`).join('\n');
   const adminVol = `  ${adminOpts.name}_data:`;
-  return `services:\n${coreSvc}\n\n${agentSvc}\n\n${adminSvc}\n\nvolumes:\n${coreVol}\n${agentVol}\n${adminVol}\n${coreOpts.netBlock}`;
+  return `services:\n${edgeSvc}\n\n${agentSvc}\n\n${adminSvc}\n\nvolumes:\n${edgeVol}\n${agentVol}\n${adminVol}\n${edgeOpts.netBlock}`;
 }

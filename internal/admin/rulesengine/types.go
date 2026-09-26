@@ -17,7 +17,7 @@ const (
 	CondEngineSilent   ConditionType = "engine_silent"     // moteur IPS sans activité depuis > X min
 	CondProxyErrorRate ConditionType = "proxy_error_rate"  // taux d'erreurs HTTP > seuil
 	CondBanRepeat      ConditionType = "ban_repeat"        // même IP bannie ≥ N fois
-	CondNodeOffline    ConditionType = "node_offline"      // Core/Agent sans heartbeat depuis > X min
+	CondNodeOffline    ConditionType = "node_offline"      // Passerelle/Agent sans heartbeat depuis > X min
 	CondCertExpiring   ConditionType = "cert_expiring"      // certificat TLS expirant sous N jours
 )
 

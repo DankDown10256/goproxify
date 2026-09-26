@@ -26,7 +26,7 @@ import (
 	"github.com/vincamok/goproxify/internal/agent/wsclient"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	"github.com/vincamok/goproxify/internal/config"
-	corews "github.com/vincamok/goproxify/internal/core/ws"
+	edgews "github.com/vincamok/goproxify/internal/edge/ws"
 	"github.com/vincamok/goproxify/internal/nodeident"
 )
 
@@ -45,7 +45,7 @@ type Agent struct {
 	autoScaler        *agentdocker.AutoScaler
 	digestWatch       *agentdocker.DigestWatcher
 	schedWatch        *agentdocker.ScheduleWatcher
-	wsClient          *wsclient.Client // client WS persistant Agent→Core (nil si pas de JoinToken)
+	wsClient          *wsclient.Client // client WS persistant Agent→Passerelle (nil si pas de JoinToken)
 	dockerClient      *agentdocker.Client
 	shellHub          *shellHub
 	tokenUpdate       chan string // notifie heartbeatLoop d'un nouveau token (retryPairing)
@@ -64,7 +64,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	client := agentdocker.NewClient(socketPath)
 
 	// Network manager
-	netMgr := agentdocker.NewNetworkManager(client, cfg.NetworkManagement.CoreContainerName, log)
+	netMgr := agentdocker.NewNetworkManager(client, cfg.NetworkManagement.EdgeContainerName, log)
 
 	// Discovery Docker locale (désactivable via docker.enabled: false).
 	// Compat ascendante : si docker.runtime est défini (ancienne config), Docker reste actif.
@@ -73,7 +73,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	if dockerEnabled {
 		disc = agentdocker.NewDiscovery(
 			client,
-			cfg.ControlPlane.CoreEndpoint,
+			cfg.ControlPlane.EdgeEndpoint,
 			cfg.ControlPlane.AuthToken,
 			cfg.Docker.LabelPrefix,
 			cfg.Identity.NodeName,
@@ -97,7 +97,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	if cfg.LogForwarding.Enabled {
 		logFwd = agentdocker.NewLogForwarder(
 			client,
-			cfg.ControlPlane.CoreEndpoint,
+			cfg.ControlPlane.EdgeEndpoint,
 			cfg.ControlPlane.AuthToken,
 			cfg.LogForwarding.BufferLines,
 			log,
@@ -129,7 +129,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 			log,
 			func(ev agentdocker.ScaleEvent) {
 				go reportEvent(context.Background(),
-					cfg.ControlPlane.CoreEndpoint,
+					cfg.ControlPlane.EdgeEndpoint,
 					cfg.ControlPlane.AuthToken,
 					cfg.Identity.NodeName, "",
 					"scale_"+ev.Direction,
@@ -146,7 +146,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	if cfg.DigestWatch.Enabled {
 		dw = agentdocker.NewDigestWatcher(client, lc, log, func(containerID, image string) {
 			go reportEvent(context.Background(),
-				cfg.ControlPlane.CoreEndpoint,
+				cfg.ControlPlane.EdgeEndpoint,
 				cfg.ControlPlane.AuthToken,
 				cfg.Identity.NodeName, containerID,
 				"new_digest",
@@ -170,16 +170,16 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	var portainerDisc *agentportainer.Discovery
 	if cfg.Portainer.Enabled && cfg.Portainer.URL != "" && cfg.Portainer.APIKey != "" {
 		pc := agentportainer.NewClient(cfg.Portainer.URL, cfg.Portainer.APIKey)
-		epCores := make(map[string]agentportainer.EndpointCoreInput, len(cfg.Portainer.EndpointCores))
-		for name, c := range cfg.Portainer.EndpointCores {
-			epCores[name] = agentportainer.EndpointCoreInput{
-				CoreEndpoint: c.CoreEndpoint,
+		epEdges := make(map[string]agentportainer.EndpointEdgeInput, len(cfg.Portainer.EndpointEdges))
+		for name, c := range cfg.Portainer.EndpointEdges {
+			epEdges[name] = agentportainer.EndpointEdgeInput{
+				EdgeEndpoint: c.EdgeEndpoint,
 				AuthToken:    c.AuthToken,
 			}
 		}
 		portainerDisc = agentportainer.NewDiscovery(
 			pc,
-			cfg.ControlPlane.CoreEndpoint,
+			cfg.ControlPlane.EdgeEndpoint,
 			cfg.ControlPlane.AuthToken,
 			cfg.Docker.LabelPrefix,
 			cfg.Identity.NodeName,
@@ -187,7 +187,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 			log,
 			netMgr,
 			cfg.Portainer.SkipEndpoints,
-			epCores,
+			epEdges,
 		)
 	}
 
@@ -238,13 +238,13 @@ func (a *Agent) resolveAuthToken() string {
 	return strings.TrimSpace(string(data))
 }
 
-// pairWithCore obtient un token Agent auprès du Core local via GPX_PAIRING_SECRET.
+// pairWithEdge obtient un token Agent auprès de la passerelle locale via GPX_PAIRING_SECRET.
 // Évite de contacter l'Admin, particulièrement utile sur les hôtes distants.
-func (a *Agent) pairWithCore(ctx context.Context) (string, error) {
-	if a.cfg.ControlPlane.CoreEndpoint == "" {
-		return "", fmt.Errorf("GPX_CONTROL_PLANE_CORE_ENDPOINT non défini")
+func (a *Agent) pairWithEdge(ctx context.Context) (string, error) {
+	if a.cfg.ControlPlane.EdgeEndpoint == "" {
+		return "", fmt.Errorf("GPX_CONTROL_PLANE_EDGE_ENDPOINT non défini")
 	}
-	// GPX_PAIRING_SECRET est obligatoire (fail-closed côté Core/Admin).
+	// GPX_PAIRING_SECRET est obligatoire (fail-closed côté passerelle/Admin).
 	secret := os.Getenv("GPX_PAIRING_SECRET")
 	if secret == "" {
 		return "", fmt.Errorf("GPX_PAIRING_SECRET non défini")
@@ -262,7 +262,7 @@ func (a *Agent) pairWithCore(ctx context.Context) (string, error) {
 	})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		a.cfg.ControlPlane.CoreEndpoint+"/internal/v1/pair", bytes.NewReader(payload))
+		a.cfg.ControlPlane.EdgeEndpoint+"/internal/v1/pair", bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
@@ -270,7 +270,7 @@ func (a *Agent) pairWithCore(ctx context.Context) (string, error) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("core injoignable: %w", err)
+		return "", fmt.Errorf("edge injoignable: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -280,9 +280,9 @@ func (a *Agent) pairWithCore(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("appairage refusé : secret invalide")
 		}
 		if resp.StatusCode == http.StatusServiceUnavailable {
-			return "", fmt.Errorf("appairage refusé : pairing non configuré côté Core")
+			return "", fmt.Errorf("appairage refusé : pairing non configuré côté passerelle")
 		}
-		return "", fmt.Errorf("appairage Core échoué: status %d", resp.StatusCode)
+		return "", fmt.Errorf("appairage passerelle échoué: status %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -293,11 +293,11 @@ func (a *Agent) pairWithCore(ctx context.Context) (string, error) {
 	}
 
 	if err := os.WriteFile(agentTokenPath, []byte(result.Token), 0600); err != nil {
-		a.log.Warn("agent: impossible de persister le token Core", "err", err)
+		a.log.Warn("agent: impossible de persister le token passerelle", "err", err)
 	}
 	a.cfg.ControlPlane.AuthToken = result.Token
 	a.internalAPI.setAuthTokens(os.Getenv("GPX_PAIRING_SECRET"), result.Token)
-	a.log.Info("agent: appairage Core réussi — token obtenu et persisté", "node", nodeName)
+	a.log.Info("agent: appairage passerelle réussi — token obtenu et persisté", "node", nodeName)
 	return result.Token, nil
 }
 
@@ -379,9 +379,9 @@ func (a *Agent) pairWithAdmin(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("agent: appairage impossible après 5 tentatives")
 }
 
-// retryPairing tente de s'appairer avec le Core/Admin en backoff exponentiel
+// retryPairing tente de s'appairer avec la passerelle/Admin en backoff exponentiel
 // (5 s → 10 s → 20 s → 40 s → 60 s max) jusqu'au succès.
-// Appelé en goroutine quand l'appairage initial a échoué (ex : Core qui démarre
+// Appelé en goroutine quand l'appairage initial a échoué (ex : Passerelle qui démarre
 // après l'Agent, AGENT_ADMIN_URL mal configuré puis corrigé sans redémarrage).
 // Une fois le token obtenu, la discovery est mise à jour et un re-scan est déclenché.
 func (a *Agent) retryPairing(ctx context.Context) {
@@ -400,7 +400,7 @@ func (a *Agent) retryPairing(ctx context.Context) {
 			if a.cfg.ControlPlane.AuthToken != "" {
 				return // appairage réussi entre-temps
 			}
-			token, err := a.pairWithCore(ctx)
+			token, err := a.pairWithEdge(ctx)
 			if err != nil {
 				token, err = a.pairWithAdmin(ctx)
 			}
@@ -426,7 +426,7 @@ func (a *Agent) retryPairing(ctx context.Context) {
 					a.cfg.Identity.NodeName,
 					a.cfg.Identity.NodeName,
 					buildinfo.Agent,
-					a.cfg.ControlPlane.CoreEndpoint,
+					a.cfg.ControlPlane.EdgeEndpoint,
 					token,
 					"",
 					a.handleWSCommand,
@@ -439,7 +439,7 @@ func (a *Agent) retryPairing(ctx context.Context) {
 	}
 }
 
-// handleWSCommand traite les commandes Core → Agent reçues via WebSocket.
+// handleWSCommand traite les commandes passerelle → Agent reçues via WebSocket.
 func (a *Agent) handleWSCommand(action string, payload json.RawMessage) {
 	a.log.Info("agent: commande WS reçue", "action", action)
 
@@ -485,7 +485,7 @@ func (a *Agent) handleWSCommand(action string, payload json.RawMessage) {
 				}
 			}()
 		}
-	case corews.TypeShellOpen, corews.TypeShellData, corews.TypeShellClose:
+	case edgews.TypeShellOpen, edgews.TypeShellData, edgews.TypeShellClose:
 		if a.shellHub != nil {
 			a.shellHub.Handle(action, payload)
 		}
@@ -497,7 +497,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	a.log.Info("agent démarré",
 		"node", a.cfg.Identity.NodeName,
 		"admin", a.cfg.ControlPlane.AdminEndpoint,
-		"core", a.cfg.ControlPlane.CoreEndpoint,
+		"edge", a.cfg.ControlPlane.EdgeEndpoint,
 		"docker", a.cfg.Docker.SocketPath,
 	)
 
@@ -510,7 +510,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	if a.cfg.InternalAPI.Port == 0 {
 		a.cfg.InternalAPI.Port = 8001
 	}
-	internalEndpoint := fmt.Sprintf("http://%s:%d", externalIP(a.cfg.ControlPlane.CoreEndpoint), a.cfg.InternalAPI.Port)
+	internalEndpoint := fmt.Sprintf("http://%s:%d", externalIP(a.cfg.ControlPlane.EdgeEndpoint), a.cfg.InternalAPI.Port)
 	a.internalAPI.setAuthTokens(os.Getenv("GPX_PAIRING_SECRET"), a.cfg.ControlPlane.AuthToken)
 	a.internalAPI.Start(ctx)
 
@@ -521,13 +521,13 @@ func (a *Agent) Start(ctx context.Context) error {
 		}
 	}
 
-	// Résolution du token : config → fichier local → appairage Core → appairage Admin
+	// Résolution du token : config → fichier local → appairage passerelle → appairage Admin
 	token := a.resolveAuthToken()
 	if token == "" {
 		var err error
-		token, err = a.pairWithCore(ctx)
+		token, err = a.pairWithEdge(ctx)
 		if err != nil {
-			a.log.Debug("agent: appairage Core échoué, tentative Admin", "err", err)
+			a.log.Debug("agent: appairage passerelle échoué, tentative Admin", "err", err)
 			token, err = a.pairWithAdmin(ctx)
 		}
 		if err != nil {
@@ -553,19 +553,19 @@ func (a *Agent) Start(ctx context.Context) error {
 		}
 	}
 
-	// Client WS persistant Agent→Core
-	// Priorité : HMAC persisté > JOIN_TOKEN explicite > token frais pairWithCore
+	// Client WS persistant Agent→Passerelle
+	// Priorité : HMAC persisté > JOIN_TOKEN explicite > token frais pairWithEdge
 	savedHMAC := wsclient.LoadPersistedHMAC()
 	joinToken := a.cfg.ControlPlane.JoinToken
 	if joinToken == "" && savedHMAC == "" {
-		// Les join tokens sont à usage unique dans le joinStore du Core.
+		// Les join tokens sont à usage unique dans le joinStore de la passerelle.
 		// Un token persisté dans agent.token a peut-être déjà été consommé lors d'un
 		// démarrage précédent sans que l'Agent ait jamais été approuvé. On rappelle
-		// toujours pairWithCore pour obtenir un token frais garanti non-consommé.
-		if freshToken, err := a.pairWithCore(ctx); err == nil {
+		// toujours pairWithEdge pour obtenir un token frais garanti non-consommé.
+		if freshToken, err := a.pairWithEdge(ctx); err == nil {
 			joinToken = freshToken
 		} else {
-			joinToken = token // fallback : token existant si pairWithCore échoue
+			joinToken = token // fallback : token existant si pairWithEdge échoue
 		}
 	}
 	if savedHMAC != "" || joinToken != "" {
@@ -573,7 +573,7 @@ func (a *Agent) Start(ctx context.Context) error {
 			a.cfg.Identity.NodeName,
 			a.cfg.Identity.NodeName,
 			buildinfo.Agent,
-			a.cfg.ControlPlane.CoreEndpoint,
+			a.cfg.ControlPlane.EdgeEndpoint,
 			joinToken,
 			savedHMAC,
 			a.handleWSCommand,
@@ -591,7 +591,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		}
 	}
 
-	// Événements cycle de vie / santé → Core (WS prioritaire, HTTP fallback)
+	// Événements cycle de vie / santé → passerelle (WS prioritaire, HTTP fallback)
 	if a.discovery != nil {
 		a.discovery.SetOnLifecycle(func(containerID, containerName, action string) {
 			go a.emitEvent(containerID, action, "container="+containerName)
@@ -604,9 +604,9 @@ func (a *Agent) Start(ctx context.Context) error {
 	// Canal de mise à jour du token pour retryPairing → heartbeatLoop
 	a.tokenUpdate = make(chan string, 1)
 
-	// Heartbeat vers Core (WS si connecté, HTTP sinon)
+	// Heartbeat vers passerelle (WS si connecté, HTTP sinon)
 	go heartbeatLoop(ctx,
-		a.cfg.ControlPlane.CoreEndpoint,
+		a.cfg.ControlPlane.EdgeEndpoint,
 		token,
 		a.cfg.Identity.NodeName,
 		buildinfo.Agent,
@@ -616,7 +616,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		a.wsClient,
 		a.tokenUpdate,
 		func() string {
-			t, err := a.pairWithCore(ctx)
+			t, err := a.pairWithEdge(ctx)
 			if err != nil {
 				t, err = a.pairWithAdmin(ctx)
 			}
@@ -640,7 +640,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		a.discovery.Start(ctx)
 	}
 
-	// Métriques conteneur → Core (LB adaptatif)
+	// Métriques conteneur → passerelle (LB adaptatif)
 	if a.wsClient != nil && a.dockerClient != nil {
 		go metricsLoop(ctx, a.dockerClient, a.cfg.Identity.NodeName, a.wsClient, a.log)
 	}
@@ -676,14 +676,14 @@ func (a *Agent) Start(ctx context.Context) error {
 	return nil
 }
 
-// emitEvent rapporte un événement au Core (WS si actif, sinon HTTP).
+// emitEvent rapporte un événement à la passerelle (WS si actif, sinon HTTP).
 func (a *Agent) emitEvent(containerID, eventType, detail string) {
 	token := a.resolveAuthToken()
 	if token == "" {
 		token = a.cfg.ControlPlane.AuthToken
 	}
 	reportEvent(context.Background(),
-		a.cfg.ControlPlane.CoreEndpoint,
+		a.cfg.ControlPlane.EdgeEndpoint,
 		token,
 		a.cfg.Identity.NodeName,
 		containerID,
@@ -704,16 +704,16 @@ func maskIfSet(s string) string {
 // sanitizedAgentConfig retourne la config agent sans les secrets (api_key, auth_token, passwords).
 // Utilisé pour le heartbeat : l'Admin pré-remplit le modal de configuration sans exposer les secrets.
 func sanitizedAgentConfig(cfg *config.AgentConfig) map[string]any {
-	epCores := map[string]any{}
-	for name, ec := range cfg.Portainer.EndpointCores {
-		epCores[name] = map[string]any{
-			"core_endpoint": ec.CoreEndpoint,
+	epEdges := map[string]any{}
+	for name, ec := range cfg.Portainer.EndpointEdges {
+		epEdges[name] = map[string]any{
+			"edge_endpoint": ec.EdgeEndpoint,
 			"auth_token":    "••••••••",
 		}
 	}
 	return map[string]any{
 		"control_plane": map[string]any{
-			"core_endpoint": cfg.ControlPlane.CoreEndpoint,
+			"edge_endpoint": cfg.ControlPlane.EdgeEndpoint,
 		},
 		"docker": map[string]any{
 			"enabled":     cfg.Docker.Enabled,
@@ -725,7 +725,7 @@ func sanitizedAgentConfig(cfg *config.AgentConfig) map[string]any {
 			"api_key":         maskIfSet(cfg.Portainer.APIKey),
 			"poll_interval_s": cfg.Portainer.PollIntervalS,
 			"skip_endpoints":  cfg.Portainer.SkipEndpoints,
-			"endpoint_cores":  epCores,
+			"endpoint_edges":  epEdges,
 		},
 	}
 }

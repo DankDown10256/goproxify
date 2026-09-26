@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // Ban représente un bannissement IP (Fail2Ban, CrowdSec ou natif).
@@ -45,7 +45,7 @@ type Threat struct {
 	Origin      string    `json:"origin"`
 	Type        string    `json:"type"`
 	Duration    string    `json:"duration"`
-	CoreName    string    `json:"core_name"`
+	EdgeName    string    `json:"edge_name"`
 	Occurrences int       `json:"occurrences"`
 	LastSeenAt  time.Time `json:"last_seen_at"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -59,7 +59,7 @@ type CVE struct {
 	CVSSScore   float64   `json:"cvss_score"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"` // open | ignored | fixed
-	CoreName    string    `json:"core_name"`
+	EdgeName    string    `json:"edge_name"`
 	DetectedAt  time.Time `json:"detected_at"`
 }
 
@@ -131,9 +131,9 @@ type proxyRow struct {
 	Config router.Route
 }
 
-// LoadProxies charge les proxies actifs depuis les fichiers YAML Core.
+// LoadProxies charge les proxies actifs depuis les fichiers YAML passerelle.
 func (s *Store) LoadProxies() []proxyRow {
-	envs, err := coreproxy.LoadEnabledEnvelopes(context.Background(), s.db)
+	envs, err := edgeproxy.LoadEnabledEnvelopes(context.Background(), s.db)
 	if err != nil {
 		return nil
 	}

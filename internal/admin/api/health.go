@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
+	"github.com/vincamok/goproxify/internal/edge/router"
 	"github.com/vincamok/goproxify/internal/tz"
 )
 
@@ -49,14 +49,14 @@ func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// RoutesHandler gère GET /internal/v1/routes — retourne les routes activées pour les Cores.
+// RoutesHandler gère GET /internal/v1/routes — retourne les routes activées pour les passerelles.
 type RoutesHandler struct {
 	DB  *sql.DB
 	Log *slog.Logger
 }
 
 func (h *RoutesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	routesPtr, err := coreproxy.LoadEnabledRoutes(r.Context(), h.DB)
+	routesPtr, err := edgeproxy.LoadEnabledRoutes(r.Context(), h.DB)
 	if err != nil {
 		if !isCtxErr(err) {
 			h.Log.Error("routes: lecture", "err", err)

@@ -658,39 +658,49 @@ window.openProxyModal = async function(id, initialTab) {
   const type = cfg.type || 'http';
   const isHTTP = type === 'http' || type === 'https';
 
-  const body = `
-    <div style="display:flex;height:520px;margin:-16px -24px;overflow:hidden;">
+  // Bandeau « ce qui est actif » + compteurs d'onglets — calculés sur la config enregistrée.
+  const on = v => (Array.isArray(v) ? v.length > 0 : !!v);
+  const active = [
+    ['TLS', '#a78bfa', 'general', cfg.tls_enabled || cfg.tls_passthrough],
+    ['SSO', '#f472b6', 'auth', cfg.sso?.enabled || cfg.sso?.provider],
+    ['JWT', '#60a5fa', 'protection', cfg.jwt?.enabled],
+    ['mTLS', '#c084fc', 'protection', cfg.mtls?.enabled],
+    ['WAF', '#fb923c', 'protection', cfg.waf?.enabled],
+    ['Bots', '#f472b6', 'protection', cfg.bot?.enabled],
+    ['Rate limit', '#f59e0b', 'protection', cfg.rate_limit],
+    ['IP filter', '#38bdf8', 'protection', cfg.ip_filter?.cidrs],
+    ['GeoIP', '#22d3ee', 'protection', cfg.geo_ip?.countries],
+    ['HSTS', '#34d399', 'protection', cfg.headers?.hsts],
+    ['Snippets', '#a3e635', 'protection', cfg.snippet_ids],
+    ['Retry', '#34d399', 'resilience', cfg.retry_policy],
+    ['Circuit breaker', '#34d399', 'resilience', cfg.circuit_breaker],
+    ['Canary', '#fbbf24', 'resilience', cfg.canary?.backend],
+    ['Cache', '#94a3b8', 'avance', cfg.cache],
+  ].filter(f => on(f[3]));
+  const tabCount = tab => active.filter(f => f[2] === tab).length;
+  const score = typeof computeProxyHeaderScore === 'function' && id ? computeProxyHeaderScore(cfg) : null;
+  const gradeColor = !score ? '' : score.grade.startsWith('A') ? '#34d399' : score.grade === 'B' ? '#4ade80' : score.grade === 'C' ? '#f59e0b' : score.grade === 'D' ? '#f97316' : '#ef4444';
+  const summaryHtml = active.length || score ? `<div class="pm-summary">
+      <span class="pm-summary-lbl">Actif</span>
+      ${active.map(([label, color, tab]) => `<button type="button" class="pm-chip" style="--c:${color}" onclick="switchProxyTab('${tab}')">${esc(label)}</button>`).join('')}
+      ${score ? `<button type="button" class="pm-chip pm-score" style="--c:${gradeColor}" title="Score des en-têtes de sécurité" onclick="switchProxyTab('protection','recap')">Score ${esc(score.grade)}</button>` : ''}
+    </div>` : '';
+  const tabDefs = [
+    ['general', 'Général'], ['entetes', 'En-têtes'], ['auth', 'Auth / SSO'], ['protection', 'Protection'],
+    ['resilience', 'Résilience'], ['avance', 'Avancé'], ['yaml', 'YAML'],
+  ];
+  const tabsHtml = tabDefs.map(([key, label], i) => {
+    const n = tabCount(key);
+    return `<button type="button" class="pm-tab${i === 0 ? ' active' : ''}" data-tab="${key}" onclick="switchProxyTab('${key}')">${label}${n ? `<span class="pm-cnt">${n}</span>` : ''}</button>`;
+  }).join('');
 
-      <!-- Sidebar navigation -->
-      <div id="proxy-tabs" style="width:142px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;padding:8px 0;background:var(--bg);">
-        <div data-tab="general" onclick="switchProxyTab('general')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--accent);font-weight:600;background:color-mix(in srgb,var(--accent) 8%,transparent);border-left:2.5px solid var(--accent);border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
-          Général
-        </div>
-        <div data-tab="entetes" onclick="switchProxyTab('entetes')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          En-têtes
-        </div>
-        <div data-tab="auth" onclick="switchProxyTab('auth')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-          Auth / SSO
-        </div>
-        <div data-tab="resilience" onclick="switchProxyTab('resilience')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Résilience
-        </div>
-        <div data-tab="avance" onclick="switchProxyTab('avance')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-          Avancé
-        </div>
-        <div data-tab="yaml" onclick="switchProxyTab('yaml')" style="display:flex;align-items:center;gap:9px;padding:9px 14px;cursor:pointer;font-size:12.5px;color:var(--text2);font-weight:400;border-left:2.5px solid transparent;border-right:2.5px solid transparent;">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-          YAML
-        </div>
-      </div>
+  const body = `
+    <div class="pm-shell">
+      ${summaryHtml}
+      <div id="proxy-tabs" class="pm-tabs">${tabsHtml}</div>
 
       <!-- Content panels -->
-      <div style="flex:1;overflow-y:auto;">
+      <div class="pm-content">
 
         <!-- Panel Général -->
         <div id="ptab-general" style="padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
@@ -963,41 +973,13 @@ window.openProxyModal = async function(id, initialTab) {
           </div>
         </div>
 
-        <!-- Panel TLS (vide, fusionné dans Général) -->
-        <div id="ptab-tls" style="display:none;"></div>
+        <!-- Panel Protection (monté par _psecMount) -->
+        <div id="ptab-protection" style="display:none;height:100%;"><div style="padding:24px;font-size:12.5px;color:var(--text3);">Chargement…</div></div>
 
         <!-- Panel En-têtes -->
         <div id="ptab-entetes" style="display:none;padding:16px 20px;flex-direction:column;gap:14px;">
           <div style="font-size:11px;color:var(--text3);padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;">
-            Les headers natifs (HSTS, X-Frame-Options, Masquer Server) sont aussi éditables dans la modale <b>Sécurité</b> du proxy.
-          </div>
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">En-têtes de sécurité</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-                <input type="checkbox" id="p-hsts" ${cfg.headers?.hsts?'checked':''} onchange="document.getElementById('p-hsts-maxage-row').style.display=this.checked?'flex':'none'">
-                <div><div style="font-size:12px;font-weight:600;">HSTS <span style="font-weight:400;color:var(--text2);font-size:11px">(Strict-Transport-Security)</span></div><div style="font-size:11px;color:var(--text3);">Force HTTPS sur les navigateurs — nécessite TLS activé</div></div>
-              </label>
-              <div id="p-hsts-maxage-row" style="display:${cfg.headers?.hsts?'flex':'none'};align-items:center;gap:8px;padding-left:28px;">
-                <label style="font-size:11px;color:var(--text2);white-space:nowrap;">max-age (secondes)</label>
-                <input id="p-hsts-maxage" type="number" class="input" style="width:120px;font-size:12px;padding:4px 8px;" value="${cfg.headers?.hsts_max_age||31536000}" min="0">
-              </div>
-              <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
-                <input type="checkbox" id="p-hide-server" ${cfg.headers?.hide_server?'checked':''}>
-                <div><div style="font-size:12px;font-weight:600;">Masquer le header Server</div><div style="font-size:11px;color:var(--text3);">Supprime la version du serveur des réponses</div></div>
-              </label>
-              <div style="display:flex;align-items:center;gap:10px;">
-                <div style="flex-shrink:0;width:16px;height:16px;"></div>
-                <div style="flex:1;display:flex;align-items:center;gap:8px;">
-                  <label style="font-size:12px;font-weight:600;white-space:nowrap;">X-Frame-Options</label>
-                  <select id="p-xfo" class="input" style="font-size:12px;padding:4px 8px;flex:1;max-width:160px;">
-                    <option value="" ${!cfg.headers?.x_frame_options?'selected':''}>Désactivé</option>
-                    <option value="DENY" ${cfg.headers?.x_frame_options==='DENY'?'selected':''}>DENY</option>
-                    <option value="SAMEORIGIN" ${cfg.headers?.x_frame_options==='SAMEORIGIN'?'selected':''}>SAMEORIGIN</option>
-                  </select>
-                </div>
-              </div>
-            </div>
+            HSTS, X-Frame-Options, « Masquer Server », WAF, limites et filtres se règlent dans l'onglet <b>Protection</b>.
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:6px;">En-têtes transmis au backend</div>
@@ -1028,7 +1010,7 @@ window.openProxyModal = async function(id, initialTab) {
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">En-têtes ajoutés à la réponse</div>
             <textarea id="p-resp-headers" class="input" rows="4" placeholder="X-Custom-Header: valeur&#10;Content-Security-Policy: default-src 'self'">${esc(customHeadersToLines(cfg).join('\n'))}</textarea>
-            <div style="font-size:10px;color:var(--text3);margin-top:4px;">Stockés dans <code>headers.custom</code> (appliqués par le Core). HSTS / X-Frame-Options : section ci-dessus.</div>
+            <div style="font-size:10px;color:var(--text3);margin-top:4px;">Stockés dans <code>headers.custom</code> (appliqués par la passerelle). HSTS / X-Frame-Options : section ci-dessus.</div>
           </div>
           <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:10px;">Pages d'erreur rapides</div>

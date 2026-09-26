@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chaos réseau côté backend via Toxiproxy : le Core doit dégrader proprement (5xx rapide, pas de blocage)
+# Chaos réseau côté backend via Toxiproxy : la passerelle doit dégrader proprement (5xx rapide, pas de blocage)
 # et se rétablir seul. Code retour = nombre d'échecs.
 set -u
 . /lab/scripts/hosts.sh
@@ -31,7 +31,7 @@ curl -s -X POST "$T/proxies/backend" -H 'Content-Type: application/json' -d '{"e
 read -r c t <<<"$(req 20)"
 case "$c" in 502|503|504) awk -v t="$t" 'BEGIN{exit !(t<10)}' && ok "erreur $c rapide (${t}s)" || ko "erreur $c mais lente (${t}s)";; *) ko "code inattendu $c";; esac
 curl -s -X POST "$T/proxies/backend" -H 'Content-Type: application/json' -d '{"enabled":true}' >/dev/null
-recovers && ok "reprise automatique après retour du backend" || ko "Core n'a pas repris le backend (circuit non refermé ?)"
+recovers && ok "reprise automatique après retour du backend" || ko "Passerelle n'a pas repris le backend (circuit non refermé ?)"
 
 echo "== Connexion réinitialisée (RST) =="
 toxic '{"type":"reset_peer","attributes":{"timeout":0}}'
@@ -41,7 +41,7 @@ reset; recovers && ok "rétablissement après RST" || ko "pas de rétablissement
 echo "== Backend muet (timeout) =="
 toxic '{"type":"timeout","attributes":{"timeout":0}}'
 read -r c t <<<"$(req 90)"
-case "$c" in 502|503|504) ok "timeout amont -> $c après ${t}s";; *) ko "timeout amont -> $c (${t}s) : le Core bloque le client ?";; esac
+case "$c" in 502|503|504) ok "timeout amont -> $c après ${t}s";; *) ko "timeout amont -> $c (${t}s) : la passerelle bloque le client ?";; esac
 reset; recovers && ok "rétablissement après timeout" || ko "pas de rétablissement"
 
 echo "== Bande passante 50 Ko/s sur 1 Mo (client lent / backend lent) =="

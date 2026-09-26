@@ -40,6 +40,10 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("ping SQLite %q : %w", path, err)
 	}
 
+	if err := migrateCoreToEdge(db); err != nil {
+		return nil, fmt.Errorf("migration Core → Edge : %w", err)
+	}
+
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("migration SQLite : %w", err)
 	}
@@ -98,7 +102,7 @@ func migrate(db *sql.DB) error {
 			detail     TEXT,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		// Nœuds enregistrés (Cores + Agents) avec leur dernier heartbeat
+		// Nœuds enregistrés (Passerelles + Agents) avec leur dernier heartbeat
 		`CREATE TABLE IF NOT EXISTS nodes (
 			id           TEXT PRIMARY KEY,
 			node_name    TEXT UNIQUE NOT NULL,
@@ -206,7 +210,7 @@ func migrate(db *sql.DB) error {
 			origin       TEXT NOT NULL DEFAULT '',
 			type         TEXT NOT NULL DEFAULT 'ban',
 			duration     TEXT NOT NULL DEFAULT '',
-			core_name    TEXT NOT NULL DEFAULT '',
+			edge_name    TEXT NOT NULL DEFAULT '',
 			occurrences  INTEGER NOT NULL DEFAULT 1,
 			last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -220,7 +224,7 @@ func migrate(db *sql.DB) error {
 			cvss_score  REAL NOT NULL DEFAULT 0,
 			description TEXT NOT NULL DEFAULT '',
 			status      TEXT NOT NULL DEFAULT 'open',
-			core_name   TEXT NOT NULL DEFAULT '',
+			edge_name   TEXT NOT NULL DEFAULT '',
 			detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_cves_unique ON security_cves (backend_url, cve_id)`,
@@ -299,7 +303,7 @@ func migrate(db *sql.DB) error {
 			expires_at   DATETIME NOT NULL,
 			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		// Fournisseurs SSO/Auth partagés (poussés vers les Cores)
+		// Fournisseurs SSO/Auth partagés (poussés vers les passerelles)
 		`CREATE TABLE IF NOT EXISTS auth_providers (
 			id         TEXT PRIMARY KEY,
 			name       TEXT UNIQUE NOT NULL,
@@ -337,7 +341,7 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Scopes par token (RBAC côté Core — idempotent).
+	// Scopes par token (RBAC côté passerelle — idempotent).
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS token_scopes (
 			id          TEXT PRIMARY KEY,
@@ -348,7 +352,7 @@ func migrate(db *sql.DB) error {
 		)`,
 		// rbac_role sur les tokens : 'admin' par défaut (comportement actuel inchangé)
 		`ALTER TABLE tokens ADD COLUMN rbac_role TEXT NOT NULL DEFAULT 'admin'`,
-		// PEM des certificats — stockés pour re-push après redémarrage Core
+		// PEM des certificats — stockés pour re-push après redémarrage passerelle
 		`ALTER TABLE certs ADD COLUMN cert_pem TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE certs ADD COLUMN key_pem TEXT NOT NULL DEFAULT ''`,
 		// Validateurs HTTP (ETag / Last-Modified) des feeds des profils IP
@@ -411,9 +415,9 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE logs ADD COLUMN ip_enc TEXT NOT NULL DEFAULT ''`,
 		// Clé de chiffrement RGPD (32 bytes random base64) — générée au premier démarrage.
 		`CREATE TABLE IF NOT EXISTS gdpr_keys (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
-		// node_id : identifiant stable du nœud (coreID/token), insensible à un
+		// node_id : identifiant stable du nœud (edgeID/token), insensible à un
 		// renommage de node_name — évite qu'un re-pairing (nouveau token_id
-		// après régénération de core.json) ne rende l'historique des logs
+		// après régénération de edge.json) ne rende l'historique des logs
 		// d'un nœud introuvable sous son ancien nom.
 		`ALTER TABLE logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_node_id ON logs (node_id)`,
@@ -439,7 +443,7 @@ func migrate(db *sql.DB) error {
 	// Nœuds déclarés via l'assistant Infrastructure (non encore connectés).
 	db.Exec(`CREATE TABLE IF NOT EXISTS declared_nodes (
 		id         TEXT PRIMARY KEY,
-		role       TEXT NOT NULL CHECK(role IN ('core','agent')),
+		role       TEXT NOT NULL CHECK(role IN ('edge','agent')),
 		name       TEXT NOT NULL,
 		region     TEXT NOT NULL DEFAULT '',
 		environment TEXT NOT NULL DEFAULT '',
@@ -461,15 +465,15 @@ func migrate(db *sql.DB) error {
 	// Index pour dépiler rapidement les PENDING
 	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_nodes_name_role ON pending_nodes (node_name, role)`) //nolint:errcheck
 
-	// Domaines gérés (certificats, fournisseur DNS, délégation inter-Core).
+	// Domaines gérés (certificats, fournisseur DNS, délégation inter-passerelle).
 	db.Exec(`CREATE TABLE IF NOT EXISTS domains (
 		id                    TEXT PRIMARY KEY,
 		domain                TEXT UNIQUE NOT NULL,
-		core_id               TEXT NOT NULL DEFAULT '',
+		edge_id               TEXT NOT NULL DEFAULT '',
 		dns_provider          TEXT NOT NULL DEFAULT 'none',
 		dns_credentials       TEXT NOT NULL DEFAULT '{}',
 		cert_method           TEXT NOT NULL DEFAULT 'http',
-		delegated_to_core_id  TEXT NOT NULL DEFAULT '',
+		delegated_to_edge_id  TEXT NOT NULL DEFAULT '',
 		delegated_endpoint    TEXT NOT NULL DEFAULT '',
 		delegation_mode       TEXT NOT NULL DEFAULT 'passthrough',
 		cert_expires_at       DATETIME,
@@ -479,7 +483,7 @@ func migrate(db *sql.DB) error {
 	// Migration : ajout delegation_mode pour les installations existantes
 	db.Exec(`ALTER TABLE domains ADD COLUMN delegation_mode TEXT NOT NULL DEFAULT 'passthrough'`) //nolint:errcheck
 
-	// Migration : ajout du scope_type 'core' dans team_scopes et token_scopes.
+	// Migration : ajout du scope_type 'edge' dans team_scopes et token_scopes.
 	// SQLite ne supporte pas ALTER COLUMN, on recrée chaque table.
 	// Les 5 étapes sont idempotentes : erreurs silencieuses sur les runs suivants.
 	for _, s := range []string{
@@ -487,7 +491,7 @@ func migrate(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS team_scopes_v2 (
 			id          TEXT PRIMARY KEY,
 			team_id     TEXT NOT NULL,
-			scope_type  TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','core')),
+			scope_type  TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','edge')),
 			scope_value TEXT NOT NULL,
 			access_mode TEXT NOT NULL DEFAULT 'read' CHECK(access_mode IN ('read','write')),
 			UNIQUE(team_id, scope_type, scope_value)
@@ -505,7 +509,7 @@ func migrate(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS token_scopes_v2 (
 			id          TEXT PRIMARY KEY,
 			token_id    TEXT NOT NULL,
-			scope_type  TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','core')),
+			scope_type  TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','edge')),
 			scope_value TEXT NOT NULL,
 			UNIQUE(token_id, scope_type, scope_value)
 		)`,
@@ -525,7 +529,7 @@ func migrate(db *sql.DB) error {
 		  AND (SELECT COUNT(*) FROM users WHERE role='superadmin') = 0
 	`) //nolint:errcheck
 
-	// Tokens API utilisateur (PAT) — distincts des tokens d'appairage Core/Agent.
+	// Tokens API utilisateur (PAT) — distincts des tokens d'appairage passerelle/Agent.
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS user_api_tokens (
 			id           TEXT PRIMARY KEY,
@@ -594,13 +598,13 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Vulnérabilités (CVE) — Core d'origine, pour affichage côté Admin (vue agrégée multi-Core).
-	db.Exec(`ALTER TABLE security_cves ADD COLUMN core_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+	// Vulnérabilités (CVE) — passerelle d'origine, pour affichage côté Admin (vue agrégée multi-passerelle).
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN edge_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
 
-	// Menaces CrowdSec — Core d'origine + dernière observation (une même menace ip+scenario
+	// Menaces CrowdSec — passerelle d'origine + dernière observation (une même menace ip+scenario
 	// était ré-émise régulièrement mais ignorée par l'unicité (ip, scenario), sans jamais
-	// rafraîchir la date affichée côté Admin/Core).
-	db.Exec(`ALTER TABLE security_threats ADD COLUMN core_name    TEXT NOT NULL DEFAULT ''`)           //nolint:errcheck
+	// rafraîchir la date affichée côté Admin/Passerelle).
+	db.Exec(`ALTER TABLE security_threats ADD COLUMN edge_name    TEXT NOT NULL DEFAULT ''`)           //nolint:errcheck
 	db.Exec(`ALTER TABLE security_threats ADD COLUMN occurrences  INTEGER NOT NULL DEFAULT 1`)         //nolint:errcheck
 	db.Exec(`ALTER TABLE security_threats ADD COLUMN last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP`) //nolint:errcheck
 	db.Exec(`UPDATE security_threats SET last_seen_at = created_at WHERE last_seen_at IS NULL`)        //nolint:errcheck
@@ -644,11 +648,11 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	// Destinations catalogue portail Access (par Core).
+	// Destinations catalogue portail Access (par passerelle).
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS portal_destinations (
 			id          TEXT PRIMARY KEY,
-			core_name   TEXT NOT NULL,
+			edge_name   TEXT NOT NULL,
 			kind        TEXT NOT NULL,
 			name        TEXT NOT NULL,
 			host        TEXT NOT NULL DEFAULT '',
@@ -660,7 +664,7 @@ func migrate(db *sql.DB) error {
 			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_portal_destinations_core ON portal_destinations (core_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_portal_destinations_edge ON portal_destinations (edge_name)`,
 		`CREATE TABLE IF NOT EXISTS portal_users (
 			id               TEXT PRIMARY KEY,
 			email            TEXT NOT NULL UNIQUE,
@@ -668,15 +672,15 @@ func migrate(db *sql.DB) error {
 			tags_json        TEXT NOT NULL DEFAULT '[]',
 			invite_token_hash TEXT NOT NULL DEFAULT '',
 			invite_expires   TEXT NOT NULL DEFAULT '',
-			home_core        TEXT NOT NULL,
+			home_edge        TEXT NOT NULL,
 			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_portal_users_core ON portal_users (home_core)`,
+		`CREATE INDEX IF NOT EXISTS idx_portal_users_edge ON portal_users (home_edge)`,
 		`CREATE INDEX IF NOT EXISTS idx_portal_users_invite ON portal_users (invite_token_hash)`,
 		`CREATE TABLE IF NOT EXISTS portal_audit (
 			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			core_name  TEXT NOT NULL DEFAULT '',
+			edge_name  TEXT NOT NULL DEFAULT '',
 			ts         TEXT NOT NULL,
 			actor      TEXT NOT NULL DEFAULT '',
 			target_id  TEXT NOT NULL DEFAULT '',
@@ -684,7 +688,7 @@ func migrate(db *sql.DB) error {
 			success    INTEGER NOT NULL DEFAULT 0,
 			detail     TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_portal_audit_core ON portal_audit (core_name, id DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_portal_audit_edge ON portal_audit (edge_name, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS portal_page_templates (
 			page_key   TEXT PRIMARY KEY,
 			name       TEXT NOT NULL DEFAULT '',
@@ -745,7 +749,7 @@ func migrate(db *sql.DB) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS workspace_resources (
 			workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-			resource_type TEXT NOT NULL CHECK(resource_type IN ('proxy','domain','core')),
+			resource_type TEXT NOT NULL CHECK(resource_type IN ('proxy','domain','edge')),
 			resource_id   TEXT NOT NULL,
 			PRIMARY KEY (workspace_id, resource_type, resource_id)
 		)`,

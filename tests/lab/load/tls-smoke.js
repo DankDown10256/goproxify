@@ -1,5 +1,5 @@
 // Smoke HTTPS : 2 VUs, 15 s sur lab-tls.lab.test en HTTPS (cert auto-signé accepté).
-// Vérifie que le Core répond correctement en TLS sans erreur.
+// Vérifie que la passerelle répond correctement en TLS sans erreur.
 import http from "k6/http";
 import { check } from "k6";
 import { summary } from "./common.js";

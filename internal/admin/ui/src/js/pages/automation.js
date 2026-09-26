@@ -45,7 +45,7 @@ pages.automation = async function() {
 
     <div class="card" style="padding:18px 20px">
       <p style="margin:0;font-size:13px;color:var(--text2);line-height:1.6">
-        ${t('automation.help') || 'Les règles automatiques déclenchent des actions (désactiver un proxy, bannir une IP, activer le mode strict) selon des conditions observées sur vos Cores. Les canaux d\'alerte définissent où sont envoyées les notifications (email, webhook, ntfy, gotify). Le store propose des règles préconfigurées prêtes à installer en un clic.'}
+        ${t('automation.help') || 'Les règles automatiques déclenchent des actions (désactiver un proxy, bannir une IP, activer le mode strict) selon des conditions observées sur vos passerelles. Les canaux d\'alerte définissent où sont envoyées les notifications (email, webhook, ntfy, gotify). Le store propose des règles préconfigurées prêtes à installer en un clic.'}
       </p>
     </div>
   `;

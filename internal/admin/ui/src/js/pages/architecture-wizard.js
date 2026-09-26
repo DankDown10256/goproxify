@@ -11,9 +11,9 @@ const _arch = {
   packs: [], // { hostId, hostName, html, flows, bootstrapUrl }
   pairingSecret: '',
   jwtSecret: '',
-  coreList: [],
+  edgeList: [],
   declaredNodes: [],
-  onlineCoreEndpoint: '',
+  onlineEdgeEndpoint: '',
   existingCount: 0,
   acmeProviders: [],
 };
@@ -34,26 +34,26 @@ function _archParseCfg(cfg) {
   return typeof cfg === 'object' ? cfg : {};
 }
 
-function _archResolveCoreKey(tc, cores) {
+function _archResolveEdgeKey(tc, edges) {
   if (!tc) return '';
   const s = String(tc).trim();
-  if (cores.some(c => (c.node_name || c.id) === s)) return s;
+  if (edges.some(c => (c.node_name || c.id) === s)) return s;
   const m = s.match(/https?:\/\/([^/:]+)/i);
   if (m) {
     const host = m[1];
-    const hit = cores.find(c => (c.node_name || c.id) === host);
+    const hit = edges.find(c => (c.node_name || c.id) === host);
     if (hit) return hit.node_name || hit.id;
   }
   return '';
 }
 
-function _archLooksColocatedTarget(target, coreName) {
+function _archLooksColocatedTarget(target, edgeName) {
   const t = String(target || '').trim();
-  if (!t || !coreName) return false;
+  if (!t || !edgeName) return false;
   const m = t.match(/https?:\/\/([^/:]+)/i);
   if (!m) return false;
   const host = m[1];
-  if (host !== coreName) return false;
+  if (host !== edgeName) return false;
   // Hostname docker-compose (pas d’IP, pas de FQDN)
   return !/^\d+\.\d+\.\d+\.\d+$/.test(host) && !host.includes('.');
 }
@@ -96,10 +96,10 @@ function _archSvcFromExisting(role, node, cfg) {
     acme: !!cfg.acme,
     acmeEmail: cfg.acme_email || '',
     dnsProvider: cfg.dns_provider || 'none',
-    reachable: (cfg.reachable_host || '').trim() || (role === 'core' ? _archHostFromEndpoint(node.endpoint || node.node_endpoint || '') : ''),
+    reachable: (cfg.reachable_host || '').trim() || (role === 'edge' ? _archHostFromEndpoint(node.endpoint || node.node_endpoint || '') : ''),
     portainerUrl: cfg.portainer_url || '',
     portainerKey: cfg.portainer_key || '',
-    targetCoreId: '',
+    targetEdgeId: '',
     placement: (cfg.placement || '').trim(),
     existing: true,
     status: node.status || 'declared',
@@ -110,10 +110,10 @@ function _archSvcFromExisting(role, node, cfg) {
   };
 }
 
-/** Reprend Cores/Agents live + déclarés sur la toile (hôtes + options). */
+/** Reprend passerelles/Agents live + déclarés sur la toile (hôtes + options). */
 function _archHydrateFromExisting(nodes, declared) {
   const rawList = (Array.isArray(nodes) ? nodes : []).filter(n =>
-    (n.role === 'core' || n.role === 'agent') && n.status !== 'pending'
+    (n.role === 'edge' || n.role === 'agent') && n.status !== 'pending'
   );
   // Deduplicate: when a node appears as both live (online/offline) and declared, keep live.
   // Live nodes use node_name; declared nodes use name — check both fields.
@@ -132,11 +132,11 @@ function _archHydrateFromExisting(nodes, declared) {
     if (d && d.name) declByName[d.name] = d;
   }
 
-  const cores = list.filter(n => n.role === 'core');
+  const edges = list.filter(n => n.role === 'edge');
   const agents = list.filter(n => n.role === 'agent');
   const hosts = [];
   const hostByKey = new Map();
-  const coreSvcByName = new Map();
+  const edgeSvcByName = new Map();
   const haGroupsByGid = {}; // gid → [svc.id]
 
   const ensureHost = (key, opts) => {
@@ -158,19 +158,19 @@ function _archHydrateFromExisting(nodes, declared) {
     return h;
   };
 
-  for (const c of cores) {
+  for (const c of edges) {
     const cName = (c.node_name || c.name || c.id || '').trim();
     if (!cName) continue;
     const d = declByName[cName] || declByName[c.display_name];
     const cfg = _archParseCfg(d && d.config);
-    const host = ensureHost('core:' + cName, {
+    const host = ensureHost('edge:' + cName, {
       name: c.display_name || cName,
       region: (d && d.region) || c.region || '',
       internet: !!cfg.internet_exposed,
     });
-    const svc = _archSvcFromExisting('core', c, cfg);
+    const svc = _archSvcFromExisting('edge', c, cfg);
     host.services.push(svc);
-    coreSvcByName.set(cName, svc);
+    edgeSvcByName.set(cName, svc);
     if (cfg.cluster) {
       const gid = cfg.cluster_group || 'ha-1';
       if (!haGroupsByGid[gid]) haGroupsByGid[gid] = [];
@@ -184,18 +184,18 @@ function _archHydrateFromExisting(nodes, declared) {
     const d = declByName[aName] || declByName[a.display_name];
     const cfg = _archParseCfg(d && d.config);
     const placement = (cfg.placement || '').trim();
-    const target = (cfg.target_core || a.target_core || '').trim();
-    const coreKey = _archResolveCoreKey(target, cores)
-      || _archResolveCoreKey(a.target_core || '', cores);
+    const target = (cfg.target_edge || a.target_edge || '').trim();
+    const edgeKey = _archResolveEdgeKey(target, edges)
+      || _archResolveEdgeKey(a.target_edge || '', edges);
     let host;
-    // Cas single-stack Docker Compose : 1 Core + 1 Agent sans placement déclaré → même hôte.
-    const onlyCoreKey = cores.length === 1 ? (cores[0].node_name || cores[0].id || '').trim() : '';
-    const effectiveCoreKey = coreKey || (cores.length === 1 && agents.length === 1 && !placement ? onlyCoreKey : '');
-    const colocate = (placement === 'colocated' && effectiveCoreKey)
-      || (placement !== 'remote' && effectiveCoreKey && _archLooksColocatedTarget(cfg.target_core || '', effectiveCoreKey))
-      || (cores.length === 1 && agents.length === 1 && !placement && !!effectiveCoreKey);
-    if (colocate && hostByKey.has('core:' + effectiveCoreKey)) {
-      host = hostByKey.get('core:' + effectiveCoreKey);
+    // Cas single-stack Docker Compose : 1 passerelle + 1 Agent sans placement déclaré → même hôte.
+    const onlyEdgeKey = edges.length === 1 ? (edges[0].node_name || edges[0].id || '').trim() : '';
+    const effectiveEdgeKey = edgeKey || (edges.length === 1 && agents.length === 1 && !placement ? onlyEdgeKey : '');
+    const colocate = (placement === 'colocated' && effectiveEdgeKey)
+      || (placement !== 'remote' && effectiveEdgeKey && _archLooksColocatedTarget(cfg.target_edge || '', effectiveEdgeKey))
+      || (edges.length === 1 && agents.length === 1 && !placement && !!effectiveEdgeKey);
+    if (colocate && hostByKey.has('edge:' + effectiveEdgeKey)) {
+      host = hostByKey.get('edge:' + effectiveEdgeKey);
       if ((d && d.region) || a.region) {
         if (!host.region) host.region = (d && d.region) || a.region || '';
       }
@@ -208,17 +208,17 @@ function _archHydrateFromExisting(nodes, declared) {
       });
     }
     const svc = _archSvcFromExisting('agent', a, cfg);
-    if (effectiveCoreKey && coreSvcByName.has(effectiveCoreKey)) svc.targetCoreId = coreSvcByName.get(effectiveCoreKey).id;
+    if (effectiveEdgeKey && edgeSvcByName.has(effectiveEdgeKey)) svc.targetEdgeId = edgeSvcByName.get(effectiveEdgeKey).id;
     if (colocate) svc.placement = 'colocated';
     else if (!svc.placement) svc.placement = 'remote';
     host.services.push(svc);
   }
 
-  // Auto-place Admin on the first internet-facing Core host (or first Core host).
-  // Admin is always co-deployed with Core and never reported by the heartbeat.
+  // Auto-place Admin on the first internet-facing Edge host (or first Edge host).
+  // Admin is always co-deployed with Edge and never reported by the heartbeat.
   if (hosts.length && !hosts.some(h => h.services.some(s => s.type === 'admin'))) {
-    const adminHost = hosts.find(h => h.internet && h.services.some(s => s.type === 'core'))
-      || hosts.find(h => h.services.some(s => s.type === 'core'))
+    const adminHost = hosts.find(h => h.internet && h.services.some(s => s.type === 'edge'))
+      || hosts.find(h => h.services.some(s => s.type === 'edge'))
       || hosts[0];
     adminHost.services.unshift({
       id: _archUid('admin'),
@@ -226,7 +226,7 @@ function _archHydrateFromExisting(nodes, declared) {
       name: 'goproxify-admin',
       access: false, portainer: false, k8s: false, docker: false, podman: false,
       domains: '', acme: false, acmeEmail: '', dnsProvider: 'none',
-      reachable: '', portainerUrl: '', portainerKey: '', targetCoreId: '', placement: '',
+      reachable: '', portainerUrl: '', portainerKey: '', targetEdgeId: '', placement: '',
       existing: true, status: 'online',
     });
   }
@@ -238,16 +238,16 @@ function _archHydrateFromExisting(nodes, declared) {
 // ── Modèle : Hôte (machine) → Rôle (service) → Capacité (option du rôle) ──
 
 const _ARCH_ROLES = {
-  core:  { accent: 'var(--accent)', label: 'arch.svc.core',  desc: 'arch.role.core_desc' },
+  edge:  { accent: 'var(--accent)', label: 'arch.svc.edge',  desc: 'arch.role.edge_desc' },
   agent: { accent: 'var(--green)',  label: 'arch.svc.agent', desc: 'arch.role.agent_desc' },
   admin: { accent: 'var(--purple)', label: 'arch.svc.admin', desc: 'arch.role.admin_desc' },
 };
 
 // Capacités GoProxify : toujours portées par un rôle, jamais posées seules sur un hôte.
 const _ARCH_CAPS = [
-  { id: 'access',    role: 'core',  label: 'arch.svc.access',    desc: 'arch.cap.access_desc',    chip: 'Access' },
-  { id: 'ha',        role: 'core',  label: 'arch.svc.ha',        desc: 'arch.cap.ha_desc',        chip: 'HA' },
-  { id: 'tls',       role: 'core',  label: 'arch.svc.domains',   desc: 'arch.cap.tls_desc',       chip: 'TLS' },
+  { id: 'access',    role: 'edge',  label: 'arch.svc.access',    desc: 'arch.cap.access_desc',    chip: 'Access' },
+  { id: 'ha',        role: 'edge',  label: 'arch.svc.ha',        desc: 'arch.cap.ha_desc',        chip: 'HA' },
+  { id: 'tls',       role: 'edge',  label: 'arch.svc.domains',   desc: 'arch.cap.tls_desc',       chip: 'TLS' },
   { id: 'docker',    role: 'agent', label: 'arch.svc.docker',    desc: 'arch.cap.docker_desc',    chip: 'Docker' },
   { id: 'podman',    role: 'agent', label: 'arch.svc.podman',    desc: 'arch.cap.podman_desc',    chip: 'Podman' },
   { id: 'portainer', role: 'agent', label: 'arch.svc.portainer', desc: 'arch.cap.portainer_desc', chip: 'Portainer' },
@@ -256,7 +256,7 @@ const _ARCH_CAPS = [
 
 const _ARCH_ICONS = {
   host:  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="1"/><rect x="3" y="13" width="18" height="7" rx="1"/><line x1="6.5" y1="7.5" x2="6.5" y2="7.5"/><line x1="6.5" y1="16.5" x2="6.5" y2="16.5"/></svg>',
-  core:  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>',
+  edge:  '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>',
   agent: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M8.5 15.5a5 5 0 0 1 0-7M15.5 8.5a5 5 0 0 1 0 7M5.6 18.4a9 9 0 0 1 0-12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>',
   admin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2"/><circle cx="15" cy="16" r="2"/></svg>',
   cap:   '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><line x1="12" y1="8.5" x2="12" y2="15.5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/></svg>',
@@ -321,9 +321,9 @@ function openArchWizard() {
   _arch.selectedHostId = null;
   _arch.packs = [];
   _arch.pairingSecret = '';
-  _arch.coreList = [];
+  _arch.edgeList = [];
   _arch.declaredNodes = [];
-  _arch.onlineCoreEndpoint = '';
+  _arch.onlineEdgeEndpoint = '';
   _arch.existingCount = 0;
   _arch.loading = true;
   _archLoad();
@@ -344,14 +344,14 @@ function _archLoad() {
   return Promise.all([
     api('GET', '/pairing-secret').catch(() => null),
     api('GET', '/nodes').catch(() => null),
-    api('GET', '/tokens?role=core').catch(() => null),
+    api('GET', '/tokens?role=edge').catch(() => null),
     api('GET', '/declared-nodes').catch(() => null),
     api('GET', '/portal/enabled').catch(() => null),
     api('GET', '/domains').catch(() => null),
     api('GET', '/acme/providers').catch(() => []),
   ]).then(([sec, nodes, tokens, declared, portalEnabled, domains, acmeProviders]) => {
     _arch.acmeProviders = Array.isArray(acmeProviders) ? acmeProviders : [];
-    const portalCores = portalEnabled?.cores || {};
+    const portalEdges = portalEnabled?.edges || {};
     _arch.pairingSecret = sec?.secret || '';
     _wiz.pairingSecret = _arch.pairingSecret;
     if (!_arch.jwtSecret) {
@@ -359,12 +359,12 @@ function _archLoad() {
       (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(arr) : arr.forEach((_,i,a) => a[i] = Math.floor(Math.random()*256));
       _arch.jwtSecret = Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
     }
-    _arch.coreList = typeof _wizLoadCoreList === 'function' ? _wizLoadCoreList(nodes, tokens) : [];
+    _arch.edgeList = typeof _wizLoadEdgeList === 'function' ? _wizLoadEdgeList(nodes, tokens) : [];
     _arch.declaredNodes = Array.isArray(declared) ? declared : [];
     _wiz.declaredNodes = _arch.declaredNodes;
-    const online = (_arch.coreList || []).find(c => (c.status || '') === 'online' || c.node_endpoint);
+    const online = (_arch.edgeList || []).find(c => (c.status || '') === 'online' || c.node_endpoint);
     if (online) {
-      _arch.onlineCoreEndpoint = online.node_endpoint || online.endpoint || '';
+      _arch.onlineEdgeEndpoint = online.node_endpoint || online.endpoint || '';
     }
     const hydrated = _archHydrateFromExisting(nodes, _arch.declaredNodes);
     _arch.hosts = hydrated.hosts;
@@ -373,15 +373,15 @@ function _archLoad() {
     // Applique l'état portail Access depuis les settings Admin
     for (const h of _arch.hosts) {
       for (const s of h.services || []) {
-        if (s.type === 'core') {
-          const key = (s.nodeName && s.nodeName in portalCores) ? s.nodeName
-                    : (s.name in portalCores) ? s.name : null;
-          if (key !== null) s.access = !!portalCores[key];
+        if (s.type === 'edge') {
+          const key = (s.nodeName && s.nodeName in portalEdges) ? s.nodeName
+                    : (s.name in portalEdges) ? s.name : null;
+          if (key !== null) s.access = !!portalEdges[key];
         }
       }
     }
-    // Prérempli les domaines des services Core depuis la table /domains.
-    // domain.core_id = UUID token → matché via tokens (id + node_name).
+    // Prérempli les domaines des services passerelle depuis la table /domains.
+    // domain.edge_id = UUID token → matché via tokens (id + node_name).
     // On écrase aussi svc.acme et svc.dnsProvider d'après les vraies données.
     if (Array.isArray(domains) && domains.length) {
       const tokenByID = new Map();
@@ -389,23 +389,23 @@ function _archLoad() {
         if (tok.id && tok.node_name) tokenByID.set(tok.id, tok.node_name);
       }
       // index par node_name : { domains[], hasAcme, dnsProvider }
-      const infoByCoreName = new Map();
+      const infoByEdgeName = new Map();
       // délégations : sourceNodeName → [{id, domain, targetName, mode}], targetNodeName → [...]
       const delegOut = new Map();
       const delegIn  = new Map();
       for (const d of domains) {
-        if (!d.domain || !d.core_id) continue;
-        const nodeName = tokenByID.get(d.core_id) || d.core_id;
-        const info = infoByCoreName.get(nodeName) || { domainList: [], hasAcme: false, dnsProvider: 'none' };
+        if (!d.domain || !d.edge_id) continue;
+        const nodeName = tokenByID.get(d.edge_id) || d.edge_id;
+        const info = infoByEdgeName.get(nodeName) || { domainList: [], hasAcme: false, dnsProvider: 'none' };
         info.domainList.push(d.domain);
-        // Une délégation (delegated_to_core_id non vide) n'est pas de l'ACME
-        if (!d.delegated_to_core_id && d.cert_method === 'dns') {
+        // Une délégation (delegated_to_edge_id non vide) n'est pas de l'ACME
+        if (!d.delegated_to_edge_id && d.cert_method === 'dns') {
           info.hasAcme = true;
           if (d.dns_provider && d.dns_provider !== 'none') info.dnsProvider = d.dns_provider;
         }
-        infoByCoreName.set(nodeName, info);
-        if (d.delegated_to_core_id) {
-          const targetName = tokenByID.get(d.delegated_to_core_id) || d.delegated_to_core_id;
+        infoByEdgeName.set(nodeName, info);
+        if (d.delegated_to_edge_id) {
+          const targetName = tokenByID.get(d.delegated_to_edge_id) || d.delegated_to_edge_id;
           const mode = d.delegation_mode || 'passthrough';
           const entry = { id: d.id, domain: d.domain, targetName, sourceName: nodeName, mode };
           if (!delegOut.has(nodeName)) delegOut.set(nodeName, []);
@@ -416,9 +416,9 @@ function _archLoad() {
       }
       for (const h of _arch.hosts) {
         for (const s of h.services || []) {
-          if (s.type !== 'core') continue;
+          if (s.type !== 'edge') continue;
           const key = s.nodeName || s.name;
-          const info = infoByCoreName.get(key) || infoByCoreName.get(s.name);
+          const info = infoByEdgeName.get(key) || infoByEdgeName.get(s.name);
           s.domains = info ? info.domainList.join(', ') : '';
           // N'activer ACME depuis les domaines que dans le sens positif :
           // si un domaine dns existe → forcer true ; sinon laisser la valeur du declared config.
@@ -431,17 +431,17 @@ function _archLoad() {
         }
       }
     }
-    // Cores déclarés absents de /nodes → déjà dans nodes via status declared ; sync coreList
-    for (const n of _arch.declaredNodes.filter(x => x.role === 'core')) {
-      if (_arch.coreList.some(c => c.node_name === n.name)) continue;
+    // Passerelles déclarées absents de /nodes → déjà dans nodes via status declared ; sync edgeList
+    for (const n of _arch.declaredNodes.filter(x => x.role === 'edge')) {
+      if (_arch.edgeList.some(c => c.node_name === n.name)) continue;
       const cfg = _archParseCfg(n.config);
       const host = (cfg.reachable_host || '').trim();
-      _arch.coreList.push({
+      _arch.edgeList.push({
         node_name: n.name,
         display_name: n.name,
-        role: 'core',
+        role: 'edge',
         status: 'declared',
-        node_endpoint: host && typeof _wizCoreEndpoint === 'function' ? _wizCoreEndpoint(host) : '',
+        node_endpoint: host && typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : '',
       });
     }
     _arch.loading = false;
@@ -456,7 +456,7 @@ function closeArchWizard() {
 async function _archSaveTopology() {
   const allSvcs = _arch.hosts.flatMap(h =>
     (h.services || [])
-      .filter(s => s.type === 'core' || s.type === 'agent')
+      .filter(s => s.type === 'edge' || s.type === 'agent')
       .map(s => ({ svc: s, host: h }))
   );
   if (!allSvcs.length) { toast(t('arch.save_nothing') || 'Aucun nœud à enregistrer', 'warning'); return; }
@@ -468,7 +468,7 @@ async function _archSaveTopology() {
   for (const { svc, host } of allSvcs) {
     const cfg = { internet_exposed: !!host.internet, reachable_host: svc.reachable || '' };
     if (svc.nodeId) cfg.node_id = svc.nodeId; // UUID stable du nœud live
-    if (svc.type === 'core') {
+    if (svc.type === 'edge') {
       cfg.portal        = !!svc.access;
       cfg.cluster       = _archInHA(svc.id);
       cfg.cluster_group = (() => { const g = _archGroupOfSvc(svc.id); return g ? g.id : ''; })();
@@ -488,7 +488,7 @@ async function _archSaveTopology() {
     }
 
     // Si renommage, supprimer l'ancienne entrée
-    const prevName = svc._prevCoreName || svc._prevAgentName;
+    const prevName = svc._prevEdgeName || svc._prevAgentName;
     if (prevName && prevName !== svc.name) {
       const old = prevDeclared.find(n => n.role === svc.type && n.name === prevName);
       if (old && old.id && !old.id.startsWith('cfg:')) {
@@ -517,12 +517,12 @@ async function _archSaveTopology() {
     }
   }
 
-  // Synchroniser la config ACME vers l'Admin depuis les paramètres des services Core.
-  // L'email ACME est configuré sur le Core dans le wizard, mais persiste côté Admin.
+  // Synchroniser la config ACME vers l'Admin depuis les paramètres des services passerelle.
+  // L'email ACME est configuré sur la passerelle dans le wizard, mais persiste côté Admin.
   // On se base sur acmeEmail seul (svc.acme peut être false si aucun domaine dns n'est encore créé).
-  const acmeCoreSvc = allSvcs.find(({ svc }) => svc.type === 'core' && svc.acmeEmail);
-  if (acmeCoreSvc) {
-    const c = acmeCoreSvc.svc;
+  const acmeEdgeSvc = allSvcs.find(({ svc }) => svc.type === 'edge' && svc.acmeEmail);
+  if (acmeEdgeSvc) {
+    const c = acmeEdgeSvc.svc;
     await api('PUT', '/settings/acme', {
       enabled: !!c.acme,
       email: c.acmeEmail,
@@ -530,11 +530,11 @@ async function _archSaveTopology() {
     }).catch(() => {});
   }
 
-  // Appliquer le portail Access sur les Cores en ligne
+  // Appliquer le portail Access sur les passerelles en ligne
   for (const { svc } of allSvcs) {
-    if (svc.type === 'core' && (svc.status === 'online') ) {
-      const coreName = svc.nodeName || svc.name;
-      const q = '?core=' + encodeURIComponent(coreName);
+    if (svc.type === 'edge' && (svc.status === 'online') ) {
+      const edgeName = svc.nodeName || svc.name;
+      const q = '?edge=' + encodeURIComponent(edgeName);
       const existing = await api('GET', '/portal' + q).catch(() => ({}));
       await api('PUT', '/portal' + q, { ...existing, enabled: !!svc.access }).catch(() => {});
     }
@@ -586,9 +586,9 @@ function _archCapLegendHTML() {
 }
 
 function _archLibraryHTML() {
-  // Raccourci "Ajouter un agent" quand un Core est déjà présent sur la toile
-  const hasCores = _arch.hosts.some(h => (h.services || []).some(s => s.type === 'core'));
-  const quickAddHTML = hasCores ? `
+  // Raccourci "Ajouter un agent" quand une passerelle est déjà présent sur la toile
+  const hasEdges = _arch.hosts.some(h => (h.services || []).some(s => s.type === 'edge'));
+  const quickAddHTML = hasEdges ? `
     <div class="arch-panel">
       <div class="arch-panel-head">
         <div class="arch-panel-title">${t('infra.add_agent')}</div>
@@ -616,7 +616,7 @@ function _archLibraryHTML() {
         <div class="arch-panel-sub">${t('arch.lib.roles_sub')}</div>
       </div>
       <div class="arch-panel-body">
-        ${_archRoleSourceHTML('core')}
+        ${_archRoleSourceHTML('edge')}
         ${_archRoleSourceHTML('agent')}
         ${_archRoleSourceHTML('admin')}
       </div>
@@ -631,10 +631,10 @@ function _archLibraryHTML() {
     </div>`;
 }
 
-/** Ajoute un agent sur le premier hôte qui contient un Core (ou un nouvel hôte), et ouvre l'inspecteur. */
+/** Ajoute un agent sur le premier hôte qui contient une passerelle (ou un nouvel hôte), et ouvre l'inspecteur. */
 function _archQuickAddAgent() {
-  // Cherche un hôte avec un Core pour co-localiser l'agent, sinon crée un hôte dédié
-  let host = _arch.hosts.find(h => (h.services || []).some(s => s.type === 'core'));
+  // Cherche un hôte avec une passerelle pour co-localiser l'agent, sinon crée un hôte dédié
+  let host = _arch.hosts.find(h => (h.services || []).some(s => s.type === 'edge'));
   if (!host) {
     host = _archEmptyHost(_arch.hosts.length + 1);
     _arch.hosts.push(host);
@@ -655,7 +655,7 @@ function _archLegendHTML() {
     </div>`;
   return `<div class="arch-legend">
     ${step('host', _ARCH_ICONS.host, t('arch.level.host'), t('arch.level.host_desc'))}
-    ${step('role', _ARCH_ICONS.core, t('arch.level.role'), t('arch.level.role_desc'))}
+    ${step('role', _ARCH_ICONS.edge, t('arch.level.role'), t('arch.level.role_desc'))}
     ${step('cap',  _ARCH_ICONS.cap,  t('arch.level.cap'),  t('arch.level.cap_desc'))}
   </div>`;
 }
@@ -797,7 +797,7 @@ function _archHostCard(host) {
       ${roles || `<div class="arch-host-drop">${t('arch.drop_here')}</div>`}
     </div>
     <div class="arch-host-foot">
-      ${addBtn('core')}${addBtn('agent')}${addBtn('admin')}
+      ${addBtn('edge')}${addBtn('agent')}${addBtn('admin')}
       ${_arch.hosts.length > 1 ? `<button class="btn-icon arch-host-del" style="color:var(--red);" title="${t('arch.host.remove')}"
         onclick="event.stopPropagation();_archRemoveHost('${host.id}')">${_ARCH_ICONS.trash}</button>` : ''}
     </div>
@@ -879,7 +879,7 @@ function _archInspectRole(svc) {
   const accent = _archRoleAccent(svc.type);
   let body = '';
 
-  if (svc.type === 'core') {
+  if (svc.type === 'edge') {
     const namedProviders = _arch.acmeProviders || [];
     const dnsProviderList = namedProviders.length
       ? [{ id: 'none', label: '—' }, ...namedProviders.map(p => ({ id: p.id, label: `${p.name} (${p.type})` }))]
@@ -890,7 +890,7 @@ function _archInspectRole(svc) {
     body = `
       ${_archGroup(t('arch.group.identity'),
         _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing)) +
-        _archField(t('arch.opt.reachable'), `<input class="arch-input" value="${esc(svc.reachable || '')}" placeholder="core.example.com" oninput="_archSetField('${svc.id}','reachable',this.value)">`) +
+        _archField(t('arch.opt.reachable'), `<input class="arch-input" value="${esc(svc.reachable || '')}" placeholder="edge.example.com" oninput="_archSetField('${svc.id}','reachable',this.value)">`) +
         `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: (host && host.region) || '—' })}</div>`
       )}
       ${_archGroup(t('arch.group.caps'),
@@ -957,17 +957,17 @@ function _archInspectRole(svc) {
         return _archGroup(t('arch.group.delegations'), outHTML + inHTML);
       })()}`;
   } else if (svc.type === 'agent') {
-    const cores = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'core'));
-    const targetOpts = cores.map(c =>
-      `<option value="${esc(c.id)}" ${svc.targetCoreId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
+    const edges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge'));
+    const targetOpts = edges.map(c =>
+      `<option value="${esc(c.id)}" ${svc.targetEdgeId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
     ).join('');
     body = `
       ${_archGroup(t('arch.group.identity'),
         _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing)) +
-        (cores.length > 1
-          ? _archField(t('arch.opt.target_core'),
-              `<select class="arch-select" onchange="_archSetField('${svc.id}','targetCoreId',this.value)">
-                <option value="">${t('arch.opt.target_core_auto')}</option>${targetOpts}
+        (edges.length > 1
+          ? _archField(t('arch.opt.target_edge'),
+              `<select class="arch-select" onchange="_archSetField('${svc.id}','targetEdgeId',this.value)">
+                <option value="">${t('arch.opt.target_edge_auto')}</option>${targetOpts}
               </select>`)
           : '') +
         `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: (host && host.region) || '—' })}</div>`
@@ -989,13 +989,13 @@ function _archInspectRole(svc) {
       )}
       `;
   } else {
-    const tlsCores = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'core' && s.acme));
+    const tlsEdges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge' && s.acme));
     body = `
       ${_archGroup(t('arch.group.identity'),
         _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" onchange="_archSetField('${svc.id}','name',this.value);_archRender()">`)
       )}
       ${_archGroup(t('arch.group.caps'), `<div class="arch-cap-desc">${
-        tlsCores.length ? t('arch.opt.admin_acme_note') : t('arch.opt.none')
+        tlsEdges.length ? t('arch.opt.admin_acme_note') : t('arch.opt.none')
       }</div>`)}`;
   }
 
@@ -1048,11 +1048,11 @@ function _archMoveSvc(svcId, toHostId) {
   const [svc] = from.services.splice(idx, 1);
   to.services.push(svc);
   if (svc.type === 'agent') {
-    const hasCore = to.services.some(s => s.type === 'core');
-    svc.placement = hasCore ? 'colocated' : 'remote';
-    if (hasCore) {
-      const core = to.services.find(s => s.type === 'core');
-      if (core) svc.targetCoreId = core.id;
+    const hasEdge = to.services.some(s => s.type === 'edge');
+    svc.placement = hasEdge ? 'colocated' : 'remote';
+    if (hasEdge) {
+      const edge = to.services.find(s => s.type === 'edge');
+      if (edge) svc.targetEdgeId = edge.id;
     }
   }
   // Retirer les hôtes vides orphelins (sauf le dernier)
@@ -1140,7 +1140,7 @@ function _archAddService(hostId, type) {
   if (!host || !_ARCH_ROLES[type]) return;
 
   const n = _archCountType(type) + 1;
-  const name = type === 'core' ? `core-${n}` : type === 'agent' ? `agent-${n}` : `admin-${n}`;
+  const name = type === 'edge' ? `edge-${n}` : type === 'agent' ? `agent-${n}` : `admin-${n}`;
   const svc = {
     id: _archUid(type),
     type,
@@ -1157,14 +1157,14 @@ function _archAddService(hostId, type) {
     reachable: '',
     portainerUrl: '',
     portainerKey: '',
-    targetCoreId: '',
+    targetEdgeId: '',
     placement: type === 'agent'
-      ? (host.services.some(s => s.type === 'core') ? 'colocated' : 'remote')
+      ? (host.services.some(s => s.type === 'edge') ? 'colocated' : 'remote')
       : '',
   };
   if (svc.type === 'agent' && svc.placement === 'colocated') {
-    const core = host.services.find(s => s.type === 'core');
-    if (core) svc.targetCoreId = core.id;
+    const edge = host.services.find(s => s.type === 'edge');
+    if (edge) svc.targetEdgeId = edge.id;
   }
   host.services.push(svc);
   _arch.selectedSvcId = svc.id;
@@ -1189,9 +1189,9 @@ function _archSelectSvc(id) {
   _archRender();
 }
 
-async function _archApplyPortal(coreName, enabled) {
+async function _archApplyPortal(edgeName, enabled) {
   try {
-    const q = '?core=' + encodeURIComponent(coreName);
+    const q = '?edge=' + encodeURIComponent(edgeName);
     const existing = await api('GET', '/portal' + q).catch(() => ({}));
     await api('PUT', '/portal' + q, { ...existing, enabled: !!enabled });
     toast(t('arch.toast.portal_applied'), 'success');
@@ -1206,11 +1206,11 @@ async function _archSetDelegMode(domainId, mode) {
     if (!existing) return;
     await api('PUT', '/domains/' + encodeURIComponent(domainId), {
       domain: existing.domain,
-      core_id: existing.core_id,
+      edge_id: existing.edge_id,
       dns_provider: existing.dns_provider || '',
       dns_credentials: existing.dns_credentials || null,
       cert_method: existing.cert_method || 'manual',
-      delegated_to_core_id: existing.delegated_to_core_id || '',
+      delegated_to_edge_id: existing.delegated_to_edge_id || '',
       delegated_endpoint: existing.delegated_endpoint || '',
       delegation_mode: mode,
     });
@@ -1276,7 +1276,7 @@ function _archSetField(id, key, val) {
   if (s) s[key] = val;
 }
 
-/** Ajoute/retire un Core d'un groupe HA. groupId='new' crée un groupe, ''=auto. */
+/** Ajoute/retire une passerelle d'un groupe HA. groupId='new' crée un groupe, ''=auto. */
 function _archSetHAGroup(id, on, groupId) {
   // Retire de tout groupe existant
   for (const g of _arch.haGroups) g.members = g.members.filter(m => m !== id);
@@ -1296,11 +1296,11 @@ function _archSetHAGroup(id, on, groupId) {
 }
 
 function _archValidate() {
-  const cores = [];
+  const edges = [];
   const agents = [];
   for (const h of _arch.hosts) {
     for (const s of h.services || []) {
-      if (s.type === 'core') cores.push({ host: h, svc: s });
+      if (s.type === 'edge') edges.push({ host: h, svc: s });
       if (s.type === 'agent') agents.push({ host: h, svc: s });
     }
   }
@@ -1324,9 +1324,9 @@ function _archValidate() {
   }
 
   for (const { host, svc } of agents) {
-    const hasCoreHere = (host.services || []).some(s => s.type === 'core');
-    if (!hasCoreHere && !cores.length && !_arch.onlineCoreEndpoint) {
-      return t('arch.err.agent_needs_core');
+    const hasEdgeHere = (host.services || []).some(s => s.type === 'edge');
+    if (!hasEdgeHere && !edges.length && !_arch.onlineEdgeEndpoint) {
+      return t('arch.err.agent_needs_edge');
     }
     if (svc.portainer && !svc.portainerUrl) return t('arch.err.portainer_url', { name: svc.name });
     if (svc.portainer && !svc.portainerKey) return t('arch.err.portainer_key', { name: svc.name });
@@ -1380,21 +1380,21 @@ function _archAccessHANote() {
 function _archNetworkFlows() {
   const flows = [];
   const multiHost = _arch.hosts.length > 1;
-  const hasCore = _arch.hosts.some(h => h.services.some(s => s.type === 'core'));
+  const hasEdge = _arch.hosts.some(h => h.services.some(s => s.type === 'edge'));
   const hasAgent = _arch.hosts.some(h => h.services.some(s => s.type === 'agent'));
   const hasAdmin = _arch.hosts.some(h => h.services.some(s => s.type === 'admin'));
   const inetHosts = _arch.hosts.filter(h => h.internet);
 
-  if (hasAdmin && hasCore) {
-    flows.push({ from: 'Admin', to: 'Core :8000', dir: t('arch.flow.outbound'), why: 'WS plan de contrôle' });
-  } else if (hasCore) {
-    flows.push({ from: 'Admin (existant)', to: 'Core :8000', dir: t('arch.flow.outbound'), why: 'WS plan de contrôle' });
+  if (hasAdmin && hasEdge) {
+    flows.push({ from: 'Admin', to: 'Edge :8000', dir: t('arch.flow.outbound'), why: 'WS plan de contrôle' });
+  } else if (hasEdge) {
+    flows.push({ from: 'Admin (existant)', to: 'Edge :8000', dir: t('arch.flow.outbound'), why: 'WS plan de contrôle' });
   }
-  if (hasAgent && hasCore) {
-    flows.push({ from: 'Agent', to: 'Core :8000', dir: t('arch.flow.outbound'), why: 'WS + discovery' });
+  if (hasAgent && hasEdge) {
+    flows.push({ from: 'Agent', to: 'Edge :8000', dir: t('arch.flow.outbound'), why: 'WS + discovery' });
   }
   if (_arch.haGroups.some(g => g.members.length >= 2)) {
-    flows.push({ from: 'Core', to: 'Core :8000 / :8002', dir: t('arch.flow.peer'), why: 'Peers HA / Raft' });
+    flows.push({ from: 'Edge', to: 'Edge :8000 / :8002', dir: t('arch.flow.peer'), why: 'Peers HA / Raft' });
   }
   if (multiHost) {
     flows.push({ from: t('arch.flow.bootstrap'), to: t('arch.flow.reachable'), dir: t('arch.flow.outbound'), why: t('arch.flow.qr_why') });
@@ -1403,7 +1403,7 @@ function _archNetworkFlows() {
   for (const h of _arch.hosts) {
     const edge = !!h.internet;
     for (const s of h.services) {
-      if (s.type === 'core' && s.access) {
+      if (s.type === 'edge' && s.access) {
         flows.push({
           from: edge ? t('arch.flow.internet') : 'Clients / LAN',
           to: `${s.name} :2222 / :8444`,
@@ -1411,7 +1411,7 @@ function _archNetworkFlows() {
           why: edge ? t('arch.flow.access_public') : 'Portail Access',
         });
       }
-      if (s.type === 'core') {
+      if (s.type === 'edge') {
         flows.push({
           from: edge ? t('arch.flow.internet') : 'LAN',
           to: `${s.name} :80 / :443`,
@@ -1439,28 +1439,28 @@ function _archNetworkFlows() {
   });
 }
 
-function _archResolveCoreEndpoint(agentHost, agentSvc) {
-  const localCore = (agentHost.services || []).find(s => s.type === 'core');
-  if (localCore) return `http://${localCore.name}:8000`;
+function _archResolveEdgeEndpoint(agentHost, agentSvc) {
+  const localEdge = (agentHost.services || []).find(s => s.type === 'edge');
+  if (localEdge) return `http://${localEdge.name}:8000`;
 
-  if (agentSvc && agentSvc.targetCoreId) {
-    const target = _archFindSvc(agentSvc.targetCoreId);
-    if (target && target.type === 'core') {
+  if (agentSvc && agentSvc.targetEdgeId) {
+    const target = _archFindSvc(agentSvc.targetEdgeId);
+    if (target && target.type === 'edge') {
       const host = (target.reachable || '').trim();
-      if (host) return typeof _wizCoreEndpoint === 'function' ? _wizCoreEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
+      if (host) return typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
       return `http://${target.name}:8000`;
     }
   }
 
-  // Préférer un Core HA leader / premier Core avec reachable
-  const allCores = _arch.hosts.flatMap(h => h.services.filter(s => s.type === 'core'));
-  const preferred = allCores.find(c => (c.reachable || '').trim()) || allCores[0];
+  // Préférer une passerelle HA leader / premiÃ¨re passerelle avec reachable
+  const allEdges = _arch.hosts.flatMap(h => h.services.filter(s => s.type === 'edge'));
+  const preferred = allEdges.find(c => (c.reachable || '').trim()) || allEdges[0];
   if (preferred) {
     const host = (preferred.reachable || '').trim();
-    if (host) return typeof _wizCoreEndpoint === 'function' ? _wizCoreEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
+    if (host) return typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
     return `http://${preferred.name}:8000`;
   }
-  return _arch.onlineCoreEndpoint || 'http://goproxify-core:8000';
+  return _arch.onlineEdgeEndpoint || 'http://goproxify-edge:8000';
 }
 
 function _archBuildPacks() {
@@ -1470,18 +1470,18 @@ function _archBuildPacks() {
 
   for (const host of _arch.hosts) {
     if (!(host.services || []).length) continue;
-    const cores = host.services.filter(s => s.type === 'core');
+    const edges = host.services.filter(s => s.type === 'edge');
     const agents = host.services.filter(s => s.type === 'agent');
     const admins = host.services.filter(s => s.type === 'admin');
 
-    let coreOpts = null;
+    let edgeOpts = null;
     let agentOpts = null;
-    if (cores[0]) {
-      const c = cores[0];
+    if (edges[0]) {
+      const c = edges[0];
       const cGroup = _archGroupOfSvc(c.id);
       const inHA = !!cGroup && cGroup.members.length >= 2;
       const haLeader = inHA ? _archFindSvc(cGroup.members[0]) : null;
-      coreOpts = _buildCoreOpts({
+      edgeOpts = _buildEdgeOpts({
         wc_name: c.name,
         wc_cluster: inHA,
         wc_cluster_node_id: c.name,
@@ -1494,13 +1494,13 @@ function _archBuildPacks() {
     }
     if (agents[0]) {
       const a = agents[0];
-      const ep = _archResolveCoreEndpoint(host, a);
-      const localCore = cores[0];
-      const target = a.targetCoreId ? _archFindSvc(a.targetCoreId) : null;
+      const ep = _archResolveEdgeEndpoint(host, a);
+      const localEdge = edges[0];
+      const target = a.targetEdgeId ? _archFindSvc(a.targetEdgeId) : null;
       agentOpts = _buildAgentOpts({
         wa_name: a.name,
-        wa_core_url: ep,
-        wa_core_container_name: localCore ? localCore.name : (target ? target.name : ''),
+        wa_edge_url: ep,
+        wa_edge_container_name: localEdge ? localEdge.name : (target ? target.name : ''),
         wa_region: (host.region || a.region || '').trim(),
         wa_docker: !!a.docker && !a.podman,
         wa_podman: !!a.podman,
@@ -1509,16 +1509,16 @@ function _archBuildPacks() {
         wa_portainer: !!a.portainer,
         wa_portainer_url: a.portainerUrl || '',
         wa_portainer_key: a.portainerKey || '',
-        wa_placement: localCore ? 'colocated' : 'remote',
+        wa_placement: localEdge ? 'colocated' : 'remote',
       });
-      if (localCore && coreOpts) {
+      if (localEdge && edgeOpts) {
         agentOpts = {
           ...agentOpts,
           envVars: (agentOpts.envVars || [])
-            .filter(e => e.k !== 'GPX_CONTROL_PLANE_CORE_ENDPOINT' && e.k !== 'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME')
+            .filter(e => e.k !== 'GPX_CONTROL_PLANE_EDGE_ENDPOINT' && e.k !== 'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME')
             .concat([
-              { k: 'GPX_CONTROL_PLANE_CORE_ENDPOINT', v: `http://${coreOpts.name}:8000` },
-              { k: 'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME', v: coreOpts.name },
+              { k: 'GPX_CONTROL_PLANE_EDGE_ENDPOINT', v: `http://${edgeOpts.name}:8000` },
+              { k: 'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME', v: edgeOpts.name },
             ]),
         };
       }
@@ -1528,9 +1528,9 @@ function _archBuildPacks() {
 
     // Build Admin opts when Admin is co-located on this host
     let adminOpts = null;
-    if (admins.length && coreOpts) {
+    if (admins.length && edgeOpts) {
       adminOpts = _buildAdminOpts({
-        wa_core_name: coreOpts.name,
+        wa_edge_name: edgeOpts.name,
         wa_jwt_secret: _arch.jwtSecret,
         wa_admin_email: (admins[0].acmeEmail || '').trim() || 'admin@example.com',
         wa_admin_password: 'CHANGE_ME',
@@ -1538,15 +1538,15 @@ function _archBuildPacks() {
     }
 
     let html = '';
-    if (coreOpts && agentOpts) html = _renderConfigUI(coreOpts, agentOpts, packUid, adminOpts);
-    else if (coreOpts) html = _renderConfigUI(coreOpts, null, packUid, adminOpts);
+    if (edgeOpts && agentOpts) html = _renderConfigUI(edgeOpts, agentOpts, packUid, adminOpts);
+    else if (edgeOpts) html = _renderConfigUI(edgeOpts, null, packUid, adminOpts);
     else if (agentOpts) html = _renderConfigUI(agentOpts, null, packUid, null);
 
     // ACME hint stays as annotation after the compose tabs
     if (admins.length) {
-      const acmeCores = _arch.hosts.flatMap(h => h.services.filter(s => s.type === 'core' && s.acme));
-      if (acmeCores.length) {
-        const c = acmeCores[0];
+      const acmeEdges = _arch.hosts.flatMap(h => h.services.filter(s => s.type === 'edge' && s.acme));
+      if (acmeEdges.length) {
+        const c = acmeEdges[0];
         const hint = `<div style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.45;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--border);">
           <strong>${t('arch.acme.admin_title')}</strong><br>
           <code>GPX_ACME_ENABLED=true</code>
@@ -1559,11 +1559,11 @@ function _archBuildPacks() {
       }
     }
 
-    // Annotate Core pack with domains for handoff
-    if (coreOpts && cores[0] && (cores[0].domains || cores[0].acme)) {
+    // Annotate Edge pack with domains for handoff
+    if (edgeOpts && edges[0] && (edges[0].domains || edges[0].acme)) {
       const note = [];
-      if (cores[0].domains) note.push(t('arch.acme.domains_later', { domains: cores[0].domains }));
-      if (cores[0].acme) note.push(t('arch.acme.admin_title'));
+      if (edges[0].domains) note.push(t('arch.acme.domains_later', { domains: edges[0].domains }));
+      if (edges[0].acme) note.push(t('arch.acme.admin_title'));
       html = (html || '') + `<div style="font-size:12px;color:var(--text2);margin-top:10px;line-height:1.4;">${note.map(esc).join('<br>')}</div>`;
     }
 
@@ -1572,47 +1572,47 @@ function _archBuildPacks() {
     const bootstrapUrl = `${origin}/bootstrap/${token}`; // remplacé à la création ticket
 
     let composeText = '', envText = '', cliText = '';
-    if (coreOpts && agentOpts && adminOpts) {
-      composeText = _cfgComposeTextFullAdmin(coreOpts, agentOpts, adminOpts, 'env_file');
-      envText = _cfgEnvFileTextFull(coreOpts, agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
-      cliText = _cfgCliText(coreOpts) + '\n\n' + _cfgCliText(agentOpts) + '\n\n' + _cfgCliText(adminOpts);
-    } else if (coreOpts && agentOpts) {
-      composeText = _cfgComposeTextFull(coreOpts, agentOpts, 'env_file');
-      envText = _cfgEnvFileTextFull(coreOpts, agentOpts);
-      cliText = _cfgCliText(coreOpts) + '\n\n' + _cfgCliText(agentOpts);
-    } else if (coreOpts && adminOpts) {
-      composeText = _cfgComposeTextAdmin(coreOpts, adminOpts, 'env_file');
-      envText = [...coreOpts.envVars, ...adminOpts.envVars].map(({k,v}) => `${k}=${v}`).join('\n');
-      cliText = _cfgCliText(coreOpts) + '\n\n' + _cfgCliText(adminOpts);
-    } else if (coreOpts) {
-      composeText = _cfgComposeText(coreOpts, 'env_file');
-      envText = _cfgEnvFileText(coreOpts);
-      cliText = _cfgCliText(coreOpts);
+    if (edgeOpts && agentOpts && adminOpts) {
+      composeText = _cfgComposeTextFullAdmin(edgeOpts, agentOpts, adminOpts, 'env_file');
+      envText = _cfgEnvFileTextFull(edgeOpts, agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
+      cliText = _cfgCliText(edgeOpts) + '\n\n' + _cfgCliText(agentOpts) + '\n\n' + _cfgCliText(adminOpts);
+    } else if (edgeOpts && agentOpts) {
+      composeText = _cfgComposeTextFull(edgeOpts, agentOpts, 'env_file');
+      envText = _cfgEnvFileTextFull(edgeOpts, agentOpts);
+      cliText = _cfgCliText(edgeOpts) + '\n\n' + _cfgCliText(agentOpts);
+    } else if (edgeOpts && adminOpts) {
+      composeText = _cfgComposeTextAdmin(edgeOpts, adminOpts, 'env_file');
+      envText = [...edgeOpts.envVars, ...adminOpts.envVars].map(({k,v}) => `${k}=${v}`).join('\n');
+      cliText = _cfgCliText(edgeOpts) + '\n\n' + _cfgCliText(adminOpts);
+    } else if (edgeOpts) {
+      composeText = _cfgComposeText(edgeOpts, 'env_file');
+      envText = _cfgEnvFileText(edgeOpts);
+      cliText = _cfgCliText(edgeOpts);
     } else if (agentOpts) {
       composeText = _cfgComposeText(agentOpts, 'env_file');
       envText = _cfgEnvFileText(agentOpts);
       cliText = _cfgCliText(agentOpts);
     }
 
-    let coreEp = '';
+    let edgeEp = '';
     if (agentOpts) {
-      const hit = (agentOpts.envVars || []).find(e => e.k === 'GPX_CONTROL_PLANE_CORE_ENDPOINT');
-      coreEp = hit ? hit.v : '';
-    } else if (cores[0] && cores[0].reachable) {
-      coreEp = typeof _wizCoreEndpoint === 'function' ? _wizCoreEndpoint(cores[0].reachable) : cores[0].reachable;
+      const hit = (agentOpts.envVars || []).find(e => e.k === 'GPX_CONTROL_PLANE_EDGE_ENDPOINT');
+      edgeEp = hit ? hit.v : '';
+    } else if (edges[0] && edges[0].reachable) {
+      edgeEp = typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(edges[0].reachable) : edges[0].reachable;
     }
 
     packs.push({
       hostId: host.id,
       hostName: host.name,
       html,
-      coreOpts,
+      edgeOpts,
       agentOpts,
       bootstrapUrl,
       qrCode: '',
       scriptUrl: '',
       installCmd: '',
-      coreEndpoint: coreEp,
+      edgeEndpoint: edgeEp,
       composeText,
       envText,
       cliText,
@@ -1625,13 +1625,13 @@ function _archBuildPacks() {
 async function _archPersistDeclared() {
   for (const pack of _arch.packs) {
     const roles = [];
-    if (pack.coreOpts) roles.push({ role: 'core', opts: pack.coreOpts, svc: pack.services.find(s => s.type === 'core') });
+    if (pack.edgeOpts) roles.push({ role: 'edge', opts: pack.edgeOpts, svc: pack.services.find(s => s.type === 'edge') });
     if (pack.agentOpts) roles.push({ role: 'agent', opts: pack.agentOpts, svc: pack.services.find(s => s.type === 'agent') });
     for (const r of roles) {
       try {
         const hostMeta = _arch.hosts.find(h => h.id === pack.hostId);
         const placement = r.role === 'agent'
-          ? ((r.svc && r.svc.placement) || (pack.coreOpts && pack.agentOpts ? 'colocated' : 'remote'))
+          ? ((r.svc && r.svc.placement) || (pack.edgeOpts && pack.agentOpts ? 'colocated' : 'remote'))
           : undefined;
         const cfg = {
           image: r.opts.image,
@@ -1648,7 +1648,7 @@ async function _archPersistDeclared() {
           acme_email: (r.svc && r.svc.acmeEmail) || '',
           dns_provider: (r.svc && r.svc.dnsProvider) || 'none',
           placement,
-          target_core: r.role === 'agent' ? ((pack.agentOpts.envVars || []).find(e => e.k === 'GPX_CONTROL_PLANE_CORE_ENDPOINT') || {}).v : undefined,
+          target_edge: r.role === 'agent' ? ((pack.agentOpts.envVars || []).find(e => e.k === 'GPX_CONTROL_PLANE_EDGE_ENDPOINT') || {}).v : undefined,
           reachable_host: (r.svc && r.svc.reachable) || '',
           internet_exposed: !!(hostMeta && hostMeta.internet),
           cluster: _archInHA(r.svc && r.svc.id),
@@ -1687,11 +1687,11 @@ async function _archCreateTickets() {
   for (const p of _arch.packs) {
     try {
       const nodeNames = [];
-      if (p.coreOpts && p.coreOpts.name) nodeNames.push(p.coreOpts.name);
+      if (p.edgeOpts && p.edgeOpts.name) nodeNames.push(p.edgeOpts.name);
       if (p.agentOpts && p.agentOpts.name) nodeNames.push(p.agentOpts.name);
       const res = await api('POST', '/bootstrap-tickets', {
         host_name: p.hostName,
-        core_endpoint: p.coreEndpoint || '',
+        edge_endpoint: p.edgeEndpoint || '',
         ttl_hours: 24,
         auto_accept: true,
         node_names: nodeNames,
@@ -1708,7 +1708,7 @@ async function _archCreateTickets() {
       if (res && res.script_url) p.scriptUrl = res.script_url;
       if (res && res.install_cmd) p.installCmd = res.install_cmd;
       if (res && res.qr_code) p.qrCode = res.qr_code;
-      // Pré-approbation Agent sur le(s) Core(s) avant connexion
+      // Pré-approbation Agent sur le(s) passerelle(s) avant connexion
       if (p.agentOpts && p.agentOpts.name) {
         try {
           await api('POST', '/agents/' + encodeURIComponent(p.agentOpts.name) + '/approve');
@@ -1730,8 +1730,8 @@ function _archHandoffSetField(packIdx, role, field, value) {
   const svc = (p.services || []).find(s => s.type === role);
   if (svc) {
     // Mémoriser le nom original avant la première modification de nom
-    if (field === 'name' && role === 'core' && !p._prevCoreName && svc.name !== value) {
-      p._prevCoreName = svc.name;
+    if (field === 'name' && role === 'edge' && !p._prevEdgeName && svc.name !== value) {
+      p._prevEdgeName = svc.name;
     }
     if (field === 'name' && role === 'agent' && !p._prevAgentName && svc.name !== value) {
       p._prevAgentName = svc.name;
@@ -1740,8 +1740,8 @@ function _archHandoffSetField(packIdx, role, field, value) {
   }
   // Sync aussi dans _arch.hosts pour cohérence toile ↔ handoff
   for (const h of _arch.hosts) {
-    const hs = (h.services || []).find(s => s.type === role && (role === 'core'
-      ? (p.coreOpts && s.name === p.coreOpts.name) || s.id === (svc && svc.id)
+    const hs = (h.services || []).find(s => s.type === role && (role === 'edge'
+      ? (p.edgeOpts && s.name === p.edgeOpts.name) || s.id === (svc && svc.id)
       : (p.agentOpts && s.name === p.agentOpts.name) || s.id === (svc && svc.id)));
     if (hs) hs[field] = value;
   }
@@ -1753,15 +1753,15 @@ async function _archHandoffSave(packIdx) {
   // Rebuild opts + textes pour ce pack uniquement
   const host = _arch.hosts.find(h => h.id === p.hostId);
   if (!host) return;
-  const cores = host.services.filter(s => s.type === 'core');
+  const edges = host.services.filter(s => s.type === 'edge');
   const agents = host.services.filter(s => s.type === 'agent');
   const admins = host.services.filter(s => s.type === 'admin');
-  if (cores[0]) {
-    const c = cores[0];
+  if (edges[0]) {
+    const c = edges[0];
     const cGroup = _archGroupOfSvc(c.id);
     const inHA = !!cGroup && cGroup.members.length >= 2;
     const haLeader = inHA ? _archFindSvc(cGroup.members[0]) : null;
-    p.coreOpts = _buildCoreOpts({
+    p.edgeOpts = _buildEdgeOpts({
       wc_name: c.name,
       wc_cluster: inHA,
       wc_cluster_node_id: c.name,
@@ -1774,11 +1774,11 @@ async function _archHandoffSave(packIdx) {
   }
   if (agents[0]) {
     const a = agents[0];
-    const ep = _archResolveCoreEndpoint(host, a);
+    const ep = _archResolveEdgeEndpoint(host, a);
     p.agentOpts = _buildAgentOpts({
       wa_name: a.name,
-      wa_core_url: ep,
-      wa_core_container_name: cores[0] ? cores[0].name : '',
+      wa_edge_url: ep,
+      wa_edge_container_name: edges[0] ? edges[0].name : '',
       wa_region: (host.region || '').trim(),
       wa_docker: !!a.docker && !a.podman,
       wa_podman: !!a.podman,
@@ -1787,34 +1787,34 @@ async function _archHandoffSave(packIdx) {
       wa_portainer: !!a.portainer,
       wa_portainer_url: a.portainerUrl || '',
       wa_portainer_key: a.portainerKey || '',
-      wa_placement: cores[0] ? 'colocated' : 'remote',
+      wa_placement: edges[0] ? 'colocated' : 'remote',
     });
   }
   let adminOpts = null;
-  if (admins.length && p.coreOpts) {
+  if (admins.length && p.edgeOpts) {
     adminOpts = _buildAdminOpts({
-      wa_core_name: p.coreOpts.name,
+      wa_edge_name: p.edgeOpts.name,
       wa_jwt_secret: _arch.jwtSecret,
       wa_admin_email: (admins[0].acmeEmail || '').trim() || 'admin@example.com',
       wa_admin_password: 'CHANGE_ME',
     });
   }
-  if (p.coreOpts && p.agentOpts && adminOpts) {
-    p.composeText = _cfgComposeTextFullAdmin(p.coreOpts, p.agentOpts, adminOpts, 'env_file');
-    p.envText = _cfgEnvFileTextFull(p.coreOpts, p.agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
-    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(p.agentOpts) + '\n\n' + _cfgCliText(adminOpts);
-  } else if (p.coreOpts && p.agentOpts) {
-    p.composeText = _cfgComposeTextFull(p.coreOpts, p.agentOpts, 'env_file');
-    p.envText = _cfgEnvFileTextFull(p.coreOpts, p.agentOpts);
-    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(p.agentOpts);
-  } else if (p.coreOpts && adminOpts) {
-    p.composeText = _cfgComposeTextAdmin(p.coreOpts, adminOpts, 'env_file');
-    p.envText = [...p.coreOpts.envVars, ...adminOpts.envVars].map(({k,v}) => `${k}=${v}`).join('\n');
-    p.cliText = _cfgCliText(p.coreOpts) + '\n\n' + _cfgCliText(adminOpts);
-  } else if (p.coreOpts) {
-    p.composeText = _cfgComposeText(p.coreOpts, 'env_file');
-    p.envText = _cfgEnvFileText(p.coreOpts);
-    p.cliText = _cfgCliText(p.coreOpts);
+  if (p.edgeOpts && p.agentOpts && adminOpts) {
+    p.composeText = _cfgComposeTextFullAdmin(p.edgeOpts, p.agentOpts, adminOpts, 'env_file');
+    p.envText = _cfgEnvFileTextFull(p.edgeOpts, p.agentOpts) + '\n' + adminOpts.envVars.map(({k,v}) => `${k}=${v}`).join('\n');
+    p.cliText = _cfgCliText(p.edgeOpts) + '\n\n' + _cfgCliText(p.agentOpts) + '\n\n' + _cfgCliText(adminOpts);
+  } else if (p.edgeOpts && p.agentOpts) {
+    p.composeText = _cfgComposeTextFull(p.edgeOpts, p.agentOpts, 'env_file');
+    p.envText = _cfgEnvFileTextFull(p.edgeOpts, p.agentOpts);
+    p.cliText = _cfgCliText(p.edgeOpts) + '\n\n' + _cfgCliText(p.agentOpts);
+  } else if (p.edgeOpts && adminOpts) {
+    p.composeText = _cfgComposeTextAdmin(p.edgeOpts, adminOpts, 'env_file');
+    p.envText = [...p.edgeOpts.envVars, ...adminOpts.envVars].map(({k,v}) => `${k}=${v}`).join('\n');
+    p.cliText = _cfgCliText(p.edgeOpts) + '\n\n' + _cfgCliText(adminOpts);
+  } else if (p.edgeOpts) {
+    p.composeText = _cfgComposeText(p.edgeOpts, 'env_file');
+    p.envText = _cfgEnvFileText(p.edgeOpts);
+    p.cliText = _cfgCliText(p.edgeOpts);
   } else if (p.agentOpts) {
     p.composeText = _cfgComposeText(p.agentOpts, 'env_file');
     p.envText = _cfgEnvFileText(p.agentOpts);
@@ -1823,8 +1823,8 @@ async function _archHandoffSave(packIdx) {
   try { localStorage.setItem('gpx_last_packs', JSON.stringify(_arch.packs)); } catch {}
   // Persistance declared-nodes avec les nouvelles valeurs
   try {
-    if (p.coreOpts) {
-      const c = cores[0];
+    if (p.edgeOpts) {
+      const c = edges[0];
       const cfg = {
         reachable_host: (c && c.reachable) || '',
         docker: !!(c && c.docker), podman: !!(c && c.podman),
@@ -1835,14 +1835,14 @@ async function _archHandoffSave(packIdx) {
         auto_accept: true,
       };
       // Supprimer l'ancienne entrée si le nom a changé (évite doublon)
-      if (p._prevCoreName && p._prevCoreName !== p.coreOpts.name) {
-        const old = (_arch.declaredNodes || []).find(n => n.role === 'core' && n.name === p._prevCoreName);
+      if (p._prevEdgeName && p._prevEdgeName !== p.edgeOpts.name) {
+        const old = (_arch.declaredNodes || []).find(n => n.role === 'edge' && n.name === p._prevEdgeName);
         if (old && old.id && !old.id.startsWith('cfg:')) {
           await api('DELETE', '/declared-nodes/' + old.id).catch(() => {});
         }
-        p._prevCoreName = null;
+        p._prevEdgeName = null;
       }
-      await api('POST', '/declared-nodes', { role: 'core', name: p.coreOpts.name, region: (host && host.region) || '', environment: '', config: cfg }).catch(() => {});
+      await api('POST', '/declared-nodes', { role: 'edge', name: p.edgeOpts.name, region: (host && host.region) || '', environment: '', config: cfg }).catch(() => {});
     }
   } catch {}
   toast(t('common.saved') || 'Enregistré', 'success');
@@ -1921,18 +1921,18 @@ function _archHandoffHTML() {
     const roleChips = (p.services || []).map(s =>
       `<span class="arch-chip" style="--arch-accent:${_archRoleAccent(s.type)};">${esc(t(_ARCH_ROLES[s.type].label))} · ${esc(s.name)}</span>`
     ).join('');
-    const coreSvc = (p.services || []).find(s => s.type === 'core');
+    const edgeSvc = (p.services || []).find(s => s.type === 'edge');
     const agentSvc = (p.services || []).find(s => s.type === 'agent');
     const paramFields = `
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
-        ${coreSvc ? `
+        ${edgeSvc ? `
         <div class="arch-field">
-          <span class="arch-field-label">${t('arch.role.name')} (Core)</span>
-          <input class="arch-input" value="${esc(coreSvc.name)}" oninput="_archHandoffSetField(${i},'core','name',this.value)">
+          <span class="arch-field-label">${t('arch.role.name')} (Edge)</span>
+          <input class="arch-input" value="${esc(edgeSvc.name)}" oninput="_archHandoffSetField(${i},'edge','name',this.value)">
         </div>
         <div class="arch-field">
           <span class="arch-field-label">${t('arch.opt.reachable')}</span>
-          <input class="arch-input" value="${esc(coreSvc.reachable || '')}" placeholder="core.example.com" oninput="_archHandoffSetField(${i},'core','reachable',this.value)">
+          <input class="arch-input" value="${esc(edgeSvc.reachable || '')}" placeholder="edge.example.com" oninput="_archHandoffSetField(${i},'edge','reachable',this.value)">
         </div>` : ''}
         ${agentSvc ? `
         <div class="arch-field">

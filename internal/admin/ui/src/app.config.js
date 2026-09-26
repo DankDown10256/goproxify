@@ -44,7 +44,7 @@ const APP_CONFIG = {
     },
   ],
 
-  // ── Navigation admin (liste plate, même shape que coreNav) ───────────────
+  // ── Navigation admin (liste plate, même shape que edgeNav) ───────────────
   // guard(user) : item visible si true. Ordre : Dashboard…Paramètres (6e).
   nav: [
     {
@@ -177,21 +177,21 @@ const APP_CONFIG = {
     },
   ],
 
-  // ── Liste des Cores dans la sidebar ───────────────────────────────────────
-  // Affiche les cores accessibles (RBAC) sous une section dédiée.
+  // ── Liste des passerelles dans la sidebar ───────────────────────────────────────
+  // Affiche les passerelles accessibles (RBAC) sous une section dédiée.
   // Au-delà de `overflowAt`, la liste passe en mode compact : recherche + scroll
   // pour ne pas écraser le menu admin / observabilité.
-  navCores: {
-    overflowAt: 6,       // seuil « trop de cores »
+  navEdges: {
+    overflowAt: 6,       // seuil « trop de edges »
     listMaxHeight: 220,  // px — hauteur max de la liste scrollable
   },
 
-  // ── Navigation contextuelle Core ──────────────────────────────────────────
-  // guard({ hasCoreScope }) : hasCoreScope = true si l'user a un scope "core" explicite
-  // sur le Core sélectionné (ou est superadmin / admin global).
-  coreNav: [
+  // ── Navigation contextuelle passerelle ──────────────────────────────────────────
+  // guard({ hasEdgeScope }) : hasEdgeScope = true si l'user a un scope "edge" explicite
+  // sur la passerelle sélectionnée (ou est superadmin / admin global).
+  edgeNav: [
     {
-      page: 'core-trafic',
+      page: 'edge-trafic',
       label: 'Trafic',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 17h2.5a3 3 0 0 0 2.4-1.2l6.2-8.6A3 3 0 0 1 16.5 6H21"/><path d="m17.5 3 3.5 3-3.5 3"/><path d="M3 7h2.5a3 3 0 0 1 2.4 1.2l1 1.4"/><path d="M14.5 15.4l1 1.4A3 3 0 0 0 17.9 18H21"/><path d="m17.5 15 3.5 3-3.5 3"/></svg>',
     },
@@ -199,15 +199,15 @@ const APP_CONFIG = {
       page: 'portal',
       label: 'Portail Access',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="10" height="8" rx="1"/><path d="M6 13v2M10 13v2M5 9h6"/></svg>',
-      guard: ({ hasCoreScope }) => hasCoreScope,
+      guard: ({ hasEdgeScope }) => hasEdgeScope,
       children: [
         {
-          page: 'core-portal-catalog',
+          page: 'edge-portal-catalog',
           label: 'Catalogue Access',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="10" height="8" rx="1"/><path d="M6 8h6"/></svg>',
         },
         {
-          page: 'core-portal-users',
+          page: 'edge-portal-users',
           label: 'Users Access',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.2 2.2-4 5-4s5 1.8 5 4"/></svg>',
         },
@@ -225,70 +225,70 @@ const APP_CONFIG = {
     },
     {
       // Atterrissage dédié (évite que gpxPageLabel écrase le label par « Logs d'accès »)
-      page: 'core-observability',
+      page: 'edge-observability',
       label: 'Observabilité',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
       children: [
         {
-          page: 'core-logs-access',
+          page: 'edge-logs-access',
           label: 'Logs d\'accès',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h8M4 9h6M4 12h4"/><rect x="2" y="2" width="12" height="12" rx="2"/></svg>',
         },
         {
-          page: 'core-logs-system',
+          page: 'edge-logs-system',
           label: 'Logs système',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l4-4 4 4 4-6"/></svg>',
         },
         {
-          page: 'core-prism',
+          page: 'edge-prism',
           label: 'Prism',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
         },
         {
-          page: 'core-metrics',
+          page: 'edge-metrics',
           label: 'Métriques',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
         },
       ],
     },
     {
-      page: 'core-tunnel',
+      page: 'edge-tunnel',
       label: 'Tunnel L4',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12h16M4 12c0-3.3 3.6-6 8-6s8 2.7 8 6M4 12c0 3.3 3.6 6 8 6s8-2.7 8-6"/></svg>',
-      guard: ({ hasCoreScope }) => hasCoreScope,
+      guard: ({ hasEdgeScope }) => hasEdgeScope,
     },
     {
-      page: 'core-security',
+      page: 'edge-security',
       label: 'Sécurité',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2l5 3v4c0 3-2.5 5.5-5 6.5C5.5 14.5 3 12 3 9V5l5-3z"/></svg>',
       children: [
         {
-          page: 'core-security-vulns',
+          page: 'edge-security-vulns',
           label: 'Vulnérabilités',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 1.5L1.2 12a1 1 0 00.9 1.5h11.8a1 1 0 00.9-1.5L8.8 1.5a1 1 0 00-1.8 0z"/><path d="M7 5.5v3.5M7 11h.01"/></svg>',
         },
         {
-          page: 'core-security-posture',
+          page: 'edge-security-posture',
           label: 'Posture',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="12" height="7" rx="1.5"/><path d="M4.5 7V4.5a2.5 2.5 0 015 0V7"/></svg>',
         },
         {
-          page: 'core-security-bans',
+          page: 'edge-security-bans',
           label: 'Bans',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M4.5 4.5l7 7"/></svg>',
         },
         {
-          page: 'core-security-sentinel',
+          page: 'edge-security-sentinel',
           label: 'Sentinel',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
         },
       ],
     },
     {
-      page: 'core-settings',
-      label: 'Paramètres Core',
+      page: 'edge-settings',
+      label: 'Paramètres passerelle',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M3.2 12.8l1.4-1.4M11.4 4.6l1.4-1.4"/></svg>',
-      guard: ({ hasCoreScope }) => hasCoreScope,
+      guard: ({ hasEdgeScope }) => hasEdgeScope,
     },
   ],
 
@@ -312,14 +312,14 @@ const APP_CONFIG = {
     'access-policies':   'Politiques d\'accès',
     workspaces:          'Gestion d\'équipe',
     prism:              'Prism — Analyse',
-    'core-prism':       'Prism',
+    'edge-prism':       'Prism',
     alerts:             'Règles d\'alertes',
     'alert-channels':   'Canaux de notification',
     audit:              'Journal d\'audit',
     security:               'Sécurité — Vue globale',
-    'security-bans':        'Bans — tous Cores',
-    'security-vulns':       'Vulnérabilités — tous Cores',
-    'security-threats':     'Menaces — tous Cores',
+    'security-bans':        'Bans — toutes les passerelles',
+    'security-vulns':       'Vulnérabilités — toutes les passerelles',
+    'security-threats':     'Menaces — toutes les passerelles',
     'security-rules':       'Règles automatiques',
     'rules-store':          'Store de règles',
     'mcp-access':           'Accès MCP',
@@ -327,34 +327,34 @@ const APP_CONFIG = {
     backups:            'Sauvegardes',
     import:             'Import / Restore',
     onboarding:         'Assistant d\'intégration',
-    'core-trafic':      'Trafic',
-    'core-certs':       'Certificats TLS',
-    'core-logs-access': 'Logs d\'accès',
-    'core-logs-system': 'Logs système',
-    'core-prism':       'Prism',
+    'edge-trafic':      'Trafic',
+    'edge-certs':       'Certificats TLS',
+    'edge-logs-access': 'Logs d\'accès',
+    'edge-logs-system': 'Logs système',
+    'edge-prism':       'Prism',
     'admin-observability': 'Observabilité',
-    'core-observability': 'Observabilité',
-    'core-metrics':     'Métriques',
-    'core-tunnel':      'Tunnel L4 mTLS',
-    'core-security':           'Sécurité',
-    'core-security-vulns':     'Vulnérabilités',
-    'core-security-posture':   'Posture',
-    'core-security-bans':      'Bans',
-    'core-security-ips-engines': 'Moteurs IPS',
-    'core-cluster':     'Nœuds / Raft',
-    'core-settings':    'Paramètres Core',
-    'core-general':     'Paramètres généraux',
-    'core-waf':         'WAF',
-    'core-ipfilter':    'IP / GeoIP / Bot',
+    'edge-observability': 'Observabilité',
+    'edge-metrics':     'Métriques',
+    'edge-tunnel':      'Tunnel L4 mTLS',
+    'edge-security':           'Sécurité',
+    'edge-security-vulns':     'Vulnérabilités',
+    'edge-security-posture':   'Posture',
+    'edge-security-bans':      'Bans',
+    'edge-security-ips-engines': 'Moteurs IPS',
+    'edge-cluster':     'Nœuds / Raft',
+    'edge-settings':    'Paramètres passerelle',
+    'edge-general':     'Paramètres généraux',
+    'edge-waf':         'WAF',
+    'edge-ipfilter':    'IP / GeoIP / Bot',
     'ip-profiles':      'Profils IP (Threat Feeds)',
-    'core-auth':        'Auth / SSO',
+    'edge-auth':        'Auth / SSO',
     portal:             'Portail Access',
     'portal-templates': 'Templates Access',
     'portal-audit':     'Audit Access',
     'admin-portal-catalog': 'Catalogue Access',
-    'core-portal-catalog':  'Catalogue Access',
+    'edge-portal-catalog':  'Catalogue Access',
     'admin-portal-users':   'Users Access',
-    'core-portal-users':    'Users Access',
+    'edge-portal-users':    'Users Access',
     smtp:               'SMTP',
     profile:            'Mon profil',
   },

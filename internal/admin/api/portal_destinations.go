@@ -12,13 +12,13 @@ import (
 	"github.com/google/uuid"
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 )
 
 // PortalDestination row Admin.
 type PortalDestination struct {
 	ID        string   `json:"id"`
-	CoreName  string   `json:"core_name"`
+	EdgeName  string   `json:"edge_name"`
 	Kind      string   `json:"kind"`
 	Name      string   `json:"name"`
 	Host      string   `json:"host,omitempty"`
@@ -55,7 +55,7 @@ func (h *PortalHandler) handleDestinations(w http.ResponseWriter, r *http.Reques
 
 // previewDestinations applique le filtre tags R9–R10 comme sur Access (miroir Admin).
 func (h *PortalHandler) previewDestinations(w http.ResponseWriter, r *http.Request) {
-	core := portalCoreParam(r)
+	edge := portalEdgeParam(r)
 	userTags := normalizeTags(splitCSV(r.URL.Query().Get("tags")))
 	if uid := strings.TrimSpace(r.URL.Query().Get("user_id")); uid != "" {
 		row := h.DB.QueryRow(`SELECT tags_json FROM portal_users WHERE id=?`, uid)
@@ -67,14 +67,14 @@ func (h *PortalHandler) previewDestinations(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	q := `SELECT id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled
+	q := `SELECT id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled
 		FROM portal_destinations WHERE enabled=1`
 	var rows *sql.Rows
 	var err error
-	if core != "" {
-		rows, err = h.DB.Query(q+` AND core_name=? ORDER BY name`, core)
+	if edge != "" {
+		rows, err = h.DB.Query(q+` AND edge_name=? ORDER BY name`, edge)
 	} else {
-		rows, err = h.DB.Query(q + ` ORDER BY core_name, name`)
+		rows, err = h.DB.Query(q + ` ORDER BY edge_name, name`)
 	}
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -116,15 +116,15 @@ func splitCSV(s string) []string {
 }
 
 func (h *PortalHandler) listDestinations(w http.ResponseWriter, r *http.Request) {
-	core := portalCoreParam(r)
-	q := `SELECT id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled
+	edge := portalEdgeParam(r)
+	q := `SELECT id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled
 		FROM portal_destinations`
 	var rows *sql.Rows
 	var err error
-	if core != "" {
-		rows, err = h.DB.Query(q+` WHERE core_name=? ORDER BY name`, core)
+	if edge != "" {
+		rows, err = h.DB.Query(q+` WHERE edge_name=? ORDER BY name`, edge)
 	} else {
-		rows, err = h.DB.Query(q + ` ORDER BY core_name, name`)
+		rows, err = h.DB.Query(q + ` ORDER BY edge_name, name`)
 	}
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -143,7 +143,7 @@ func (h *PortalHandler) listDestinations(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *PortalHandler) getDestination(w http.ResponseWriter, r *http.Request, id string) {
-	row := h.DB.QueryRow(`SELECT id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled
+	row := h.DB.QueryRow(`SELECT id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled
 		FROM portal_destinations WHERE id=?`, id)
 	d, err := scanDestination(row)
 	if err == sql.ErrNoRows {
@@ -173,16 +173,16 @@ func (h *PortalHandler) createDestination(w http.ResponseWriter, r *http.Request
 	body.Enabled = true
 	tags, _ := json.Marshal(normalizeTags(body.Tags))
 	_, err := h.DB.Exec(`INSERT INTO portal_destinations
-		(id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled)
+		(id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled)
 		VALUES (?,?,?,?,?,?,?,?,?,1)`,
-		body.ID, body.CoreName, body.Kind, body.Name, body.Host, body.Port, body.AgentName, body.Container, string(tags))
+		body.ID, body.EdgeName, body.Kind, body.Name, body.Host, body.Port, body.AgentName, body.Container, string(tags))
 	if err != nil {
 		h.Log.Error("portal dest create", "err", err)
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "create", "portal_destination", body.ID)
-	h.pushCatalogForCore(r, body.CoreName)
+	h.pushCatalogForEdge(r, body.EdgeName)
 	body.Tags = normalizeTags(body.Tags)
 	jsonOK(w, body)
 }
@@ -204,9 +204,9 @@ func (h *PortalHandler) updateDestination(w http.ResponseWriter, r *http.Request
 		en = 1
 	}
 	res, err := h.DB.Exec(`UPDATE portal_destinations SET
-		core_name=?, kind=?, name=?, host=?, port=?, agent_name=?, container=?, tags_json=?, enabled=?,
+		edge_name=?, kind=?, name=?, host=?, port=?, agent_name=?, container=?, tags_json=?, enabled=?,
 		updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		body.CoreName, body.Kind, body.Name, body.Host, body.Port, body.AgentName, body.Container, string(tags), en, id)
+		body.EdgeName, body.Kind, body.Name, body.Host, body.Port, body.AgentName, body.Container, string(tags), en, id)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
@@ -217,14 +217,14 @@ func (h *PortalHandler) updateDestination(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "update", "portal_destination", id)
-	h.pushCatalogForCore(r, body.CoreName)
+	h.pushCatalogForEdge(r, body.EdgeName)
 	body.Tags = normalizeTags(body.Tags)
 	jsonOK(w, body)
 }
 
 func (h *PortalHandler) deleteDestination(w http.ResponseWriter, r *http.Request, id string) {
-	var core string
-	_ = h.DB.QueryRow(`SELECT core_name FROM portal_destinations WHERE id=?`, id).Scan(&core)
+	var edge string
+	_ = h.DB.QueryRow(`SELECT edge_name FROM portal_destinations WHERE id=?`, id).Scan(&edge)
 	res, err := h.DB.Exec(`DELETE FROM portal_destinations WHERE id=?`, id)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -236,26 +236,26 @@ func (h *PortalHandler) deleteDestination(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "delete", "portal_destination", id)
-	if core != "" {
-		h.pushCatalogForCore(r, core)
+	if edge != "" {
+		h.pushCatalogForEdge(r, edge)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *PortalHandler) pushCatalogForCore(r *http.Request, core string) {
-	if h.Pusher == nil || core == "" {
+func (h *PortalHandler) pushCatalogForEdge(r *http.Request, edge string) {
+	if h.Pusher == nil || edge == "" {
 		return
 	}
-	cfg := loadPortalConfig(h.DB, core)
-	h.Pusher.PushPortal(r.Context(), core, cfg)
+	cfg := loadPortalConfig(h.DB, edge)
+	h.Pusher.PushPortal(r.Context(), edge, cfg)
 }
 
 func validateDestination(d *PortalDestination) error {
-	d.CoreName = strings.TrimSpace(d.CoreName)
+	d.EdgeName = strings.TrimSpace(d.EdgeName)
 	d.Name = strings.TrimSpace(d.Name)
 	d.Kind = strings.TrimSpace(strings.ToLower(d.Kind))
-	if d.CoreName == "" {
-		return errStr("core_name requis")
+	if d.EdgeName == "" {
+		return errStr("edge_name requis")
 	}
 	if d.Name == "" {
 		return errStr("name requis")
@@ -314,7 +314,7 @@ func scanDestination(s scanner) (PortalDestination, error) {
 	var d PortalDestination
 	var tagsRaw string
 	var en int
-	if err := s.Scan(&d.ID, &d.CoreName, &d.Kind, &d.Name, &d.Host, &d.Port, &d.AgentName, &d.Container, &tagsRaw, &en); err != nil {
+	if err := s.Scan(&d.ID, &d.EdgeName, &d.Kind, &d.Name, &d.Host, &d.Port, &d.AgentName, &d.Container, &tagsRaw, &en); err != nil {
 		return d, err
 	}
 	d.Enabled = en != 0
@@ -323,10 +323,10 @@ func scanDestination(s scanner) (PortalDestination, error) {
 	return d, nil
 }
 
-// listDestinationsAsCatalog returns enabled destinations for a Core as CatalogTarget.
-func listDestinationsAsCatalog(db *sql.DB, coreName string) []portal.CatalogTarget {
+// listDestinationsAsCatalog returns enabled destinations for an Edge as CatalogTarget.
+func listDestinationsAsCatalog(db *sql.DB, edgeName string) []portal.CatalogTarget {
 	rows, err := db.Query(`SELECT id, kind, name, host, port, agent_name, container, tags_json
-		FROM portal_destinations WHERE core_name=? AND enabled=1 ORDER BY name`, coreName)
+		FROM portal_destinations WHERE edge_name=? AND enabled=1 ORDER BY name`, edgeName)
 	if err != nil {
 		return nil
 	}
@@ -350,9 +350,9 @@ func listDestinationsAsCatalog(db *sql.DB, coreName string) []portal.CatalogTarg
 }
 
 // migrateLegacyCatalogIntoDestinations one-shot: settings catalog JSON → rows.
-func migrateLegacyCatalogIntoDestinations(db *sql.DB, coreName string, catalog []portal.CatalogTarget) {
+func migrateLegacyCatalogIntoDestinations(db *sql.DB, edgeName string, catalog []portal.CatalogTarget) {
 	var n int
-	_ = db.QueryRow(`SELECT COUNT(1) FROM portal_destinations WHERE core_name=?`, coreName).Scan(&n)
+	_ = db.QueryRow(`SELECT COUNT(1) FROM portal_destinations WHERE edge_name=?`, edgeName).Scan(&n)
 	if n > 0 || len(catalog) == 0 {
 		return
 	}
@@ -363,8 +363,8 @@ func migrateLegacyCatalogIntoDestinations(db *sql.DB, coreName string, catalog [
 		}
 		tags, _ := json.Marshal(normalizeTags(c.Tags))
 		_, _ = db.Exec(`INSERT OR IGNORE INTO portal_destinations
-			(id, core_name, kind, name, host, port, agent_name, container, tags_json, enabled)
+			(id, edge_name, kind, name, host, port, agent_name, container, tags_json, enabled)
 			VALUES (?,?,?,?,?,?,?,?,?,1)`,
-			id, coreName, string(c.Kind), c.Name, c.Host, c.Port, c.AgentName, c.Container, string(tags))
+			id, edgeName, string(c.Kind), c.Name, c.Host, c.Port, c.AgentName, c.Container, string(tags))
 	}
 }

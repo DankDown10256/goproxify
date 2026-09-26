@@ -185,7 +185,7 @@ func UserIDFromContext(ctx context.Context) string {
 	return v
 }
 
-// RequireBearerToken est un middleware HTTP qui valide un token d'appairage Core/Agent depuis la DB.
+// RequireBearerToken est un middleware HTTP qui valide un token d'appairage passerelle/Agent depuis la DB.
 func RequireBearerToken(db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

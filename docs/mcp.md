@@ -142,7 +142,7 @@ Supprime un proxy par son ID.
 
 ### `list_nodes`
 
-Liste les nœuds Core et Agent avec leurs métriques en temps réel.
+Liste les nœuds passerelle et Agent avec leurs métriques en temps réel.
 
 **Paramètres :** aucun
 
@@ -151,8 +151,8 @@ Liste les nœuds Core et Agent avec leurs métriques en temps réel.
 [
   {
     "id": "nd_01",
-    "node_name": "core-eu-west",
-    "role": "core",
+    "node_name": "edge-eu-west",
+    "role": "edge",
     "version": "1.4.2",
     "status": "online",
     "cpu_pct": 12.5,
@@ -182,7 +182,7 @@ Liste les Agents vus via le plan de contrôle WebSocket (`pending`, `approved`, 
 
 ### `approve_agent`
 
-Approuve un Agent en attente (broadcast `approve_agent` aux Cores).
+Approuve un Agent en attente (broadcast `approve_agent` aux passerelles).
 
 | Paramètre | Type   | Requis | Description        |
 |-----------|--------|--------|--------------------|
@@ -321,7 +321,7 @@ Liste les domaines gérés avec leur fournisseur DNS et l'état du certificat.
   {
     "id": "dm_01",
     "domain": "example.fr",
-    "core_id": "nd_01",
+    "edge_id": "nd_01",
     "dns_provider": "cloudflare",
     "cert_method": "dns",
     "delegation_mode": "passthrough",
@@ -331,7 +331,7 @@ Liste les domaines gérés avec leur fournisseur DNS et l'état du certificat.
 ]
 ```
 
-`delegation_mode` : `passthrough` (tunnel TLS) ou `terminate` (TLS sur le Core d'entrée + proxy HTTP(S)). Voir [delegation.md](delegation.md).
+`delegation_mode` : `passthrough` (tunnel TLS) ou `terminate` (TLS sur la passerelle d'entrée + proxy HTTP(S)). Voir [delegation.md](delegation.md).
 
 ---
 
@@ -375,7 +375,7 @@ Retourne les 100 derniers logs d'accès, filtrables par domaine, niveau ou `requ
   {
     "ts": "2026-09-12T10:01:05Z",
     "level": "info",
-    "component": "core",
+    "component": "edge",
     "domain": "app.example.fr",
     "method": "GET",
     "path": "/api/users",
@@ -388,7 +388,7 @@ Retourne les 100 derniers logs d'accès, filtrables par domaine, niveau ou `requ
 ]
 ```
 
-Le champ `request_id` est présent quand le proxy cible a l'option **Injection request_id** activée. Utilisez-le comme filtre pour récupérer l'ensemble des entrées (Admin + Core) d'une même requête HTTP.
+Le champ `request_id` est présent quand le proxy cible a l'option **Injection request_id** activée. Utilisez-le comme filtre pour récupérer l'ensemble des entrées (Admin + Passerelle) d'une même requête HTTP.
 
 ---
 
@@ -454,7 +454,7 @@ Liste les bans IP (Fail2Ban, CrowdSec, natif).
 
 ### `create_security_ban`
 
-Crée un ban IP natif (**permanent** si `expires_at` omis) et pousse les bans aux Cores.
+Crée un ban IP natif (**permanent** si `expires_at` omis) et pousse les bans aux passerelles.
 
 | Paramètre     | Type   | Requis | Description                         |
 |---------------|--------|--------|-------------------------------------|
@@ -475,7 +475,7 @@ Crée un ban IP natif (**permanent** si `expires_at` omis) et pousse les bans au
 
 ### `ban_ip`
 
-Banne une IP directement depuis le MCP (insère dans `security_bans`, pousse aux Cores).
+Banne une IP directement depuis le MCP (insère dans `security_bans`, pousse aux passerelles).
 
 | Paramètre    | Type   | Requis | Description                               |
 |--------------|--------|--------|-------------------------------------------|
@@ -490,7 +490,7 @@ Banne une IP directement depuis le MCP (insère dans `security_bans`, pousse aux
 
 ### `unban_ip`
 
-Lève le ban d'une IP (supprime de `security_bans`, pousse la mise à jour aux Cores).
+Lève le ban d'une IP (supprime de `security_bans`, pousse la mise à jour aux passerelles).
 
 | Paramètre | Type   | Requis | Description         |
 |-----------|--------|--------|---------------------|
@@ -512,7 +512,7 @@ Liste les règles automatiques configurées dans le moteur de règles.
 
 ### `rotate_cert`
 
-Force le renouvellement ACME d'un domaine en vidant la date d'expiration en base (le prochain cycle d'auto-renouvellement émettra un nouveau certificat) et pousse les routes aux Cores.
+Force le renouvellement ACME d'un domaine en vidant la date d'expiration en base (le prochain cycle d'auto-renouvellement émettra un nouveau certificat) et pousse les routes aux passerelles.
 
 | Paramètre | Type   | Requis | Description                              |
 |-----------|--------|--------|------------------------------------------|
@@ -639,7 +639,7 @@ Décisions CrowdSec synchronisées (`security_threats`).
 |-----------|--------|--------|--------------------------------------|
 | `limit`   | number | —      | Défaut 100, max 500                  |
 
-Trié par `last_seen_at` décroissant. Chaque résultat inclut `core_name` (Core d'origine) et `occurrences` (nombre de fois où cette menace ip+scenario a été observée ; `last_seen_at` reflète la plus récente).
+Trié par `last_seen_at` décroissant. Chaque résultat inclut `edge_name` (Passerelle d'origine) et `occurrences` (nombre de fois où cette menace ip+scenario a été observée ; `last_seen_at` reflète la plus récente).
 
 ---
 
@@ -652,7 +652,7 @@ CVE détectées sur les backends.
 | `status`          | string  | —      | `open`, `ignored`, `resolved`        |
 | `critical_only`   | boolean | —      | CVSS ≥ 7 uniquement                  |
 
-Chaque résultat inclut désormais `core_name` — le Core d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne).
+Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne).
 
 ---
 
@@ -665,7 +665,7 @@ Dry-run Sentinel : rejoue les access logs récents contre une config candidate e
 | `config`  | object  | ✓      | Champs Sentinel à surcharger sur la config actuelle (mêmes noms que `threat-config` : `rate_limit`, `rate_window`, `rate_ban_threshold`, `error_threshold`, `error_window`, `custom_lists`, `whitelist`, `score_threshold`, `ban_duration`) |
 | `hours`   | number  | —      | Fenêtre rejouée (défaut `1`, max `24`) |
 | `domain`  | string  | —      | Limiter le rejeu à un domaine |
-| `core`    | string  | —      | Core dont la config actuelle sert de base (défaut : config globale) |
+| `edge`    | string  | —      | Passerelle dont la config actuelle sert de base (défaut : config globale) |
 
 Réponse : `current` et `candidate` (`events`, `blocked`, `blocked_by_ban`, `legit_blocked`, `blocked_ips`, `by_reason`, `bans`, `top_ips`), `delta` (candidat − actuel), `events_replayed`, `truncated` (plafond 200 000 événements, les plus récents sont conservés), `skipped_unattributable_ip`.
 
@@ -681,7 +681,7 @@ Scopes PAT : `nodes:read` (lecture) / `nodes:write` (écriture). Alignés sur `/
 
 ### `get_topology_live`
 
-État temps réel de la topologie : pour chaque Core et Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec son facteur dominant, plus le nombre de bans actifs. Même réponse que `GET /api/v1/nodes/live` (formule du score : voir [api_specs.md](api_specs.md)). Scope `nodes:read`.
+État temps réel de la topologie : pour chaque passerelle et Agent, santé, CPU/mémoire, débit (req/s sur 60 s), taux de refus (403/429) et d'erreurs 5xx, score de risque 0-100 avec son facteur dominant, plus le nombre de bans actifs. Même réponse que `GET /api/v1/nodes/live` (formule du score : voir [api_specs.md](api_specs.md)). Scope `nodes:read`.
 
 **Paramètres :** aucun
 
@@ -697,11 +697,11 @@ Liste les nœuds déclarés (toile architecture) pas encore connectés.
 
 ### `create_declared_node`
 
-Déclare (ou met à jour) un nœud Core/Agent pour le suivi wizard / auto-accept.
+Déclare (ou met à jour) un nœud passerelle/Agent pour le suivi wizard / auto-accept.
 
 | Paramètre       | Type   | Requis | Description                |
 |-----------------|--------|--------|----------------------------|
-| `role`          | string | ✓      | `core` ou `agent`          |
+| `role`          | string | ✓      | `edge` ou `agent`          |
 | `name`          | string | ✓      | Nom du nœud                |
 | `region`        | string | —      | Région                     |
 | `environment`   | string | —      | Environnement              |
@@ -724,7 +724,7 @@ Crée un ticket one-shot : URL `/i/{token}`, script `.sh`, QR PNG, commande `cur
 | Paramètre         | Type    | Requis | Description                          |
 |-------------------|---------|--------|--------------------------------------|
 | `host_name`       | string  | —      | Nom d’hôte affiché                   |
-| `core_endpoint`   | string  | —      | Endpoint Core cible                  |
+| `edge_endpoint`   | string  | —      | Endpoint passerelle cible                  |
 | `payload`         | object  | —      | Payload JSON (compose / options)     |
 | `ttl_hours`       | number  | —      | 1–168 (défaut 24)                    |
 | `auto_accept`     | boolean | —      | Auto-accept des nœuds liés (défaut true) |
@@ -920,9 +920,9 @@ Déclare un nouveau domaine géré (ACME DNS-01).
 | Paramètre | Type   | Requis | Description                            |
 |-----------|--------|--------|----------------------------------------|
 | `domain`  | string | ✓      | Domaine (ex : `app.example.fr`)        |
-| `core_id` | string | —      | ID du Core d'entrée                    |
+| `edge_id` | string | —      | ID de la passerelle d'entrée                    |
 
-**Réponse :** `{ "id": "dm_…", "domain": "app.example.fr", "core_id": "…" }`
+**Réponse :** `{ "id": "dm_…", "domain": "app.example.fr", "edge_id": "…" }`
 
 ---
 
@@ -956,22 +956,22 @@ Scopes PAT : `portal:read` (lecture) / `portal:write` (écriture + push). Réser
 
 | Paramètre | Type | Requis | Description |
 |-----------|------|--------|-------------|
-| `core` | string | ✓ | Nom du nœud Core |
+| `edge` | string | ✓ | Nom du nœud passerelle |
 | `enabled`, `ssh_port`, `http_port`, `public_host`, `allow_personal_targets`, `require_2fa`, `session_ttl_sec`, `session_mode` | — | — | Champs optionnels pour `update_portal_config` |
 
 ### Catalogue — `list_portal_destinations`, `create_portal_destination`, `update_portal_destination`, `delete_portal_destination`, `preview_portal_destinations`
 
-Création / mise à jour : `core_name`, `name`, `kind` (`ssh`\|`docker`), `host`, `port`, `agent_name`, `container`, `tags`.
+Création / mise à jour : `edge_name`, `name`, `kind` (`ssh`\|`docker`), `host`, `port`, `agent_name`, `container`, `tags`.
 
 ### Users — `list_portal_users`, `invite_portal_user`, `update_portal_user`, `delete_portal_user`, `resend_portal_invite`
 
-Invitation : `email`, `home_core`, `tags` (SMTP Admin requis).
+Invitation : `email`, `home_edge`, `tags` (SMTP Admin requis).
 
 ### `list_portal_audit`
 
 | Paramètre | Type | Requis | Description |
 |-----------|------|--------|-------------|
-| `core` | string | — | Filtrer par Core |
+| `edge` | string | — | Filtrer par passerelle |
 | `limit` | number | — | Défaut 100, max 500 |
 
 ### Templates — `list_portal_templates`, `get_portal_template`, `upsert_portal_template`, `delete_portal_template`, `push_portal_templates`
@@ -987,7 +987,7 @@ Les ressources permettent à un client MCP d'accéder aux données sans construi
 | URI                            | Description                              |
 |--------------------------------|------------------------------------------|
 | `goproxify://proxies`          | Liste de toutes les routes proxy         |
-| `goproxify://nodes`            | Nœuds Core et Agent                      |
+| `goproxify://nodes`            | Nœuds passerelle et Agent                      |
 | `goproxify://agents`           | Agents WS (pending / approved)           |
 | `goproxify://alerts`           | Règles d'alerting                        |
 | `goproxify://users`            | Comptes utilisateurs et rôles            |

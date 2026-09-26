@@ -27,7 +27,7 @@ func TestNodeIDSurvivesRenameIntegration(t *testing.T) {
 	s := New(db)
 
 	s.Write(Entry{NodeName: "Frontal", NodeID: "token-abc", Status: 200, Message: "avant renommage"})
-	s.Write(Entry{NodeName: "goproxify-core", NodeID: "token-abc", Status: 200, Message: "après renommage"})
+	s.Write(Entry{NodeName: "goproxify-edge", NodeID: "token-abc", Status: 200, Message: "après renommage"})
 	s.Write(Entry{NodeName: "autre-noeud", NodeID: "token-xyz", Status: 200, Message: "un autre nœud"})
 
 	byID, _, err := s.Search(SearchParams{NodeID: "token-abc"})

@@ -1,6 +1,6 @@
 # GoProxify — Performance Benchmark
 
-> Benchmarks measure the GoProxify Core (HTTP/1.1 and HTTP/2 reverse proxy) against Nginx and Caddy on equivalent workloads. Reproducing them takes ~10 minutes.
+> Benchmarks measure the GoProxify Edge (HTTP/1.1 and HTTP/2 reverse proxy) against Nginx and Caddy on equivalent workloads. Reproducing them takes ~10 minutes.
 
 ---
 
@@ -19,7 +19,7 @@
 
 | Component | Version |
 |---|---|
-| GoProxify Core | latest `main` |
+| GoProxify Edge | latest `main` |
 | Nginx | 1.27.x (nginx:alpine) |
 | Caddy | 2.9.x (caddy:alpine) |
 | k6 | 0.55.x |
@@ -115,12 +115,12 @@ GoProxify's native Go WAF adds less overhead than ModSecurity because it avoids 
 python3 -m http.server 8888
 ```
 
-### 2. Start GoProxify Core
+### 2. Start GoProxify Edge
 
 ```bash
 docker run --rm --network=host \
   -e GPX_CONTROLPLANE_AUTH_TOKEN=test \
-  ghcr.io/vincamok/goproxify/core:preview
+  ghcr.io/vincamok/goproxify/edge:preview
 ```
 
 Add a proxy route via CLI:

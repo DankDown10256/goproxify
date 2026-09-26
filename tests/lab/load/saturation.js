@@ -1,5 +1,5 @@
 // Saturation : 50 VUs sans pause pendant ~1 min (modèle fermé). Mesure le DÉBIT ATTEINT par le système
-// (k6 + Core + backend sur la même machine). Les latences reflètent alors la file d'attente
+// (k6 + Passerelle + backend sur la même machine). Les latences reflètent alors la file d'attente
 // (loi de Little : latence moyenne ≈ VUs / débit) : aucun seuil de latence, erreurs seulement.
 import { get, summary } from "./common.js";
 

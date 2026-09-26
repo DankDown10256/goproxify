@@ -36,11 +36,11 @@ func DomainScopePattern(domain string) string {
 	return domain
 }
 
-// EnsureDomainScope ajoute un périmètre domain sur le token Core si nécessaire.
+// EnsureDomainScope ajoute un périmètre domain sur le token passerelle si nécessaire.
 //
 // - Admin/superadmin sans aucun scope → no-op (accès global déjà OK).
 // - Sinon, si aucun scope ne couvre le domaine → INSERT du motif DomainScopePattern.
-// - Scope type "core" existant → déjà couvert (MatchCertName) → no-op.
+// - Scope type "edge" existant → déjà couvert (MatchCertName) → no-op.
 //
 // Retourne (motif ajouté, true) si un scope a été créé ; ("", false) sinon.
 func EnsureDomainScope(ctx context.Context, db *sql.DB, tokenID, domain string) (addedValue string, added bool, err error) {

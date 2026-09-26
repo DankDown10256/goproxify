@@ -94,7 +94,7 @@ func TestElevatedH8_LoginRateLimited(t *testing.T) {
 	}
 }
 
-// TestElevatedH12_NodeTokensHashed — tokens Core/Agent hashés / chiffrés.
+// TestElevatedH12_NodeTokensHashed — tokens passerelle/Agent hashés / chiffrés.
 func TestElevatedH12_NodeTokensHashed(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

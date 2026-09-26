@@ -24,14 +24,14 @@ const (
 	filename      = "architecture.json"
 )
 
-// ScopeEntry est un périmètre RBAC attaché à un nœud Core.
+// ScopeEntry est un périmètre RBAC attaché à un nœud passerelle.
 type ScopeEntry struct {
 	ID    string `json:"id"`
 	Type  string `json:"type"`
 	Value string `json:"value"`
 }
 
-// NodeEntry décrit un nœud de l'architecture (Core ou Agent).
+// NodeEntry décrit un nœud de l'architecture (Passerelle ou Agent).
 // Ne contient pas de secrets — les tokens sealed sont dans node_tokens.json.
 type NodeEntry struct {
 	ID          string          `json:"id"`
@@ -49,10 +49,10 @@ type NodeEntry struct {
 // il vit dans la table declared_nodes, qu'il soit connecté ou non.
 func (n NodeEntry) wizardDeclared() bool { return len(n.Config) > 0 }
 
-// ControlEndpoint retourne l'adresse que l'Admin doit joindre pour ce Core : `endpoint` s'il est
-// posé, sinon `reachable_host` de la config du wizard (host:port du hub du Core). Vide si inconnue.
+// ControlEndpoint retourne l'adresse que l'Admin doit joindre pour cette passerelle : `endpoint` s'il est
+// posé, sinon `reachable_host` de la config du wizard (host:port du hub de la passerelle). Vide si inconnue.
 func (n NodeEntry) ControlEndpoint() string {
-	if n.Role != "core" {
+	if n.Role != "edge" {
 		return ""
 	}
 	if n.Endpoint != "" {
@@ -70,15 +70,15 @@ func (n NodeEntry) ControlEndpoint() string {
 	return "http://" + cfg.ReachableHost
 }
 
-// DomainEntry décrit un domaine géré (TLS, ACME, délégation inter-Core).
+// DomainEntry décrit un domaine géré (TLS, ACME, délégation inter-passerelle).
 type DomainEntry struct {
 	ID                string `json:"id"`
 	Domain            string `json:"domain"`
-	CoreID            string `json:"core_id"`
+	EdgeID            string `json:"edge_id"`
 	DNSProvider       string `json:"dns_provider"`
 	DNSCredentials    string `json:"dns_credentials,omitempty"` // chiffré côté DB, répliqué tel quel
 	CertMethod        string `json:"cert_method"`
-	DelegatedToCoreID string `json:"delegated_to_core_id,omitempty"`
+	DelegatedToEdgeID string `json:"delegated_to_edge_id,omitempty"`
 	DelegatedEndpoint string `json:"delegated_endpoint,omitempty"`
 	DelegationMode    string `json:"delegation_mode,omitempty"`
 }
@@ -115,8 +115,8 @@ func (s *Store) List() ([]NodeEntry, error) {
 	return arch.Nodes, nil
 }
 
-// CoreEndpoints retourne les nœuds Core du fichier qui portent un endpoint joignable par l'Admin.
-func (s *Store) CoreEndpoints() ([]NodeEntry, error) {
+// EdgeEndpoints retourne les nœuds passerelle du fichier qui portent un endpoint joignable par l'Admin.
+func (s *Store) EdgeEndpoints() ([]NodeEntry, error) {
 	nodes, err := s.List()
 	if err != nil {
 		return nil, err
@@ -228,7 +228,7 @@ func (s *Store) RemoveScope(nodeID, scopeID string) error {
 }
 
 // UpsertEndpoint met à jour l'endpoint et le rbac_role d'un nœud (par ID).
-// Utilisé quand un Core se reconnecte et met à jour son endpoint en DB.
+// Utilisé quand une passerelle se reconnecte et met à jour son endpoint en DB.
 func (s *Store) UpsertEndpoint(nodeID, endpoint, rbacRole string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -267,6 +267,11 @@ func (s *Store) readLocked() (*Architecture, error) {
 	}
 	if arch.Nodes == nil {
 		arch.Nodes = []NodeEntry{}
+	}
+	for i := range arch.Nodes {
+		if arch.Nodes[i].Role == "core" {
+			arch.Nodes[i].Role = "edge"
+		}
 	}
 	return &arch, nil
 }
@@ -308,10 +313,10 @@ func (s *Store) writeLocked(arch *Architecture) error {
 	return nil
 }
 
-// EnsureCore garantit qu'un Core connecté figure dans le fichier, sans jamais dédoubler :
-// un nœud déjà présent (même ID) voit son endpoint/rôle mis à jour, un Core déjà décrit
+// EnsureEdge garantit qu'une passerelle connectée figure dans le fichier, sans jamais dédoubler :
+// un nœud déjà présent (même ID) voit son endpoint/rôle mis à jour, une passerelle déjà décrit
 // sous un autre ID mais le même nom (nœud du wizard) est laissé tel quel.
-func (s *Store) EnsureCore(id, name, endpoint, rbacRole string) error {
+func (s *Store) EnsureEdge(id, name, endpoint, rbacRole string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	arch, err := s.readLocked()
@@ -337,10 +342,10 @@ func (s *Store) EnsureCore(id, name, endpoint, rbacRole string) error {
 		return s.writeLocked(arch)
 	}
 	for _, n := range arch.Nodes {
-		if n.Role == "core" && n.Name == name {
+		if n.Role == "edge" && n.Name == name {
 			return nil
 		}
 	}
-	arch.Nodes = append(arch.Nodes, NodeEntry{ID: id, Role: "core", Name: name, Endpoint: endpoint, RBACRole: rbacRole})
+	arch.Nodes = append(arch.Nodes, NodeEntry{ID: id, Role: "edge", Name: name, Endpoint: endpoint, RBACRole: rbacRole})
 	return s.writeLocked(arch)
 }

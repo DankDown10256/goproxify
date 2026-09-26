@@ -1126,26 +1126,26 @@
 <section id="architecture" class="section">
   <div class="container">
     <h2 class="section-title fade-in" data-i18n="sec.architecture">Two example setups</h2>
-    <p class="section-sub fade-in" data-i18n="sec.architecture.sub" style="max-width:680px">Many layouts are possible — here are two examples. A home lab needs one Admin, one Core and one Agent. For production, add a second gateway and an Agent on every host. Read the diagram top to bottom: Internet, gateways, then your apps and hosts.</p>
+    <p class="section-sub fade-in" data-i18n="sec.architecture.sub" style="max-width:680px">Many layouts are possible — here are two examples. A home lab needs one Admin, one Edge and one Agent. For production, add a second gateway and an Agent on every host. Read the diagram top to bottom: Internet, gateways, then your apps and hosts.</p>
 
     <div class="arch-tabs fade-in" role="tablist">
       <button type="button" class="arch-tab active" role="tab" aria-selected="true" data-arch="home" data-i18n="arch.tab.home">Home lab</button>
       <button type="button" class="arch-tab" role="tab" aria-selected="false" data-arch="ent" data-i18n="arch.tab.ent">Enterprise · redundant</button>
     </div>
 
-    <!-- ===== Home lab : 1 Admin · 1 Core · 1 Agent ===== -->
+    <!-- ===== Home lab : 1 Admin · 1 passerelle · 1 Agent ===== -->
     <div class="arch-panel active" id="arch-home" role="tabpanel">
       <div class="arch-wrapper">
         <div class="arch-header">
           <div class="arch-dot" style="background:#ff5f56"></div>
           <div class="arch-dot" style="background:#ffbd2e"></div>
           <div class="arch-dot" style="background:#27c93f"></div>
-          <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.home">goproxify — home lab · 1 Admin · 1 Core · 1 Agent</span>
+          <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.home">goproxify — home lab · 1 Admin · 1 Edge · 1 Agent</span>
         </div>
         <div class="arch-body">
           <svg class="arch-svg" style="min-width:560px" viewBox="0 0 700 590" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-h-title arch-h-desc">
             <title id="arch-h-title">GoProxify home lab layout</title>
-            <desc id="arch-h-desc">Top to bottom: Internet reaches one gateway (Core). The Admin manages the Core. From the Core, HTTP sites go through an Agent to Docker containers, and TCP or UDP services go straight to another host.</desc>
+            <desc id="arch-h-desc">Top to bottom: Internet reaches one gateway (Edge). The Admin manages the Edge. From the Edge, HTTP sites go through an Agent to Docker containers, and TCP or UDP services go straight to another host.</desc>
             <defs>
               <marker id="h-ai" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#4f46e5"/></marker>
               <marker id="h-ac" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto-start-reverse"><path d="M0,0 L0,8 L8,4 z" fill="#06b6d4"/></marker>
@@ -1159,11 +1159,11 @@
             <path d="M260,80 V128" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#h-ai)"/>
             <text x="272" y="108" fill="#4f46e5" font-size="9.5" font-weight="600" data-i18n="arch.flow.in">HTTPS · TCP · UDP</text>
 
-            <!-- Gateway (Core) -->
+            <!-- Gateway (Edge) -->
             <rect x="160" y="130" width="200" height="100" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2" filter="url(#h-soft)"/>
             <rect x="160" y="130" width="8" height="100" rx="4" fill="#4f46e5"/>
             <text x="190" y="162" fill="#4f46e5" font-size="12" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw.name">GATEWAY</text>
-            <text x="190" y="184" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Core — routes and protects</text>
+            <text x="190" y="184" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Edge — routes and protects</text>
             <text x="190" y="204" fill="#94a3b8" font-size="10" data-i18n="arch.gw.sub2">Public entry point</text>
 
             <!-- Admin -->
@@ -1207,26 +1207,26 @@
 
             <!-- Légende -->
             <path d="M55,552 H85" stroke="#4f46e5" stroke-width="2"/><text x="93" y="556" fill="#64748b" font-size="9.5" data-i18n="arch.leg.traffic">visitor traffic</text>
-            <path d="M235,552 H265" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="273" y="556" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Core)</text>
-            <text x="55" y="580" fill="#94a3b8" font-size="10" data-i18n="arch.legend.home">1 Admin · 1 Core (gateway) · 1 Agent</text>
+            <path d="M235,552 H265" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="273" y="556" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Edge)</text>
+            <text x="55" y="580" fill="#94a3b8" font-size="10" data-i18n="arch.legend.home">1 Admin · 1 Edge · 1 Agent</text>
           </svg>
         </div>
       </div>
     </div>
 
-    <!-- ===== Entreprise : 1 Admin · 2 Cores · 4 hôtes avec Agents ===== -->
+    <!-- ===== Entreprise : 1 Admin · 2 passerelles · 4 hôtes avec Agents ===== -->
     <div class="arch-panel" id="arch-ent" role="tabpanel">
       <div class="arch-wrapper">
         <div class="arch-header">
           <div class="arch-dot" style="background:#ff5f56"></div>
           <div class="arch-dot" style="background:#ffbd2e"></div>
           <div class="arch-dot" style="background:#27c93f"></div>
-          <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.ent">goproxify — enterprise · 1 Admin · 2 Cores · 4 hosts</span>
+          <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.ent">goproxify — enterprise · 1 Admin · 2 Edges · 4 hosts</span>
         </div>
         <div class="arch-body">
           <svg class="arch-svg" style="min-width:720px" viewBox="0 0 940 690" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-e-title arch-e-desc">
             <title id="arch-e-title">GoProxify redundant enterprise layout</title>
-            <desc id="arch-e-desc">Top to bottom: Internet reaches two gateways (Cores) through DNS round-robin or a virtual IP. The Admin manages both Cores. Both Cores route over the internal network to four hosts, each running an Agent.</desc>
+            <desc id="arch-e-desc">Top to bottom: Internet reaches two gateways (Edges) through DNS round-robin or a virtual IP. The Admin manages both Edges. Both Edges route over the internal network to four hosts, each running an Agent.</desc>
             <defs>
               <marker id="e-ai" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#4f46e5"/></marker>
               <marker id="e-ac" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto-start-reverse"><path d="M0,0 L0,8 L8,4 z" fill="#06b6d4"/></marker>
@@ -1250,14 +1250,14 @@
             <rect x="60" y="200" width="200" height="100" rx="14" fill="#ffffff" stroke="#4f46e5" stroke-width="2" filter="url(#e-soft)"/>
             <rect x="60" y="200" width="8" height="100" rx="4" fill="#4f46e5"/>
             <text x="90" y="230" fill="#4f46e5" font-size="12" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw1.name">GATEWAY 1</text>
-            <text x="90" y="252" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Core — routes and protects</text>
+            <text x="90" y="252" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Edge — routes and protects</text>
             <text x="90" y="272" fill="#94a3b8" font-size="10" data-i18n="arch.gw1.sub2">Active — shares the load</text>
 
             <!-- Passerelle 2 -->
             <rect x="680" y="200" width="200" height="100" rx="14" fill="#ffffff" stroke="#6366f1" stroke-width="2" filter="url(#e-soft)"/>
             <rect x="680" y="200" width="8" height="100" rx="4" fill="#6366f1"/>
             <text x="710" y="230" fill="#4f46e5" font-size="12" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw2.name">GATEWAY 2</text>
-            <text x="710" y="252" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Core — routes and protects</text>
+            <text x="710" y="252" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.gw.sub">Edge — routes and protects</text>
             <text x="710" y="272" fill="#94a3b8" font-size="10" data-i18n="arch.gw2.sub2">Takes over if gateway 1 fails</text>
 
             <!-- Admin au centre -->
@@ -1267,7 +1267,7 @@
             <text x="470" y="258" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="600" data-i18n="arch.admin.sub">One control panel</text>
             <text x="470" y="278" text-anchor="middle" fill="#94a3b8" font-size="10" data-i18n="arch.admin.sub2">Gateways · alerts · assistant</text>
 
-            <!-- Liens de gestion Admin ↔ Cores -->
+            <!-- Liens de gestion Admin ↔ passerelles -->
             <path d="M264,250 H366" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-start="url(#e-ac)" marker-end="url(#e-ac)"/>
             <path d="M574,250 H676" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-start="url(#e-ac)" marker-end="url(#e-ac)"/>
             <text x="315" y="240" text-anchor="middle" fill="#0891b2" font-size="9.5" font-weight="600" data-i18n="arch.mgmt">management</text>
@@ -1337,8 +1337,8 @@
 
             <!-- Légende -->
             <path d="M60,650 H90" stroke="#4f46e5" stroke-width="2"/><text x="98" y="654" fill="#64748b" font-size="9.5" data-i18n="arch.leg.traffic">visitor traffic</text>
-            <path d="M260,650 H290" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="298" y="654" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Core)</text>
-            <text x="60" y="678" fill="#94a3b8" font-size="10" data-i18n="arch.legend.ent">1 Admin · 2 Cores (gateways) · 4 hosts, each with an Agent</text>
+            <path d="M260,650 H290" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="298" y="654" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Edge)</text>
+            <text x="60" y="678" fill="#94a3b8" font-size="10" data-i18n="arch.legend.ent">1 Admin · 2 Edges · 4 hosts, each with an Agent</text>
           </svg>
         </div>
       </div>
@@ -1354,7 +1354,7 @@
 <section id="install" class="section section-alt">
   <div class="container">
     <h2 class="section-title fade-in" data-i18n="sec.install">Get started in 5 minutes</h2>
-    <p class="section-sub fade-in" data-i18n="sec.install.sub">A ready-to-run Admin + Core + Agent stack. Pick your method.</p>
+    <p class="section-sub fade-in" data-i18n="sec.install.sub">A ready-to-run Admin + Edge + Agent stack. Pick your method.</p>
 
     <div class="arch-tabs fade-in" role="tablist">
       <button type="button" class="inst-scn arch-tab active" role="tab" aria-selected="true" data-inst="home" data-i18n="install.scn.home">Home lab</button>
@@ -1374,7 +1374,7 @@
       <div class="tab-panel active" id="tab-script">
         <div style="padding:20px 24px 8px">
           <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.script.note">
-            Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Core + Agent.
+            Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Edge + Agent.
           </p>
           <div class="code-block">
             <div class="code-block-header">
@@ -1413,7 +1413,7 @@
               <div><span class="prompt">$ </span><span class="cmd"># GPX_JWT_SECRET=$(openssl rand -hex 32)</span></div>
               <div><span class="prompt">$ </span><span class="cmd"># GPX_PAIRING_SECRET=$(openssl rand -hex 32)</span></div>
               <div>&nbsp;</div>
-              <div><span class="comment"># 3. Start Admin + Core + Agent</span></div>
+              <div><span class="comment"># 3. Start Admin + Edge + Agent</span></div>
               <div><span class="prompt">$ </span><span class="cmd">docker compose -f docker-compose.quickstart.yml up -d</span></div>
               <div>&nbsp;</div>
               <div><span class="comment"># Admin UI → http://localhost:9443</span></div>
@@ -1441,7 +1441,7 @@ GPX_FIRST_ADMIN_PASSWORD=
 <span class="c"># ADMIN_PORT=9443</span>
 <span class="c"># TZ=Europe/Paris</span>
 <span class="c"># GOPROXIFY_ADMIN_TAG=preview</span>
-<span class="c"># GOPROXIFY_CORE_TAG=preview</span>
+<span class="c"># GOPROXIFY_EDGE_TAG=preview</span>
 <span class="c"># GOPROXIFY_AGENT_TAG=preview</span></pre>
           </div>
         </div>
@@ -1473,7 +1473,7 @@ networks:
 
 volumes:
   goproxify_admin_data:
-  goproxify_core_data:
+  goproxify_edge_data:
   goproxify_agent_data:
 
 services:
@@ -1488,7 +1488,7 @@ services:
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
       - GPX_FIRST_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL}
       - GPX_FIRST_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD}
-      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
       - GPX_SERVER_API_PORT=9443
     ports:
       - "${ADMIN_PORT:-9443}:9443"
@@ -1496,21 +1496,21 @@ services:
       - goproxify_admin_data:/etc/goproxify
     networks: [goproxify_net]
 
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - TZ=${TZ:-Europe/Paris}
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
-      - GPX_IDENTITY_CORE_NODE_NAME=${CORE_NODE_NAME:-goproxify-core}
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
     ports:
-      - "${CORE_HTTP_PORT:-80}:80"
-      - "${CORE_HTTPS_PORT:-443}:443"
-      - "${CORE_HTTPS_PORT:-443}:443/udp"
+      - "${EDGE_HTTP_PORT:-80}:80"
+      - "${EDGE_HTTPS_PORT:-443}:443"
+      - "${EDGE_HTTPS_PORT:-443}:443/udp"
     volumes:
-      - goproxify_core_data:/etc/goproxify
+      - goproxify_edge_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-admin]
 
@@ -1522,14 +1522,14 @@ services:
     environment:
       - TZ=${TZ:-Europe/Paris}
       - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=${AGENT_NODE_NAME:-goproxify-agent}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
-    depends_on: [goproxify-core]</pre>
+    depends_on: [goproxify-edge]</pre>
             </div>
             <div class="file-block">
               <div class="file-block-header">
@@ -1552,7 +1552,7 @@ GPX_FIRST_ADMIN_PASSWORD=
 <span class="c"># Optional — defaults work out of the box; configure further in the Admin</span>
 <span class="c"># ADMIN_PORT=9443</span>
 <span class="c"># TZ=Europe/Paris</span>
-<span class="c"># CORE_NODE_NAME=goproxify-core</span>
+<span class="c"># EDGE_NODE_NAME=goproxify-edge</span>
 <span class="c"># AGENT_NODE_NAME=goproxify-agent</span></pre>
             </div>
           </div>
@@ -1583,7 +1583,7 @@ networks:
 
 volumes:
   goproxify_admin_data:
-  goproxify_core_data:
+  goproxify_edge_data:
   goproxify_agent_data:
 
 services:
@@ -1598,7 +1598,7 @@ services:
       - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
       - GPX_FIRST_ADMIN_EMAIL=admin@example.com
       - GPX_FIRST_ADMIN_PASSWORD=<span class="v" data-pt-secret="password">CHANGE_ME_PASSWORD_MIN12</span>
-      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=goproxify-edge
       - GPX_SERVER_API_PORT=9443
     ports:
       - "9443:9443"
@@ -1606,21 +1606,21 @@ services:
       - goproxify_admin_data:/etc/goproxify
     networks: [goproxify_net]
 
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - TZ=Europe/Paris
       - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
-      - GPX_IDENTITY_CORE_NODE_NAME=goproxify-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=goproxify-edge
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
-      - goproxify_core_data:/etc/goproxify
+      - goproxify_edge_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-admin]
 
@@ -1632,20 +1632,20 @@ services:
     environment:
       - TZ=Europe/Paris
       - GPX_PAIRING_SECRET=<span class="v" data-pt-secret="pairing">CHANGE_ME_PAIRING_HEX32</span>
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://goproxify-core:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
-    depends_on: [goproxify-core]</pre>
+    depends_on: [goproxify-edge]</pre>
             </div>
           </div>
         </div>
 
         <div style="margin:0 24px 20px;padding:12px 16px;background:rgba(79,70,229,0.06);border:1px solid rgba(79,70,229,0.20);border-radius:8px;font-size:0.82rem;color:var(--text-muted)" data-i18n="install.portainer.note">
-          Core and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.
+          Edge and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.
         </div>
       </div>
 
@@ -1682,7 +1682,7 @@ admin:
     enabled: true
     host: admin.example.com
 
-core:
+edge:
   image:
     tag: "preview"
 
@@ -1736,13 +1736,13 @@ agent:
               <div><span class="cmd">  GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
               <div><span class="cmd">  ./goproxify admin</span></div>
               <div>&nbsp;</div>
-              <div><span class="comment"># Core (data plane) — same pairing secret</span></div>
+              <div><span class="comment"># Edge (data plane) — same pairing secret</span></div>
               <div><span class="prompt">$ </span><span class="cmd">GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
-              <div><span class="cmd">  ./goproxify core</span></div>
+              <div><span class="cmd">  ./goproxify edge</span></div>
               <div>&nbsp;</div>
               <div><span class="comment"># Agent (optional)</span></div>
               <div><span class="prompt">$ </span><span class="cmd">GPX_PAIRING_SECRET=<span class="v" data-bin-secret="pairing">CHANGE_ME_PAIRING_HEX32</span> \</span></div>
-              <div><span class="cmd">  GPX_CONTROL_PLANE_CORE_ENDPOINT=http://localhost:8000 \</span></div>
+              <div><span class="cmd">  GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://localhost:8000 \</span></div>
               <div><span class="cmd">  GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://localhost:9443 \</span></div>
               <div><span class="cmd">  ./goproxify agent</span></div>
             </div>
@@ -1758,38 +1758,38 @@ agent:
           <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:20px;line-height:1.6" data-i18n="install.ent.intro">One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).</p>
 
           <h3 class="inst-step" data-i18n="install.ent.s1">1. Admin + Gateway 1</h3>
-          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Core.</p>
+          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Edge.</p>
 
-          <h3 class="inst-step" data-i18n="install.ent.s2">2. Gateway 2 (second Core)</h3>
-          <p class="inst-step-body" data-i18n="install.ent.s2.body">On a second machine, run a Core with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.</p>
+          <h3 class="inst-step" data-i18n="install.ent.s2">2. Second Edge</h3>
+          <p class="inst-step-body" data-i18n="install.ent.s2.body">On a second machine, run an Edge with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.</p>
           <div class="file-block">
             <div class="file-block-header">
-              <span class="file-block-name">docker-compose.yml — core 2</span>
-              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-ent-core')">Copy</button>
+              <span class="file-block-name">docker-compose.yml — edge 2</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-ent-edge')">Copy</button>
             </div>
-            <pre id="fb-ent-core">services:
-  goproxify-core:
-    image: ghcr.io/vincamok/goproxify/core:preview
-    container_name: goproxify-core
+            <pre id="fb-ent-edge">services:
+  goproxify-edge:
+    image: ghcr.io/vincamok/goproxify/edge:preview
+    container_name: goproxify-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - GPX_PAIRING_SECRET=<span class="v">&lt;same as the Admin&gt;</span>
-      - GPX_IDENTITY_CORE_NODE_NAME=<span class="v">core-2</span>
+      - GPX_IDENTITY_EDGE_NODE_NAME=<span class="v">edge-2</span>
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
       - "8000:8000"
     volumes:
-      - core2_data:/etc/goproxify
+      - edge2_data:/etc/goproxify
 
 volumes:
-  core2_data:</pre>
+  edge2_data:</pre>
           </div>
 
           <h3 class="inst-step" data-i18n="install.ent.s3">3. One Agent per host</h3>
-          <p class="inst-step-body" data-i18n="install.ent.s3.body">On each internal host, run an Agent that points to a Core. Give every Agent a unique node name, then approve it in the Admin (Agents menu).</p>
+          <p class="inst-step-body" data-i18n="install.ent.s3.body">On each internal host, run an Agent that points to an Edge. Give every Agent a unique node name, then approve it in the Admin (Agents menu).</p>
           <div class="file-block">
             <div class="file-block-header">
               <span class="file-block-name">docker-compose.yml — agent</span>
@@ -1803,7 +1803,7 @@ volumes:
     command: ["agent"]
     environment:
       - GPX_PAIRING_SECRET=<span class="v">&lt;same as the Admin&gt;</span>
-      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://<span class="v">&lt;core-ip&gt;</span>:8000
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://<span class="v">&lt;edge-ip&gt;</span>:8000
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<span class="v">&lt;admin-ip&gt;</span>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=<span class="v">agent-host-1</span>
     volumes:
@@ -1976,7 +1976,7 @@ volumes:
               </div>
             </td>
             <td class="tech-desc">Single static binary, zero runtime to install, native cross-compilation</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Edge · Agent</td>
           </tr>
           <tr>
             <td>
@@ -1986,7 +1986,7 @@ volumes:
               </div>
             </td>
             <td class="tech-desc">UDP transport via <code style="font-size:0.8em">quic-go</code>. Automatic Alt-Svc, 0-RTT, lower latency on degraded networks</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Edge</td>
           </tr>
           <tr>
             <td>
@@ -2005,8 +2005,8 @@ volumes:
                 WebSocket control plane
               </div>
             </td>
-            <td class="tech-desc">Persistent Admin↔Core and Agent↔Core tunnels. <code style="font-size:0.8em">full_sync</code>, live metrics for adaptive LB, inter-Core gateway</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+            <td class="tech-desc">Persistent Admin↔Edge and Agent↔Edge tunnels. <code style="font-size:0.8em">full_sync</code>, live metrics for adaptive LB, inter-Edge gateway</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Edge · Agent</td>
           </tr>
           <tr>
             <td>
@@ -2015,8 +2015,8 @@ volumes:
                 mTLS L4 tunnel
               </div>
             </td>
-            <td class="tech-desc">Core↔Core encrypted L4 channel — pool of peers, automatic failover, CONNECT-like protocol over TLS 1.3</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+            <td class="tech-desc">Edge↔Edge encrypted L4 channel — pool of peers, automatic failover, CONNECT-like protocol over TLS 1.3</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Edge</td>
           </tr>
           <tr>
             <td>
@@ -2025,8 +2025,8 @@ volumes:
                 Cache AES-256-GCM
               </div>
             </td>
-            <td class="tech-desc">Encrypted routes &amp; certs on disk. Core starts autonomously even if Admin is unreachable</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Core</td>
+            <td class="tech-desc">Encrypted routes &amp; certs on disk. Edge starts autonomously even if Admin is unreachable</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Edge</td>
           </tr>
           <tr>
             <td>
@@ -2036,7 +2036,7 @@ volumes:
               </div>
             </td>
             <td class="tech-desc"><code style="font-size:0.8em">/metrics</code> endpoint on every component — drop-in Grafana integration</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Core · Agent</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin · Edge · Agent</td>
           </tr>
           <tr>
             <td>
@@ -2046,7 +2046,7 @@ volumes:
               </div>
             </td>
             <td class="tech-desc">Distributed request tracing. Configurable OTLP exporters (Jaeger, Tempo…)</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Core · Admin</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Edge · Admin</td>
           </tr>
           <tr>
             <td>
@@ -2065,7 +2065,7 @@ volumes:
                 JWT + PAT
               </div>
             </td>
-            <td class="tech-desc">UI session (JWT). User API tokens <code style="font-size:0.8em">gpx_pat_*</code> with scopes for REST &amp; MCP. Separate Core/Agent pairing tokens</td>
+            <td class="tech-desc">UI session (JWT). User API tokens <code style="font-size:0.8em">gpx_pat_*</code> with scopes for REST &amp; MCP. Separate Edge/Agent pairing tokens</td>
             <td style="color:var(--text-muted);font-size:0.8rem">Admin</td>
           </tr>
           <tr>
@@ -2086,7 +2086,7 @@ volumes:
               </div>
             </td>
             <td class="tech-desc">Automatic wildcard certs via OVH, Cloudflare, Gandi, Route53, Hetzner</td>
-            <td style="color:var(--text-muted);font-size:0.8rem">Admin → Core</td>
+            <td style="color:var(--text-muted);font-size:0.8rem">Admin → Edge</td>
           </tr>
           <tr>
             <td>
@@ -2149,17 +2149,17 @@ volumes:
       <a href="#" id="docs-arch" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">Design</div>
         <h3 data-i18n="doc.arch.title">Architecture</h3>
-        <p data-i18n="doc.arch.body">Admin ↔ Core ↔ Agent flows, WS control plane, adaptive LB &amp; gateway.</p>
+        <p data-i18n="doc.arch.body">Admin ↔ Edge ↔ Agent flows, WS control plane, adaptive LB &amp; gateway.</p>
       </a>
       <a href="#" id="docs-delegation" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">Routing</div>
         <h3 data-i18n="doc.deleg.title">Domain delegation</h3>
-        <p data-i18n="doc.deleg.body">Passthrough vs Terminate between entry Core and target Core.</p>
+        <p data-i18n="doc.deleg.body">Passthrough vs Terminate between entry Edge and target Edge.</p>
       </a>
       <a href="#" id="docs-features" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle" data-i18n="doc.features.sub">Features</div>
         <h3 data-i18n="doc.features.title">Feature catalog</h3>
-        <p data-i18n="doc.features.body">Full inventory of Core, Admin and Agent capabilities.</p>
+        <p data-i18n="doc.features.body">Full inventory of Edge, Admin and Agent capabilities.</p>
       </a>
       <a href="#" id="docs-faq" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">FAQ</div>
@@ -2214,7 +2214,7 @@ volumes:
       <a href="#" id="docs-volumes" class="feature-card" style="text-decoration:none;color:inherit">
         <div class="feature-subtitle">Docker</div>
         <h3 data-i18n="doc.volumes.title">Docker volumes</h3>
-        <p data-i18n="doc.volumes.body">What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.</p>
+        <p data-i18n="doc.volumes.body">What each volume persists: Admin database, Edge proxy configs, Agent tokens, GeoIP database.</p>
       </a>
     </div>
 
@@ -2274,7 +2274,7 @@ volumes:
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binary',
-      'install.script.note': 'Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Core + Agent.',
+      'install.script.note': 'Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Edge + Agent.',
       'install.script.options': 'Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Official GHCR images with floating :preview tag (0.x). Optional SemVer pin via versions.json.',
       'install.helm.note': 'Chart in the repo (helm/goproxify). Requires global.authToken. Generate secrets in your browser, then helm install.',
@@ -2283,25 +2283,25 @@ volumes:
       'install.portainer.without_env': 'Without stack.env',
       'install.portainer.with_env.hint': 'Paste the compose, then click the key icon on stack.env to fill secrets in your browser (or load the same keys under Environment variables).',
       'install.portainer.without_env.hint': 'Click the key icon to fill secrets in your browser, then Copy and Deploy. No stack.env needed.',
-      'install.portainer.note': 'Core and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.',
+      'install.portainer.note': 'Edge and Agent pair via the same GPX_PAIRING_SECRET. Secrets are generated in your browser only — nothing is sent to any server.',
       'install.portainer.gen': 'Generate secrets in browser',
       'install.portainer.gen_done': 'Generated!',
       'footer.preview': 'Preview software — use at your own risk.',
       'sec.features': 'How GoProxify works',
       'sec.features.sub': 'From the control panel to the architecture assistant — here is what each piece does for you day to day.',
       'sec.architecture': 'Two example setups',
-      'sec.architecture.sub': 'Many layouts are possible — here are two examples. A home lab needs one Admin, one Core and one Agent. For production, add a second gateway and an Agent on every host. Read the diagram top to bottom: Internet, gateways, then your apps and hosts.',
+      'sec.architecture.sub': 'Many layouts are possible — here are two examples. A home lab needs one Admin, one Edge and one Agent. For production, add a second gateway and an Agent on every host. Read the diagram top to bottom: Internet, gateways, then your apps and hosts.',
       'sec.install': 'Get started in 5 minutes',
-      'sec.install.sub': 'Choose your layout, then your method. The home lab runs Admin + Core + Agent on one machine.',
+      'sec.install.sub': 'Choose your layout, then your method. The home lab runs Admin + Edge + Agent on one machine.',
       'install.scn.home': 'Home lab',
       'install.scn.ent': 'Enterprise · redundant',
       'install.ent.intro': 'One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).',
       'install.ent.s1': '1. Admin + Gateway 1',
-      'install.ent.s1.body': 'On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Core.',
-      'install.ent.s2': '2. Gateway 2 (second Core)',
-      'install.ent.s2.body': 'On a second machine, run a Core with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.',
+      'install.ent.s1.body': 'On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Edge.',
+      'install.ent.s2': '2. Second Edge',
+      'install.ent.s2.body': 'On a second machine, run an Edge with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.',
       'install.ent.s3': '3. One Agent per host',
-      'install.ent.s3.body': 'On each internal host, run an Agent that points to a Core. Give every Agent a unique node name, then approve it in the Admin (Agents menu).',
+      'install.ent.s3.body': 'On each internal host, run an Agent that points to an Edge. Give every Agent a unique node name, then approve it in the Admin (Agents menu).',
       'install.ent.tip': 'Tip: the architecture assistant in the Admin generates these steps, with a QR code, for each machine.',
       'sec.alerting': '10 alert channels',
       'sec.alerting.sub': 'Each alert rule can notify multiple teams on multiple channels at once. Alertmanager-inspired model.',
@@ -2316,7 +2316,7 @@ volumes:
       'doc.arch.title': 'How it works', 'doc.arch.body': 'Admin, gateways, Agent and Portainer — a clear picture of the layout.',
       'doc.deleg.title': 'Sharing traffic between gateways', 'doc.deleg.body': 'How several gateways work together to keep your sites available.',
       'doc.group.guides': 'Guides', 'doc.group.reference': 'Reference',
-      'doc.features.sub': 'Features', 'doc.features.title': 'Feature catalog', 'doc.features.body': 'Full inventory of Core, Admin and Agent capabilities.',
+      'doc.features.sub': 'Features', 'doc.features.title': 'Feature catalog', 'doc.features.body': 'Full inventory of Edge, Admin and Agent capabilities.',
       'doc.faq.title': 'Frequently asked questions', 'doc.faq.body': 'First start, password reset, Docker labels, delegation edge cases.',
       'doc.cli.title': 'CLI reference', 'doc.cli.body': 'All commands: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Docker labels', 'doc.labels.body': 'Complete goproxify.* label reference — routing, WAF, Sentinel, canary, shadow.',
@@ -2324,7 +2324,7 @@ volumes:
       'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'All notable changes by version — new features, improvements, fixes.',
       'doc.roadmap.title': 'Public roadmap', 'doc.roadmap.body': 'Upcoming milestones and planned features.',
       'doc.contrib.title': 'Contributing', 'doc.contrib.body': 'PR workflow, tests, DCO sign-off, coding conventions.',
-      'doc.volumes.title': 'Docker volumes', 'doc.volumes.body': 'What each volume persists: Admin database, Core proxy configs, Agent tokens, GeoIP database.',
+      'doc.volumes.title': 'Docker volumes', 'doc.volumes.body': 'What each volume persists: Admin database, Edge proxy configs, Agent tokens, GeoIP database.',
       'doc.security.title': 'Security engines', 'doc.security.body': 'WAF (13 CRS-4 rule sets, response inspection), Sentinel, bans, GeoIP, timeouts and CVE scanner.',
       'doc.github': 'View on GitHub →',
       'f1.sub': 'Gateway', 'f1.title': 'The traffic gateways',
@@ -2352,8 +2352,8 @@ volumes:
       'ex3.body': 'From one place you decide which sites are public, which need a login, and how to keep them available if a machine fails.',
       'arch.tab.home': 'Home lab',
       'arch.tab.ent': 'Enterprise · redundant',
-      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 Core · 1 Agent',
-      'arch.caption.ent': 'goproxify — enterprise · 1 Admin · 2 Cores · 4 hosts',
+      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 Edge · 1 Agent',
+      'arch.caption.ent': 'goproxify — enterprise · 1 Admin · 2 Edges · 4 hosts',
       'arch.internet': 'INTERNET',
       'arch.internet.sub': 'Visitors · https://blog… · https://shop…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
@@ -2361,7 +2361,7 @@ volumes:
       'arch.gw.name': 'GATEWAY',
       'arch.gw1.name': 'GATEWAY 1',
       'arch.gw2.name': 'GATEWAY 2',
-      'arch.gw.sub': 'Core — routes and protects',
+      'arch.gw.sub': 'Edge — routes and protects',
       'arch.gw.sub2': 'Public entry point',
       'arch.gw1.sub2': 'Active — shares the load',
       'arch.gw2.sub2': 'Takes over if gateway 1 fails',
@@ -2382,9 +2382,9 @@ volumes:
       'arch.proto.http': 'HTTP(S) via labels',
       'arch.proto.l4': 'TCP · UDP via ports',
       'arch.leg.traffic': 'visitor traffic',
-      'arch.leg.mgmt': 'management link (Admin ↔ Core)',
-      'arch.legend.home': '1 Admin · 1 Core (gateway) · 1 Agent',
-      'arch.legend.ent': '1 Admin · 2 Cores (gateways) · 4 hosts, each with an Agent',
+      'arch.leg.mgmt': 'management link (Admin ↔ Edge)',
+      'arch.legend.home': '1 Admin · 1 Edge · 1 Agent',
+      'arch.legend.ent': '1 Admin · 2 Edges · 4 hosts, each with an Agent',
       'f1.p1': 'Expose several websites behind their own internet addresses',
       'f1.p2': 'Share load when several copies of an app are running',
       'f1.p3': 'Keep traffic flowing if you run more than one gateway',
@@ -2431,7 +2431,7 @@ volumes:
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binaire',
-      'install.script.note': 'Génère les secrets hex-32, écrit le .env (chmod 600), vérifie Docker / ports, puis démarre Admin + Core + Agent.',
+      'install.script.note': 'Génère les secrets hex-32, écrit le .env (chmod 600), vérifie Docker / ports, puis démarre Admin + Passerelle + Agent.',
       'install.script.options': 'Admin UI → http://localhost:9443. Variantes (à lancer seules, jamais collées avec le bloc ci-dessus) : bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Images GHCR officielles en tag flottant :preview (0.x). Pin SemVer optionnel via versions.json.',
       'install.helm.note': 'Chart dans le dépôt (helm/goproxify). global.authToken requis. Générez les secrets dans le navigateur, puis helm install.',
@@ -2440,25 +2440,25 @@ volumes:
       'install.portainer.without_env': 'Sans stack.env',
       'install.portainer.with_env.hint': 'Collez le compose, puis chargez stack.env (Advanced → Load variables from .env file) ou saisissez les mêmes clés dans Environment variables. Icône clé = génération locale.',
       'install.portainer.without_env.hint': "Cliquez l'icône clé pour remplir les secrets dans le navigateur, puis Copier et Deploy. Pas de stack.env.",
-      'install.portainer.note': "Le Core et l'Agent s'apairent via le même GPX_PAIRING_SECRET. Les secrets sont générés uniquement dans votre navigateur — rien n'est envoyé à un serveur.",
+      'install.portainer.note': "La passerelle et l'Agent s'apairent via le même GPX_PAIRING_SECRET. Les secrets sont générés uniquement dans votre navigateur — rien n'est envoyé à un serveur.",
       'install.portainer.gen': 'Générer les secrets dans le navigateur',
       'install.portainer.gen_done': 'Généré !',
       'footer.preview': 'Logiciel en préversion — usage à vos risques.',
       'sec.features': 'Comment fonctionne GoProxify',
       'sec.features.sub': "Du tableau de bord à l'assistant d'architecture — voici ce que chaque pièce fait pour vous au quotidien.",
       'sec.architecture': 'Deux exemples d’architecture',
-      'sec.architecture.sub': 'Il existe de multiples architectures, en voici deux exemples. Un home lab tient avec un Admin, un Core et un Agent. En production, ajoutez une seconde passerelle et un Agent sur chaque hôte. Lisez le schéma de haut en bas : Internet, passerelles, puis vos applications et hôtes.',
+      'sec.architecture.sub': 'Il existe de multiples architectures, en voici deux exemples. Un home lab tient avec un Admin, une passerelle et un Agent. En production, ajoutez une seconde passerelle et un Agent sur chaque hôte. Lisez le schéma de haut en bas : Internet, passerelles, puis vos applications et hôtes.',
       'sec.install': 'Démarrer en 5 minutes',
-      'sec.install.sub': 'Choisissez votre architecture, puis votre méthode. Le home lab fait tourner Admin + Core + Agent sur une seule machine.',
+      'sec.install.sub': 'Choisissez votre architecture, puis votre méthode. Le home lab fait tourner Admin + Passerelle + Agent sur une seule machine.',
       'install.scn.home': 'Home lab',
       'install.scn.ent': 'Entreprise · redondé',
       'install.ent.intro': 'Un rôle par machine, mêmes images. Utilisez le même GPX_PAIRING_SECRET partout et ouvrez le port 8000 entre les machines (pare-feu : uniquement depuis vos propres hôtes).',
       'install.ent.s1': '1. Admin + Passerelle 1',
-      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Script ou Docker Compose) : elle démarre l’Admin et le premier Core.',
-      'install.ent.s2': '2. Passerelle 2 (second Core)',
-      'install.ent.s2.body': 'Sur une seconde machine, lancez un Core avec son propre nom de nœud, puis enregistrez-le dans l’Admin (Infrastructure → Wizard) : il passe de declared à online.',
+      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Script ou Docker Compose) : elle démarre l’Admin et la premiÃ¨re passerelle.',
+      'install.ent.s2': '2. Passerelle 2 (seconde passerelle)',
+      'install.ent.s2.body': 'Sur une seconde machine, lancez une passerelle avec son propre nom de nœud, puis enregistrez-le dans l’Admin (Infrastructure → Wizard) : il passe de declared à online.',
       'install.ent.s3': '3. Un Agent par hôte',
-      'install.ent.s3.body': 'Sur chaque hôte interne, lancez un Agent qui pointe vers un Core. Donnez à chaque Agent un nom de nœud unique, puis approuvez-le dans l’Admin (menu Agents).',
+      'install.ent.s3.body': 'Sur chaque hôte interne, lancez un Agent qui pointe vers une passerelle. Donnez à chaque Agent un nom de nœud unique, puis approuvez-le dans l’Admin (menu Agents).',
       'install.ent.tip': 'Astuce : l’assistant d’architecture de l’Admin génère ces étapes, avec un QR code, pour chaque machine.',
       'sec.alerting': "10 canaux d'alerte",
       'sec.alerting.sub': "Chaque règle d'alerte peut notifier plusieurs équipes sur plusieurs canaux à la fois. Modèle inspiré d'Alertmanager.",
@@ -2473,7 +2473,7 @@ volumes:
       'doc.arch.title': 'Comment ça marche', 'doc.arch.body': 'Admin, passerelles, Agent et Portainer — une vue claire de la configuration.',
       'doc.deleg.title': 'Partager le trafic entre passerelles', 'doc.deleg.body': 'Comment plusieurs passerelles travaillent ensemble pour garder vos sites disponibles.',
       'doc.group.guides': 'Guides', 'doc.group.reference': 'Référence',
-      'doc.features.sub': 'Fonctionnalités', 'doc.features.title': 'Catalogue des fonctionnalités', 'doc.features.body': "Inventaire complet des capacités du Core, de l\'Admin et de l\'Agent.",
+      'doc.features.sub': 'Fonctionnalités', 'doc.features.title': 'Catalogue des fonctionnalités', 'doc.features.body': "Inventaire complet des capacités de la passerelle, de l\'Admin et de l\'Agent.",
       'doc.faq.title': 'Foire aux questions', 'doc.faq.body': 'Premier démarrage, reset mot de passe, labels Docker, cas limites de délégation.',
       'doc.cli.title': 'Référence CLI', 'doc.cli.body': 'Toutes les commandes : proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Référence complète des labels goproxify.* — routage, WAF, Sentinel, canary, shadow.',
@@ -2481,7 +2481,7 @@ volumes:
       'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Toutes les modifications notables par version — nouvelles fonctionnalités, améliorations, correctifs.',
       'doc.roadmap.title': 'Roadmap publique', 'doc.roadmap.body': 'Jalons à venir et fonctionnalités planifiées.',
       'doc.contrib.title': 'Contribuer', 'doc.contrib.body': 'Workflow PR, tests, DCO, conventions de code.',
-      'doc.volumes.title': 'Volumes Docker', 'doc.volumes.body': 'Ce que chaque volume persiste : base Admin, configs proxies Core, tokens Agent, base GeoIP.',
+      'doc.volumes.title': 'Volumes Docker', 'doc.volumes.body': 'Ce que chaque volume persiste : base Admin, configs proxies passerelle, tokens Agent, base GeoIP.',
       'doc.security.title': 'Moteurs de sécurité', 'doc.security.body': 'WAF (13 jeux de règles CRS-4, inspection réponse), Sentinel, bans, GeoIP, timeouts et scanner CVE.',
       'doc.github': 'Voir sur GitHub →',
       'f1.sub': 'Passerelle', 'f1.title': 'Les passerelles de trafic',
@@ -2509,8 +2509,8 @@ volumes:
       'ex3.body': 'Depuis un seul endroit, vous décidez quels sites sont publics, lesquels demandent une connexion, et comment rester disponible si une machine tombe.',
       'arch.tab.home': 'Home lab',
       'arch.tab.ent': 'Entreprise · redondé',
-      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 Core · 1 Agent',
-      'arch.caption.ent': 'goproxify — entreprise · 1 Admin · 2 Cores · 4 hôtes',
+      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 passerelle · 1 Agent',
+      'arch.caption.ent': 'goproxify — entreprise · 1 Admin · 2 passerelles · 4 hôtes',
       'arch.internet': 'INTERNET',
       'arch.internet.sub': 'Visiteurs · https://blog… · https://boutique…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
@@ -2518,7 +2518,7 @@ volumes:
       'arch.gw.name': 'PASSERELLE',
       'arch.gw1.name': 'PASSERELLE 1',
       'arch.gw2.name': 'PASSERELLE 2',
-      'arch.gw.sub': 'Core — achemine et protège',
+      'arch.gw.sub': 'Passerelle — achemine et protège',
       'arch.gw.sub2': 'Point d’entrée public',
       'arch.gw1.sub2': 'Active — partage la charge',
       'arch.gw2.sub2': 'Prend le relais si la 1 tombe',
@@ -2539,9 +2539,9 @@ volumes:
       'arch.proto.http': 'HTTP(S) via labels',
       'arch.proto.l4': 'TCP · UDP via ports',
       'arch.leg.traffic': 'trafic des visiteurs',
-      'arch.leg.mgmt': 'lien de gestion (Admin ↔ Core)',
-      'arch.legend.home': '1 Admin · 1 Core (passerelle) · 1 Agent',
-      'arch.legend.ent': '1 Admin · 2 Cores (passerelles) · 4 hôtes, chacun avec un Agent',
+      'arch.leg.mgmt': 'lien de gestion (Admin ↔ passerelle)',
+      'arch.legend.home': '1 Admin · 1 passerelle · 1 Agent',
+      'arch.legend.ent': '1 Admin · 2 passerelles · 4 hôtes, chacun avec un Agent',
       'f1.p1': 'Exposer plusieurs sites derrière leurs propres adresses Internet',
       'f1.p2': "Répartir la charge quand plusieurs copies d'une app tournent",
       'f1.p3': 'Garder le trafic fluide si vous lancez plusieurs passerelles',
@@ -2588,7 +2588,7 @@ volumes:
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binario',
-      'install.script.note': 'Genera secretos hex-32, escribe .env (chmod 600), comprueba Docker / puertos y arranca Admin + Core + Agent.',
+      'install.script.note': 'Genera secretos hex-32, escribe .env (chmod 600), comprueba Docker / puertos y arranca Admin + Edge + Agent.',
       'install.script.options': 'Admin UI → http://localhost:9443. Variantes (ejecutar solas, no pegar con el bloque de arriba): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Imágenes GHCR oficiales con etiqueta flotante :preview (0.x). Pin SemVer opcional vía versions.json.',
       'install.helm.note': 'Chart en el repo (helm/goproxify). Requiere global.authToken. Genere secretos en el navegador y luego helm install.',
@@ -2597,25 +2597,25 @@ volumes:
       'install.portainer.without_env': 'Sin stack.env',
       'install.portainer.with_env.hint': 'Pegue el compose y cargue stack.env (Advanced → Load variables from .env file) o defina las mismas claves en Environment variables. Icono llave = generación local.',
       'install.portainer.without_env.hint': 'Pulse el icono de llave para rellenar secretos en el navegador, luego Copiar y Deploy. Sin stack.env.',
-      'install.portainer.note': 'Core y Agent se emparejan con el mismo GPX_PAIRING_SECRET. Los secretos se generan solo en su navegador — no se envían a ningún servidor.',
+      'install.portainer.note': 'Edge y Agent se emparejan con el mismo GPX_PAIRING_SECRET. Los secretos se generan solo en su navegador — no se envían a ningún servidor.',
       'install.portainer.gen': 'Generar secretos en el navegador',
       'install.portainer.gen_done': '¡Generado!',
       'footer.preview': 'Software en vista previa — úselo bajo su propio riesgo.',
       'sec.features': 'Cómo funciona GoProxify',
       'sec.features.sub': 'Del panel de control al asistente de arquitectura — esto es lo que cada pieza hace por ti a diario.',
       'sec.architecture': 'Dos ejemplos de arquitectura',
-      'sec.architecture.sub': 'Hay múltiples arquitecturas posibles; estos son dos ejemplos. Un home lab necesita un Admin, un Core y un Agent. En producción, añade una segunda pasarela y un Agent en cada host. Lee el esquema de arriba abajo: Internet, pasarelas, y luego tus apps y hosts.',
+      'sec.architecture.sub': 'Hay múltiples arquitecturas posibles; estos son dos ejemplos. Un home lab necesita un Admin, un Edge y un Agent. En producción, añade una segunda pasarela y un Agent en cada host. Lee el esquema de arriba abajo: Internet, pasarelas, y luego tus apps y hosts.',
       'sec.install': 'Empezar en 5 minutos',
-      'sec.install.sub': 'Elige tu arquitectura y luego tu método. El home lab ejecuta Admin + Core + Agent en una sola máquina.',
+      'sec.install.sub': 'Elige tu arquitectura y luego tu método. El home lab ejecuta Admin + Edge + Agent en una sola máquina.',
       'install.scn.home': 'Home lab',
       'install.scn.ent': 'Empresa · redundante',
       'install.ent.intro': 'Un rol por máquina, mismas imágenes. Usa el mismo GPX_PAIRING_SECRET en todas partes y abre el puerto 8000 entre máquinas (firewall: solo desde tus propios hosts).',
       'install.ent.s1': '1. Admin + Pasarela 1',
-      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Script o Docker Compose): arranca el Admin y el primer Core.',
-      'install.ent.s2': '2. Pasarela 2 (segundo Core)',
-      'install.ent.s2.body': 'En una segunda máquina, lanza un Core con su propio nombre de nodo y regístralo en el Admin (Infrastructure → Wizard): pasa de declared a online.',
+      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Script o Docker Compose): arranca el Admin y el primer Edge.',
+      'install.ent.s2': '2. Pasarela 2 (segundo Edge)',
+      'install.ent.s2.body': 'En una segunda máquina, lanza un Edge con su propio nombre de nodo y regístralo en el Admin (Infrastructure → Wizard): pasa de declared a online.',
       'install.ent.s3': '3. Un Agent por host',
-      'install.ent.s3.body': 'En cada host interno, lanza un Agent que apunte a un Core. Da a cada Agent un nombre de nodo único y apruébalo en el Admin (menú Agents).',
+      'install.ent.s3.body': 'En cada host interno, lanza un Agent que apunte a un Edge. Da a cada Agent un nombre de nodo único y apruébalo en el Admin (menú Agents).',
       'install.ent.tip': 'Consejo: el asistente de arquitectura del Admin genera estos pasos, con un QR, para cada máquina.',
       'sec.alerting': '10 canales de alerta',
       'sec.alerting.sub': 'Cada regla de alerta puede notificar a varios equipos en varios canales a la vez. Modelo inspirado en Alertmanager.',
@@ -2630,7 +2630,7 @@ volumes:
       'doc.arch.title': 'Cómo funciona', 'doc.arch.body': 'Admin, pasarelas, Agent y Portainer — una vista clara de la configuración.',
       'doc.deleg.title': 'Compartir tráfico entre pasarelas', 'doc.deleg.body': 'Cómo varias pasarelas trabajan juntas para mantener tus sitios disponibles.',
       'doc.group.guides': 'Guías', 'doc.group.reference': 'Referencia',
-      'doc.features.sub': 'Funcionalidades', 'doc.features.title': 'Catálogo de funcionalidades', 'doc.features.body': 'Inventario completo de capacidades del Core, Admin y Agent.',
+      'doc.features.sub': 'Funcionalidades', 'doc.features.title': 'Catálogo de funcionalidades', 'doc.features.body': 'Inventario completo de capacidades del Edge, Admin y Agent.',
       'doc.faq.title': 'Preguntas frecuentes', 'doc.faq.body': 'Primer inicio, reset de contraseña, labels Docker, casos límite de delegación.',
       'doc.cli.title': 'Referencia CLI', 'doc.cli.body': 'Todos los comandos: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Labels Docker', 'doc.labels.body': 'Referencia completa de labels goproxify.* — enrutamiento, WAF, Sentinel, canary, shadow.',
@@ -2638,7 +2638,7 @@ volumes:
       'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Todos los cambios notables por versión — nuevas funcionalidades, mejoras, correcciones.',
       'doc.roadmap.title': 'Hoja de ruta pública', 'doc.roadmap.body': 'Próximos hitos y funcionalidades planificadas.',
       'doc.contrib.title': 'Contribuir', 'doc.contrib.body': 'Flujo de PR, tests, DCO, convenciones de código.',
-      'doc.volumes.title': 'Volúmenes Docker', 'doc.volumes.body': 'Qué persiste cada volumen: base Admin, configs proxies Core, tokens Agent, base GeoIP.',
+      'doc.volumes.title': 'Volúmenes Docker', 'doc.volumes.body': 'Qué persiste cada volumen: base Admin, configs proxies Edge, tokens Agent, base GeoIP.',
       'doc.security.title': 'Motores de seguridad', 'doc.security.body': 'WAF (13 conjuntos CRS-4, inspección de respuesta), Sentinel, bans, GeoIP, timeouts y escáner CVE.',
       'doc.github': 'Ver en GitHub →',
       'f1.sub': 'Pasarela', 'f1.title': 'Las pasarelas de tráfico',
@@ -2666,8 +2666,8 @@ volumes:
       'ex3.body': 'Desde un solo lugar decides qué sitios son públicos, cuáles requieren inicio de sesión y cómo seguir disponibles si una máquina falla.',
       'arch.tab.home': 'Home lab',
       'arch.tab.ent': 'Empresa · redundante',
-      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 Core · 1 Agent',
-      'arch.caption.ent': 'goproxify — empresa · 1 Admin · 2 Cores · 4 hosts',
+      'arch.caption.home': 'goproxify — home lab · 1 Admin · 1 Edge · 1 Agent',
+      'arch.caption.ent': 'goproxify — empresa · 1 Admin · 2 Edges · 4 hosts',
       'arch.internet': 'INTERNET',
       'arch.internet.sub': 'Visitantes · https://blog… · https://tienda…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
@@ -2675,7 +2675,7 @@ volumes:
       'arch.gw.name': 'PASARELA',
       'arch.gw1.name': 'PASARELA 1',
       'arch.gw2.name': 'PASARELA 2',
-      'arch.gw.sub': 'Core — enruta y protege',
+      'arch.gw.sub': 'Edge — enruta y protege',
       'arch.gw.sub2': 'Punto de entrada público',
       'arch.gw1.sub2': 'Activa — reparte la carga',
       'arch.gw2.sub2': 'Toma el relevo si falla la 1',
@@ -2696,9 +2696,9 @@ volumes:
       'arch.proto.http': 'HTTP(S) vía labels',
       'arch.proto.l4': 'TCP · UDP vía puertos',
       'arch.leg.traffic': 'tráfico de visitantes',
-      'arch.leg.mgmt': 'enlace de gestión (Admin ↔ Core)',
-      'arch.legend.home': '1 Admin · 1 Core (pasarela) · 1 Agent',
-      'arch.legend.ent': '1 Admin · 2 Cores (pasarelas) · 4 hosts, cada uno con un Agent',
+      'arch.leg.mgmt': 'enlace de gestión (Admin ↔ Edge)',
+      'arch.legend.home': '1 Admin · 1 Edge · 1 Agent',
+      'arch.legend.ent': '1 Admin · 2 Edges · 4 hosts, cada uno con un Agent',
       'f1.p1': 'Publicar varios sitios detrás de sus propias direcciones de internet',
       'f1.p2': 'Repartir la carga cuando hay varias copias de una app',
       'f1.p3': 'Mantener el tráfico si ejecutas más de una pasarela',
@@ -2745,7 +2745,7 @@ volumes:
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binär',
-      'install.script.note': 'Erzeugt hex-32-Secrets, schreibt .env (chmod 600), prüft Docker / Ports und startet Admin + Core + Agent.',
+      'install.script.note': 'Erzeugt hex-32-Secrets, schreibt .env (chmod 600), prüft Docker / Ports und startet Admin + Edge + Agent.',
       'install.script.options': 'Admin UI → http://localhost:9443. Varianten (einzeln ausführen, nie mit dem Block oben einfügen): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Offizielle GHCR-Images mit Floating-Tag :preview (0.x). Optionales SemVer-Pin über versions.json.',
       'install.helm.note': 'Chart im Repo (helm/goproxify). global.authToken erforderlich. Secrets im Browser erzeugen, dann helm install.',
@@ -2754,25 +2754,25 @@ volumes:
       'install.portainer.without_env': 'Ohne stack.env',
       'install.portainer.with_env.hint': 'Compose einfügen, dann stack.env laden (Advanced → Load variables from .env file) oder dieselben Keys unter Environment variables setzen. Schlüssel-Icon = lokale Generierung.',
       'install.portainer.without_env.hint': 'Schlüssel-Icon klicken, um Secrets im Browser zu füllen, dann Kopieren und Deploy. Kein stack.env.',
-      'install.portainer.note': 'Core und Agent koppeln sich über dasselbe GPX_PAIRING_SECRET. Secrets werden nur in Ihrem Browser erzeugt — nichts wird an einen Server gesendet.',
+      'install.portainer.note': 'Edge und Agent koppeln sich über dasselbe GPX_PAIRING_SECRET. Secrets werden nur in Ihrem Browser erzeugt — nichts wird an einen Server gesendet.',
       'install.portainer.gen': 'Secrets im Browser erzeugen',
       'install.portainer.gen_done': 'Erzeugt!',
       'footer.preview': 'Vorschau-Software — Nutzung auf eigene Gefahr.',
       'sec.features': 'So funktioniert GoProxify',
       'sec.features.sub': 'Vom Bedienpanel bis zum Architektur-Assistenten — so hilft Ihnen jeder Baustein im Alltag.',
       'sec.architecture': 'Zwei Beispiel-Architekturen',
-      'sec.architecture.sub': 'Es gibt viele mögliche Architekturen, hier zwei Beispiele. Ein Home Lab braucht einen Admin, einen Core und einen Agent. In Produktion kommen ein zweites Gateway und ein Agent auf jedem Host dazu. Das Schema von oben nach unten lesen: Internet, Gateways, dann Apps und Hosts.',
+      'sec.architecture.sub': 'Es gibt viele mögliche Architekturen, hier zwei Beispiele. Ein Home Lab braucht einen Admin, einen Edge und einen Agent. In Produktion kommen ein zweites Gateway und ein Agent auf jedem Host dazu. Das Schema von oben nach unten lesen: Internet, Gateways, dann Apps und Hosts.',
       'sec.install': 'In 5 Minuten starten',
-      'sec.install.sub': 'Wählen Sie Ihre Architektur, dann Ihre Methode. Das Home Lab betreibt Admin + Core + Agent auf einer Maschine.',
+      'sec.install.sub': 'Wählen Sie Ihre Architektur, dann Ihre Methode. Das Home Lab betreibt Admin + Edge + Agent auf einer Maschine.',
       'install.scn.home': 'Home Lab',
       'install.scn.ent': 'Unternehmen · redundant',
       'install.ent.intro': 'Eine Rolle pro Maschine, dieselben Images. Überall dasselbe GPX_PAIRING_SECRET verwenden und Port 8000 zwischen den Maschinen öffnen (Firewall: nur von Ihren eigenen Hosts).',
       'install.ent.s1': '1. Admin + Gateway 1',
-      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Skript oder Docker Compose): Sie startet den Admin und den ersten Core.',
-      'install.ent.s2': '2. Gateway 2 (zweiter Core)',
-      'install.ent.s2.body': 'Auf einer zweiten Maschine einen Core mit eigenem Node-Namen starten und im Admin registrieren (Infrastructure → Wizard): er wechselt von declared auf online.',
+      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Skript oder Docker Compose): Sie startet den Admin und den ersten Edge.',
+      'install.ent.s2': '2. Gateway 2 (zweiter Edge)',
+      'install.ent.s2.body': 'Auf einer zweiten Maschine einen Edge mit eigenem Node-Namen starten und im Admin registrieren (Infrastructure → Wizard): er wechselt von declared auf online.',
       'install.ent.s3': '3. Ein Agent pro Host',
-      'install.ent.s3.body': 'Auf jedem internen Host einen Agent starten, der auf einen Core zeigt. Jedem Agent einen eindeutigen Node-Namen geben und im Admin freigeben (Menü Agents).',
+      'install.ent.s3.body': 'Auf jedem internen Host einen Agent starten, der auf einen Edge zeigt. Jedem Agent einen eindeutigen Node-Namen geben und im Admin freigeben (Menü Agents).',
       'install.ent.tip': 'Tipp: Der Architektur-Assistent im Admin erzeugt diese Schritte samt QR-Code für jede Maschine.',
       'sec.alerting': '10 Alert-Kanäle',
       'sec.alerting.sub': 'Jede Alert-Regel kann mehrere Teams auf mehreren Kanälen gleichzeitig benachrichtigen. Alertmanager-inspiriertes Modell.',
@@ -2787,7 +2787,7 @@ volumes:
       'doc.arch.title': "So funktioniert's", 'doc.arch.body': 'Admin, Gateways, Agent und Portainer — ein klares Bild des Aufbaus.',
       'doc.deleg.title': 'Traffic zwischen Gateways teilen', 'doc.deleg.body': 'Wie mehrere Gateways zusammenarbeiten, damit Ihre Sites erreichbar bleiben.',
       'doc.group.guides': 'Anleitungen', 'doc.group.reference': 'Referenz',
-      'doc.features.sub': 'Funktionen', 'doc.features.title': 'Funktionskatalog', 'doc.features.body': 'Vollständiges Verzeichnis der Core-, Admin- und Agent-Fähigkeiten.',
+      'doc.features.sub': 'Funktionen', 'doc.features.title': 'Funktionskatalog', 'doc.features.body': 'Vollständiges Verzeichnis der Edge-, Admin- und Agent-Fähigkeiten.',
       'doc.faq.title': 'Häufige Fragen', 'doc.faq.body': 'Erster Start, Passwort-Reset, Docker-Labels, Delegierungs-Sonderfälle.',
       'doc.cli.title': 'CLI-Referenz', 'doc.cli.body': 'Alle Befehle: proxy, cert, domain, alert, security, access, tokens, backup…',
       'doc.labels.title': 'Docker-Labels', 'doc.labels.body': 'Vollständige goproxify.*-Label-Referenz — Routing, WAF, Sentinel, Canary, Shadow.',
@@ -2795,7 +2795,7 @@ volumes:
       'doc.changelog.title': 'Changelog', 'doc.changelog.body': 'Alle wichtigen Änderungen nach Version — neue Funktionen, Verbesserungen, Korrekturen.',
       'doc.roadmap.title': 'Öffentliche Roadmap', 'doc.roadmap.body': 'Bevorstehende Meilensteine und geplante Funktionen.',
       'doc.contrib.title': 'Beitragen', 'doc.contrib.body': 'PR-Workflow, Tests, DCO-Signoff, Codierungskonventionen.',
-      'doc.volumes.title': 'Docker-Volumes', 'doc.volumes.body': 'Was jedes Volume persistiert: Admin-Datenbank, Core-Proxy-Configs, Agent-Tokens, GeoIP-Datenbank.',
+      'doc.volumes.title': 'Docker-Volumes', 'doc.volumes.body': 'Was jedes Volume persistiert: Admin-Datenbank, Edge-Proxy-Configs, Agent-Tokens, GeoIP-Datenbank.',
       'doc.security.title': 'Sicherheits-Engines', 'doc.security.body': 'WAF (13 CRS-4-Regelwerke, Antwort-Inspektion), Sentinel, Sperren, GeoIP, Timeouts und CVE-Scanner.',
       'doc.github': 'Auf GitHub ansehen →',
       'f1.sub': 'Gateway', 'f1.title': 'Die Traffic-Gateways',
@@ -2823,8 +2823,8 @@ volumes:
       'ex3.body': 'An einem Ort entscheiden Sie, welche Sites öffentlich sind, welche Login brauchen und wie sie verfügbar bleiben, wenn eine Maschine ausfällt.',
       'arch.tab.home': 'Home Lab',
       'arch.tab.ent': 'Unternehmen · redundant',
-      'arch.caption.home': 'goproxify — Home Lab · 1 Admin · 1 Core · 1 Agent',
-      'arch.caption.ent': 'goproxify — Unternehmen · 1 Admin · 2 Cores · 4 Hosts',
+      'arch.caption.home': 'goproxify — Home Lab · 1 Admin · 1 Edge · 1 Agent',
+      'arch.caption.ent': 'goproxify — Unternehmen · 1 Admin · 2 Edges · 4 Hosts',
       'arch.internet': 'INTERNET',
       'arch.internet.sub': 'Besucher · https://blog… · https://shop…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
@@ -2832,7 +2832,7 @@ volumes:
       'arch.gw.name': 'GATEWAY',
       'arch.gw1.name': 'GATEWAY 1',
       'arch.gw2.name': 'GATEWAY 2',
-      'arch.gw.sub': 'Core — leitet weiter, schützt',
+      'arch.gw.sub': 'Edge — leitet weiter, schützt',
       'arch.gw.sub2': 'Öffentlicher Einstiegspunkt',
       'arch.gw1.sub2': 'Aktiv — teilt die Last',
       'arch.gw2.sub2': 'Übernimmt, wenn Gateway 1 ausfällt',
@@ -2853,9 +2853,9 @@ volumes:
       'arch.proto.http': 'HTTP(S) per Labels',
       'arch.proto.l4': 'TCP · UDP per Ports',
       'arch.leg.traffic': 'Besucher-Traffic',
-      'arch.leg.mgmt': 'Verwaltungslink (Admin ↔ Core)',
-      'arch.legend.home': '1 Admin · 1 Core (Gateway) · 1 Agent',
-      'arch.legend.ent': '1 Admin · 2 Cores (Gateways) · 4 Hosts, je mit einem Agent',
+      'arch.leg.mgmt': 'Verwaltungslink (Admin ↔ Edge)',
+      'arch.legend.home': '1 Admin · 1 Edge · 1 Agent',
+      'arch.legend.ent': '1 Admin · 2 Edges · 4 Hosts, je mit einem Agent',
       'f1.p1': 'Mehrere Websites hinter eigenen Internet-Adressen veröffentlichen',
       'f1.p2': 'Last verteilen, wenn mehrere App-Kopien laufen',
       'f1.p3': 'Traffic am Laufen halten, wenn Sie mehrere Gateways betreiben',
@@ -2894,7 +2894,7 @@ volumes:
   function parseLoc(tag) {
     if (!tag) return 'en';
     var base = String(tag).toLowerCase().split(/[-_]/)[0];
-    return LANDING_LOCALES.indexOf(base) >= 0 ? base : "en';"
+    return LANDING_LOCALES.indexOf(base) >= 0 ? base : 'en';
   }
   function resolveLoc() {
     try {
@@ -2939,7 +2939,7 @@ volumes:
       SITE_CONFIG.version = vers.admin;
       SITE_CONFIG.versions = {
         admin: vers.admin,
-        core: vers.core || SITE_CONFIG.versions && SITE_CONFIG.versions.core,
+        edge: vers.edge || SITE_CONFIG.versions && SITE_CONFIG.versions.edge,
         agent: vers.agent || SITE_CONFIG.versions && SITE_CONFIG.versions.agent
       };
     }
@@ -3124,11 +3124,11 @@ volumes:
         ? '<span class="c"># ADMIN_PORT=9443</span>\n' +
           '<span class="c"># TZ=Europe/Paris</span>\n' +
           '<span class="c"># GOPROXIFY_ADMIN_TAG=preview</span>\n' +
-          '<span class="c"># GOPROXIFY_CORE_TAG=preview</span>\n' +
+          '<span class="c"># GOPROXIFY_EDGE_TAG=preview</span>\n' +
           '<span class="c"># GOPROXIFY_AGENT_TAG=preview</span>'
-        : "<span class=\"c\"># ADMIN_PORT=9443</span>\n' +"
+        : '<span class="c"># ADMIN_PORT=9443</span>\n' +
           '<span class="c"># TZ=Europe/Paris</span>\n' +
-          '<span class="c"># CORE_NODE_NAME=goproxify-core</span>\n' +
+          '<span class="c"># EDGE_NODE_NAME=goproxify-edge</span>\n' +
           '<span class="c"># AGENT_NODE_NAME=goproxify-agent</span>';
       preEnv.innerHTML =
         '<span class="c"># Generated in your browser — never sent to a server</span>\n' +
@@ -3197,7 +3197,7 @@ volumes:
       subTabBtns.forEach(function(b) { b.classList.remove('active'); });
       document.querySelectorAll('.sub-tab-panel').forEach(function(p) { p.classList.remove('active'); });
       btn.classList.add('active');
-      var id = btn.dataset.subtab === 'with-env' ? 'portainer-with-env' : "portainer-inline';"
+      var id = btn.dataset.subtab === 'with-env' ? 'portainer-with-env' : 'portainer-inline'
       var panel = document.getElementById(id);
       if (panel) panel.classList.add('active');
     });

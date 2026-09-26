@@ -299,7 +299,7 @@ func (h *TeamsHandler) addScope(w http.ResponseWriter, r *http.Request, teamID s
 		writeErr(w, r, http.StatusBadRequest, "api.err.json_body")
 		return
 	}
-	if req.ScopeType != "domain" && req.ScopeType != "server" && req.ScopeType != "proxy" && req.ScopeType != "core" {
+	if req.ScopeType != "domain" && req.ScopeType != "server" && req.ScopeType != "proxy" && req.ScopeType != "edge" {
 		writeErr(w, r, http.StatusBadRequest, "api.err.scope_type")
 		return
 	}

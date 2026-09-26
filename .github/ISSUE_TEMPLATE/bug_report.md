@@ -21,7 +21,7 @@ assignees: []
 
 - Version / tag images (`versions.json` ou `GOPROXIFY_*_TAG`) :
 - OS / Docker :
-- Mode (Admin / Core / Agent / compose quickstart) :
+- Mode (Admin / Passerelle / Agent / compose quickstart) :
 
 ## Logs (sans secrets)
 

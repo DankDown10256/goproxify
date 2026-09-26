@@ -2,7 +2,7 @@
 pages['portal-templates'] = async function() {
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML =
-    `<button class="btn btn-secondary" id="ptpl-push">${esc(t('portal.tpl_push') || 'Pousser aux Cores')}</button>`;
+    `<button class="btn btn-secondary" id="ptpl-push">${esc(t('portal.tpl_push') || 'Pousser aux passerelles')}</button>`;
   await refreshPortalTemplates(content);
   const pushBtn = document.getElementById('ptpl-push');
   if (pushBtn) pushBtn.onclick = async () => {
@@ -20,7 +20,7 @@ async function refreshPortalTemplates(content) {
     const list = d.templates || [];
     content.innerHTML = `
       <div class="card blueprint" style="margin-bottom:16px;padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.5">
-        ${t('portal.tpl_banner') || 'Templates HTML Access (clés stables). Placeholders : <code>{{brand}}</code> <code>{{user_email}}</code> <code>{{core_name}}</code> <code>{{csrf}}</code> <code>{{content}}</code>. Corps vide = fallback embarqué (SPA).'}
+        ${t('portal.tpl_banner') || 'Templates HTML Access (clés stables). Placeholders : <code>{{brand}}</code> <code>{{user_email}}</code> <code>{{edge_name}}</code> <code>{{csrf}}</code> <code>{{content}}</code>. Corps vide = fallback embarqué (SPA).'}
       </div>
       <div class="card blueprint">
         <div class="table-wrap">
@@ -81,7 +81,7 @@ window.openPortalTemplateModal = async function(key) {
       <label class="field-label">HTML</label>
       <textarea class="input" id="ptpl-body" rows="16" style="font-family:ui-monospace,monospace;font-size:12px">${esc(tpl.body || '')}</textarea>
     </div>
-    <p style="font-size:11px;color:var(--text3);margin:0">{{brand}} {{user_email}} {{core_name}} {{csrf}} {{content}}</p>
+    <p style="font-size:11px;color:var(--text3);margin:0">{{brand}} {{user_email}} {{edge_name}} {{csrf}} {{content}}</p>
   `,
   `<button class="btn btn-secondary" onclick="closeModal()">${t('common.cancel') || 'Annuler'}</button>
    <button class="btn btn-primary" onclick="savePortalTemplate('${esc(key)}')">${t('common.save') || 'Enregistrer'}</button>`,

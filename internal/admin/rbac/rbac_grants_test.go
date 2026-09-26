@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 func TestUserEffectiveGrantsAndCanProxy(t *testing.T) {

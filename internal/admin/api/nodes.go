@@ -26,8 +26,8 @@ import (
 )
 
 // NodesHandler gère la liste des nœuds et le déclenchement des mises à jour.
-// Les nœuds de type "core" sont lus depuis la table nodes (heartbeat Core→Admin).
-// Les nœuds de type "agent" sont agrégés depuis les Cores via GET /internal/v1/nodes.
+// Les nœuds de type "edge" sont lus depuis la table nodes (heartbeat passerelle→Admin).
+// Les nœuds de type "agent" sont agrégés depuis les passerelles via GET /internal/v1/nodes.
 type NodesHandler struct {
 	DB            *sql.DB
 	Log           *slog.Logger
@@ -49,7 +49,7 @@ type nodeRow struct {
 	Tags              []string        `json:"tags"`
 	LastSeenAt        time.Time       `json:"last_seen_at"`
 	ContainerRuntimes []string        `json:"container_runtimes,omitempty"`
-	TargetCore        string          `json:"target_core,omitempty"`
+	TargetEdge        string          `json:"target_edge,omitempty"`
 	AgentConfig       json.RawMessage `json:"_agent_config,omitempty"`
 	DeclaredConfig    json.RawMessage `json:"_declared_config,omitempty"`
 }
@@ -152,14 +152,14 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 	role := r.URL.Query().Get("role")
 	result := make([]nodeRow, 0)
 
-	// Nœuds Core depuis la DB Admin (heartbeat Core→Admin)
+	// Nœuds passerelle depuis la DB Admin (heartbeat passerelle→Admin)
 	liveNames := map[string]bool{} // pour dédupliquer avec declared_nodes (par node_name)
 	liveIDs   := map[string]bool{} // par UUID (pour declared nodes qui stockent node_id)
-	if role == "" || role == "core" {
-		q := `SELECT ` + nodeSelectCols + ` FROM nodes WHERE role='core' ORDER BY node_name`
+	if role == "" || role == "edge" {
+		q := `SELECT ` + nodeSelectCols + ` FROM nodes WHERE role='edge' ORDER BY node_name`
 		rows, err := h.DB.QueryContext(r.Context(), q)
 		if err != nil && !isCtxErr(err) {
-			h.Log.Error("nodes: list cores", "err", err)
+			h.Log.Error("nodes: list edges", "err", err)
 		}
 		if rows != nil {
 			defer rows.Close()
@@ -177,9 +177,9 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Nœuds Agent : agrégés depuis chaque Core via GET /internal/v1/nodes
+	// Nœuds Agent : agrégés depuis chaque passerelle via GET /internal/v1/nodes
 	if role == "" || role == "agent" {
-		agentNodes := h.fetchAgentNodesFromCores(r.Context())
+		agentNodes := h.fetchAgentNodesFromEdges(r.Context())
 		// Enrichir les agents live avec leur declared config (portainer_url, etc.)
 		// pour que la modal "Configurer l'agent" pré-remplisse depuis le wizard.
 		declCfgByName := map[string]json.RawMessage{}
@@ -254,11 +254,11 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 			if liveNames[name] || (nodeIDInCfg != "" && liveIDs[nodeIDInCfg]) {
 				continue // déjà représenté par un nœud live
 			}
-			// Extraire target_core du config JSON (pour la topologie)
-			var targetCore string
+			// Extraire target_edge du config JSON (pour la topologie)
+			var targetEdge string
 			if cfgMap != nil {
-				if tc, ok := cfgMap["target_core"].(string); ok {
-					targetCore = tc
+				if tc, ok := cfgMap["target_edge"].(string); ok {
+					targetEdge = tc
 				}
 			}
 			now := time.Now()
@@ -274,7 +274,7 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 				Status:         "declared",
 				Region:         region,
 				Environment:    env,
-				TargetCore:     targetCore,
+				TargetEdge:     targetEdge,
 				Tags:           []string{},
 				LastSeenAt:     now,
 				DeclaredConfig: declCfg,
@@ -285,30 +285,30 @@ func (h *NodesHandler) list(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, result)
 }
 
-// fetchAgentNodesFromCores interroge tous les Cores connus et agrège leurs nœuds Agent.
-func (h *NodesHandler) fetchAgentNodesFromCores(ctx context.Context) []nodeRow {
-	// Récupère les endpoints + tokens + node_name des Cores actifs directement depuis tokens
+// fetchAgentNodesFromEdges interroge toutes les passerelles connus et agrège leurs nœuds Agent.
+func (h *NodesHandler) fetchAgentNodesFromEdges(ctx context.Context) []nodeRow {
+	// Récupère les endpoints + tokens + node_name des passerelles actives directement depuis tokens
 	rows, err := h.DB.QueryContext(ctx,
 		`SELECT node_endpoint, token, COALESCE(node_name,'') FROM tokens
-		 WHERE role='core' AND revoked=0 AND node_endpoint != ''
+		 WHERE role='edge' AND revoked=0 AND node_endpoint != ''
 		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 
-	type coreToken struct{ nodeName, endpoint, token string }
-	var cores []coreToken
+	type edgeToken struct{ nodeName, endpoint, token string }
+	var edges []edgeToken
 	seenEndpoints := map[string]bool{}
 	for rows.Next() {
-		var c coreToken
+		var c edgeToken
 		if rows.Scan(&c.endpoint, &c.token, &c.nodeName) == nil && c.endpoint != "" {
 			if seenEndpoints[c.endpoint] {
-				continue // évite d'appeler deux fois le même Core (tokens en doublon)
+				continue // évite d'appeler deux fois la même passerelle (tokens en doublon)
 			}
 			seenEndpoints[c.endpoint] = true
 			c.token = auth.PlainNodeToken(c.token)
-			cores = append(cores, c)
+			edges = append(edges, c)
 		}
 	}
 
@@ -316,11 +316,11 @@ func (h *NodesHandler) fetchAgentNodesFromCores(ctx context.Context) []nodeRow {
 	var result []nodeRow
 	var wg sync.WaitGroup
 
-	for _, c := range cores {
+	for _, c := range edges {
 		wg.Add(1)
-		go func(ep, tok, coreName string) {
+		go func(ep, tok, edgeName string) {
 			defer wg.Done()
-			nodes := fetchNodesFromCore(ctx, ep, tok, coreName)
+			nodes := fetchNodesFromEdge(ctx, ep, tok, edgeName)
 			mu.Lock()
 			result = append(result, nodes...)
 			mu.Unlock()
@@ -330,21 +330,21 @@ func (h *NodesHandler) fetchAgentNodesFromCores(ctx context.Context) []nodeRow {
 	return result
 }
 
-func fetchNodesFromCore(ctx context.Context, coreEndpoint, token, coreName string) []nodeRow {
+func fetchNodesFromEdge(ctx context.Context, edgeEndpoint, token, edgeName string) []nodeRow {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		coreEndpoint+"/internal/v1/nodes", nil)
+		edgeEndpoint+"/internal/v1/nodes", nil)
 	if err != nil {
 		return nil
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Warn("nodes: Core injoignable pour liste agents", "core", coreName, "endpoint", coreEndpoint, "err", err)
+		slog.Warn("nodes: Passerelle injoignable pour liste agents", "edge", edgeName, "endpoint", edgeEndpoint, "err", err)
 		return nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("nodes: Core a refusé la liste agents", "core", coreName, "endpoint", coreEndpoint, "status", resp.StatusCode)
+		slog.Warn("nodes: Passerelle a refusé la liste agents", "edge", edgeName, "endpoint", edgeEndpoint, "status", resp.StatusCode)
 		return nil
 	}
 
@@ -378,7 +378,7 @@ func fetchNodesFromCore(ctx context.Context, coreEndpoint, token, coreName strin
 			Status:            n.Status,
 			LastSeenAt:        n.LastSeenAt,
 			ContainerRuntimes: n.ContainerRuntimes,
-			TargetCore:        coreName,
+			TargetEdge:        edgeName,
 			AgentConfig:       n.AgentConfig,
 		})
 	}
@@ -422,7 +422,7 @@ func (h *NodesHandler) deleteNode(w http.ResponseWriter, r *http.Request, id str
 	// Révoque le token associé à ce node_name (si trouvé).
 	if nodeName != "" {
 		h.DB.ExecContext(r.Context(), //nolint:errcheck
-			`UPDATE tokens SET revoked=1 WHERE node_name=? AND role='core' AND revoked=0`, nodeName)
+			`UPDATE tokens SET revoked=1 WHERE node_name=? AND role='edge' AND revoked=0`, nodeName)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -508,9 +508,9 @@ type updateTriggerRequest struct {
 	Prune     bool   `json:"prune"`
 }
 
-// triggerUpdate envoie une commande de mise à jour à l'Agent via le relay Core.
-// Si la cible est un Core, on demande à un Agent rattaché (même hôte / docker.sock)
-// de mettre à jour le conteneur du Core.
+// triggerUpdate envoie une commande de mise à jour à l'Agent via le relay passerelle.
+// Si la cible est une passerelle, on demande à un Agent rattaché (même hôte / docker.sock)
+// de mettre à jour le conteneur de la passerelle.
 func (h *NodesHandler) triggerUpdate(w http.ResponseWriter, r *http.Request, nodeID string) {
 	var req updateTriggerRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
@@ -540,7 +540,7 @@ func (h *NodesHandler) triggerUpdate(w http.ResponseWriter, r *http.Request, nod
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "triggered", "node": nodeID, "via_agent": target.agentName})
 }
 
-// triggerRollback envoie une commande de rollback à l'Agent via le relay Core.
+// triggerRollback envoie une commande de rollback à l'Agent via le relay passerelle.
 func (h *NodesHandler) triggerRollback(w http.ResponseWriter, r *http.Request, nodeID string) {
 	var req struct {
 		Container string `json:"container"`
@@ -573,42 +573,42 @@ type commandTarget struct {
 
 // resolveCommandTarget détermine l'Agent à contacter et le conteneur cible.
 // Pour un Agent : l'Agent lui-même (container vide = self).
-// Pour un Core : un Agent rattaché à ce Core, avec container = nom du Core.
+// Pour une passerelle : un Agent rattaché à cette passerelle, avec container = nom de la passerelle.
 func (h *NodesHandler) resolveCommandTarget(ctx context.Context, nodeID, container string) (commandTarget, error) {
-	if h.isCoreNode(ctx, nodeID) {
-		agentName := h.findAgentOnCore(ctx, nodeID)
+	if h.isEdgeNode(ctx, nodeID) {
+		agentName := h.findAgentOnEdge(ctx, nodeID)
 		if agentName == "" {
-			return commandTarget{}, fmt.Errorf("aucun Agent rattaché à ce Core pour exécuter la mise à jour — déployez un Agent sur le même hôte (docker.sock)")
+			return commandTarget{}, fmt.Errorf("aucun Agent rattaché à cette passerelle pour exécuter la mise à jour — déployez un Agent sur le même hôte (docker.sock)")
 		}
 		c := container
 		if c == "" {
-			c = nodeID // nom du conteneur Core (= node_name)
+			c = nodeID // nom du conteneur passerelle (= node_name)
 		}
 		return commandTarget{agentName: agentName, container: c}, nil
 	}
 	return commandTarget{agentName: nodeID, container: container}, nil
 }
 
-func (h *NodesHandler) isCoreNode(ctx context.Context, nodeID string) bool {
+func (h *NodesHandler) isEdgeNode(ctx context.Context, nodeID string) bool {
 	var role string
 	err := h.DB.QueryRowContext(ctx,
 		`SELECT role FROM nodes WHERE id=? OR node_name=?`, nodeID, nodeID,
 	).Scan(&role)
-	if err == nil && role == "core" {
+	if err == nil && role == "edge" {
 		return true
 	}
 	err = h.DB.QueryRowContext(ctx,
-		`SELECT role FROM tokens WHERE (id=? OR node_name=?) AND role='core' AND revoked=0 LIMIT 1`,
+		`SELECT role FROM tokens WHERE (id=? OR node_name=?) AND role='edge' AND revoked=0 LIMIT 1`,
 		nodeID, nodeID,
 	).Scan(&role)
-	return err == nil && role == "core"
+	return err == nil && role == "edge"
 }
 
-func (h *NodesHandler) findAgentOnCore(ctx context.Context, coreName string) string {
-	agents := h.fetchAgentNodesFromCores(ctx)
+func (h *NodesHandler) findAgentOnEdge(ctx context.Context, edgeName string) string {
+	agents := h.fetchAgentNodesFromEdges(ctx)
 	var fallback string
 	for _, a := range agents {
-		if a.TargetCore != coreName {
+		if a.TargetEdge != edgeName {
 			continue
 		}
 		if a.Status == "online" {
@@ -621,31 +621,31 @@ func (h *NodesHandler) findAgentOnCore(ctx context.Context, coreName string) str
 	return fallback
 }
 
-// relayToAgent envoie une commande JSON à un Agent via le relay Core.
+// relayToAgent envoie une commande JSON à un Agent via le relay passerelle.
 // Tous les appels Admin→Agent passent par ce relay (cross-machine Docker bridge NAT).
 func (h *NodesHandler) relayToAgent(ctx context.Context, nodeID string, payload any) error {
 	rows, err := h.DB.QueryContext(ctx,
-		`SELECT node_endpoint, token FROM tokens WHERE role='core' AND revoked=0 AND node_endpoint != ''`)
+		`SELECT node_endpoint, token FROM tokens WHERE role='edge' AND revoked=0 AND node_endpoint != ''`)
 	if err != nil {
 		return fmt.Errorf("DB: %w", err)
 	}
 	defer rows.Close()
 
-	type coreEntry struct{ endpoint, token string }
-	var cores []coreEntry
+	type edgeEntry struct{ endpoint, token string }
+	var edges []edgeEntry
 	for rows.Next() {
-		var c coreEntry
+		var c edgeEntry
 		if rows.Scan(&c.endpoint, &c.token) == nil && c.endpoint != "" {
 			c.token = auth.PlainNodeToken(c.token)
-			cores = append(cores, c)
+			edges = append(edges, c)
 		}
 	}
-	if len(cores) == 0 {
-		return fmt.Errorf("aucun Core disponible")
+	if len(edges) == 0 {
+		return fmt.Errorf("aucune passerelle disponible")
 	}
 
 	body, _ := json.Marshal(payload)
-	for _, c := range cores {
+	for _, c := range edges {
 		url := c.endpoint + "/internal/v1/agent/" + nodeID + "/command"
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
@@ -655,7 +655,7 @@ func (h *NodesHandler) relayToAgent(ctx context.Context, nodeID string, payload 
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			h.Log.Warn("nodes: relay — Core injoignable", "core", c.endpoint, "err", err)
+			h.Log.Warn("nodes: relay — passerelle injoignable", "edge", c.endpoint, "err", err)
 			continue
 		}
 		resp.Body.Close()
@@ -681,7 +681,7 @@ func (h *NodesHandler) triggerRescan(w http.ResponseWriter, r *http.Request, nod
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "rescan_started", "node": nodeID})
 }
 
-// configureAgent envoie un patch de configuration à un Agent via le relay Core.
+// configureAgent envoie un patch de configuration à un Agent via le relay passerelle.
 // Le patch est un objet JSON dont les sections (docker, portainer…) sont mergées
 // dans agent.json ; l'Agent redémarre ensuite automatiquement.
 func (h *NodesHandler) configureAgent(w http.ResponseWriter, r *http.Request, nodeID string) {
@@ -705,7 +705,7 @@ func (h *NodesHandler) configureAgent(w http.ResponseWriter, r *http.Request, no
 }
 
 func (h *NodesHandler) nodeEndpoint(ctx context.Context, nodeID string) (string, error) {
-	// Cherche d'abord dans la DB Admin (Cores)
+	// Cherche d'abord dans la DB Admin (Passerelles)
 	var endpoint string
 	err := h.DB.QueryRowContext(ctx,
 		`SELECT endpoint FROM nodes WHERE id=? OR node_name=?`, nodeID, nodeID,
@@ -713,8 +713,8 @@ func (h *NodesHandler) nodeEndpoint(ctx context.Context, nodeID string) (string,
 	if err == nil && endpoint != "" {
 		return endpoint, nil
 	}
-	// Fallback : agents vivent en mémoire dans les Cores, pas dans la DB Admin
-	for _, n := range h.fetchAgentNodesFromCores(ctx) {
+	// Fallback : agents vivent en mémoire dans les passerelles, pas dans la DB Admin
+	for _, n := range h.fetchAgentNodesFromEdges(ctx) {
 		if n.NodeName == nodeID || n.ID == nodeID {
 			if n.Endpoint != "" {
 				return n.Endpoint, nil
@@ -883,7 +883,7 @@ func (h *NodesHandler) rejectPending(w http.ResponseWriter, r *http.Request, id 
 
 // --- Heartbeat handler (appelé par l'Agent) --------------------------------
 
-// HeartbeatHandler reçoit les heartbeats des Agents et des Cores.
+// HeartbeatHandler reçoit les heartbeats des Agents et des passerelles.
 type HeartbeatHandler struct {
 	DB  *sql.DB
 	Log *slog.Logger
@@ -1003,8 +1003,8 @@ func (h *NodeEventsHandler) list(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := h.fetchEventsFromDB(r.Context(), nodeFilter)
-	fromCores := h.fetchEventsFromCores(r.Context(), nodeFilter)
-	result = append(result, fromCores...)
+	fromEdges := h.fetchEventsFromEdges(r.Context(), nodeFilter)
+	result = append(result, fromEdges...)
 
 	// Déduplique (node+type+container+detail+created_at minute)
 	seen := map[string]bool{}
@@ -1049,10 +1049,10 @@ func (h *NodeEventsHandler) fetchEventsFromDB(ctx context.Context, nodeFilter st
 	return out
 }
 
-func (h *NodeEventsHandler) fetchEventsFromCores(ctx context.Context, nodeFilter string) []nodeEvent {
+func (h *NodeEventsHandler) fetchEventsFromEdges(ctx context.Context, nodeFilter string) []nodeEvent {
 	rows, err := h.DB.QueryContext(ctx,
 		`SELECT node_endpoint, token FROM tokens
-		 WHERE role='core' AND revoked=0 AND node_endpoint != ''
+		 WHERE role='edge' AND revoked=0 AND node_endpoint != ''
 		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
 	if err != nil {
 		return []nodeEvent{}
@@ -1060,19 +1060,19 @@ func (h *NodeEventsHandler) fetchEventsFromCores(ctx context.Context, nodeFilter
 	defer rows.Close()
 
 	type ct struct{ endpoint, token string }
-	var cores []ct
+	var edges []ct
 	for rows.Next() {
 		var c ct
 		if rows.Scan(&c.endpoint, &c.token) == nil {
 			c.token = auth.PlainNodeToken(c.token)
-			cores = append(cores, c)
+			edges = append(edges, c)
 		}
 	}
 
 	var mu sync.Mutex
 	var result []nodeEvent
 	var wg sync.WaitGroup
-	for _, c := range cores {
+	for _, c := range edges {
 		wg.Add(1)
 		go func(ep, tok string) {
 			defer wg.Done()
@@ -1087,12 +1087,12 @@ func (h *NodeEventsHandler) fetchEventsFromCores(ctx context.Context, nodeFilter
 			req.Header.Set("Authorization", "Bearer "+tok)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				h.Log.Warn("node_events: Core injoignable", "core", ep, "err", err)
+				h.Log.Warn("node_events: Passerelle injoignable", "edge", ep, "err", err)
 				return
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
-				h.Log.Warn("node_events: Core HTTP", "core", ep, "status", resp.StatusCode)
+				h.Log.Warn("node_events: Passerelle HTTP", "edge", ep, "status", resp.StatusCode)
 				return
 			}
 			var evs []nodeEvent

@@ -4,9 +4,9 @@ Le portail Access offre aux utilisateurs finaux un accès SSH / shell aux backen
 
 ## Prérequis
 
-- GoProxify Admin + au moins un Core en fonctionnement
+- GoProxify Admin + au moins une passerelle en fonctionnement
 - Serveur SMTP accessible depuis l'Admin (requis pour les invitations par email)
-- Optionnel : domaine dédié (ex. `access.example.com`) pointant vers le Core concerné
+- Optionnel : domaine dédié (ex. `access.example.com`) pointant vers la passerelle concernée
 
 ## Configuration SMTP
 
@@ -28,7 +28,7 @@ Tester la configuration avec le bouton **Envoyer un email test** avant d'inviter
 ## Inviter un utilisateur
 
 1. Admin → **Access → Users** → bouton **Inviter**
-2. Saisir l'email, les tags optionnels, et choisir le Core d'hébergement
+2. Saisir l'email, les tags optionnels, et choisir la passerelle d'hébergement
 3. L'utilisateur reçoit un lien d'activation valable 24 h
 4. À l'activation, il choisit son mot de passe et configure le 2FA (TOTP ou clé passkey)
 
@@ -48,9 +48,9 @@ Supprimer définitivement : bouton corbeille. Les sessions actives sont terminé
 
 ## Sessions et TTL
 
-Chaque session Access a une durée maximale configurable par Core :
+Chaque session Access a une durée maximale configurable par passerelle :
 
-- Admin → **Nodes** → Core cible → **Access → Session TTL**
+- Admin → **Nodes** → passerelle cible → **Access → Session TTL**
 - Par défaut : 8 h
 - Minimum : 15 min, maximum : 7 jours
 
@@ -73,5 +73,5 @@ Filtrer par tag dans la vue Users : champ de recherche libre.
 
 - Le 2FA est obligatoire pour tous les comptes Access (non contournable depuis l'UI)
 - Les tokens de session sont signés HS256, rotation automatique à chaque reconnexion
-- L'accès SSH est limité aux hôtes déclarés dans le catalogue du Core (`Access → Catalogue`)
+- L'accès SSH est limité aux hôtes déclarés dans le catalogue de la passerelle (`Access → Catalogue`)
 - Les IP bannies par Sentinel bloquent également l'accès au portail

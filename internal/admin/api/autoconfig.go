@@ -60,8 +60,8 @@ func (a *AgentAutoConfigurer) run(ctx context.Context) {
 			continue
 		}
 
-		// Récupérer la config live de l'agent depuis les Cores.
-		liveAgents := a.Nodes.fetchAgentNodesFromCores(ctx)
+		// Récupérer la config live de l'agent depuis les passerelles.
+		liveAgents := a.Nodes.fetchAgentNodesFromEdges(ctx)
 		var liveAgent *nodeRow
 		for i, ag := range liveAgents {
 			if ag.NodeName == nodeName {
@@ -141,12 +141,12 @@ func (a *AgentAutoConfigurer) needsPatch(declared map[string]any, liveRaw json.R
 		}
 	}
 
-	// Vérifier control_plane.core_endpoint
+	// Vérifier control_plane.edge_endpoint
 	if dcp, ok := declared["control_plane"].(map[string]any); ok {
-		declEP, _ := dcp["core_endpoint"].(string)
+		declEP, _ := dcp["edge_endpoint"].(string)
 		if declEP != "" {
 			lcp, _ := live["control_plane"].(map[string]any)
-			liveEP, _ := lcp["core_endpoint"].(string)
+			liveEP, _ := lcp["edge_endpoint"].(string)
 			if liveEP != declEP {
 				return true
 			}

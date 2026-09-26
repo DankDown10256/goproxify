@@ -1,4 +1,4 @@
-// Endurance : charge modérée constante (DURATION, défaut 30m). Surveiller RSS / goroutines / FD du Core
+// Endurance : charge modérée constante (DURATION, défaut 30m). Surveiller RSS / goroutines / FD de la passerelle
 // pendant le run (lab.sh soak lance aussi la collecte docker stats).
 import { get, summary } from "./common.js";
 

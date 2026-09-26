@@ -14,7 +14,7 @@ import (
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/mailer"
-	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 )
 
 // PortalUser row Admin (sans secrets).
@@ -23,7 +23,7 @@ type PortalUser struct {
 	Email     string   `json:"email"`
 	Status    string   `json:"status"`
 	Tags      []string `json:"tags"`
-	HomeCore  string   `json:"home_core"`
+	HomeEdge  string   `json:"home_edge"`
 	ExpiresAt string   `json:"invite_expires,omitempty"`
 	CreatedAt string   `json:"created_at,omitempty"`
 	UpdatedAt string   `json:"updated_at,omitempty"`
@@ -54,14 +54,14 @@ func (h *PortalHandler) handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PortalHandler) listPortalUsers(w http.ResponseWriter, r *http.Request) {
-	core := portalCoreParam(r)
-	q := `SELECT id, email, status, tags_json, home_core, invite_expires, created_at, updated_at FROM portal_users`
+	edge := portalEdgeParam(r)
+	q := `SELECT id, email, status, tags_json, home_edge, invite_expires, created_at, updated_at FROM portal_users`
 	var rows *sql.Rows
 	var err error
-	if core != "" {
-		rows, err = h.DB.Query(q+` WHERE home_core=? ORDER BY email`, core)
+	if edge != "" {
+		rows, err = h.DB.Query(q+` WHERE home_edge=? ORDER BY email`, edge)
 	} else {
-		rows, err = h.DB.Query(q + ` ORDER BY home_core, email`)
+		rows, err = h.DB.Query(q + ` ORDER BY home_edge, email`)
 	}
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -80,7 +80,7 @@ func (h *PortalHandler) listPortalUsers(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *PortalHandler) getPortalUser(w http.ResponseWriter, r *http.Request, id string) {
-	row := h.DB.QueryRow(`SELECT id, email, status, tags_json, home_core, invite_expires, created_at, updated_at
+	row := h.DB.QueryRow(`SELECT id, email, status, tags_json, home_edge, invite_expires, created_at, updated_at
 		FROM portal_users WHERE id=?`, id)
 	u, err := scanPortalUser(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -98,23 +98,23 @@ func (h *PortalHandler) invitePortalUser(w http.ResponseWriter, r *http.Request)
 	var body struct {
 		Email    string   `json:"email"`
 		Tags     []string `json:"tags"`
-		HomeCore string   `json:"home_core"`
+		HomeEdge string   `json:"home_edge"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.bad_json")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(body.Email))
-	home := strings.TrimSpace(body.HomeCore)
+	home := strings.TrimSpace(body.HomeEdge)
 	if email == "" || !strings.Contains(email, "@") {
 		http.Error(w, "email invalide", http.StatusBadRequest)
 		return
 	}
 	if home == "" {
-		home = portalCoreParam(r)
+		home = portalEdgeParam(r)
 	}
 	if home == "" {
-		writeErr(w, r, http.StatusBadRequest, "api.err.core_required")
+		writeErr(w, r, http.StatusBadRequest, "api.err.edge_required")
 		return
 	}
 	if !mailer.Load(h.DB).Configured() {
@@ -134,7 +134,7 @@ func (h *PortalHandler) invitePortalUser(w http.ResponseWriter, r *http.Request)
 	expires := portal.InviteExpiryRFC3339()
 	id := uuid.NewString()
 	tagsJSON, _ := json.Marshal(normalizeTags(body.Tags))
-	_, err = h.DB.Exec(`INSERT INTO portal_users (id, email, status, tags_json, invite_token_hash, invite_expires, home_core)
+	_, err = h.DB.Exec(`INSERT INTO portal_users (id, email, status, tags_json, invite_token_hash, invite_expires, home_edge)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		id, email, portal.UserStatusInvited, string(tagsJSON), portal.HashInviteToken(rawTok), expires, home)
 	if err != nil {
@@ -151,7 +151,7 @@ func (h *PortalHandler) invitePortalUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "invite", "portal_user", email)
-	h.pushUsersForCore(r, home)
+	h.pushUsersForEdge(r, home)
 	u, _ := h.loadPortalUser(id)
 	jsonOK(w, u)
 }
@@ -174,7 +174,7 @@ func (h *PortalHandler) resendPortalInvite(w http.ResponseWriter, r *http.Reques
 		http.Error(w, mailer.ErrNotConfigured.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg := loadPortalConfig(h.DB, u.HomeCore)
+	cfg := loadPortalConfig(h.DB, u.HomeEdge)
 	if strings.TrimSpace(cfg.PublicHost) == "" {
 		http.Error(w, "hôte public du portail requis", http.StatusBadRequest)
 		return
@@ -196,7 +196,7 @@ func (h *PortalHandler) resendPortalInvite(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "resend_invite", "portal_user", u.Email)
-	h.pushUsersForCore(r, u.HomeCore)
+	h.pushUsersForEdge(r, u.HomeEdge)
 	out, _ := h.loadPortalUser(id)
 	jsonOK(w, out)
 }
@@ -214,7 +214,7 @@ func (h *PortalHandler) updatePortalUser(w http.ResponseWriter, r *http.Request,
 	var body struct {
 		Tags     *[]string `json:"tags"`
 		Status   *string   `json:"status"`
-		HomeCore *string   `json:"home_core"`
+		HomeEdge *string   `json:"home_edge"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, r, http.StatusBadRequest, "api.err.bad_json")
@@ -235,22 +235,22 @@ func (h *PortalHandler) updatePortalUser(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
-	home := u.HomeCore
-	if body.HomeCore != nil && strings.TrimSpace(*body.HomeCore) != "" {
-		home = strings.TrimSpace(*body.HomeCore)
+	home := u.HomeEdge
+	if body.HomeEdge != nil && strings.TrimSpace(*body.HomeEdge) != "" {
+		home = strings.TrimSpace(*body.HomeEdge)
 	}
 	tagsJSON, _ := json.Marshal(tags)
-	_, err = h.DB.Exec(`UPDATE portal_users SET tags_json=?, status=?, home_core=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+	_, err = h.DB.Exec(`UPDATE portal_users SET tags_json=?, status=?, home_edge=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
 		string(tagsJSON), status, home, id)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "update", "portal_user", u.Email)
-	if u.HomeCore != home {
-		h.pushUsersForCore(r, u.HomeCore)
+	if u.HomeEdge != home {
+		h.pushUsersForEdge(r, u.HomeEdge)
 	}
-	h.pushUsersForCore(r, home)
+	h.pushUsersForEdge(r, home)
 	out, _ := h.loadPortalUser(id)
 	jsonOK(w, out)
 }
@@ -271,7 +271,7 @@ func (h *PortalHandler) deletePortalUser(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	_ = admindb.WriteAudit(h.DB, adminauth.ActorFromContext(r.Context()), "delete", "portal_user", u.Email)
-	h.pushUsersForCore(r, u.HomeCore)
+	h.pushUsersForEdge(r, u.HomeEdge)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -284,16 +284,16 @@ func (h *PortalHandler) sendInviteEmail(email, publicHost, rawToken string) erro
 	return mailer.Send(h.DB, email, subject, body)
 }
 
-func (h *PortalHandler) pushUsersForCore(r *http.Request, core string) {
-	if h.Pusher == nil || core == "" {
+func (h *PortalHandler) pushUsersForEdge(r *http.Request, edge string) {
+	if h.Pusher == nil || edge == "" {
 		return
 	}
-	cfg := loadPortalConfig(h.DB, core)
-	h.Pusher.PushPortal(r.Context(), core, cfg)
+	cfg := loadPortalConfig(h.DB, edge)
+	h.Pusher.PushPortal(r.Context(), edge, cfg)
 }
 
 func (h *PortalHandler) loadPortalUser(id string) (PortalUser, error) {
-	row := h.DB.QueryRow(`SELECT id, email, status, tags_json, home_core, invite_expires, created_at, updated_at
+	row := h.DB.QueryRow(`SELECT id, email, status, tags_json, home_edge, invite_expires, created_at, updated_at
 		FROM portal_users WHERE id=?`, id)
 	return scanPortalUser(row)
 }
@@ -306,7 +306,7 @@ func scanPortalUser(row scannable) (PortalUser, error) {
 	var u PortalUser
 	var tagsJSON string
 	var created, updated sql.NullString
-	if err := row.Scan(&u.ID, &u.Email, &u.Status, &tagsJSON, &u.HomeCore, &u.ExpiresAt, &created, &updated); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.Status, &tagsJSON, &u.HomeEdge, &u.ExpiresAt, &created, &updated); err != nil {
 		return u, err
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &u.Tags)
@@ -322,10 +322,10 @@ func scanPortalUser(row scannable) (PortalUser, error) {
 	return u, nil
 }
 
-// listSyncedUsersForCore prépare le payload push Core.
-func listSyncedUsersForCore(db *sql.DB, core string) []portal.SyncedUser {
+// listSyncedUsersForEdge prépare le payload push passerelle.
+func listSyncedUsersForEdge(db *sql.DB, edge string) []portal.SyncedUser {
 	rows, err := db.Query(`SELECT id, email, status, tags_json, invite_token_hash, invite_expires
-		FROM portal_users WHERE home_core=?`, core)
+		FROM portal_users WHERE home_edge=?`, edge)
 	if err != nil {
 		return []portal.SyncedUser{}
 	}
@@ -350,7 +350,7 @@ func listSyncedUsersForCore(db *sql.DB, core string) []portal.SyncedUser {
 	return out
 }
 
-// MarkPortalInviteCompleted met à jour le statut après complete-invite Core.
+// MarkPortalInviteCompleted met à jour le statut après complete-invite passerelle.
 func MarkPortalInviteCompleted(db *sql.DB, userID string) {
 	if db == nil || userID == "" {
 		return

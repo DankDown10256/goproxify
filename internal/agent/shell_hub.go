@@ -12,7 +12,7 @@ import (
 
 	agentdocker "github.com/vincamok/goproxify/internal/agent/docker"
 	"github.com/vincamok/goproxify/internal/agent/wsclient"
-	corews "github.com/vincamok/goproxify/internal/core/ws"
+	edgews "github.com/vincamok/goproxify/internal/edge/ws"
 )
 
 // shellHub gère les sessions docker exec relayées via WS.
@@ -41,20 +41,20 @@ func newShellHub(client *agentdocker.Client, ws *wsclient.Client, allowCont func
 
 func (h *shellHub) Handle(msgType string, payload json.RawMessage) {
 	switch msgType {
-	case corews.TypeShellOpen:
-		var p corews.ShellOpenPayload
+	case edgews.TypeShellOpen:
+		var p edgews.ShellOpenPayload
 		if json.Unmarshal(payload, &p) != nil || p.SessionID == "" || p.Container == "" {
 			return
 		}
 		h.open(p)
-	case corews.TypeShellData:
-		var p corews.ShellDataPayload
+	case edgews.TypeShellData:
+		var p edgews.ShellDataPayload
 		if json.Unmarshal(payload, &p) != nil {
 			return
 		}
 		h.writeStdin(p)
-	case corews.TypeShellClose:
-		var p corews.ShellClosePayload
+	case edgews.TypeShellClose:
+		var p edgews.ShellClosePayload
 		if json.Unmarshal(payload, &p) != nil {
 			return
 		}
@@ -62,7 +62,7 @@ func (h *shellHub) Handle(msgType string, payload json.RawMessage) {
 	}
 }
 
-func (h *shellHub) open(p corews.ShellOpenPayload) {
+func (h *shellHub) open(p edgews.ShellOpenPayload) {
 	cmd := p.Cmd
 	if len(cmd) == 0 {
 		cmd = []string{"/bin/sh"}
@@ -115,7 +115,7 @@ func (h *shellHub) pumpStdout(sess *shellSession) {
 	}
 }
 
-func (h *shellHub) writeStdin(p corews.ShellDataPayload) {
+func (h *shellHub) writeStdin(p edgews.ShellDataPayload) {
 	raw, err := base64.StdEncoding.DecodeString(p.Data)
 	if err != nil || len(raw) == 0 {
 		return

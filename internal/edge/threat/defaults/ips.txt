@@ -1,0 +1,9 @@
+# IP blacklist — GoProxify threat engine
+# One IP or CIDR per line. Lines starting with # are ignored.
+# Replace this file in the volume to update without restarting.
+# For a curated live list, configure ip_sources with a remote URL (e.g. Firehol level1).
+#
+# Loopback / link-local (never block in production — example only)
+# 127.0.0.0/8
+#
+# Add your known bad IP ranges below:

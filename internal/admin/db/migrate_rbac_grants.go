@@ -22,7 +22,7 @@ func migrateRBACGrants(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS user_scopes (
 			id           TEXT PRIMARY KEY,
 			user_id      TEXT NOT NULL,
-			scope_type   TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','core')),
+			scope_type   TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','edge')),
 			scope_value  TEXT NOT NULL,
 			access_mode  TEXT NOT NULL DEFAULT 'read' CHECK(access_mode IN ('read','write')),
 			UNIQUE(user_id, scope_type, scope_value)
@@ -44,7 +44,7 @@ func migrateRBACGrants(db *sql.DB) error {
 			return fmt.Errorf("team_scopes access_mode: %w", err)
 		}
 	} else if hasMemberRole {
-		// Colonne déjà présente (ex. migration core) : caler le mode sur les rôles avant de les supprimer.
+		// Colonne déjà présente (ex. migration edge) : caler le mode sur les rôles avant de les supprimer.
 		if err := assignTeamScopeModesFromRoles(db); err != nil {
 			return fmt.Errorf("team_scopes modes from roles: %w", err)
 		}
@@ -208,7 +208,7 @@ func rebuildTeamScopesWithMode(db *sql.DB, hasMemberRole bool) error {
 		CREATE TABLE IF NOT EXISTS team_scopes_grants (
 			id           TEXT PRIMARY KEY,
 			team_id      TEXT NOT NULL,
-			scope_type   TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','core')),
+			scope_type   TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','edge')),
 			scope_value  TEXT NOT NULL,
 			access_mode  TEXT NOT NULL DEFAULT 'read' CHECK(access_mode IN ('read','write')),
 			UNIQUE(team_id, scope_type, scope_value)

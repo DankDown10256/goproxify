@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package wireguard gère les tunnels WireGuard entre Agent et Core.
+// Package wireguard gère les tunnels WireGuard entre Agent et passerelle.
 // Utilise les commandes système wg/ip pour l'interface ; keygen en Go (curve25519).
 package wireguard
 

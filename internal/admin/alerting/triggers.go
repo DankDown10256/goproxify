@@ -39,7 +39,7 @@ var AllTriggers = []TriggerType{
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
 var TriggerLabels = map[TriggerType]string{
-	TriggerNodeOffline:       "Nœud Core/Agent hors ligne",
+	TriggerNodeOffline:       "Nœud passerelle/Agent hors ligne",
 	TriggerCertExpiringSoon:  "Certificat expirant prochainement",
 	TriggerCVEDetected:       "CVE détectée sur un backend",
 	TriggerFail2BanBan:       "Nouveau ban Fail2Ban",
@@ -72,7 +72,7 @@ type Event struct {
 	Severity  Severity
 	NodeName  string
 	Domain    string
-	Component string // core | agent | admin
+	Component string // edge | agent | admin
 	Team      string
 	Detail    map[string]any
 	FiredAt   time.Time
@@ -83,7 +83,7 @@ type Scope struct {
 	Nodes      []string `json:"nodes,omitempty"`       // noms de nœuds (vide = tous)
 	DomainGlob string   `json:"domain_glob,omitempty"` // ex: "*.prod.fr"
 	Teams      []string `json:"teams,omitempty"`
-	Components []string `json:"components,omitempty"` // core, agent, admin
+	Components []string `json:"components,omitempty"` // edge, agent, admin
 	MinSev     Severity `json:"min_severity,omitempty"`
 }
 

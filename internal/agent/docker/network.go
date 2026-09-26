@@ -9,28 +9,28 @@ import (
 	"sync"
 )
 
-// NetworkManager connecte le conteneur Core aux réseaux Docker des apps découvertes.
+// NetworkManager connecte le conteneur passerelle aux réseaux Docker des apps découvertes.
 type NetworkManager struct {
 	client            *Client
-	coreContainerName string
+	edgeContainerName string
 	log               *slog.Logger
 	mu                sync.Mutex
 	connected         map[string]bool // networkID → true si déjà connecté
 }
 
 // NewNetworkManager crée un NetworkManager.
-func NewNetworkManager(client *Client, coreContainerName string, log *slog.Logger) *NetworkManager {
+func NewNetworkManager(client *Client, edgeContainerName string, log *slog.Logger) *NetworkManager {
 	return &NetworkManager{
 		client:            client,
-		coreContainerName: coreContainerName,
+		edgeContainerName: edgeContainerName,
 		log:               log,
 		connected:         make(map[string]bool),
 	}
 }
 
-// ConnectCoreToNetwork connecte le Core au réseau Docker s'il n'y est pas déjà.
-func (m *NetworkManager) ConnectCoreToNetwork(ctx context.Context, networkID string) error {
-	if networkID == "" || m.coreContainerName == "" {
+// ConnectEdgeToNetwork connecte la passerelle au réseau Docker s'il n'y est pas déjà.
+func (m *NetworkManager) ConnectEdgeToNetwork(ctx context.Context, networkID string) error {
+	if networkID == "" || m.edgeContainerName == "" {
 		return nil
 	}
 
@@ -42,7 +42,7 @@ func (m *NetworkManager) ConnectCoreToNetwork(ctx context.Context, networkID str
 	m.mu.Unlock()
 
 	err := m.client.Post(ctx, "/networks/"+networkID+"/connect",
-		NetworkConnectBody{Container: m.coreContainerName}, nil)
+		NetworkConnectBody{Container: m.edgeContainerName}, nil)
 	if err != nil {
 		// 403 / 409 = déjà connecté — pas une vraie erreur
 		return nil
@@ -52,23 +52,23 @@ func (m *NetworkManager) ConnectCoreToNetwork(ctx context.Context, networkID str
 	m.connected[networkID] = true
 	m.mu.Unlock()
 
-	m.log.Info("docker: Core connecté au réseau", "network", networkID, "core", m.coreContainerName)
+	m.log.Info("docker: Passerelle connectée au réseau", "network", networkID, "edge", m.edgeContainerName)
 	return nil
 }
 
-// DisconnectCoreFromNetwork déconnecte le Core d'un réseau Docker.
-func (m *NetworkManager) DisconnectCoreFromNetwork(ctx context.Context, networkID string) error {
-	if networkID == "" || m.coreContainerName == "" {
+// DisconnectEdgeFromNetwork déconnecte la passerelle d'un réseau Docker.
+func (m *NetworkManager) DisconnectEdgeFromNetwork(ctx context.Context, networkID string) error {
+	if networkID == "" || m.edgeContainerName == "" {
 		return nil
 	}
 	err := m.client.Post(ctx, "/networks/"+networkID+"/disconnect",
-		NetworkConnectBody{Container: m.coreContainerName}, nil)
+		NetworkConnectBody{Container: m.edgeContainerName}, nil)
 	if err != nil {
 		return err
 	}
 	m.mu.Lock()
 	delete(m.connected, networkID)
 	m.mu.Unlock()
-	m.log.Info("docker: Core déconnecté du réseau", "network", networkID)
+	m.log.Info("docker: Passerelle déconnecté du réseau", "network", networkID)
 	return nil
 }

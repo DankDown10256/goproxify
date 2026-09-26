@@ -8,7 +8,7 @@ const App = {
   // module = { title?, actions?(ctx), render(container, ctx) }
   registerPage(id, module) {
     pages[id] = async function() {
-      const ctx = { core: state.selectedCore, token: state.token };
+      const ctx = { edge: state.selectedEdge, token: state.token };
       const ta = document.getElementById('topbar-actions');
       if (ta) ta.innerHTML = module.actions ? module.actions(ctx) : '';
       const container = document.getElementById('content');
@@ -23,17 +23,17 @@ const App = {
   'security','security-bans','security-vulns','security-threats','security-rules','automation','rules-store','mcp-access',
   'backups','import','docker-labels','prism',
 ]);
-const CORE_PAGES = new Set([
-  'core-trafic','core-proxies','core-streams','core-waf','core-ipfilter',
-  'core-certs','core-auth','core-logs-access','core-logs-system',
-  'core-observability','core-prism','core-metrics','core-cluster','core-tokens','core-settings','core-general','ip-profiles',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
-  'core-tunnel',
-  'portal','portal-audit','core-portal-catalog','core-portal-users','snippets',
+const EDGE_PAGES = new Set([
+  'edge-trafic','edge-proxies','edge-streams','edge-waf','edge-ipfilter',
+  'edge-certs','edge-auth','edge-logs-access','edge-logs-system',
+  'edge-observability','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
+  'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
+  'edge-tunnel',
+  'portal','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
   'security','security-bans','security-vulns','security-threats','security-rules','automation','rules-store',
-  'core-security','core-security-vulns','core-security-posture','core-security-bans','core-security-sentinel',
+  'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
 ]);
 
 // ── Sidebar mobile ────────────────────────────────────────────────────────
@@ -104,10 +104,10 @@ function navigate(page) {
 
   // Titre de page depuis la config
   const titles = APP_CONFIG.pageTitles || {};
-  const coreName = state.selectedCore?.display_name || state.selectedCore?.node_name || '';
-  const corePrefix = (CORE_PAGES.has(page) && coreName) ? `${coreName} — ` : '';
+  const edgeName = state.selectedEdge?.display_name || state.selectedEdge?.node_name || '';
+  const edgePrefix = (EDGE_PAGES.has(page) && edgeName) ? `${edgeName} — ` : '';
   const pt = document.getElementById('page-title');
-  if (pt) pt.textContent = corePrefix + (typeof gpxPageLabel === 'function' ? gpxPageLabel(page, titles[page]) : (titles[page] || page));
+  if (pt) pt.textContent = edgePrefix + (typeof gpxPageLabel === 'function' ? gpxPageLabel(page, titles[page]) : (titles[page] || page));
 
   // Reset actions topbar (chaque page les re-remplit si besoin)
   const ta = document.getElementById('topbar-actions');
@@ -122,11 +122,11 @@ function navigate(page) {
   }
 }
 
-// Page demandée par l'URL (#page) ; les pages Core exigent un Core sélectionné.
+// Page demandée par l'URL (#page) ; les pages passerelle exigent une passerelle sélectionnée.
 function pageFromHash() {
   const page = location.hash.slice(1);
   if (!page || !pages[page]) return null;
-  if (CORE_PAGES.has(page) && !state.selectedCore) return null;
+  if (EDGE_PAGES.has(page) && !state.selectedEdge) return null;
   return page;
 }
 
@@ -220,69 +220,69 @@ function renderNav(user) {
   const before = infraIdx >= 0 ? items.slice(0, infraIdx + 1) : items.slice(0, 1);
   const after  = infraIdx >= 0 ? items.slice(infraIdx + 1) : items.slice(1);
 
-  const coresBlock = `<div class="nav-section nav-cores-section" id="nav-cores-section" hidden>
-      <div class="nav-cores-header" id="nav-cores-header" onclick="onNavCoresHeaderClick(event)">
-        <div class="nav-label nav-cores-label">
-          <span>${typeof t === 'function' ? t('nav.cores') : 'Cores'}</span>
-          <span class="nav-cores-count" id="nav-cores-count"></span>
+  const edgesBlock = `<div class="nav-section nav-edges-section" id="nav-edges-section" hidden>
+      <div class="nav-edges-header" id="nav-edges-header" onclick="onNavEdgesHeaderClick(event)">
+        <div class="nav-label nav-edges-label">
+          <span>${typeof t === 'function' ? t('nav.edges') : 'Passerelles'}</span>
+          <span class="nav-edges-count" id="nav-edges-count"></span>
         </div>
-        <button type="button" class="nav-cores-toggle" id="nav-cores-toggle"
-          onclick="toggleNavCoresList(event)" title="${typeof t === 'function' ? t('common.cores_toggle') : 'Show / hide'}" hidden aria-expanded="true">
+        <button type="button" class="nav-edges-toggle" id="nav-edges-toggle"
+          onclick="toggleNavEdgesList(event)" title="${typeof t === 'function' ? t('common.edges_toggle') : 'Show / hide'}" hidden aria-expanded="true">
           <svg class="nav-item-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3l5 5-5 5"/></svg>
         </button>
       </div>
-      <div class="nav-cores-selected" id="nav-cores-selected" hidden></div>
-      <div class="nav-cores-body" id="nav-cores-body">
-        <div class="nav-cores-search-wrap" id="nav-cores-search-wrap" hidden>
-          <input type="search" class="nav-cores-search" id="nav-cores-search"
-            placeholder="${typeof t === 'function' ? t('common.cores_search') : 'Search a Core…'}" autocomplete="off"
-            oninput="filterNavCores(this.value)">
+      <div class="nav-edges-selected" id="nav-edges-selected" hidden></div>
+      <div class="nav-edges-body" id="nav-edges-body">
+        <div class="nav-edges-search-wrap" id="nav-edges-search-wrap" hidden>
+          <input type="search" class="nav-edges-search" id="nav-edges-search"
+            placeholder="${typeof t === 'function' ? t('common.edges_search') : 'Search a passerelle…'}" autocomplete="off"
+            oninput="filterNavEdges(this.value)">
         </div>
-        <div class="nav-cores-list" id="nav-cores-list"></div>
-        <div class="nav-cores-empty" id="nav-cores-empty" hidden>${typeof t === 'function' ? t('common.cores_none') : 'No Core found'}</div>
+        <div class="nav-edges-list" id="nav-edges-list"></div>
+        <div class="nav-edges-empty" id="nav-edges-empty" hidden>${typeof t === 'function' ? t('common.edges_none') : 'No passerelle found'}</div>
       </div>
     </div>`;
 
   navEl.innerHTML = [
     `<div class="nav-section">${before.map(renderNavItem).join('')}</div>`,
-    coresBlock,
+    edgesBlock,
     after.length ? `<div class="nav-section">${after.map(renderNavItem).join('')}</div>` : '',
   ].join('');
 
-  // Section Core contextuelle (masquée par défaut) — items du Core sélectionné
+  // Section passerelle contextuelle (masquée par défaut) — items de la passerelle sélectionnée
   navEl.insertAdjacentHTML('beforeend', `
-    <div class="core-nav-section" id="core-nav-section" style="display:none">
-      <div class="core-nav-header">
-        <span id="core-nav-name" class="core-nav-name"></span>
-        <button class="core-nav-close" onclick="deselectCore()" title="${typeof t === 'function' ? t('common.close') : 'Close'}">✕</button>
+    <div class="edge-nav-section" id="edge-nav-section" style="display:none">
+      <div class="edge-nav-header">
+        <span id="edge-nav-name" class="edge-nav-name"></span>
+        <button class="edge-nav-close" onclick="deselectEdge()" title="${typeof t === 'function' ? t('common.close') : 'Close'}">✕</button>
       </div>
-      <div id="core-nav-items"></div>
+      <div id="edge-nav-items"></div>
     </div>
   `);
 
   if (state.page) syncNavActive(state.page);
-  _navCoresCollapsed = null;
-  _navCoresFilter = '';
-  const searchInput = document.getElementById('nav-cores-search');
+  _navEdgesCollapsed = null;
+  _navEdgesFilter = '';
+  const searchInput = document.getElementById('nav-edges-search');
   if (searchInput) searchInput.value = '';
-  refreshNavCores();
+  refreshNavEdges();
 }
 
-// ── Liste des Cores accessibles dans la sidebar ────────────────────────────
-let _navCoresCache = [];
-let _navCoresFilter = '';
-let _navCoresCollapsed = null; // null = auto selon overflow / sélection
+// ── Liste des passerelles accessibles dans la sidebar ────────────────────────────
+let _navEdgesCache = [];
+let _navEdgesFilter = '';
+let _navEdgesCollapsed = null; // null = auto selon overflow / sélection
 
-function _navCoreKey(core) {
-  return core?.node_name || core?.id || '';
+function _navEdgeKey(edge) {
+  return edge?.node_name || edge?.id || '';
 }
 
-function _navCoresCfg() {
-  return APP_CONFIG.navCores || { overflowAt: 6, listMaxHeight: 220 };
+function _navEdgesCfg() {
+  return APP_CONFIG.navEdges || { overflowAt: 6, listMaxHeight: 220 };
 }
 
-async function refreshNavCores() {
-  const section = document.getElementById('nav-cores-section');
+async function refreshNavEdges() {
+  const section = document.getElementById('nav-edges-section');
   if (!section) return;
   if (!state.token) {
     section.hidden = true;
@@ -290,163 +290,163 @@ async function refreshNavCores() {
   }
   try {
     const nodes = await api('GET', '/nodes');
-    _navCoresCache = (nodes || [])
-      .filter(n => n.role === 'core' && n.status !== 'pending' && n.status !== 'declared')
-      .filter(n => Role.hasAccessToCore(n))
+    _navEdgesCache = (nodes || [])
+      .filter(n => n.role === 'edge' && n.status !== 'pending' && n.status !== 'declared')
+      .filter(n => Role.hasAccessToEdge(n))
       .sort((a, b) => {
         const an = (a.display_name || a.node_name || '').toLowerCase();
         const bn = (b.display_name || b.node_name || '').toLowerCase();
         return an.localeCompare(bn, typeof gpxBCP47 === 'function' ? gpxBCP47() : undefined);
       });
-    window._navCores = _navCoresCache;
-    // Garde _coreNodes à jour pour openCore / selectCore depuis d'autres pages
-    if (!window._coreNodes?.length) window._coreNodes = _navCoresCache;
+    window._navEdges = _navEdgesCache;
+    // Garde _edgeNodes à jour pour openEdge / selectEdge depuis d'autres pages
+    if (!window._edgeNodes?.length) window._edgeNodes = _navEdgesCache;
   } catch {
     // Pas de token / erreur réseau : on laisse la section telle quelle
-    if (!_navCoresCache.length) {
+    if (!_navEdgesCache.length) {
       section.hidden = true;
       return;
     }
   }
 
-  section.hidden = !_navCoresCache.length;
-  if (!_navCoresCache.length) return;
+  section.hidden = !_navEdgesCache.length;
+  if (!_navEdgesCache.length) return;
 
-  const cfg = _navCoresCfg();
-  const overflow = _navCoresCache.length > (cfg.overflowAt || 6);
-  const countEl = document.getElementById('nav-cores-count');
-  if (countEl) countEl.textContent = String(_navCoresCache.length);
+  const cfg = _navEdgesCfg();
+  const overflow = _navEdgesCache.length > (cfg.overflowAt || 6);
+  const countEl = document.getElementById('nav-edges-count');
+  if (countEl) countEl.textContent = String(_navEdgesCache.length);
 
-  const searchWrap = document.getElementById('nav-cores-search-wrap');
-  const toggleBtn  = document.getElementById('nav-cores-toggle');
+  const searchWrap = document.getElementById('nav-edges-search-wrap');
+  const toggleBtn  = document.getElementById('nav-edges-toggle');
   if (searchWrap) searchWrap.hidden = !overflow;
   if (toggleBtn)  toggleBtn.hidden  = !overflow;
 
-  const listEl = document.getElementById('nav-cores-list');
+  const listEl = document.getElementById('nav-edges-list');
   if (listEl) {
     listEl.style.maxHeight = overflow ? `${cfg.listMaxHeight || 220}px` : '';
-    listEl.classList.toggle('nav-cores-list--scroll', overflow);
+    listEl.classList.toggle('nav-edges-list--scroll', overflow);
   }
 
-  // Collapse auto : si trop de cores et aucun Core sélectionné → replié
+  // Collapse auto : si trop de edges et aucune passerelle sélectionnée → replié
   // pour laisser le menu admin / observabilité visibles d'emblée.
-  if (_navCoresCollapsed === null) {
-    _navCoresCollapsed = overflow && !state.selectedCore;
+  if (_navEdgesCollapsed === null) {
+    _navEdgesCollapsed = overflow && !state.selectedEdge;
   }
-  _applyNavCoresCollapsed();
-  renderNavCoresList(_navCoresFilter);
+  _applyNavEdgesCollapsed();
+  renderNavEdgesList(_navEdgesFilter);
 }
 
-function _applyNavCoresCollapsed() {
-  const body = document.getElementById('nav-cores-body');
-  const toggle = document.getElementById('nav-cores-toggle');
-  const section = document.getElementById('nav-cores-section');
-  const collapsed = !!_navCoresCollapsed;
+function _applyNavEdgesCollapsed() {
+  const body = document.getElementById('nav-edges-body');
+  const toggle = document.getElementById('nav-edges-toggle');
+  const section = document.getElementById('nav-edges-section');
+  const collapsed = !!_navEdgesCollapsed;
   if (body) body.hidden = collapsed;
   if (toggle) toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-  if (section) section.classList.toggle('nav-cores-collapsed', collapsed);
-  _renderNavCoresSelectedChip();
+  if (section) section.classList.toggle('nav-edges-collapsed', collapsed);
+  _renderNavEdgesSelectedChip();
 }
 
-function _renderNavCoresSelectedChip() {
-  const chip = document.getElementById('nav-cores-selected');
+function _renderNavEdgesSelectedChip() {
+  const chip = document.getElementById('nav-edges-selected');
   if (!chip) return;
-  const core = state.selectedCore;
-  const show = !!core && !!_navCoresCollapsed;
+  const edge = state.selectedEdge;
+  const show = !!edge && !!_navEdgesCollapsed;
   chip.hidden = !show;
   if (!show) { chip.innerHTML = ''; return; }
-  const label = core.display_name || core.node_name || core.id || '—';
-  const online = core.status === 'online';
+  const label = edge.display_name || edge.node_name || edge.id || '—';
+  const online = edge.status === 'online';
   chip.innerHTML = `
-    <div class="nav-item nav-core-item selected" title="${esc(label)}"
-         onclick="event.stopPropagation();openNavCore(${_navCoresCache.findIndex(c => _navCoreKey(c) === _navCoreKey(core))})">
-      <span class="nav-core-dot ${online ? 'online' : 'offline'}" aria-hidden="true"></span>
+    <div class="nav-item nav-edge-item selected" title="${esc(label)}"
+         onclick="event.stopPropagation();openNavEdge(${_navEdgesCache.findIndex(c => _navEdgeKey(c) === _navEdgeKey(edge))})">
+      <span class="nav-edge-dot ${online ? 'online' : 'offline'}" aria-hidden="true"></span>
       <span class="nav-item-label">${esc(label)}</span>
     </div>`;
 }
 
-window.toggleNavCoresList = function(ev) {
+window.toggleNavEdgesList = function(ev) {
   ev?.stopPropagation?.();
-  _navCoresCollapsed = !_navCoresCollapsed;
-  _applyNavCoresCollapsed();
+  _navEdgesCollapsed = !_navEdgesCollapsed;
+  _applyNavEdgesCollapsed();
 };
 
-window.onNavCoresHeaderClick = function(ev) {
+window.onNavEdgesHeaderClick = function(ev) {
   // Toggle uniquement en mode overflow (bouton visible)
-  const toggle = document.getElementById('nav-cores-toggle');
+  const toggle = document.getElementById('nav-edges-toggle');
   if (!toggle || toggle.hidden) return;
-  if (ev.target.closest('.nav-cores-search')) return;
-  toggleNavCoresList(ev);
+  if (ev.target.closest('.nav-edges-search')) return;
+  toggleNavEdgesList(ev);
 };
 
-window.filterNavCores = function(q) {
-  _navCoresFilter = (q || '').trim().toLowerCase();
-  renderNavCoresList(_navCoresFilter);
+window.filterNavEdges = function(q) {
+  _navEdgesFilter = (q || '').trim().toLowerCase();
+  renderNavEdgesList(_navEdgesFilter);
 };
 
-function renderNavCoresList(filter) {
-  const listEl = document.getElementById('nav-cores-list');
-  const emptyEl = document.getElementById('nav-cores-empty');
+function renderNavEdgesList(filter) {
+  const listEl = document.getElementById('nav-edges-list');
+  const emptyEl = document.getElementById('nav-edges-empty');
   if (!listEl) return;
 
-  const selectedKey = _navCoreKey(state.selectedCore);
-  let cores = _navCoresCache;
+  const selectedKey = _navEdgeKey(state.selectedEdge);
+  let edges = _navEdgesCache;
   if (filter) {
-    cores = cores.filter(c => {
+    edges = edges.filter(c => {
       const name = (c.display_name || c.node_name || c.id || '').toLowerCase();
       return name.includes(filter);
     });
   }
 
-  // En mode filtre : garde le Core sélectionné visible en tête s'il matche ou hors filtre
+  // En mode filtre : garde la passerelle sélectionnée visible en tête s'il matche ou hors filtre
   if (selectedKey && filter) {
-    const sel = _navCoresCache.find(c => _navCoreKey(c) === selectedKey);
-    if (sel && !cores.some(c => _navCoreKey(c) === selectedKey)) {
-      cores = [sel, ...cores];
+    const sel = _navEdgesCache.find(c => _navEdgeKey(c) === selectedKey);
+    if (sel && !edges.some(c => _navEdgeKey(c) === selectedKey)) {
+      edges = [sel, ...edges];
     }
   }
 
-  if (emptyEl) emptyEl.hidden = cores.length > 0;
-  listEl.innerHTML = cores.map((c, i) => {
-    const key = _navCoreKey(c);
+  if (emptyEl) emptyEl.hidden = edges.length > 0;
+  listEl.innerHTML = edges.map((c, i) => {
+    const key = _navEdgeKey(c);
     const label = c.display_name || c.node_name || c.id || '—';
     const online = c.status === 'online';
     const selected = selectedKey && key === selectedKey;
-    const idx = _navCoresCache.findIndex(x => _navCoreKey(x) === key);
+    const idx = _navEdgesCache.findIndex(x => _navEdgeKey(x) === key);
     return `
-      <div class="nav-item nav-core-item${selected ? ' selected' : ''}"
-           data-core-key="${esc(key)}"
+      <div class="nav-item nav-edge-item${selected ? ' selected' : ''}"
+           data-edge-key="${esc(key)}"
            title="${esc(label)}"
-           onclick="openNavCore(${idx})">
-        <span class="nav-core-dot ${online ? 'online' : 'offline'}" aria-hidden="true"></span>
+           onclick="openNavEdge(${idx})">
+        <span class="nav-edge-dot ${online ? 'online' : 'offline'}" aria-hidden="true"></span>
         <span class="nav-item-label">${esc(label)}</span>
       </div>`;
   }).join('');
 }
 
-window.openNavCore = function(i) {
-  const core = (window._navCores || _navCoresCache)[i];
-  if (!core) return;
-  selectCore(core);
+window.openNavEdge = function(i) {
+  const edge = (window._navEdges || _navEdgesCache)[i];
+  if (!edge) return;
+  selectEdge(edge);
 };
 
-function syncNavCoreSelection() {
-  const selectedKey = _navCoreKey(state.selectedCore);
-  document.querySelectorAll('#nav-cores-list .nav-core-item').forEach(el => {
-    el.classList.toggle('selected', !!selectedKey && el.dataset.coreKey === selectedKey);
+function syncNavEdgeSelection() {
+  const selectedKey = _navEdgeKey(state.selectedEdge);
+  document.querySelectorAll('#nav-edges-list .nav-edge-item').forEach(el => {
+    el.classList.toggle('selected', !!selectedKey && el.dataset.edgeKey === selectedKey);
   });
-  _renderNavCoresSelectedChip();
+  _renderNavEdgesSelectedChip();
 }
 
-// ── Rendu des items Core selon le rôle et le scope ────────────────────────
+// ── Rendu des items passerelle selon le rôle et le scope ────────────────────────
 // Réutilise renderNavItem (groupes children) — même markup que la nav admin.
-function renderCoreNav(core) {
-  const el = document.getElementById('core-nav-items');
+function renderEdgeNav(edge) {
+  const el = document.getElementById('edge-nav-items');
   if (!el) return;
-  // Scope "core" explicite requis pour WAF, IP filter, Paramètres Core
-  const hasCoreScope = Role.hasCoreScope(core?.node_name || core?.id || '');
-  const ctx = { hasCoreScope };
-  const items = (APP_CONFIG.coreNav || []).filter(item => {
+  // Scope "edge" explicite requis pour WAF, IP filter, Paramètres passerelle
+  const hasEdgeScope = Role.hasEdgeScope(edge?.node_name || edge?.id || '');
+  const ctx = { hasEdgeScope };
+  const items = (APP_CONFIG.edgeNav || []).filter(item => {
     if (!item.guard) return true;
     return item.guard(ctx);
   }).map(item => {
@@ -459,32 +459,32 @@ function renderCoreNav(core) {
   el.innerHTML = items.map(renderNavItem).join('');
 }
 
-// ── Sélection / désélection d'un Core ─────────────────────────────────────
+// ── Sélection / désélection d'une passerelle ─────────────────────────────────────
 // page optionnelle : destination après sélection (défaut Trafic).
-// Évite la course openCore()+navigate(X) où selectCore écrasait toujours vers core-trafic.
-function selectCore(core, page) {
-  state.selectedCore = core;
-  const section = document.getElementById('core-nav-section');
-  const nameEl  = document.getElementById('core-nav-name');
+// Évite la course openEdge()+navigate(X) où selectEdge écrasait toujours vers edge-trafic.
+function selectEdge(edge, page) {
+  state.selectedEdge = edge;
+  const section = document.getElementById('edge-nav-section');
+  const nameEl  = document.getElementById('edge-nav-name');
   if (section) section.style.display = '';
-  if (nameEl)  nameEl.textContent = core.display_name || core.node_name || core.id;
-  renderCoreNav(core);
-  syncNavCoreSelection();
-  navigate(page || 'core-trafic');
+  if (nameEl)  nameEl.textContent = edge.display_name || edge.node_name || edge.id;
+  renderEdgeNav(edge);
+  syncNavEdgeSelection();
+  navigate(page || 'edge-trafic');
 }
 
-function deselectCore() {
-  state.selectedCore = null;
-  const section = document.getElementById('core-nav-section');
+function deselectEdge() {
+  state.selectedEdge = null;
+  const section = document.getElementById('edge-nav-section');
   if (section) section.style.display = 'none';
-  syncNavCoreSelection();
+  syncNavEdgeSelection();
   // Repasse en auto : replie si overflow pour libérer le menu admin
-  _navCoresCollapsed = null;
-  const cfg = _navCoresCfg();
-  const overflow = _navCoresCache.length > (cfg.overflowAt || 6);
+  _navEdgesCollapsed = null;
+  const cfg = _navEdgesCfg();
+  const overflow = _navEdgesCache.length > (cfg.overflowAt || 6);
   if (overflow) {
-    _navCoresCollapsed = true;
-    _applyNavCoresCollapsed();
+    _navEdgesCollapsed = true;
+    _applyNavEdgesCollapsed();
   }
   navigate('infrastructure');
 }

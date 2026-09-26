@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/backup"
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/admin/importer"
 )
 
@@ -57,9 +57,9 @@ func (h *BackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deleteSnapshot(w, r, id)
 	case r.Method == http.MethodPost && sub == "snapshots" && id != "" && action == "restore":
 		h.restoreSnapshot(w, r, id)
-	// Core routing table export
-	case r.Method == http.MethodGet && sub == "core":
-		h.exportCoreRoutes(w, r)
+	// Passerelle routing table export
+	case r.Method == http.MethodGet && sub == "edge":
+		h.exportEdgeRoutes(w, r)
 	// Proxy history
 	case r.Method == http.MethodGet && sub == "proxy-history" && id != "" && action == "":
 		h.listProxyHistory(w, r, id)
@@ -197,10 +197,10 @@ func (h *BackupHandler) restoreSnapshot(w http.ResponseWriter, r *http.Request, 
 	jsonOK(w, result)
 }
 
-// ── Core routing table export ─────────────────────────────────────────────────
+// ── passerelle routing table export ─────────────────────────────────────────────────
 
-func (h *BackupHandler) exportCoreRoutes(w http.ResponseWriter, r *http.Request) {
-	envs, err := coreproxy.LoadProductionEnvelopes(r.Context(), h.DB)
+func (h *BackupHandler) exportEdgeRoutes(w http.ResponseWriter, r *http.Request) {
+	envs, err := edgeproxy.LoadProductionEnvelopes(r.Context(), h.DB)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -225,7 +225,7 @@ func (h *BackupHandler) exportCoreRoutes(w http.ResponseWriter, r *http.Request)
 	data, _ := json.MarshalIndent(payload, "", "  ")
 	ts := time.Now().Format("20060102-150405")
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename=goproxify-routing-"+ts+".gpx-core-backup")
+	w.Header().Set("Content-Disposition", "attachment; filename=goproxify-routing-"+ts+".gpx-edge-backup")
 	w.Write(data) //nolint:errcheck
 }
 

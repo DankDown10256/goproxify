@@ -37,7 +37,7 @@ services:
       # goproxify.snippets: "headers-secure,rate-api"
       # goproxify.auth_provider: "authentik-prod"
       # goproxify.waf: "block"
-    # No ports: - "8080:8080" — Core connects via internal network
+    # No ports: - "8080:8080" — Edge connects via internal network
     networks:
       - my_app_network
 
@@ -46,9 +46,9 @@ networks:
 ```
 
 **Q: My application is not accessible after deployment. What should I check?**
-1. Is the Agent started and connected to the Core (`GET /api/v1/agents`)? Expected status: `online`.
+1. Is the Agent started and connected to the Edge (`GET /api/v1/agents`)? Expected status: `online`.
 2. If the Agent is in `pending` status: have you approved it in the UI?
-3. Has the Core container been connected to the app's Docker network (check `docker network inspect`)?
+3. Has the Edge container been connected to the app's Docker network (check `docker network inspect`)?
 4. Has the TLS certificate been issued (`GET /api/v1/certs`)?
 5. Do the Agent logs (`/etc/goproxify/logs/agent.log`) show any errors?
 
@@ -60,7 +60,7 @@ networks:
 Yes, via ACME DNS-01 (Let's Encrypt). A `*.example.com` certificate covers all subdomains without individual configuration. Configure your DNS provider in the snippets (`dns_providers`).
 
 **Q: Are certificates reloaded without interruption?**
-Yes. The Admin pushes decoded certificates directly into the Core's RAM via Go's native TLS `GetCertificate` function. No reload is required.
+Yes. The Admin pushes decoded certificates directly into the Edge's RAM via Go's native TLS `GetCertificate` function. No reload is required.
 
 **Q: Which DNS providers are supported for ACME DNS-01?**
 OVH, Cloudflare, Gandi, Route53 (AWS), Hetzner DNS.
@@ -69,11 +69,11 @@ OVH, Cloudflare, Gandi, Route53 (AWS), Hetzner DNS.
 
 ## Performance & stability
 
-**Q: Can the Core be updated without interrupting HTTP/3 QUIC or WebSocket connections?**
+**Q: Can the Edge be updated without interrupting HTTP/3 QUIC or WebSocket connections?**
 Yes. The routing table is stored in a `sync.Map` — updates are atomic and do not drop existing connections.
 
 **Q: What is the "flat P99" mentioned in the documentation?**
-Thanks to a buffer pool (`sync.Pool`), the Core recycles network allocations instead of submitting them to the Go garbage collector. This avoids latency spikes (GC pauses) under heavy load, keeping the 99th percentile latency stable.
+Thanks to a buffer pool (`sync.Pool`), the Edge recycles network allocations instead of submitting them to the Go garbage collector. This avoids latency spikes (GC pauses) under heavy load, keeping the 99th percentile latency stable.
 
 ---
 
@@ -93,21 +93,21 @@ GPX_VULNSCAN_ALLOW_PRIVATE=true
 Do not put the proxy's public URL in `backends[].url` to bypass the block: this would break routing and the scan would not see the real backend's headers.
 
 **Q: What should I do if a pairing token is compromised?**
-Revoke it immediately via the UI (`DELETE /api/v1/tokens/:id`) or the CLI, then generate a new one for the affected node. The Core or Agent will disconnect and must be restarted with the new token.
+Revoke it immediately via the UI (`DELETE /api/v1/tokens/:id`) or the CLI, then generate a new one for the affected node. The Edge or Agent will disconnect and must be restarted with the new token.
 
 **Q: Do tokens have a limited lifetime?**
 By default, tokens generated via `goproxify token` are permanent. You can specify a TTL (`-ttl 24h`) for ephemeral tokens in CI/CD deployments.
 
 **Q: What is the `JOIN_TOKEN` and what is it for?**
-The `JOIN_TOKEN` (variable `GPX_CONTROL_PLANE_JOIN_TOKEN`) is an ephemeral token (TTL 24h) used by the Agent to initiate its first WebSocket connection to the Core. It identifies the Agent and triggers the approval workflow:
+The `JOIN_TOKEN` (variable `GPX_CONTROL_PLANE_JOIN_TOKEN`) is an ephemeral token (TTL 24h) used by the Agent to initiate its first WebSocket connection to the Edge. It identifies the Agent and triggers the approval workflow:
 
 1. Agent connects with the `JOIN_TOKEN` → `pending` state
 2. Operator approves in the UI or via `POST /api/v1/agents/:id/approve`
-3. Core sends an `agent_hmac` (HMAC-SHA256 secret) via WS → `approved` state
+3. Edge sends an `agent_hmac` (HMAC-SHA256 secret) via WS → `approved` state
 4. Subsequent WS connections use the `agent_hmac` (rotated every hour)
 
 **Q: Why does the Agent no longer need an inbound port for the control plane?**
-The new WS architecture inverts the connection model: the Agent initiates the connection to the Core (persistent WS tunnel Agent→Core). The Core is the only connection hub. The Agent therefore no longer listens on an inbound port to receive commands — they are pushed via the WS tunnel established by the Agent.
+The new WS architecture inverts the connection model: the Agent initiates the connection to the Edge (persistent WS tunnel Agent→Edge). The Edge is the only connection hub. The Agent therefore no longer listens on an inbound port to receive commands — they are pushed via the WS tunnel established by the Agent.
 
 Port `:8001` (former Agent internal API) is kept temporarily for backward compatibility but will be removed after the full migration.
 
@@ -115,33 +115,33 @@ Port `:8001` (former Agent internal API) is kept temporarily for backward compat
 If the `agent_hmac` is lost (Agent restart without persistence), generate a new `JOIN_TOKEN` in the UI (Admin → Tokens → Create → role `agent`), and configure it in `GPX_CONTROL_PLANE_JOIN_TOKEN` before restarting the Agent. The Admin will receive an `agent_pending` notification again and approval will be required.
 
 **Q: How does automatic `agent_hmac` rotation work?**
-Every hour, the Core generates a new HMAC-SHA256 secret and sends it to the Agent via the `rotate_hmac` WS message. The Agent immediately adopts the new secret for future connections. If the connection is lost during rotation, the Agent reconnects with the old HMAC (still valid until the next established connection) — the Core updates it upon reconnection.
+Every hour, the Edge generates a new HMAC-SHA256 secret and sends it to the Agent via the `rotate_hmac` WS message. The Agent immediately adopts the new secret for future connections. If the connection is lost during rotation, the Agent reconnects with the old HMAC (still valid until the next established connection) — the Edge updates it upon reconnection.
 
 ---
 
-## Domains & multi-Core delegation
+## Domains & multi-Edge delegation
 
 **Q: What is the difference between Passthrough and Terminate?**
-- **Passthrough**: the entry Core forwards the TLS stream without decrypting it. The target Core sees the entry Core's IP in its logs.
-- **Terminate**: the entry Core terminates TLS, then proxies HTTP(S) to the target Core with `X-Forwarded-For` / `X-Real-IP`. The target Core can log the client's public IP.
+- **Passthrough**: the entry Edge forwards the TLS stream without decrypting it. The target Edge sees the entry Edge's IP in its logs.
+- **Terminate**: the entry Edge terminates TLS, then proxies HTTP(S) to the target Edge with `X-Forwarded-For` / `X-Real-IP`. The target Edge can log the client's public IP.
 
 Details, prerequisites and diagrams: [delegation.md](delegation.md).
 
-**Q: In delegation mode, the target Core only logs the entry Core's IP — is that normal?**
-Yes in **Passthrough** mode (TCP tunnel). Switch to **Terminate** if you need the client IP on the target Core (and the entry Core already sees public IPs).
+**Q: In delegation mode, the target Edge only logs the entry Edge's IP — is that normal?**
+Yes in **Passthrough** mode (TCP tunnel). Switch to **Terminate** if you need the client IP on the target Edge (and the entry Edge already sees public IPs).
 
-**Q: Terminate returns 502 / "no certificate" on the target Core?**
-The entry Core must reconnect in HTTPS with the **SNI = domain** (not the endpoint IP). This is expected behavior since the SNI vhost fix; redeploy the entry Core and re-push the delegations. Also verify that the entry Core has the domain's certificate (token scopes).
+**Q: Terminate returns 502 / "no certificate" on the target Edge?**
+The entry Edge must reconnect in HTTPS with the **SNI = domain** (not the endpoint IP). This is expected behavior since the SNI vhost fix; redeploy the entry Edge and re-push the delegations. Also verify that the entry Edge has the domain's certificate (token scopes).
 
-**Q: Entry Core vs domain rights?**
-The entry Core defines **who receives traffic** (routing / delegation / ACME). **Rights** (who receives routes and certificates) are managed via the Core token's **domain scopes** — the two are independent.
+**Q: Entry Edge vs domain rights?**
+The entry Edge defines **who receives traffic** (routing / delegation / ACME). **Rights** (who receives routes and certificates) are managed via the Edge token's **domain scopes** — the two are independent.
 
 ---
 
 ## Agent & Docker
 
 **Q: Does the application need to expose its ports on the host?**
-No — that's precisely the point of the Agent model. The Agent hot-connects the Core container to the application's private bridge network. No port is published on the physical host (`-p` or `ports:` in Compose).
+No — that's precisely the point of the Agent model. The Agent hot-connects the Edge container to the application's private bridge network. No port is published on the physical host (`-p` or `ports:` in Compose).
 
 **Q: Does the Agent work with Podman?**
 Podman exposes a Docker-compatible API on a Unix socket. Point `AGENT_DOCKER_SOCKET` to the Podman socket (e.g. `/run/user/1000/podman/podman.sock`). Support is experimental.

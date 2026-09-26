@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/portal"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 )
 
 func TestPortalPageTemplatesCRUD(t *testing.T) {

@@ -576,16 +576,16 @@ pages.backups = async function() {
         <p style="color:var(--text2);font-size:13px;margin:12px 0 20px;line-height:1.6">
           ${t('backups.routing.desc')}
         </p>
-        <button class="btn btn-primary" onclick="bkDownloadCore()">
+        <button class="btn btn-primary" onclick="bkDownloadEdge()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:5px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           ${t('backups.routing.download')}
         </button>
       </div>`;
   }
 
-  window.bkDownloadCore = function() {
+  window.bkDownloadEdge = function() {
     const ts = new Date().toISOString().slice(0,10);
-    authDownload('/api/v1/backups/core', `goproxify-routing-${ts}.gpx-core-backup`);
+    authDownload('/api/v1/backups/edge', `goproxify-routing-${ts}.gpx-edge-backup`);
   };
 
   await render();

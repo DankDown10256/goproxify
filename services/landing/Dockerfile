@@ -12,7 +12,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 ARG VERSION_ADMIN=dev
-ARG VERSION_CORE=dev
+ARG VERSION_EDGE=dev
 ARG VERSION_AGENT=dev
 ARG VERSION_WEBAPP=dev
 ARG VERSION_LANDING=dev
@@ -25,7 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build \
     -ldflags="-s -w \
       -X 'main.VersionAdmin=${VERSION_ADMIN}' \
-      -X 'main.VersionCore=${VERSION_CORE}' \
+      -X 'main.VersionEdge=${VERSION_EDGE}' \
       -X 'main.VersionAgent=${VERSION_AGENT}' \
       -X 'main.VersionWebapp=${VERSION_WEBAPP}' \
       -X 'main.VersionLanding=${VERSION_LANDING}' \

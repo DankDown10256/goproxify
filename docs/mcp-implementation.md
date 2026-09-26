@@ -264,7 +264,7 @@ Lors d'une montée de version du protocole MCP :
 
 Des tests unitaires couvrent les outils proxies (create/update/enable), bans sécurité et agents :
 
-`internal/admin/mcp/server_test.go` — base SQLite temporaire via `admindb.Open` + faux serveur Core (`httptest.NewServer`) qui simule les endpoints `/internal/v1/proxies/*`. Les outils proxy appellent le Core directement ; SQLite n'est utilisé que pour la table `tokens`.
+`internal/admin/mcp/server_test.go` — base SQLite temporaire via `admindb.Open` + faux serveur passerelle (`httptest.NewServer`) qui simule les endpoints `/internal/v1/proxies/*`. Les outils proxy appellent la passerelle directement ; SQLite n'est utilisé que pour la table `tokens`.
 
 ```go
 h := &Handler{DB: db, Log: slog.Default()}

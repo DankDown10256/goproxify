@@ -10,14 +10,14 @@ type AdminConfig struct {
 		Environment        string `mapstructure:"environment"`          // development | production
 		LogLevel           string `mapstructure:"log_level"`            // debug | info | warn | error
 		AuditRetentionDays int    `mapstructure:"audit_retention_days"` // 0 = 90 jours par défaut
-		TracingEndpoint    string `mapstructure:"tracing_endpoint"`     // Endpoint OTLP poussé aux Cores (Core local wins si renseigné)
+		TracingEndpoint    string `mapstructure:"tracing_endpoint"`     // Endpoint OTLP poussé aux passerelles (Passerelle locale wins si renseigné)
 	} `mapstructure:"app"`
 
 	Server struct {
 		ListenAddr string `mapstructure:"listen_addr"`
 		APIPort    int    `mapstructure:"api_port"`   // REST API + WebSocket
 		UIPort     int    `mapstructure:"ui_port"`    // Interface Web
-		LocalPort  int    `mapstructure:"local_port"` // Port direct sur 0.0.0.0, jamais derrière le Core (0 = désactivé)
+		LocalPort  int    `mapstructure:"local_port"` // Port direct sur 0.0.0.0, jamais derrière la passerelle (0 = désactivé)
 		TLSEnabled bool   `mapstructure:"tls_enabled"`
 	} `mapstructure:"server"`
 
@@ -35,7 +35,7 @@ type AdminConfig struct {
 	} `mapstructure:"security"`
 
 	Identity struct {
-		CoreNodeName string `mapstructure:"core_node_name"` // nom du nœud Core principal (ex: goproxify-core)
+		EdgeNodeName string `mapstructure:"edge_node_name"` // nom du nœud passerelle principale (ex: goproxify-edge)
 	} `mapstructure:"identity"`
 
 	HA struct {
@@ -45,13 +45,13 @@ type AdminConfig struct {
 		Peers    map[string]string `mapstructure:"peers"`     // id → "http://host:raft_port"
 	} `mapstructure:"ha"`
 
-	// CoreDefaults sont les paramètres runtime poussés aux Cores.
-	// Chaque Core peut les surcharger via sa propre config locale.
-	CoreDefaults struct {
+	// EdgeDefaults sont les paramètres runtime poussés aux passerelles.
+	// Chaque passerelle peut les surcharger via sa propre config locale.
+	EdgeDefaults struct {
 		LogLevel      string `mapstructure:"log_level"`       // info | debug | warn | error
 		LogFormat     string `mapstructure:"log_format"`      // json | text
 		AccessLogPath string `mapstructure:"access_log_path"` // chemin du fichier d'access log
-	} `mapstructure:"core_defaults"`
+	} `mapstructure:"edge_defaults"`
 
 	ACME struct {
 		Enabled      bool              `mapstructure:"enabled"`

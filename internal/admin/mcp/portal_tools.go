@@ -17,7 +17,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/api"
 )
 
-// AccessPusher pousse la config portail vers un Core (évite import corews).
+// AccessPusher pousse la config portail vers une passerelle (évite import edgews).
 type AccessPusher = api.PortalPusher
 
 // AccessTemplatesPusher pousse les templates HTML Access.
@@ -137,14 +137,14 @@ func portalTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "get_portal_config",
-			"description": "Retourne la config GoProxify Access (portail SSH/shell) pour un Core.",
-			"inputSchema": schema(req("core", "string", "Nom du nœud Core")),
+			"description": "Retourne la config GoProxify Access (portail SSH/shell) pour une passerelle.",
+			"inputSchema": schema(req("edge", "string", "Nom du nœud passerelle")),
 		},
 		{
 			"name":        "update_portal_config",
-			"description": "Met à jour les options Access d'un Core (ports, hôte public, 2FA, TTL session…) et pousse vers le Core.",
+			"description": "Met à jour les options Access d'une passerelle (ports, hôte public, 2FA, TTL session…) et pousse vers la passerelle.",
 			"inputSchema": schema(
-				req("core", "string", "Nom du nœud Core"),
+				req("edge", "string", "Nom du nœud passerelle"),
 				opt("enabled", "boolean", "Active le portail Access"),
 				opt("ssh_port", "number", "Port SSH Access"),
 				opt("http_port", "number", "Port HTTPS Access"),
@@ -157,19 +157,19 @@ func portalTools() []map[string]any {
 		},
 		{
 			"name":        "push_portal",
-			"description": "Repousse la config Access (catalogue + users) vers un Core.",
-			"inputSchema": schema(req("core", "string", "Nom du nœud Core")),
+			"description": "Repousse la config Access (catalogue + users) vers une passerelle.",
+			"inputSchema": schema(req("edge", "string", "Nom du nœud passerelle")),
 		},
 		{
 			"name":        "list_portal_destinations",
-			"description": "Liste le catalogue de destinations Access (filtre optionnel par Core).",
-			"inputSchema": schema(opt("core", "string", "Filtrer par nom de Core")),
+			"description": "Liste le catalogue de destinations Access (filtre optionnel par passerelle).",
+			"inputSchema": schema(opt("edge", "string", "Filtrer par nom de passerelle")),
 		},
 		{
 			"name":        "create_portal_destination",
 			"description": "Ajoute une destination au catalogue Access.",
 			"inputSchema": schema(
-				req("core_name", "string", "Core propriétaire"),
+				req("edge_name", "string", "Passerelle propriétaire"),
 				req("name", "string", "Libellé affiché"),
 				req("kind", "string", "ssh ou docker"),
 				opt("host", "string", "Hôte SSH (kind=ssh)"),
@@ -184,7 +184,7 @@ func portalTools() []map[string]any {
 			"description": "Modifie une destination Access existante.",
 			"inputSchema": schema(
 				req("id", "string", "ID de la destination"),
-				req("core_name", "string", "Core propriétaire"),
+				req("edge_name", "string", "Passerelle propriétaire"),
 				req("name", "string", "Libellé"),
 				req("kind", "string", "ssh ou docker"),
 				opt("host", "string", "Hôte SSH"),
@@ -204,32 +204,32 @@ func portalTools() []map[string]any {
 			"name":        "preview_portal_destinations",
 			"description": "Prévisualise les destinations Access visibles pour un jeu de tags (intersection).",
 			"inputSchema": schema(
-				req("core", "string", "Nom du Core"),
+				req("edge", "string", "Nom de la passerelle"),
 				opt("tags", "string", "Tags séparés par des virgules"),
 			),
 		},
 		{
 			"name":        "list_portal_users",
 			"description": "Liste les utilisateurs Access (invités / actifs).",
-			"inputSchema": schema(opt("core", "string", "Filtrer par home_core")),
+			"inputSchema": schema(opt("edge", "string", "Filtrer par home_edge")),
 		},
 		{
 			"name":        "invite_portal_user",
 			"description": "Invite un utilisateur Access par email (SMTP Admin requis).",
 			"inputSchema": schema(
 				req("email", "string", "Email de l'invité"),
-				req("home_core", "string", "Core d'accueil"),
+				req("home_edge", "string", "Passerelle d'accueil"),
 				opt("tags", "array", "Tags utilisateur"),
 			),
 		},
 		{
 			"name":        "update_portal_user",
-			"description": "Met à jour tags, statut ou home_core d'un utilisateur Access.",
+			"description": "Met à jour tags, statut ou home_edge d'un utilisateur Access.",
 			"inputSchema": schema(
 				req("id", "string", "ID utilisateur Access"),
 				opt("tags", "array", "Nouveaux tags"),
 				opt("status", "string", "active, invited ou disabled"),
-				opt("home_core", "string", "Nouveau Core d'accueil"),
+				opt("home_edge", "string", "Nouveau passerelle d'accueil"),
 			),
 		},
 		{
@@ -246,7 +246,7 @@ func portalTools() []map[string]any {
 			"name":        "list_portal_audit",
 			"description": "Journal d'audit Access (métadonnées sessions / connexions).",
 			"inputSchema": schema(
-				opt("core", "string", "Filtrer par Core"),
+				opt("edge", "string", "Filtrer par passerelle"),
 				opt("limit", "number", "Nombre d'entrées (défaut 100, max 500)"),
 			),
 		},
@@ -276,26 +276,26 @@ func portalTools() []map[string]any {
 		},
 		{
 			"name":        "push_portal_templates",
-			"description": "Pousse tous les templates HTML Access vers les Cores.",
+			"description": "Pousse tous les templates HTML Access vers les passerelles.",
 			"inputSchema": schema(),
 		},
 	}
 }
 
 func (h *Handler) toolGetPortalConfig(r *http.Request, args map[string]any) (any, error) {
-	core := argStr(args, "core")
-	if core == "" {
-		return nil, fmt.Errorf("core requis")
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
 	}
-	return h.callPortal(r, http.MethodGet, "/api/v1/portal?core="+url.QueryEscape(core), nil)
+	return h.callPortal(r, http.MethodGet, "/api/v1/portal?edge="+url.QueryEscape(edge), nil)
 }
 
 func (h *Handler) toolUpdatePortalConfig(r *http.Request, args map[string]any) (any, error) {
-	core := argStr(args, "core")
-	if core == "" {
-		return nil, fmt.Errorf("core requis")
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
 	}
-	raw, err := h.callPortal(r, http.MethodGet, "/api/v1/portal?core="+url.QueryEscape(core), nil)
+	raw, err := h.callPortal(r, http.MethodGet, "/api/v1/portal?edge="+url.QueryEscape(edge), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -327,28 +327,28 @@ func (h *Handler) toolUpdatePortalConfig(r *http.Request, args map[string]any) (
 	if _, ok := args["session_mode"]; ok {
 		cfgMap["session_mode"] = argStr(args, "session_mode")
 	}
-	return h.callPortal(r, http.MethodPut, "/api/v1/portal?core="+url.QueryEscape(core), cfgMap)
+	return h.callPortal(r, http.MethodPut, "/api/v1/portal?edge="+url.QueryEscape(edge), cfgMap)
 }
 
 func (h *Handler) toolPushPortal(r *http.Request, args map[string]any) (any, error) {
-	core := argStr(args, "core")
-	if core == "" {
-		return nil, fmt.Errorf("core requis")
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
 	}
-	return h.callPortal(r, http.MethodPost, "/api/v1/portal/push?core="+url.QueryEscape(core), map[string]any{})
+	return h.callPortal(r, http.MethodPost, "/api/v1/portal/push?edge="+url.QueryEscape(edge), map[string]any{})
 }
 
 func (h *Handler) toolListPortalDestinations(r *http.Request, args map[string]any) (any, error) {
 	path := "/api/v1/portal/destinations"
-	if core := argStr(args, "core"); core != "" {
-		path += "?core=" + url.QueryEscape(core)
+	if edge := argStr(args, "edge"); edge != "" {
+		path += "?edge=" + url.QueryEscape(edge)
 	}
 	return h.callPortal(r, http.MethodGet, path, nil)
 }
 
 func (h *Handler) toolCreatePortalDestination(r *http.Request, args map[string]any) (any, error) {
 	body := map[string]any{
-		"core_name":  argStr(args, "core_name"),
+		"edge_name":  argStr(args, "edge_name"),
 		"name":       argStr(args, "name"),
 		"kind":       argStr(args, "kind"),
 		"host":       argStr(args, "host"),
@@ -357,8 +357,8 @@ func (h *Handler) toolCreatePortalDestination(r *http.Request, args map[string]a
 		"container":  argStr(args, "container"),
 		"tags":       argStringSlice(args, "tags"),
 	}
-	if body["core_name"] == "" || body["name"] == "" || body["kind"] == "" {
-		return nil, fmt.Errorf("core_name, name et kind requis")
+	if body["edge_name"] == "" || body["name"] == "" || body["kind"] == "" {
+		return nil, fmt.Errorf("edge_name, name et kind requis")
 	}
 	return h.callPortal(r, http.MethodPost, "/api/v1/portal/destinations", body)
 }
@@ -373,7 +373,7 @@ func (h *Handler) toolUpdatePortalDestination(r *http.Request, args map[string]a
 		enabled = *b
 	}
 	body := map[string]any{
-		"core_name":  argStr(args, "core_name"),
+		"edge_name":  argStr(args, "edge_name"),
 		"name":       argStr(args, "name"),
 		"kind":       argStr(args, "kind"),
 		"host":       argStr(args, "host"),
@@ -395,12 +395,12 @@ func (h *Handler) toolDeletePortalDestination(r *http.Request, args map[string]a
 }
 
 func (h *Handler) toolPreviewPortalDestinations(r *http.Request, args map[string]any) (any, error) {
-	core := argStr(args, "core")
-	if core == "" {
-		return nil, fmt.Errorf("core requis")
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
 	}
 	q := url.Values{}
-	q.Set("core", core)
+	q.Set("edge", edge)
 	if tags := argStr(args, "tags"); tags != "" {
 		q.Set("tags", tags)
 	} else if sl := argStringSlice(args, "tags"); len(sl) > 0 {
@@ -411,21 +411,21 @@ func (h *Handler) toolPreviewPortalDestinations(r *http.Request, args map[string
 
 func (h *Handler) toolListPortalUsers(r *http.Request, args map[string]any) (any, error) {
 	path := "/api/v1/portal/users"
-	if core := argStr(args, "core"); core != "" {
-		path += "?core=" + url.QueryEscape(core)
+	if edge := argStr(args, "edge"); edge != "" {
+		path += "?edge=" + url.QueryEscape(edge)
 	}
 	return h.callPortal(r, http.MethodGet, path, nil)
 }
 
 func (h *Handler) toolInvitePortalUser(r *http.Request, args map[string]any) (any, error) {
 	email := argStr(args, "email")
-	home := argStr(args, "home_core")
+	home := argStr(args, "home_edge")
 	if email == "" || home == "" {
-		return nil, fmt.Errorf("email et home_core requis")
+		return nil, fmt.Errorf("email et home_edge requis")
 	}
 	body := map[string]any{
 		"email":     email,
-		"home_core": home,
+		"home_edge": home,
 		"tags":      argStringSlice(args, "tags"),
 	}
 	return h.callPortal(r, http.MethodPost, "/api/v1/portal/users/invite", body)
@@ -444,8 +444,8 @@ func (h *Handler) toolUpdatePortalUser(r *http.Request, args map[string]any) (an
 	if s := argStr(args, "status"); s != "" {
 		body["status"] = s
 	}
-	if s := argStr(args, "home_core"); s != "" {
-		body["home_core"] = s
+	if s := argStr(args, "home_edge"); s != "" {
+		body["home_edge"] = s
 	}
 	if len(body) == 0 {
 		return nil, fmt.Errorf("aucun champ à mettre à jour")
@@ -471,8 +471,8 @@ func (h *Handler) toolResendPortalInvite(r *http.Request, args map[string]any) (
 
 func (h *Handler) toolListPortalAudit(r *http.Request, args map[string]any) (any, error) {
 	q := url.Values{}
-	if core := argStr(args, "core"); core != "" {
-		q.Set("core", core)
+	if edge := argStr(args, "edge"); edge != "" {
+		q.Set("edge", edge)
 	}
 	if _, ok := args["limit"]; ok {
 		q.Set("limit", strconv.Itoa(argInt(args, "limit", 100)))

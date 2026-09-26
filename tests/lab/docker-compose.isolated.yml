@@ -1,5 +1,5 @@
 # =============================================================================
-# GOPROXIFY — Labo isolé (Admin + Core + Lab, réseau séparé de la production)
+# GOPROXIFY — Labo isolé (Admin + Passerelle + Lab, réseau séparé de la production)
 #
 # Utiliser pour les tests à fort impact (stress, spike, soak) qui ne peuvent
 # pas tourner sur un nœud partagé avec la production.
@@ -9,20 +9,20 @@
 #
 # Différences avec docker-compose.lab.yml :
 #   - Réseau isolé lab_net (bridge interne, pas de goproxify_net externe)
-#   - Admin et Core de test embarqués (configuration minimale, pas de TLS)
-#   - k6 et lab-tools résolvent *.lab.test vers le Core isolé
+#   - Admin et passerelle de test embarqués (configuration minimale, pas de TLS)
+#   - k6 et lab-tools résolvent *.lab.test vers la passerelle isolée
 #   - Aucun accès à la production : seed, attaques et charges sont sans risque
 # =============================================================================
 
 x-lab-hosts: &lab-hosts
   extra_hosts:
-    - "lab-fast.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-waf-block.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-waf-detect.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-ratelimit.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-chaos.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-tls.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
-    - "lab-h3.lab.test:${ISOLATED_CORE_IP:-172.30.0.10}"
+    - "lab-fast.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-waf-block.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-waf-detect.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-ratelimit.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-chaos.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-tls.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
+    - "lab-h3.lab.test:${ISOLATED_EDGE_IP:-172.30.0.10}"
 
 networks:
   lab_net:
@@ -35,7 +35,7 @@ networks:
 volumes:
   lab_admin_data:
     driver: local
-  lab_core_data:
+  lab_edge_data:
     driver: local
 
 services:
@@ -55,7 +55,7 @@ services:
       - GPX_PAIRING_SECRET=lab-pairing-secret-not-for-production-x
       - GPX_FIRST_ADMIN_EMAIL=lab@lab.test
       - GPX_FIRST_ADMIN_PASSWORD=Lab1234!
-      - GPX_IDENTITY_CORE_NODE_NAME=lab-isolated-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=lab-isolated-edge
       - GPX_SERVER_API_PORT=9444
       - GPX_ENGINE_LOG_LEVEL=warn
       - GPX_ADMIN_PUBLIC_URL=
@@ -74,23 +74,23 @@ services:
       start_period: 15s
 
   # ---------------------------------------------------------------------------
-  # Core isolé — reverse proxy de test (port 8080, pas de conflit avec la prod)
+  # Passerelle isolée — reverse proxy de test (port 8080, pas de conflit avec la prod)
   # ---------------------------------------------------------------------------
-  lab-core:
-    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/core:${GOPROXIFY_CORE_TAG:-preview}
-    container_name: lab-isolated-core
+  lab-edge:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/edge:${GOPROXIFY_EDGE_TAG:-preview}
+    container_name: lab-isolated-edge
     restart: unless-stopped
-    command: ["core"]
+    command: ["edge"]
     environment:
       - GPX_PAIRING_SECRET=lab-pairing-secret-not-for-production-x
-      - GPX_IDENTITY_CORE_NODE_NAME=lab-isolated-core
+      - GPX_IDENTITY_EDGE_NODE_NAME=lab-isolated-edge
       - GPX_ENGINE_LOG_LEVEL=warn
     ports:
       - "127.0.0.1:8080:80"
       - "127.0.0.1:8443:443"
       - "127.0.0.1:8443:443/udp"
     volumes:
-      - lab_core_data:/etc/goproxify
+      - lab_edge_data:/etc/goproxify
     networks:
       lab_net:
         ipv4_address: 172.30.0.10
@@ -187,7 +187,7 @@ services:
     entrypoint: ["sh", "-c", "apk add --no-cache curl netcat-openbsd bash > /dev/null 2>&1 && sleep inf"]
     environment:
       - LAB_ADMIN_URL=http://172.30.0.2:9444
-      - LAB_CORE_HOST=172.30.0.10
+      - LAB_EDGE_HOST=172.30.0.10
       - LAB_SAFE=0
     networks:
       - lab_net

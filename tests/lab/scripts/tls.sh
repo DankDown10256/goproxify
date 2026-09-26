@@ -5,7 +5,7 @@
 set -u
 . /lab/scripts/hosts.sh
 . /lab/scripts/auth.sh
-CORE_HOST=${CORE_HOST:-goproxify-core}
+EDGE_HOST=${EDGE_HOST:-goproxify-edge}
 fail=0
 
 ok()   { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
@@ -39,7 +39,7 @@ case "$icode" in
   *)           ko "import cert : HTTP $icode ($(head -c 200 /tmp/import.out))"; exit 1 ;;
 esac
 
-# Laisser au Core le temps de récupérer le cert
+# Laisser à la passerelle le temps de récupérer le cert
 sleep 2
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ route_tls() { # host backend [extra json]
 route_tls lab-tls.lab.test http://lab-backend:9000
 route_tls lab-h3.lab.test  http://lab-backend:9000
 
-# Attendre que le Core prenne en compte les routes
+# Attendre que la passerelle prenne en compte les routes
 sleep 2
 ready=0
 for _ in $(seq 1 15); do
@@ -105,16 +105,16 @@ else
 fi
 
 echo "== HTTPS — SNI et cert =="
-cn=$(echo | openssl s_client -connect "$CORE_HOST:443" -servername lab-tls.lab.test 2>/dev/null \
+cn=$(echo | openssl s_client -connect "$EDGE_HOST:443" -servername lab-tls.lab.test 2>/dev/null \
   | openssl x509 -noout -subject 2>/dev/null | sed 's/.*CN\s*=\s*//')
-[ -n "$cn" ] && ok "certificat servi par le Core (CN=$cn)" || ko "impossible de lire le CN du certificat servi"
+[ -n "$cn" ] && ok "certificat servi par la passerelle (CN=$cn)" || ko "impossible de lire le CN du certificat servi"
 
 echo "== HTTPS — Protocole : TLS 1.2 refusé (TLS 1.3 attendu comme minimum) =="
-tls12=$(echo | openssl s_client -connect "$CORE_HOST:443" -servername lab-tls.lab.test \
+tls12=$(echo | openssl s_client -connect "$EDGE_HOST:443" -servername lab-tls.lab.test \
   -tls1_2 2>&1 | grep -c 'Cipher is\|CONNECTED')
 [ "${tls12:-0}" -gt 0 ] \
   && echo "  info  TLS 1.2 accepté (attendu si TLS 1.2 n'est pas désactivé explicitement)" \
-  || ok "TLS 1.2 refusé par le Core"
+  || ok "TLS 1.2 refusé par la passerelle"
 
 rm -rf "$TMP"
 echo

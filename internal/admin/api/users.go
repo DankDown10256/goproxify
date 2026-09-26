@@ -190,7 +190,7 @@ func replaceUserScopes(db *sql.DB, userID string, scopes []userScope) error {
 		return err
 	}
 	for _, s := range scopes {
-		if s.ScopeType != "domain" && s.ScopeType != "server" && s.ScopeType != "proxy" && s.ScopeType != "core" {
+		if s.ScopeType != "domain" && s.ScopeType != "server" && s.ScopeType != "proxy" && s.ScopeType != "edge" {
 			continue
 		}
 		if s.Value == "" {

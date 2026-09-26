@@ -108,7 +108,7 @@ func runPathTest(ctx context.Context, host, proxyType string, enabled, tlsEnable
 		})
 	}
 
-	steps = append(steps, testCoreEnabled(enabled))
+	steps = append(steps, testEdgeEnabled(enabled))
 
 	if !isStream {
 		steps = append(steps, testTLS(ctx, host, tlsEnabled, tlsPassthrough))
@@ -168,12 +168,12 @@ func testDNS(ctx context.Context, host string) pathTestStep {
 		Message: h + " → " + strings.Join(addrs, ", "), LatencyMS: lat}
 }
 
-func testCoreEnabled(enabled bool) pathTestStep {
+func testEdgeEnabled(enabled bool) pathTestStep {
 	if !enabled {
-		return pathTestStep{Step: "core", Status: "warning",
+		return pathTestStep{Step: "edge", Status: "warning",
 			Message: "La route est désactivée — le trafic ne sera pas routé.", LatencyMS: -1}
 	}
-	return pathTestStep{Step: "core", Status: "ok",
+	return pathTestStep{Step: "edge", Status: "ok",
 		Message: "Route activée.", LatencyMS: -1}
 }
 

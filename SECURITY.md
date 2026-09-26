@@ -22,7 +22,7 @@ complexité.
 
 ## Périmètre
 
-Dans le périmètre : Admin, Core, Agent, portail Access, API REST, MCP, images
+Dans le périmètre : Admin, Passerelle, Agent, portail Access, API REST, MCP, images
 Docker officielles publiées.
 
 Hors périmètre : déploiements tiers non maintenus, configs locales avec secrets
@@ -34,7 +34,7 @@ Les versions actuelles sont en **préversion (0.x)**. Aucune garantie de
 stabilité ni d’aptitude production — voir [DISCLAIMER.md](DISCLAIMER.md).
 
 Seules les versions taguées les plus récentes de chaque composant
-(`admin` / `core` / `agent`, voir `versions.json`) reçoivent des correctifs
+(`admin` / `edge` / `agent`, voir `versions.json`) reçoivent des correctifs
 de sécurité en priorité, **sans engagement de délai**.
 
 ## Audits

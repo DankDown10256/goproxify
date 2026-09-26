@@ -19,14 +19,14 @@ import (
 	"github.com/vincamok/goproxify/internal/agent/docker"
 )
 
-// netManager est l'interface minimale pour connecter le Core à un réseau Docker.
+// netManager est l'interface minimale pour connecter la passerelle à un réseau Docker.
 type netManager interface {
-	ConnectCoreToNetwork(ctx context.Context, networkID string) error
+	ConnectEdgeToNetwork(ctx context.Context, networkID string) error
 }
 
-// endpointCoreConf est la config d'un Core alternatif pour un endpoint Portainer.
-type endpointCoreConf struct {
-	coreEndpoint string
+// endpointEdgeConf est la config d'une passerelle alternatif pour un endpoint Portainer.
+type endpointEdgeConf struct {
+	edgeEndpoint string
 	authToken    string
 }
 
@@ -40,26 +40,26 @@ type Discovery struct {
 	agentName     string
 	pollInterval  time.Duration
 	log           *slog.Logger
-	netMgr        netManager // connecte le Core aux réseaux Docker locaux (nil = désactivé)
+	netMgr        netManager // connecte la passerelle aux réseaux Docker locaux (nil = désactivé)
 	skipEndpoints map[string]bool
-	endpointCores map[string]endpointCoreConf // endpoint name (lowercase) → Core alternatif
+	endpointEdges map[string]endpointEdgeConf // endpoint name (lowercase) → passerelle alternatif
 
 	mu       sync.Mutex
 	prevSeen map[string]bool // clés "endpointID:containerID" du scan précédent
 }
 
-// EndpointCoreInput est utilisé par l'appelant pour configurer les Cores alternatifs.
-type EndpointCoreInput struct {
-	CoreEndpoint string
+// EndpointEdgeInput est utilisé par l'appelant pour configurer les passerelles alternatifs.
+type EndpointEdgeInput struct {
+	EdgeEndpoint string
 	AuthToken    string
 }
 
 // NewDiscovery crée une Discovery Portainer.
-// netMgr peut être nil ; s'il est fourni, le Core est connecté aux réseaux Docker
+// netMgr peut être nil ; s'il est fourni, la passerelle est connectée aux réseaux Docker
 // des conteneurs découverts sur les endpoints locaux (socket unix).
 func NewDiscovery(client *Client, adminEndpoint, authToken, labelPrefix, agentName string,
 	pollIntervalS int, log *slog.Logger, netMgr netManager,
-	skipEndpoints []string, epCores map[string]EndpointCoreInput) *Discovery {
+	skipEndpoints []string, epEdges map[string]EndpointEdgeInput) *Discovery {
 	if pollIntervalS <= 0 {
 		pollIntervalS = 30
 	}
@@ -67,10 +67,10 @@ func NewDiscovery(client *Client, adminEndpoint, authToken, labelPrefix, agentNa
 	for _, name := range skipEndpoints {
 		skip[strings.ToLower(name)] = true
 	}
-	cores := make(map[string]endpointCoreConf, len(epCores))
-	for name, c := range epCores {
-		cores[strings.ToLower(name)] = endpointCoreConf{
-			coreEndpoint: c.CoreEndpoint,
+	edges := make(map[string]endpointEdgeConf, len(epEdges))
+	for name, c := range epEdges {
+		edges[strings.ToLower(name)] = endpointEdgeConf{
+			edgeEndpoint: c.EdgeEndpoint,
 			authToken:    c.AuthToken,
 		}
 	}
@@ -84,11 +84,11 @@ func NewDiscovery(client *Client, adminEndpoint, authToken, labelPrefix, agentNa
 		log:           log,
 		netMgr:        netMgr,
 		skipEndpoints: skip,
-		endpointCores: cores,
+		endpointEdges: edges,
 	}
 }
 
-// SetToken met à jour le token d'authentification vers le Core.
+// SetToken met à jour le token d'authentification vers la passerelle.
 func (d *Discovery) SetToken(token string) {
 	d.mu.Lock()
 	d.authToken = token
@@ -152,11 +152,11 @@ func (d *Discovery) scan(ctx context.Context) {
 				d.log.Debug("portainer: container sans labels goproxify", "container", firstName, "image", c.Image)
 				continue
 			}
-			// Endpoint local (socket unix) : connecter le Core au réseau Docker du conteneur
+			// Endpoint local (socket unix) : connecter la passerelle au réseau Docker du conteneur
 			// pour que l'IP interne soit joignable, comme le fait la découverte Docker locale.
 			if isLocal && d.netMgr != nil && firstNet != "" {
-				if err := d.netMgr.ConnectCoreToNetwork(ctx, firstNet); err != nil {
-					d.log.Warn("portainer: connexion Core au réseau", "network", firstNet, "err", err)
+				if err := d.netMgr.ConnectEdgeToNetwork(ctx, firstNet); err != nil {
+					d.log.Warn("portainer: connexion passerelle au réseau", "network", firstNet, "err", err)
 				}
 			}
 			key := fmt.Sprintf("%d:%s:%s", ep.ID, ep.Name, c.ID)
@@ -199,14 +199,14 @@ func (d *Discovery) removeByKey(ctx context.Context, key string) {
 		shortID = shortID[:12]
 	}
 
-	coreEndpoint, token := d.coreFor(epName)
+	edgeEndpoint, token := d.edgeFor(epName)
 
 	payload, _ := json.Marshal(map[string]any{
 		"container_id": shortID,
 		"name":         key,
 		"source":       "portainer",
 	})
-	reqURL := coreEndpoint + "/internal/v1/agent/containers"
+	reqURL := edgeEndpoint + "/internal/v1/agent/containers"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, bytes.NewReader(payload))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -219,12 +219,12 @@ func (d *Discovery) removeByKey(ctx context.Context, key string) {
 	d.log.Info("portainer: route retirée", "key", key)
 }
 
-// coreFor retourne l'endpoint et le token du Core à utiliser pour un endpoint Portainer donné.
-// Si aucun Core alternatif n'est configuré pour cet endpoint, retourne le Core par défaut.
-func (d *Discovery) coreFor(epName string) (coreEndpoint, token string) {
+// edgeFor retourne l'endpoint et le token de la passerelle à utiliser pour un endpoint Portainer donné.
+// Si aucune passerelle alternatif n'est configuré pour cet endpoint, retourne la passerelle par défaut.
+func (d *Discovery) edgeFor(epName string) (edgeEndpoint, token string) {
 	if epName != "" {
-		if conf, ok := d.endpointCores[strings.ToLower(epName)]; ok {
-			return conf.coreEndpoint, conf.authToken
+		if conf, ok := d.endpointEdges[strings.ToLower(epName)]; ok {
+			return conf.edgeEndpoint, conf.authToken
 		}
 	}
 	d.mu.Lock()
@@ -294,14 +294,14 @@ func firstPrivateTCPPort(ports []ContainerPort) int {
 // Stratégie de résolution du backend :
 //   - Si goproxify.backend ou goproxify.ip est posé dans les labels → priorité absolue (déjà géré par ParseLabelsMulti)
 //   - Endpoint TCP distant (epHost non vide) → utiliser epHost + premier port publié
-//     (l'IP interne Docker du conteneur distant n'est pas routable depuis le Core)
+//     (l'IP interne Docker du conteneur distant n'est pas routable depuis la passerelle)
 //   - Endpoint local (unix:// ou epHost vide) → passer containerIP vide pour que
 //     ParseLabelsMulti tombe sur le nom du conteneur, résolvable via DNS Docker
 func (d *Discovery) resolveSpecs(c Container, firstNet, firstName, containerIP, epHost string) []*docker.ProxySpec {
 	labels := c.Labels
 
 	if epHost != "" && !isLocalHost(epHost) && labels[docker.LabelBackendURL] == "" && labels[docker.LabelIP] == "" {
-		// Endpoint TCP distant : l'IP interne Docker n'est pas routable depuis le Core.
+		// Endpoint TCP distant : l'IP interne Docker n'est pas routable depuis la passerelle.
 		// Utiliser l'hôte de l'endpoint Portainer + premier port TCP publié.
 		clone := make(map[string]string, len(labels)+2)
 		for k, v := range labels {
@@ -328,7 +328,7 @@ func (d *Discovery) resolveSpecs(c Container, firstNet, firstName, containerIP, 
 	}
 
 	// Endpoint local (unix:// ou TCP localhost) : garder l'IP interne du conteneur.
-	// Le Core doit être dans le même réseau Docker pour la joindre.
+	// La passerelle doit être dans le même réseau Docker pour la joindre.
 	// Si aucun label de port, utiliser PrivatePort (port applicatif du conteneur).
 	if labels[docker.LabelBackendURL] == "" && labels[docker.LabelPort] == "" {
 		if priv := firstPrivateTCPPort(c.Ports); priv > 0 {
@@ -371,10 +371,10 @@ func (d *Discovery) report(ctx context.Context, ep Endpoint, spec *docker.ProxyS
 	}
 	docker.AttachSecurityPayload(payload, spec)
 
-	coreEndpoint, token := d.coreFor(ep.Name)
+	edgeEndpoint, token := d.edgeFor(ep.Name)
 
 	body, _ := json.Marshal(payload)
-	reqURL := coreEndpoint + "/internal/v1/agent/containers"
+	reqURL := edgeEndpoint + "/internal/v1/agent/containers"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")

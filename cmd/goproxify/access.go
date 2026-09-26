@@ -37,25 +37,25 @@ func accessUsage() {
 	fmt.Print(`Usage: goproxify access <ressource> <action> [options]
 
 Ressources :
-  config         Options portail Access par Core
+  config         Options portail Access par passerelle
   destinations   Catalogue de destinations
   users          Utilisateurs Access (invite SMTP)
   audit          Journal d'audit Access
   templates      Templates HTML Access
 
 Exemples :
-  goproxify access config get -core core-a
-  goproxify access config set -core core-a -enabled true -public-host access.example.com
-  goproxify access config push -core core-a
-  goproxify access destinations list -core core-a
-  goproxify access destinations create -core core-a -name bastion -kind ssh -host 10.0.0.1 -port 22 -tags prod
+  goproxify access config get -edge edge-a
+  goproxify access config set -edge edge-a -enabled true -public-host access.example.com
+  goproxify access config push -edge edge-a
+  goproxify access destinations list -edge edge-a
+  goproxify access destinations create -edge edge-a -name bastion -kind ssh -host 10.0.0.1 -port 22 -tags prod
   goproxify access destinations delete -id <uuid>
-  goproxify access users list -core core-a
-  goproxify access users invite -email user@ex.com -home-core core-a -tags prod
+  goproxify access users list -edge edge-a
+  goproxify access users invite -email user@ex.com -home-edge edge-a -tags prod
   goproxify access users update -id <uuid> -status disabled
   goproxify access users resend -id <uuid>
   goproxify access users delete -id <uuid>
-  goproxify access audit list -core core-a -limit 50
+  goproxify access audit list -edge edge-a -limit 50
   goproxify access templates list
   goproxify access templates get -key login
   goproxify access templates set -key login -body-file ./login.html
@@ -127,17 +127,17 @@ func runAccessConfig() {
 	client := mustAdminClient(args)
 	switch action {
 	case "get":
-		core := requireFlag(args, "-core", "Core")
+		edge := requireFlag(args, "-edge", "Passerelle")
 		var out any
-		if _, err := client.DoJSON("GET", "/api/v1/portal?core="+core, nil, &out); err != nil {
+		if _, err := client.DoJSON("GET", "/api/v1/portal?edge="+edge, nil, &out); err != nil {
 			fmt.Fprintf(os.Stderr, "access config get : %v\n", err)
 			os.Exit(1)
 		}
 		printJSON(out)
 	case "set":
-		core := requireFlag(args, "-core", "Core")
+		edge := requireFlag(args, "-edge", "Passerelle")
 		var cur map[string]any
-		if _, err := client.DoJSON("GET", "/api/v1/portal?core="+core, nil, &cur); err != nil {
+		if _, err := client.DoJSON("GET", "/api/v1/portal?edge="+edge, nil, &cur); err != nil {
 			fmt.Fprintf(os.Stderr, "access config get : %v\n", err)
 			os.Exit(1)
 		}
@@ -181,21 +181,21 @@ func runAccessConfig() {
 			cur["session_mode"] = v
 		}
 		var out any
-		if _, err := client.DoJSON("PUT", "/api/v1/portal?core="+core, cur, &out); err != nil {
+		if _, err := client.DoJSON("PUT", "/api/v1/portal?edge="+edge, cur, &out); err != nil {
 			fmt.Fprintf(os.Stderr, "access config set : %v\n", err)
 			os.Exit(1)
 		}
 		printJSON(out)
 	case "push":
-		core := requireFlag(args, "-core", "Core")
+		edge := requireFlag(args, "-edge", "Passerelle")
 		var out any
-		if _, err := client.DoJSON("POST", "/api/v1/portal/push?core="+core, map[string]any{}, &out); err != nil {
+		if _, err := client.DoJSON("POST", "/api/v1/portal/push?edge="+edge, map[string]any{}, &out); err != nil {
 			fmt.Fprintf(os.Stderr, "access config push : %v\n", err)
 			os.Exit(1)
 		}
 		printJSON(out)
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goproxify access config get|set|push -core <nom> ...")
+		fmt.Fprintln(os.Stderr, "usage: goproxify access config get|set|push -edge <nom> ...")
 		os.Exit(1)
 	}
 }
@@ -207,8 +207,8 @@ func runAccessDestinations() {
 	switch action {
 	case "list":
 		path := "/api/v1/portal/destinations"
-		if core := flagValue(args, "-core", ""); core != "" {
-			path += "?core=" + core
+		if edge := flagValue(args, "-edge", ""); edge != "" {
+			path += "?edge=" + edge
 		}
 		var out any
 		if _, err := client.DoJSON("GET", path, nil, &out); err != nil {
@@ -217,7 +217,7 @@ func runAccessDestinations() {
 		}
 		printJSON(out)
 	case "create":
-		core := requireFlag(args, "-core", "Core")
+		edge := requireFlag(args, "-edge", "Passerelle")
 		name := requireFlag(args, "-name", "Nom")
 		kind := requireFlag(args, "-kind", "Kind (ssh|docker)")
 		port := 22
@@ -230,7 +230,7 @@ func runAccessDestinations() {
 			port = n
 		}
 		body := map[string]any{
-			"core_name":  core,
+			"edge_name":  edge,
 			"name":       name,
 			"kind":       kind,
 			"host":       flagValue(args, "-host", ""),
@@ -258,8 +258,8 @@ func runAccessDestinations() {
 			fmt.Println("ok")
 		}
 	case "preview":
-		core := requireFlag(args, "-core", "Core")
-		path := "/api/v1/portal/destinations/preview?core=" + core
+		edge := requireFlag(args, "-edge", "Passerelle")
+		path := "/api/v1/portal/destinations/preview?edge=" + edge
 		if tags := flagValue(args, "-tags", ""); tags != "" {
 			path += "&tags=" + tags
 		}
@@ -282,8 +282,8 @@ func runAccessUsers() {
 	switch action {
 	case "list":
 		path := "/api/v1/portal/users"
-		if core := flagValue(args, "-core", ""); core != "" {
-			path += "?core=" + core
+		if edge := flagValue(args, "-edge", ""); edge != "" {
+			path += "?edge=" + edge
 		}
 		var out any
 		if _, err := client.DoJSON("GET", path, nil, &out); err != nil {
@@ -293,10 +293,10 @@ func runAccessUsers() {
 		printJSON(out)
 	case "invite":
 		email := requireFlag(args, "-email", "Email")
-		home := requireFlag(args, "-home-core", "home-core")
+		home := requireFlag(args, "-home-edge", "home-edge")
 		body := map[string]any{
 			"email":     email,
-			"home_core": home,
+			"home_edge": home,
 			"tags":      parseTagsFlag(args),
 		}
 		var out any
@@ -314,11 +314,11 @@ func runAccessUsers() {
 		if v := flagValue(args, "-status", ""); v != "" {
 			body["status"] = v
 		}
-		if v := flagValue(args, "-home-core", ""); v != "" {
-			body["home_core"] = v
+		if v := flagValue(args, "-home-edge", ""); v != "" {
+			body["home_edge"] = v
 		}
 		if len(body) == 0 {
-			fmt.Fprintln(os.Stderr, "aucun champ (-tags / -status / -home-core)")
+			fmt.Fprintln(os.Stderr, "aucun champ (-tags / -status / -home-edge)")
 			os.Exit(1)
 		}
 		var out any
@@ -362,14 +362,14 @@ func runAccessAudit() {
 	case action == "" || strings.HasPrefix(action, "-"):
 		args = parseFlags(os.Args[3:])
 	default:
-		fmt.Fprintln(os.Stderr, "usage: goproxify access audit list [-core] [-limit]")
+		fmt.Fprintln(os.Stderr, "usage: goproxify access audit list [-edge] [-limit]")
 		os.Exit(1)
 	}
 	client := mustAdminClient(args)
 	path := "/api/v1/portal/audit"
 	q := []string{}
-	if core := flagValue(args, "-core", ""); core != "" {
-		q = append(q, "core="+core)
+	if edge := flagValue(args, "-edge", ""); edge != "" {
+		q = append(q, "edge="+edge)
 	}
 	if lim := flagValue(args, "-limit", ""); lim != "" {
 		q = append(q, "limit="+lim)

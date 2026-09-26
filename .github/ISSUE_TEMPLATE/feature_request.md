@@ -13,5 +13,5 @@ assignees: []
 
 ## Impact
 
-- Composants : Admin / Core / Agent / Access / docs
+- Composants : Admin / Passerelle / Agent / Access / docs
 - Breaking change ? Non / Oui (préciser)

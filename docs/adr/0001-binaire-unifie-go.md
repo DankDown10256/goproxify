@@ -7,11 +7,11 @@
 
 ## Contexte
 
-Goproxify comprend trois rôles distincts : Core (Data Plane), Administration (Control Plane) et Agent (Discovery). La question était de distribuer ces rôles sous forme de binaires séparés ou d'un binaire unique multi-personnalité.
+Goproxify comprend trois rôles distincts : Passerelle (Data Plane), Administration (Control Plane) et Agent (Discovery). La question était de distribuer ces rôles sous forme de binaires séparés ou d'un binaire unique multi-personnalité.
 
 ## Décision
 
-Un **binaire Go unique** compilé avec les trois rôles. La personnalité de l'instance est déterminée au démarrage par la sous-commande CLI (`core`, `admin`, `agent`) ou la variable d'environnement `GOPROXIFY_MODE`.
+Un **binaire Go unique** compilé avec les trois rôles. La personnalité de l'instance est déterminée au démarrage par la sous-commande CLI (`edge`, `admin`, `agent`) ou la variable d'environnement `GOPROXIFY_MODE`.
 
 ## Conséquences
 

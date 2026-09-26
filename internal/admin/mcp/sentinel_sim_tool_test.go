@@ -11,7 +11,7 @@ import (
 	"time"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	"github.com/vincamok/goproxify/internal/core/threat"
+	"github.com/vincamok/goproxify/internal/edge/threat"
 )
 
 func TestSimulateSentinelTool(t *testing.T) {
@@ -29,12 +29,12 @@ func TestSimulateSentinelTool(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ins(now.Add(-10*time.Minute), "9.9.9.9", "/wp-admin/login", 200, "core")
-	ins(now.Add(-9*time.Minute), "9.9.9.9", "/home", 200, "core")
-	ins(now.Add(-8*time.Minute), "8.8.8.8", "/home", 200, "core")
-	ins(now.Add(-7*time.Minute), "[pseudonymisé]", "/wp-admin", 200, "core")
+	ins(now.Add(-10*time.Minute), "9.9.9.9", "/wp-admin/login", 200, "edge")
+	ins(now.Add(-9*time.Minute), "9.9.9.9", "/home", 200, "edge")
+	ins(now.Add(-8*time.Minute), "8.8.8.8", "/home", 200, "edge")
+	ins(now.Add(-7*time.Minute), "[pseudonymisé]", "/wp-admin", 200, "edge")
 	ins(now.Add(-6*time.Minute), "7.7.7.7", "/wp-admin", 200, "admin")
-	ins(now.Add(-3*time.Hour), "6.6.6.6", "/wp-admin", 200, "core")
+	ins(now.Add(-3*time.Hour), "6.6.6.6", "/wp-admin", 200, "edge")
 
 	h := &Handler{DB: db}
 	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)

@@ -161,7 +161,7 @@ function _renderWorkspacePanel(ws) {
 
   const resourceOptions = [
     ...proxies.map(p => `<option value="proxy/${esc(p.id)}">[proxy] ${esc(p.name)}</option>`),
-    ...nodes.filter(n => n.role === 'core').map(n => `<option value="core/${esc(n.id)}">[core] ${esc(n.node_name||n.name||n.id)}</option>`),
+    ...nodes.filter(n => n.role === 'edge').map(n => `<option value="edge/${esc(n.id)}">[edge] ${esc(n.node_name||n.name||n.id)}</option>`),
     `<option value="domain/">domain: (saisir manuellement)</option>`,
   ].join('');
 

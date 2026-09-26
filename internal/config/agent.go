@@ -12,7 +12,7 @@ type AgentConfig struct {
 
 	ControlPlane struct {
 		AdminEndpoint string `mapstructure:"admin_endpoint"` // URL de l'Admin (pour l'appairage initial, optionnel)
-		CoreEndpoint  string `mapstructure:"core_endpoint"`  // URL du Core local (ex: http://goproxify-core:8000)
+		EdgeEndpoint  string `mapstructure:"edge_endpoint"`  // URL de la passerelle locale (ex: http://goproxify-edge:8000)
 		AuthToken     string `mapstructure:"auth_token"`     // Token d'appairage gpx_agent_* (compatibilité HTTP)
 		JoinToken     string `mapstructure:"join_token"`     // JOIN_TOKEN (gpx_join_*) pour le premier démarrage WS
 	} `mapstructure:"control_plane"`
@@ -47,8 +47,8 @@ type AgentConfig struct {
 	NetworkManagement struct {
 		ManageWireguard     bool   `mapstructure:"manage_wireguard"`
 		DockerNetworkDriver string `mapstructure:"docker_network_driver"` // bridge | overlay
-		// Nom du conteneur Core à connecter aux réseaux Docker des apps découvertes
-		CoreContainerName string `mapstructure:"core_container_name"`
+		// Nom du conteneur passerelle à connecter aux réseaux Docker des apps découvertes
+		EdgeContainerName string `mapstructure:"edge_container_name"`
 	} `mapstructure:"network_management"`
 
 	LogForwarding struct {
@@ -89,13 +89,13 @@ type AgentConfig struct {
 		APIKey         string                      `mapstructure:"api_key"`          // Settings → API Keys
 		PollIntervalS  int                         `mapstructure:"poll_interval_s"`  // défaut: 30
 		SkipEndpoints  []string                    `mapstructure:"skip_endpoints"`   // noms d'endpoints à ignorer
-		EndpointCores  map[string]EndpointCoreConf `mapstructure:"endpoint_cores"`   // endpoint → Core alternatif
+		EndpointEdges  map[string]EndpointEdgeConf `mapstructure:"endpoint_edges"`   // endpoint → passerelle alternatif
 	} `mapstructure:"portainer"`
 }
 
-// EndpointCoreConf permet de router les routes d'un endpoint Portainer
-// vers un Core GoProxify différent de celui par défaut de l'agent.
-type EndpointCoreConf struct {
-	CoreEndpoint string `mapstructure:"core_endpoint"` // ex: http://core.example.com:8000
-	AuthToken    string `mapstructure:"auth_token"`    // token d'agent pour ce Core
+// EndpointEdgeConf permet de router les routes d'un endpoint Portainer
+// vers une passerelle GoProxify différent de celui par défaut de l'agent.
+type EndpointEdgeConf struct {
+	EdgeEndpoint string `mapstructure:"edge_endpoint"` // ex: http://edge.example.com:8000
+	AuthToken    string `mapstructure:"auth_token"`    // token d'agent pour cette passerelle
 }

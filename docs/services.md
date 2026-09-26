@@ -3,7 +3,7 @@
 GoProxify est composé de trois processus indépendants qui communiquent via WebSocket :
 
 - **Admin** (port 8080/8443) — Control Plane : configuration, sécurité, interface utilisateur
-- **Core** (ports 80/443/QUIC) — Data Plane : proxy HTTP/HTTPS, pipeline de sécurité
+- **Passerelle** (ports 80/443/QUIC) — Data Plane : proxy HTTP/HTTPS, pipeline de sécurité
 - **Agent** (Docker/K8s) — Workload Plane : sidecar de gestion des conteneurs
 
 ---
@@ -13,7 +13,7 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 | Service | Rôle |
 |---|---|
 | **HTTP Server** | Sert l'API REST (`/api/v1/`) et l'interface web. Point d'entrée unique du control plane. |
-| **WebSocket Manager** | Maintient les connexions WebSocket persistantes vers chaque Core et Agent. Pousse config et commandes. |
+| **WebSocket Manager** | Maintient les connexions WebSocket persistantes vers chaque passerelle et Agent. Pousse config et commandes. |
 | **Auth / JWT** | Émet et valide les tokens JWT des sessions utilisateur. Gère les providers OIDC et SAML. |
 | **RBAC** | Contrôle les permissions par rôle (admin, viewer, operator) sur chaque ressource API. |
 | **MFA** | Gère TOTP, passkeys WebAuthn et les codes de récupération pour les utilisateurs. |
@@ -31,7 +31,7 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 
 ---
 
-## Core
+## Passerelle
 
 | Service | Rôle |
 |---|---|
@@ -48,8 +48,8 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 | **CertStore** | Stocke et distribue les certificats TLS en mémoire ; notifie le TLS server des mises à jour. |
 | **ProxyStore** | Charge et recharge la configuration des proxies (YAML) sans redémarrage. |
 | **Internal API** | Sert les endpoints `POST /internal/v1/` : push config depuis Admin, métriques, scores LB. |
-| **Gateway Peers** | Synchronise les scores adaptatifs et les profils WAF avec les autres nœuds Core (cluster). |
-| **Portal** | Gère les sessions UUID one-shot/multi pour l'accès terminal/web aux conteneurs via le Core. |
+| **Gateway Peers** | Synchronise les scores adaptatifs et les profils WAF avec les autres nœuds passerelle (cluster). |
+| **Portal** | Gère les sessions UUID one-shot/multi pour l'accès terminal/web aux conteneurs via la passerelle. |
 | **Metrics Exporter** | Expose `/metrics` (Prometheus) et `/internal/v1/metrics/summary` (JSON résumé par proxy). |
 
 ---
@@ -58,16 +58,16 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 
 | Service | Rôle |
 |---|---|
-| **WebSocket Client** | Maintient la connexion persistante vers le Core. Reçoit commandes et pousse événements. |
+| **WebSocket Client** | Maintient la connexion persistante vers la passerelle. Reçoit commandes et pousse événements. |
 | **Docker Runtime** | Démarre, arrête, liste les conteneurs Docker sur l'hôte. Exécute les commandes `exec`. |
 | **Kubernetes Runtime** | Interagit avec l'API Kubernetes pour gérer pods, déploiements et namespaces. |
 | **Container Registry** | Tire les images depuis les registries configurées (Docker Hub, Harness, privé). |
-| **Log Streamer** | Streame les logs des conteneurs vers le Core en temps réel (WebSocket). |
-| **Health Monitor** | Vérifie périodiquement l'état des conteneurs gérés et notifie le Core en cas de crash. |
-| **Tunnel Server** | Ouvre des tunnels TCP/WebSocket entre le navigateur (via Core) et les services internes des conteneurs. |
+| **Log Streamer** | Streame les logs des conteneurs vers la passerelle en temps réel (WebSocket). |
+| **Health Monitor** | Vérifie périodiquement l'état des conteneurs gérés et notifie la passerelle en cas de crash. |
+| **Tunnel Server** | Ouvre des tunnels TCP/WebSocket entre le navigateur (via passerelle) et les services internes des conteneurs. |
 | **SSH Proxy** | Relaye les sessions SSH vers les conteneurs ou hôtes cibles, avec audit de session. |
 | **Metrics Collector** | Collecte les métriques système (CPU, RAM, I/O) des conteneurs et les agrège pour le dashboard. |
 | **Snapshot Manager** | Crée des snapshots de volume et les envoie vers le stockage objet configuré. |
 | **Network Inspector** | Inspecte le trafic réseau inter-conteneurs pour détecter des anomalies (ports inattendus, exfiltration). |
 | **Config Watcher** | Surveille les ConfigMaps/Secrets Kubernetes ou les fichiers de config Docker et déclenche un rechargement. |
-| **Auto-Scaler** | Ajuste le nombre de réplicas d'un déploiement selon les métriques de charge reçues du Core. |
+| **Auto-Scaler** | Ajuste le nombre de réplicas d'un déploiement selon les métriques de charge reçues de la passerelle. |

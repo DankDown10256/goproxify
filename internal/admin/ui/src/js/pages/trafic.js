@@ -1,17 +1,17 @@
-// ── PAGE PARTAGÉE: Trafic (Admin + Core) ─────────────────────────────────
-// ctx = { mode: 'admin'|'core' }
+// ── PAGE PARTAGÉE: Trafic (Admin + Passerelle) ─────────────────────────────────
+// ctx = { mode: 'admin'|'edge' }
 //
 // Les deux modes partagent exactement le même design (toolbar, filtres, tuiles).
-// Différences : mode core ajoute un bandeau statut Core ; pas de chips Core
+// Différences : mode edge ajoute un bandeau statut passerelle ; pas de chips passerelle
 // sur les cartes (contexte déjà connu) ; bouton "Nouveau flux" admin only.
 //
 // État persistant (survive la navigation) : window._tv, _tc, _tg, _ts, _tf
-    // Mode Core : GET /proxies?core=… filtre par les périmètres (token_scopes) du Core.
+    // Mode passerelle : GET /proxies?edge=… filtre par les périmètres (token_scopes) de la passerelle.
 async function renderTraficPage(ctx) {
   const mode    = ctx.mode || 'admin';
   const isAdmin = mode === 'admin';
-  const core    = isAdmin ? null : (state.selectedCore);
-  const coreLabel = core ? (core.display_name || core.node_name || core.id || '—') : '';
+  const edge    = isAdmin ? null : (state.selectedEdge);
+  const edgeLabel = edge ? (edge.display_name || edge.node_name || edge.id || '—') : '';
 
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
@@ -25,17 +25,17 @@ async function renderTraficPage(ctx) {
   if (!window._tf)              window._tf = { status: '', type: '', source: '' };
 
   try {
-    // node_name suffit pour ?core= (ResolveCoreAccess accepte uuid ou node_name).
-    let coreRef = '';
-    if (!isAdmin && core) {
-      coreRef = core.node_name || core.id || '';
+    // node_name suffit pour ?edge= (ResolveEdgeAccess accepte uuid ou node_name).
+    let edgeRef = '';
+    if (!isAdmin && edge) {
+      edgeRef = edge.node_name || edge.id || '';
     }
-    if (!isAdmin && !coreRef) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    if (!isAdmin && !edgeRef) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
-    const proxiesPath = (!isAdmin && coreRef)
-      ? `/proxies?core=${encodeURIComponent(coreRef)}`
+    const proxiesPath = (!isAdmin && edgeRef)
+      ? `/proxies?edge=${encodeURIComponent(edgeRef)}`
       : '/proxies';
     const [allProxies, nodesRes, domainsRes, tokensRes, metricsSum] = await Promise.all([
       api('GET', proxiesPath).catch((e) => {
@@ -44,7 +44,7 @@ async function renderTraficPage(ctx) {
       }),
       isAdmin ? api('GET', '/nodes').catch(() => []) : Promise.resolve([]),
       isAdmin ? api('GET', '/domains').catch(() => []) : Promise.resolve([]),
-      isAdmin ? api('GET', '/tokens?role=core').catch(() => []) : Promise.resolve([]),
+      isAdmin ? api('GET', '/tokens?role=edge').catch(() => []) : Promise.resolve([]),
       api('GET', '/internal/v1/metrics/summary').catch(() => null),
     ]);
     const _metricsMap = {};
@@ -57,35 +57,35 @@ async function renderTraficPage(ctx) {
     }
     window._backendHealth = {};
 
-    const cores = (nodesRes || []).filter(n => n.role === 'core');
-    window._coreNodes = cores;
+    const edges = (nodesRes || []).filter(n => n.role === 'edge');
+    window._edgeNodes = edges;
     window._traficAll = Array.isArray(allProxies) ? allProxies : [];
     const allP = window._traficAll;
 
-    // Droits Core (token scopes + délégation) — pour n'afficher que les Cores qui reçoivent vraiment la route.
+    // Droits passerelle (token scopes + délégation) — pour n'afficher que les passerelles qui reçoivent vraiment la route.
     const domains = domainsRes || [];
     const now = Date.now();
-    const coreTokens = (tokensRes || []).filter(t =>
+    const edgeTokens = (tokensRes || []).filter(t =>
       !t.revoked && !(t.expires_at && new Date(t.expires_at).getTime() <= now)
     );
-    const coreAccessList = [];
-    if (isAdmin && cores.length) {
-      await Promise.all(cores.map(async (cr) => {
-        const match = coreTokens.filter(t =>
+    const edgeAccessList = [];
+    if (isAdmin && edges.length) {
+      await Promise.all(edges.map(async (cr) => {
+        const match = edgeTokens.filter(t =>
           t.id === cr.id || t.node_name === cr.node_name || t.node_name === cr.id
         );
         const best = match.find(t => t.id === cr.id)
           || match.find(t => t.node_endpoint)
           || match[0]
           || null;
-        // Sans token actif → aucun droit de réception (ne pas afficher le Core).
+        // Sans token actif → aucun droit de réception (ne pas afficher la passerelle).
         if (!best) return;
         let scopes = [];
         try {
           scopes = await api('GET', `/tokens/${encodeURIComponent(best.id)}/scopes`) || [];
         } catch (_) {}
-        coreAccessList.push({
-          core: cr,
+        edgeAccessList.push({
+          edge: cr,
           tokenId: best.id,
           role: String(best.rbac_role || 'admin').toLowerCase(),
           scopes: (scopes || []).map(s => ({
@@ -133,11 +133,11 @@ async function renderTraficPage(ctx) {
       return `<span class="tag ${cls}">${esc(t)}</span>`;
     };
 
-    const featureBadges = (cfg) => {
+    const featureBadges = (cfg, iconOnly) => {
       const sec = cfg.security || {};
       const a = 'width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
       const chip = (label, color, bg, svg) =>
-        `<span title="${label}" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px 2px 5px;border-radius:99px;background:${bg};color:${color};font-size:10px;font-weight:500;white-space:nowrap;"><svg ${a}>${svg}</svg>${label}</span>`;
+        `<span title="${label}" style="display:inline-flex;align-items:center;justify-content:center;gap:3px;${iconOnly?"width:22px;height:22px;border-radius:6px;":"padding:2px 6px 2px 5px;border-radius:99px;"}background:${bg};color:${color};font-size:10px;font-weight:500;white-space:nowrap;"><svg ${a}>${svg}</svg>${iconOnly?"":label}</span>`;
       const out = [];
       if (cfg.tls_enabled || cfg.tls_passthrough)
         out.push(chip('TLS','#a78bfa','rgba(167,139,250,.12)','<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'));
@@ -196,7 +196,7 @@ async function renderTraficPage(ctx) {
       const hosts = [cfg.host || p.host, ...(cfg.aliases || [])].filter(Boolean);
       const backends = (cfg.backends || p.backends || []).map(b => b.url || b).filter(Boolean);
       return scopes.some(s => {
-        if (s.type === 'core') return true;
+        if (s.type === 'edge') return true;
         if (s.type === 'proxy') return s.value === p.id;
         if (s.type === 'domain') return hosts.some(h => hostCovered(h, s.value));
         if (s.type === 'server') return backends.some(u => globMatch(s.value, u));
@@ -204,52 +204,52 @@ async function renderTraficPage(ctx) {
       });
     };
 
-    const coreRefMatch = (acc, ref) => {
+    const edgeRefMatch = (acc, ref) => {
       ref = String(ref || '').trim();
       if (!ref) return false;
-      const cr = acc.core;
+      const cr = acc.edge;
       return cr.id === ref || cr.node_name === ref || acc.tokenId === ref;
     };
 
-    // Cores qui reçoivent réellement la route (scopes + exclusion délégation).
-    const coresForProxy = (p) => {
+    // Passerelles qui reçoivent réellement la route (scopes + exclusion délégation).
+    const edgesForProxy = (p) => {
       const cfg = getCfg(p);
       const hosts = [cfg.host || p.host, ...(cfg.aliases || [])].filter(Boolean);
-      const bindings = domains.filter(d => d.delegated_to_core_id && d.delegated_endpoint);
+      const bindings = domains.filter(d => d.delegated_to_edge_id && d.delegated_endpoint);
 
-      return coreAccessList.filter(acc => {
+      return edgeAccessList.filter(acc => {
         if (!routeAllowedByAccess(acc, p, cfg)) return false;
         for (const b of bindings) {
           const covered = hosts.some(h => hostCovered(h, b.domain));
           if (!covered) continue;
-          // Seul le Core cible de la délégation conserve la route.
-          return coreRefMatch(acc, b.delegated_to_core_id);
+          // Seul la passerelle cible de la délégation conserve la route.
+          return edgeRefMatch(acc, b.delegated_to_edge_id);
         }
         return true;
-      }).map(acc => acc.core);
+      }).map(acc => acc.edge);
     };
 
-    // Core chip — admin uniquement ; uniquement les Cores autorisés (pas tous les nœuds).
-    const coreChipHtml = (p) => {
+    // Passerelle chip — admin uniquement ; uniquement les passerelles autorisées (pas tous les nœuds).
+    const edgeChipHtml = (p) => {
       if (!isAdmin) return '';
       const mkChip = (cr) => {
-        const i = cores.indexOf(cr);
-        const n = cr.display_name || cr.node_name || cr.id || 'Core';
+        const i = edges.indexOf(cr);
+        const n = cr.display_name || cr.node_name || cr.id || 'Passerelle';
         const dot = `<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${cr.status==='online'?'var(--green)':'var(--text3)'};flex-shrink:0;margin-right:3px"></span>`;
-        const click = i >= 0 ? `onclick="selectCore(window._coreNodes[${i}],'core-trafic')"` : '';
-        return `<span ${click} title="Core : ${esc(n)}" style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);${i>=0?'cursor:pointer;':''}white-space:nowrap">${dot}⚙ ${esc(n)}</span>`;
+        const click = i >= 0 ? `onclick="selectEdge(window._edgeNodes[${i}],'edge-trafic')"` : '';
+        return `<span ${click} title="Passerelle : ${esc(n)}" style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);${i>=0?'cursor:pointer;':''}white-space:nowrap">${dot}⚙ ${esc(n)}</span>`;
       };
 
       // Lien explicite legacy (si présent) — sinon dériver des droits.
-      const coreId = p.node_id || p.core_id;
-      if (coreId) {
-        const acc = coreAccessList.find(a => coreRefMatch(a, coreId));
-        const c = acc?.core || cores.find(x => x.id === coreId || x.node_name === coreId);
+      const edgeId = p.node_id || p.edge_id;
+      if (edgeId) {
+        const acc = edgeAccessList.find(a => edgeRefMatch(a, edgeId));
+        const c = acc?.edge || edges.find(x => x.id === edgeId || x.node_name === edgeId);
         if (c) return mkChip(c);
-        return `<span style="font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(coreId)}</span>`;
+        return `<span style="font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(edgeId)}</span>`;
       }
 
-      const allowed = coresForProxy(p);
+      const allowed = edgesForProxy(p);
       if (allowed.length) return allowed.map(mkChip).join('');
       return '';
     };
@@ -381,146 +381,160 @@ async function renderTraficPage(ctx) {
       return backendChip(b, 0);
     }
 
-    // ── Rendu tuile ──────────────────────────────────────────────────────────
-    function buildTile(p, selSet) {
+    // ── Modèle + actions partagés par toutes les vues (tuile, tableau) ────────
+    function proxyModel(p, selSet) {
       const cfg = getCfg(p);
       const type = getType(p);
       const host = cfg.host || p.host || p.name || '—';
-      const enabled = p.enabled !== false;
-      const isAuto  = isDockerP(p) || isK8sP(p);
-      const isStr   = isStreamP(p);
-      const isSel   = selSet.has(p.id);
-      const hasTLS  = cfg.tls_enabled || cfg.tls_passthrough || type === 'https';
-      const allDomains = [host, ...(cfg.aliases||[])].filter(Boolean);
-      const allBackends = (cfg.backends || p.backends || []).filter(Boolean);
-      const chips = coreChipHtml(p);
-      const badges = featureBadges(cfg);
-      const stype = isStr ? 'stream' : 'proxy';
-      const secAlert = !isStr ? proxySecAlert(cfg) : null;
-      const pm = _metricsMap[host.toLowerCase()];
+      const isStr = isStreamP(p);
+      return {
+        p, id: p.id, cfg, type, host, isStr,
+        enabled: p.enabled !== false,
+        isAuto: isDockerP(p) || isK8sP(p),
+        isSel: selSet.has(p.id),
+        hasTLS: !!(cfg.tls_enabled || cfg.tls_passthrough || type === 'https'),
+        allDomains: [host, ...(cfg.aliases || [])].filter(Boolean),
+        allBackends: (cfg.backends || p.backends || []).filter(Boolean),
+        chips: edgeChipHtml(p),
+        stype: isStr ? 'stream' : 'proxy',
+        secAlert: isStr ? null : proxySecAlert(cfg),
+        pm: _metricsMap[host.toLowerCase()],
+      };
+    }
 
-      const toggleEl = Role.canWrite()
-        ? `<label class="toggle" style="flex-shrink:0;margin:0;"><input type="checkbox" ${enabled?'checked':''} ${isAuto?'disabled':''} onchange="traficToggle('${esc(p.id)}',${enabled})"><span class="toggle-slider"></span></label>`
-        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${enabled?'var(--green)':'var(--text3)'};flex-shrink:0;"></span>`;
-      const editBtn = Role.canWrite() && !isAuto
-        ? (isStr
-            ? `<button class="btn btn-ghost btn-icon" onclick="openStreamEditModal('${esc(p.id)}')" title="${esc(t('common.edit'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-            : `<button class="btn btn-ghost btn-icon" onclick="openProxyModal('${esc(p.id)}')" title="${esc(t('common.edit'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`)
+    const ico = (d, w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const ICO = {
+      edit:   '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+      more:   '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+      shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+      shieldAlert: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+      logs:   '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/>',
+      prism:  '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+      hist:   '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>',
+      flow:   '<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/>',
+      labels: '<rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/>',
+      trash:  '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>',
+    };
+
+    function metricsInline(pm) {
+      if (!pm) return '';
+      const rps = pm.requests_per_second;
+      const out = [];
+      if (rps != null) out.push(`<span>${rps < 1 ? rps.toFixed(2) : rps < 10 ? rps.toFixed(1) : Math.round(rps)} req/s</span>`);
+      if (pm.error_rate != null) out.push(`<span style="color:${pm.error_rate > 0.05 ? 'var(--red)' : pm.error_rate > 0.01 ? 'var(--yellow)' : 'inherit'}">${(pm.error_rate * 100).toFixed(1)}% err</span>`);
+      if (pm.p95_ms != null) out.push(`<span>p95 ${Math.round(pm.p95_ms)} ms</span>`);
+      if (pm.backends_up != null && pm.backends_total != null && pm.backends_up < pm.backends_total)
+        out.push(`<span style="color:var(--yellow)">${pm.backends_up}/${pm.backends_total} up</span>`);
+      return out.join('');
+    }
+
+    // Premier backend + pastille « +N » qui déplie les autres (classe be-open sur l'ancêtre `scope`).
+    function backendsInline(allBackends, scope) {
+      if (!allBackends.length) return `<div class="trafic-be-line"><span class="trafic-be-empty">—</span></div>`;
+      const more = allBackends.length - 1;
+      const moreBtn = more > 0
+        ? `<button type="button" class="trafic-be-more" title="${esc(t('trafic.more_backends'))}" onclick="event.stopPropagation();this.closest('${scope}').classList.toggle('be-open')">+${more}</button>` : '';
+      const extras = allBackends.slice(1).map(b => `<span class="trafic-be-extra">${backendChip(b, 0)}</span>`).join('');
+      return `<div class="trafic-be-line">${backendChip(allBackends[0], 0)}${moreBtn}${extras}</div>`;
+    }
+
+    function proxyControls(m) {
+      const id = esc(m.id);
+      const toggle = Role.canWrite()
+        ? `<label class="toggle" style="flex-shrink:0;margin:0;"><input type="checkbox" ${m.enabled ? 'checked' : ''} ${m.isAuto ? 'disabled' : ''} onchange="traficToggle('${id}',${m.enabled})"><span class="toggle-slider"></span></label>`
+        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${m.enabled ? 'var(--green)' : 'var(--text3)'};flex-shrink:0;"></span>`;
+      const editFn = m.isStr ? 'openStreamEditModal' : 'openProxyModal';
+      const edit = Role.canWrite() && !m.isAuto
+        ? `<button class="btn btn-ghost btn-icon" onclick="${editFn}('${id}')" title="${esc(t('common.edit'))}">${ico(ICO.edit)}</button>` : '';
+      const secColor = m.secAlert?.level === 'critical' ? 'var(--red)' : 'var(--yellow,#f59e0b)';
+      const secWarn = m.secAlert
+        ? `<button class="btn btn-ghost btn-icon" onclick="openProxySecModal('${id}')" title="${esc(t('trafic.security_prefix') + m.secAlert.label)}" style="color:${secColor}">${ico(ICO.shieldAlert)}</button>` : '';
+      const host = esc(m.host);
+      const item = (icon, label, onclick, cls = '') =>
+        `<button type="button" class="trafic-menu-item ${cls}" onclick="${onclick}">${ico(ICO[icon], 13)}<span>${label}</span></button>`;
+      const items = [
+        !m.isStr && item('shield', esc(t('trafic.security')), `openProxySecModal('${id}')`),
+        item('logs', esc(t('trafic.access_logs')), `logsFilters.domain='${host}';navigate('logs')`),
+        item('prism', 'Prism', `openPrismForProxy('${host}','${esc(m.p.node_id || m.p.edge_id || '')}')`),
+        !m.isStr && item('hist', esc(t('backups.history.title') || 'Historique'), `openProxyVersionsModal('${id}','${host}')`),
+        item('flow', esc(t('trafic.flow_title')), `openTrafficFlowModal('proxy','${id}')`),
+        item('labels', esc(t('trafic.docker_labels')), `openDockerLabelsFromProxy('${id}')`),
+        Role.canDelete() && !m.isAuto && `<div class="trafic-menu-sep"></div>` + item('trash', esc(t('common.delete')), `traficDelete('${id}')`, 'is-danger'),
+      ].filter(Boolean).join('');
+      const more = `<button type="button" class="btn btn-ghost btn-icon" title="${esc(t('trafic.more_actions'))}" onclick="traficMenu(event,this)">${ico(ICO.more)}</button><div class="trafic-menu">${items}</div>`;
+      return { toggle, edit, secWarn, more };
+    }
+
+    window.traficMenu = (ev, btn) => {
+      ev.stopPropagation();
+      const menu = btn.nextElementSibling;
+      const wasOpen = menu.classList.contains('open');
+      document.querySelectorAll('.trafic-menu.open').forEach(x => x.classList.remove('open'));
+      if (wasOpen) return;
+      menu.classList.add('open');
+      const r = btn.getBoundingClientRect();
+      const mw = menu.offsetWidth, mh = menu.offsetHeight;
+      menu.style.left = Math.max(8, Math.min(r.right - mw, window.innerWidth - mw - 8)) + 'px';
+      menu.style.top = (r.bottom + mh + 8 > window.innerHeight ? Math.max(8, r.top - mh - 4) : r.bottom + 4) + 'px';
+    };
+    if (!window._traficMenuBound) {
+      window._traficMenuBound = true;
+      const closeMenus = () => document.querySelectorAll('.trafic-menu.open').forEach(x => x.classList.remove('open'));
+      document.addEventListener('click', closeMenus);
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
+      window.addEventListener('scroll', closeMenus, true);
+    }
+
+    const aliasesAndChips = (m, aliases, style) =>
+      aliases.length || m.chips
+        ? `<div class="trafic-tile-sub"${style ? ` style="${style}"` : ''}>${aliases.map(d => domainLink(d, false, m.hasTLS)).join('')}${m.chips ? `<div style="display:flex;flex-wrap:wrap;gap:3px">${m.chips}</div>` : ''}</div>`
         : '';
-      const delBtn = Role.canDelete() && !isAuto
-        ? `<button class="btn btn-ghost btn-icon" onclick="traficDelete('${esc(p.id)}')" title="${esc(t('common.delete'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>` : '';
 
-      const secBadgeColor = secAlert?.level === 'critical' ? 'var(--red)' : 'var(--yellow,#f59e0b)';
-      const secBtn = !isStr
-        ? `<button class="btn btn-ghost btn-icon" onclick="openProxySecModal('${esc(p.id)}')" title="${secAlert ? t('trafic.security_prefix') + secAlert.label : t('trafic.security')}" style="position:relative;">
-             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:${secAlert?secBadgeColor:'var(--text2)'}"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>${secAlert?'':'<path d="m9 12 2 2 4-4" stroke-width="2"/>'}</svg>
-             ${secAlert ? `<span style="position:absolute;top:0px;right:0px;width:7px;height:7px;border-radius:50%;background:${secBadgeColor};border:1.5px solid var(--bg2);pointer-events:none;"></span>` : ''}
-           </button>` : '';
+    // ── Rendu tuile ──────────────────────────────────────────────────────────
+    function buildTile(p, selSet) {
+      const m = proxyModel(p, selSet);
+      const c = proxyControls(m);
+      const [master, ...aliases] = m.allDomains;
+      const met = metricsInline(m.pm);
+      const feats = featureBadges(m.cfg, true);
 
-      const labelsBtn = `<button class="btn btn-ghost btn-icon" onclick="openDockerLabelsFromProxy('${esc(p.id)}')" title="${esc(t('trafic.docker_labels'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg></button>`;
-      const flowBtn = `<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('proxy','${esc(p.id)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
-      const histBtn = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyVersionsModal('${esc(p.id)}','${esc(host)}')" title="${t('backups.history.title')||'Historique'}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>` : '';
-
-      const domainsHtml = allDomains.map((d, i) => domainLink(d, i === 0, hasTLS)).join('');
-
-      return `<div class="trafic-tile${isSel?' is-selected':''}" onmouseover="if(!${isSel})this.style.borderColor='var(--accent)'" onmouseout="if(!${isSel})this.style.borderColor='var(--border)'">
+      return `<div class="trafic-tile${m.isSel ? ' is-selected' : ''}${m.enabled ? '' : ' is-off'}">
         <div class="trafic-tile-head">
-          <input type="checkbox" ${isSel?'checked':''} onchange="traficSelToggle('${esc(p.id)}','${stype}')" style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);flex-shrink:0">
-          ${toggleEl}
-          ${typeBadge(type)}
-          <div class="trafic-tile-actions">
-            <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
-            <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(p.node_id||p.core_id||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
-            ${histBtn}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
-          </div>
+          <input type="checkbox" ${m.isSel ? 'checked' : ''} onchange="traficSelToggle('${esc(m.id)}','${m.stype}')" style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);flex-shrink:0">
+          ${c.toggle}
+          <div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>
+          ${typeBadge(m.type)}
+          <div class="trafic-tile-actions">${c.secWarn}${c.edit}${c.more}</div>
         </div>
-        <div style="min-width:0;margin-bottom:7px">${domainsHtml}${chips?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${chips}</div>`:''}</div>
-        ${badges?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:7px">${badges}</div>`:''}
-        ${backendsGridHtml(allBackends)}
-        ${pm ? `<div style="display:flex;gap:14px;flex-wrap:wrap;padding:6px 0 0;border-top:1px solid var(--border);margin-top:6px;font-size:10px;color:var(--text2)">
-          ${pm.requests_per_second!=null?`<span>${pm.requests_per_second<1?pm.requests_per_second.toFixed(2):pm.requests_per_second<10?pm.requests_per_second.toFixed(1):Math.round(pm.requests_per_second)} req/s</span>`:''}
-          ${pm.error_rate!=null?`<span style="color:${pm.error_rate>0.05?'var(--red)':pm.error_rate>0.01?'var(--yellow)':'inherit'}">${(pm.error_rate*100).toFixed(1)}% err</span>`:''}
-          ${pm.p95_ms!=null?`<span>p95 ${Math.round(pm.p95_ms)} ms</span>`:''}
-          ${pm.backends_up!=null&&pm.backends_total!=null&&pm.backends_up<pm.backends_total?`<span style="color:var(--yellow)">${pm.backends_up}/${pm.backends_total} up</span>`:''}
-        </div>` : ''}
+        ${aliasesAndChips(m, aliases, '')}
+        ${backendsInline(m.allBackends, '.trafic-tile')}
+        ${feats || met ? `<div class="trafic-tile-foot"><div class="trafic-feats">${feats}</div>${met ? `<div class="trafic-tile-met">${met}</div>` : ''}</div>` : ''}
       </div>`;
     }
 
     // ── Rendu ligne tableau ──────────────────────────────────────────────────
     function buildRow(p, selSet) {
-      const cfg = getCfg(p);
-      const type = getType(p);
-      const host = cfg.host || p.host || p.name || '—';
-      const enabled = p.enabled !== false;
-      const isAuto  = isDockerP(p) || isK8sP(p);
-      const isStr   = isStreamP(p);
-      const isSel   = selSet.has(p.id);
-      const hasTLS  = cfg.tls_enabled || cfg.tls_passthrough || type === 'https';
-      const chips = coreChipHtml(p);
-      const badges = featureBadges(cfg);
-      const stype = isStr ? 'stream' : 'proxy';
-      const allBackends = (cfg.backends || p.backends || []).filter(Boolean);
-      const secAlert = !isStr ? proxySecAlert(cfg) : null;
+      const m = proxyModel(p, selSet);
+      const c = proxyControls(m);
+      const [master, ...aliases] = m.allDomains;
+      const met = metricsInline(m.pm);
+      const none = '<span style="color:var(--text3);font-size:11px">—</span>';
 
-      const toggleEl = Role.canWrite()
-        ? `<label class="toggle" style="margin:0 4px;"><input type="checkbox" ${enabled?'checked':''} ${isAuto?'disabled':''} onchange="traficToggle('${esc(p.id)}',${enabled})"><span class="toggle-slider"></span></label>`
-        : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${enabled?'var(--green)':'var(--text3)'};margin:0 10px;"></span>`;
-      const editBtn = Role.canWrite() && !isAuto
-        ? (isStr
-            ? `<button class="btn btn-ghost btn-icon" onclick="openStreamEditModal('${esc(p.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`
-            : `<button class="btn btn-ghost btn-icon" onclick="openProxyModal('${esc(p.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>`)
-        : '';
-      const delBtn = Role.canDelete() && !isAuto
-        ? `<button class="btn btn-ghost btn-icon" onclick="traficDelete('${esc(p.id)}')" title="${esc(t('common.delete'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>` : '';
-
-      const secBadgeColor = secAlert?.level === 'critical' ? 'var(--red)' : 'var(--yellow,#f59e0b)';
-      const secBtn = !isStr
-        ? `<button class="btn btn-ghost btn-icon" onclick="openProxySecModal('${esc(p.id)}')" title="${secAlert ? t('trafic.security_prefix') + secAlert.label : t('trafic.security')}" style="position:relative;">
-             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:${secAlert?secBadgeColor:'var(--text2)'}"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>${secAlert?'':'<path d="m9 12 2 2 4-4" stroke-width="2"/>'}</svg>
-             ${secAlert ? `<span style="position:absolute;top:0px;right:0px;width:7px;height:7px;border-radius:50%;background:${secBadgeColor};border:1.5px solid var(--bg2);pointer-events:none;"></span>` : ''}
-           </button>` : '';
-
-      const labelsBtn = `<button class="btn btn-ghost btn-icon" onclick="openDockerLabelsFromProxy('${esc(p.id)}')" title="${esc(t('trafic.docker_labels'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg></button>`;
-      const flowBtn = `<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('proxy','${esc(p.id)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
-      const histBtn2 = !isStr ? `<button class="btn btn-ghost btn-icon" onclick="openProxyVersionsModal('${esc(p.id)}','${esc(host)}')" title="${t('backups.history.title')||'Historique'}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></button>` : '';
-
-      const hostLink = `<a href="${hasTLS?'https':'http'}://${esc(host)}" target="_blank" rel="noopener noreferrer"
-        onclick="event.stopPropagation()"
-        style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:inherit;text-decoration:none;"
-        onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"
-        title="${esc(host)}">${esc(host)}</a>`;
-
-      const beLinksHtml = allBackends.length
-        ? allBackends.map((b, i) => {
-            const url = backendURL(b);
-            const st = backendStatus(url);
-            return `<a href="${esc(backendHref(url))}" target="_blank" rel="noopener noreferrer"
-              onclick="event.stopPropagation()"
-              style="display:inline-flex;align-items:center;gap:4px;font-family:monospace;font-size:11px;color:var(--text2);text-decoration:none;max-width:100%;"
-              onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"
-              title="${esc(url)} — ${backendStatusLabel(st)}"><span class="trafic-be-dot ${esc(st)}" style="display:inline-block;"></span><span style="overflow:hidden;text-overflow:ellipsis;">${esc(url)}</span></a>`;
-          }).join('<span style="color:var(--text3);padding:0 2px;"> </span>')
-        : '—';
-
-      return `<tr style="border-bottom:1px solid var(--border);transition:background .12s;${isSel?'background:var(--accent-dim,rgba(99,102,241,.07))':''}" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='${isSel?'var(--accent-dim,rgba(99,102,241,.07))':''}'">
+      return `<tr class="trafic-row${m.isSel ? ' is-selected' : ''}${m.enabled ? '' : ' is-off'}">
         <td style="padding:8px 10px;white-space:nowrap">
-          <div style="display:flex;align-items:center;gap:4px">
-            <input type="checkbox" ${isSel?'checked':''} onchange="traficSelToggle('${esc(p.id)}','${stype}')" style="width:13px;height:13px;cursor:pointer;accent-color:var(--accent)">
-            ${toggleEl}
+          <div style="display:flex;align-items:center;gap:6px">
+            <input type="checkbox" ${m.isSel ? 'checked' : ''} onchange="traficSelToggle('${esc(m.id)}','${m.stype}')" style="width:13px;height:13px;cursor:pointer;accent-color:var(--accent)">
+            ${c.toggle}
           </div>
         </td>
-        <td style="padding:8px 10px">${typeBadge(type)}</td>
-        <td style="padding:8px 10px;font-size:12px;max-width:220px">
-          ${hostLink}
-          ${chips?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">${chips}</div>`:''}
+        <td style="padding:8px 10px;max-width:260px">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0"><div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>${typeBadge(m.type)}</div>
+          ${aliasesAndChips(m, aliases, 'margin-top:3px')}
         </td>
-        <td style="padding:8px 10px;font-size:11px;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${beLinksHtml}</td>
-        <td style="padding:8px 10px"><div style="display:flex;flex-wrap:wrap;gap:2px">${badges||'<span style="color:var(--text3);font-size:11px">—</span>'}</div></td>
-        <td style="padding:8px 10px;white-space:nowrap;text-align:right">
-          <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
-          <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(p.node_id||p.core_id||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
-          ${histBtn2}${flowBtn}${labelsBtn}${secBtn}${editBtn}${delBtn}
-        </td>
+        <td style="padding:8px 10px;max-width:280px">${backendsInline(m.allBackends, 'tr')}</td>
+        <td style="padding:8px 10px"><div class="trafic-feats">${featureBadges(m.cfg, true) || none}</div></td>
+        <td style="padding:8px 10px"><div class="trafic-tile-met" style="flex-wrap:wrap">${met || none}</div></td>
+        <td style="padding:8px 10px;white-space:nowrap;text-align:right">${c.secWarn}${c.edit}${c.more}</td>
       </tr>`;
     }
 
@@ -558,7 +572,7 @@ async function renderTraficPage(ctx) {
         const rows = sorted.map(p => buildRow(p, selSet)).join('');
         const tableHtml = sorted.length ? `<div class="card blueprint" style="overflow:hidden"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
           <div class="table-wrap"><table class="table"><thead><tr>
-            <th style="width:60px"></th><th>${t('trafic.type')}</th><th>${t('trafic.domain')}</th><th>${t('trafic.backends')}</th><th>${t('trafic.features')}</th><th style="text-align:right">${t('trafic.actions')}</th>
+            <th style="width:80px"></th><th>${t('trafic.domain')}</th><th>${t('trafic.backends')}</th><th>${t('trafic.features')}</th><th>${t('trafic.traffic')}</th><th style="text-align:right">${t('trafic.actions')}</th>
           </tr></thead><tbody>${rows}</tbody></table></div></div>`
           : `<p style="color:var(--text2);font-size:13px;padding:8px 2px">${t('trafic.no_match')}</p>`;
         return headerHtml + bulkHtml + tableHtml;
@@ -591,32 +605,32 @@ async function renderTraficPage(ctx) {
       return headerHtml + bulkHtml + subHtml;
     }
 
-    // ── Bandeau Core (mode core uniquement) ──────────────────────────────────
-    const coreBannerHtml = () => {
-      if (isAdmin || !core) return '';
-      const statusOk = core.status === 'online';
+    // ── Bandeau passerelle (mode edge uniquement) ──────────────────────────────────
+    const edgeBannerHtml = () => {
+      if (isAdmin || !edge) return '';
+      const statusOk = edge.status === 'online';
       const statusHtml = statusOk
         ? `<span class="tag tag-green" style="font-size:11px;">${t('trafic.online')}</span>`
         : `<span class="tag tag-red" style="font-size:11px;">${t('trafic.offline')}</span>`;
-      const cpuHtml = core.cpu_pct != null
-        ? `<div style="text-align:center;"><div style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${Math.round(core.cpu_pct)}%</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)">CPU</div></div>` : '';
-      const memHtml = core.mem_pct != null
-        ? `<div style="text-align:center;"><div style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${Math.round(core.mem_pct)}%</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)">${t('trafic.memory')}</div></div>` : '';
+      const cpuHtml = edge.cpu_pct != null
+        ? `<div style="text-align:center;"><div style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${Math.round(edge.cpu_pct)}%</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)">CPU</div></div>` : '';
+      const memHtml = edge.mem_pct != null
+        ? `<div style="text-align:center;"><div style="font-size:18px;font-weight:700;font-family:var(--font-heading)">${Math.round(edge.mem_pct)}%</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3)">${t('trafic.memory')}</div></div>` : '';
       return `<div class="card blueprint" style="padding:16px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
         <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
             <span style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:600;color:var(--text3)">Data Plane</span>
             ${statusHtml}
-            ${core.version ? `<span style="font-size:10px;color:var(--text3);font-family:monospace">${esc(core.version)}</span>` : ''}
+            ${edge.version ? `<span style="font-size:10px;color:var(--text3);font-family:monospace">${esc(edge.version)}</span>` : ''}
           </div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--font-heading);margin-bottom:2px;">${esc(coreLabel)}</div>
-          ${core.endpoint ? `<div style="font-size:11px;color:var(--text3);font-family:monospace;">${esc(core.endpoint)}</div>` : ''}
+          <div style="font-size:20px;font-weight:700;font-family:var(--font-heading);margin-bottom:2px;">${esc(edgeLabel)}</div>
+          ${edge.endpoint ? `<div style="font-size:11px;color:var(--text3);font-family:monospace;">${esc(edge.endpoint)}</div>` : ''}
         </div>
         ${(cpuHtml || memHtml) ? `<div style="display:flex;gap:24px;padding:0 8px;border-left:1px solid var(--border);">${cpuHtml}${memHtml}</div>` : ''}
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-sm blueprint" onclick="navigate('core-logs-access')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>Logs</button>
-          <button class="btn btn-secondary btn-sm blueprint" onclick="navigate('core-metrics')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.metrics')}</button>
+          <button class="btn btn-secondary btn-sm blueprint" onclick="navigate('edge-logs-access')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>Logs</button>
+          <button class="btn btn-secondary btn-sm blueprint" onclick="navigate('edge-metrics')"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>${t('trafic.metrics')}</button>
         </div>
       </div>`;
     };
@@ -686,10 +700,10 @@ async function renderTraficPage(ctx) {
       <div class="trafic-page">
         <div>
           <h1 class="trafic-page-title">${t('trafic.title')}</h1>
-          <p class="trafic-page-sub">${isAdmin ? t('trafic.sub_admin') : t('trafic.sub_core', { name: '<strong>'+esc(coreLabel)+'</strong>' })}</p>
+          <p class="trafic-page-sub">${isAdmin ? t('trafic.sub_admin') : t('trafic.sub_edge', { name: '<strong>'+esc(edgeLabel)+'</strong>' })}</p>
         </div>
 
-        ${coreBannerHtml()}
+        ${edgeBannerHtml()}
 
         ${toolbarHtml}
         ${filterChipsHtml}
@@ -885,7 +899,7 @@ async function renderTraficPage(ctx) {
       const protos = [...(useTCP ? ['tcp'] : []), ...(useUDP ? ['udp'] : [])];
       try {
         for (const proto of protos) {
-          // Nom d'affichage partagé OK : fichiers Core = <label>_tcp.yaml / <label>_udp.yaml
+          // Nom d'affichage partagé OK : fichiers passerelle = <label>_tcp.yaml / <label>_udp.yaml
           const host = name || (proto + '_' + port);
           const config = { type: proto, host, listen_port: port, backends: [{ url: target }] };
           await api('POST', '/proxies', { config, enabled: true });
@@ -1059,8 +1073,8 @@ async function renderTraficPage(ctx) {
         }
         const cid = ids[0] || '';
         const key = cid
-          ? `${c.core_name || ''}|${c.source || ''}|cid:${cid}`
-          : `${c.core_name || ''}|${c.source || ''}|be:${backends[0] || c.id || ''}`;
+          ? `${c.edge_name || ''}|${c.source || ''}|cid:${cid}`
+          : `${c.edge_name || ''}|${c.source || ''}|be:${backends[0] || c.id || ''}`;
         const existing = pending.get(key);
         if (!existing) {
           pending.set(key, { ...c, hosts: [...hosts], backends: [...backends] });
@@ -1101,8 +1115,8 @@ async function renderTraficPage(ctx) {
       const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;" title="${esc(t('trafic.discovered'))}"></span>`;
 
       let chips = '';
-      if (isAdmin && c.core_name) {
-        chips = `<span style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(c.core_name)}</span>`;
+      if (isAdmin && c.edge_name) {
+        chips = `<span style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(c.edge_name)}</span>`;
       }
 
       const cfg = Object.assign(
@@ -1116,7 +1130,7 @@ async function renderTraficPage(ctx) {
 
       const domainsHtml = hosts.map((d, i) => domainLink(d, i === 0, hasTLS)).join('');
 
-      const flowKey = c.id || `${c.core_name || ''}|${c.source || ''}|${hosts.join(',')}|${allBackends.join(',')}`;
+      const flowKey = c.id || `${c.edge_name || ''}|${c.source || ''}|${hosts.join(',')}|${allBackends.join(',')}`;
       window._traficContainers = window._traficContainers || {};
       window._traficContainers[flowKey] = c;
       const flowBtn = `<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('container','${esc(flowKey)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
@@ -1127,7 +1141,7 @@ async function renderTraficPage(ctx) {
           ${typeBadge(type)}
           <div class="trafic-tile-actions">
             <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
-            <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(c.core_id||c.core_name||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
+            <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(c.edge_id||c.edge_name||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
             ${flowBtn}
           </div>
         </div>
@@ -1145,8 +1159,8 @@ async function renderTraficPage(ctx) {
       el.innerHTML = '<p style="color:var(--text2);font-size:13px;">' + t('common.loading') + '</p>';
       try {
         const all = await api('GET', '/discovered-containers') || [];
-        const coreName = core ? (core.node_name || core.display_name || '') : '';
-        const raw = coreName ? all.filter(c => c.core_name === coreName) : all;
+        const edgeName = edge ? (edge.node_name || edge.display_name || '') : '';
+        const raw = edgeName ? all.filter(c => c.edge_name === edgeName) : all;
         const items = groupDiscoveredContainers(raw);
         window._traficContainers = {};
         if (cnt) cnt.textContent = items.length ? items.length : '';
@@ -1192,13 +1206,13 @@ pages['admin-trafic'] = async function() {
   await renderTraficPage({ mode: 'admin' });
 };
 
-pages['core-trafic'] = async function() {
-  await renderTraficPage({ mode: 'core' });
+pages['edge-trafic'] = async function() {
+  await renderTraficPage({ mode: 'edge' });
 };
 
 async function refreshProxies() {
-  if (state.page === 'admin-trafic' || state.page === 'core-trafic') {
-    return renderTraficPage({ mode: state.page === 'admin-trafic' ? 'admin' : 'core' });
+  if (state.page === 'admin-trafic' || state.page === 'edge-trafic') {
+    return renderTraficPage({ mode: state.page === 'admin-trafic' ? 'admin' : 'edge' });
   }
 }
 
@@ -1220,7 +1234,7 @@ window.openTrafficFlowModal = function(kind, ref) {
       type,
       listenPort: cfg.listen_port || p.listen_port || null,
       backends,
-      coreName: p.core_name || p.node_name || '',
+      edgeName: p.edge_name || p.node_name || '',
       source: src,
       tlsEnabled: !!(cfg.tls_enabled || type === 'https'),
       tlsPassthrough: !!cfg.tls_passthrough,
@@ -1241,7 +1255,7 @@ window.openTrafficFlowModal = function(kind, ref) {
       type: c.tls ? 'https' : 'http',
       listenPort: null,
       backends,
-      coreName: c.core_name || '',
+      edgeName: c.edge_name || '',
       source: c.source || 'docker',
       tlsEnabled: !!c.tls || !!cfg.tls_enabled,
       tlsPassthrough: !!cfg.tls_passthrough,
@@ -1259,7 +1273,7 @@ window.openTrafficFlowModal = function(kind, ref) {
   const ICONS = {
     client: ico('<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>'),
     dns: ico('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6M8 11h6"/>'),
-    core: ico('<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M6 21h12M8 17v4M16 17v4M6 8h.01M10 8h.01"/>'),
+    edge: ico('<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M6 21h12M8 17v4M16 17v4M6 8h.01M10 8h.01"/>'),
     tls: ico('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1.2" fill="currentColor" stroke="none"/>'),
     tlsPass: ico('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9.5 12h5M12 9.5v5"/>'),
     tlsOff: ico('<path d="m2 2 20 20"/><path d="M10.6 10.6A2 2 0 0 0 12 14h2a2 2 0 0 0 1.9-2.6"/><path d="M17 17H7a2 2 0 0 1-2-2V9c0-.3.1-.6.2-.9"/><path d="M8.7 4.7A6 6 0 0 1 18 9v1"/>'),
@@ -1290,12 +1304,12 @@ window.openTrafficFlowModal = function(kind, ref) {
     const port = info.listenPort || '?';
     const proto = String(info.type || 'tcp').toUpperCase();
     nodes.push({
-      id: 'core', tone: 'accent', icon: ICONS.stream,
-      title: t('trafic.flow_step_core'),
-      desc: t('trafic.flow_step_core_stream', { type: proto, port }),
+      id: 'edge', tone: 'accent', icon: ICONS.stream,
+      title: t('trafic.flow_step_edge'),
+      desc: t('trafic.flow_step_edge_stream', { type: proto, port }),
       meta: [
         chip(`${proto} :${port}`),
-        info.coreName ? chip(info.coreName) : '',
+        info.edgeName ? chip(info.edgeName) : '',
       ].filter(Boolean).join(''),
       pill: `:${port}`,
     });
@@ -1311,14 +1325,14 @@ window.openTrafficFlowModal = function(kind, ref) {
       pill: 'DNS',
     });
     nodes.push({
-      id: 'core', tone: 'accent', icon: ICONS.core,
-      title: t('trafic.flow_step_core'),
-      desc: t('trafic.flow_step_core_http'),
+      id: 'edge', tone: 'accent', icon: ICONS.edge,
+      title: t('trafic.flow_step_edge'),
+      desc: t('trafic.flow_step_edge_http'),
       meta: [
         chip(':80'), chip(':443'),
-        info.coreName ? chip(info.coreName) : '',
+        info.edgeName ? chip(info.edgeName) : '',
       ].filter(Boolean).join(''),
-      pill: 'Core',
+      pill: 'Passerelle',
     });
 
     let tlsIcon = ICONS.tlsOff;
@@ -1424,7 +1438,7 @@ window.openTrafficFlowModal = function(kind, ref) {
           <span class="tf-hero-src">${t(sourceKey)}</span>
         </div>
         <div class="tf-hero-host">${esc(info.host)}</div>
-        ${info.coreName ? `<div class="tf-hero-core">${esc(info.coreName)}</div>` : ''}
+        ${info.edgeName ? `<div class="tf-hero-edge">${esc(info.edgeName)}</div>` : ''}
       </div>
       <div class="tf-overview" role="img" aria-label="${esc(t('trafic.flow_title'))}">${overview}</div>
       <div id="tf-test-bar" style="display:flex;align-items:center;gap:10px;margin:14px 0 6px;flex-wrap:wrap;">
@@ -1566,23 +1580,23 @@ window.openProxyVersionsModal = async function(proxyId, proxyName) {
   const configCache = new Map(); // versionId -> parsed config (clé spéciale 'current' = config actuelle)
   configCache.set('current', current ? current.config : null);
 
-  // Fallback : pas de version admin (proxy_history) — l'historique réel vit côté Core
+  // Fallback : pas de version admin (proxy_history) — l'historique réel vit côté passerelle
   // (proxystore, révisions), déjà interrogé par /revisions/diff. Sans ce recours, un
-  // proxy jamais modifié via l'API Admin affichait "Aucun historique" alors que Core
+  // proxy jamais modifié via l'API Admin affichait "Aucun historique" alors que la passerelle
   // en a bien un (toute création/dry-run/promote y laisse une révision).
-  let coreOnly = false;
+  let edgeOnly = false;
   if (!versions.length) {
     const revData = await api('GET', `/proxies/${proxyId}/revisions/diff`).catch(() => null);
-    const coreRevisions = (revData && Array.isArray(revData.revisions)) ? revData.revisions : [];
-    if (coreRevisions.length) {
-      coreOnly = true;
-      versions = coreRevisions.map(rv => ({
+    const edgeRevisions = (revData && Array.isArray(revData.revisions)) ? revData.revisions : [];
+    if (edgeRevisions.length) {
+      edgeOnly = true;
+      versions = edgeRevisions.map(rv => ({
         id: rv.revision,
         created_at: rv.updated_at,
-        note: rv.created_by ? `Core — ${rv.created_by}` : 'Core',
-        _coreConfig: rv.config,
+        note: rv.created_by ? `Edge — ${rv.created_by}` : 'Edge',
+        _edgeConfig: rv.config,
       })).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      versions.forEach(v => configCache.set(v.id, v._coreConfig || null));
+      versions.forEach(v => configCache.set(v.id, v._edgeConfig || null));
     }
   }
 
@@ -1618,7 +1632,7 @@ window.openProxyVersionsModal = async function(proxyId, proxyName) {
       const isA = state.a === v.id, isB = state.b === v.id;
       const sel = isA || isB;
       const badge = isA ? '<span class="tag" style="margin-right:6px">A</span>' : isB ? '<span class="tag" style="margin-right:6px">B</span>' : '';
-      const restoreBtn = coreOnly ? '' : `<button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();restoreProxyVersion('${esc(v.id)}','${pName}','${fmtDate(v.created_at)}')" title="${t('common.restore')}" style="color:var(--accent)">
+      const restoreBtn = edgeOnly ? '' : `<button class="btn btn-ghost btn-icon" onclick="event.stopPropagation();restoreProxyVersion('${esc(v.id)}','${pName}','${fmtDate(v.created_at)}')" title="${t('common.restore')}" style="color:var(--accent)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
           </button>`;
       return `<tr data-vid="${esc(v.id)}" onclick="window._versionsRowClick(event,'${esc(v.id)}')" style="cursor:pointer;${sel ? 'background:color-mix(in srgb,var(--accent) 10%,transparent)' : ''}">
@@ -1629,7 +1643,7 @@ window.openProxyVersionsModal = async function(proxyId, proxyName) {
     }).join('');
 
     return `<div class="table-wrap">
-      ${coreOnly ? `<p style="font-size:11px;color:var(--text3);margin:0 0 8px">${t('backups.history.core_only')||'Historique Core (révisions proxystore) — pas encore de version enregistrée côté Admin sur ce proxy ; restauration indisponible depuis cette liste.'}</p>` : ''}
+      ${edgeOnly ? `<p style="font-size:11px;color:var(--text3);margin:0 0 8px">${t('backups.history.edge_only')||'Historique passerelle (révisions proxystore) — pas encore de version enregistrée côté Admin sur ce proxy ; restauration indisponible depuis cette liste.'}</p>` : ''}
       <table>
       <thead><tr>
         <th>${t('common.date')}</th>

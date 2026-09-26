@@ -68,35 +68,35 @@ echo ""
 ask "Quels modules voulez-vous installer sur cette machine ?"
 echo ""
 echo "  [1] Administration  — Control Plane (UI web, API, SQLite) — port 9443"
-echo "  [2] Core            — Data Plane (reverse proxy, HTTP/1/2/3) — ports 80, 443"
+echo "  [2] Passerelle            — Data Plane (reverse proxy, HTTP/1/2/3) — ports 80, 443"
 echo "  [3] Agent           — Discovery & Télémétrie (Docker labels, /proc metrics)"
 echo ""
-echo "  Entrez les numéros séparés par des espaces (ex: 1 2 pour Admin+Core)"
+echo "  Entrez les numéros séparés par des espaces (ex: 1 2 pour Admin+Passerelle)"
 echo "  Appuyez sur Entrée pour tout installer [1 2 3]"
 echo ""
 read -r -p "  Choix : " MODULES_INPUT
 MODULES_INPUT="${MODULES_INPUT:-1 2 3}"
 
 INSTALL_ADMIN=false
-INSTALL_CORE=false
+INSTALL_EDGE=false
 INSTALL_AGENT=false
 
 for m in $MODULES_INPUT; do
   case "$m" in
     1) INSTALL_ADMIN=true ;;
-    2) INSTALL_CORE=true  ;;
+    2) INSTALL_EDGE=true  ;;
     3) INSTALL_AGENT=true ;;
     *) warn "Choix '$m' ignoré." ;;
   esac
 done
 
-$INSTALL_ADMIN || $INSTALL_CORE || $INSTALL_AGENT \
+$INSTALL_ADMIN || $INSTALL_EDGE || $INSTALL_AGENT \
   || error "Aucun module valide sélectionné."
 
 echo ""
 echo -e "  Modules sélectionnés :"
 $INSTALL_ADMIN && echo -e "    ${GREEN}✓${RESET} Administration"
-$INSTALL_CORE  && echo -e "    ${GREEN}✓${RESET} Core"
+$INSTALL_EDGE  && echo -e "    ${GREEN}✓${RESET} Passerelle"
 $INSTALL_AGENT && echo -e "    ${GREEN}✓${RESET} Agent"
 echo ""
 read -r -p "  Confirmer l'installation ? [O/n] : " CONFIRM
@@ -183,8 +183,8 @@ chmod 755 "${GOPROXIFY_DIR}/storage"
 chmod 755 "${GOPROXIFY_DIR}/logs"
 chmod 755 "${GOPROXIFY_DIR}/cache"
 
-# Core a besoin de lier les ports < 1024 sans être root
-if $INSTALL_CORE && command -v setcap >/dev/null 2>&1; then
+# Passerelle a besoin de lier les ports < 1024 sans être root
+if $INSTALL_EDGE && command -v setcap >/dev/null 2>&1; then
   setcap 'cap_net_bind_service=+ep' "${INSTALL_DIR}/${BINARY_NAME}"
   success "Capability cap_net_bind_service activée (ports < 1024 sans root)"
 fi
@@ -266,12 +266,12 @@ ADMIN_DB_PATH=${GOPROXIFY_DIR}/database/goproxify.db
 LOG_LEVEL=info
 
 # ---------------------------------------------------------------------------
-# CORE
+# EDGE
 # ---------------------------------------------------------------------------
-CORE_HTTP_PORT=80
-CORE_HTTPS_PORT=443
-CORE_ADMIN_API_URL=http://127.0.0.1:9443
-CORE_TOKEN=
+EDGE_HTTP_PORT=80
+EDGE_HTTPS_PORT=443
+EDGE_ADMIN_API_URL=http://127.0.0.1:9443
+EDGE_TOKEN=
 # Laisser vide : l'Admin génère le token au premier lancement et le partage via volume (/etc/goproxify/.pairing-token).
 # Définir uniquement si vous gérez le token manuellement (avancé).
 
@@ -352,11 +352,11 @@ UNIT
   success "Unité systemd créée : goproxify-admin.service"
 fi
 
-# --- Core -------------------------------------------------------------------
-if $INSTALL_CORE; then
-  cat > "${SYSTEMD_DIR}/goproxify-core.service" <<UNIT
+# --- Passerelle -------------------------------------------------------------------
+if $INSTALL_EDGE; then
+  cat > "${SYSTEMD_DIR}/goproxify-edge.service" <<UNIT
 [Unit]
-Description=Goproxify Core (Data Plane — Reverse Proxy)
+Description=Goproxify passerelle (Data Plane — Reverse Proxy)
 Documentation=https://github.com/Vincamok/goproxify
 After=network.target goproxify-admin.service
 Wants=network.target
@@ -367,14 +367,14 @@ Type=simple
 User=${RUN_USER}
 Group=${RUN_USER}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} core
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} edge
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=goproxify-core
+SyslogIdentifier=goproxify-edge
 
 # Durcissement
 NoNewPrivileges=true
@@ -387,7 +387,7 @@ ReadOnlyPaths=${GOPROXIFY_DIR}/certs ${GOPROXIFY_DIR}/storage
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 
-# Ports ouverts par le Core :
+# Ports ouverts par la passerelle :
 #   :80   :443       → trafic proxy public
 #   :8000            → API interne (push config/certs depuis l'Administration)
 #                      À restreindre au réseau d'infra via firewall (ufw/iptables)
@@ -395,7 +395,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=multi-user.target
 UNIT
-  success "Unité systemd créée : goproxify-core.service"
+  success "Unité systemd créée : goproxify-edge.service"
 fi
 
 # --- Agent ------------------------------------------------------------------
@@ -452,9 +452,9 @@ if $INSTALL_ADMIN; then
   success "goproxify-admin  activé et démarré"
 fi
 
-if $INSTALL_CORE; then
-  systemctl enable goproxify-core.service
-  success "goproxify-core   activé (démarrera après configuration du token)"
+if $INSTALL_EDGE; then
+  systemctl enable goproxify-edge.service
+  success "goproxify-edge   activé (démarrera après configuration du token)"
 fi
 
 if $INSTALL_AGENT; then
@@ -479,12 +479,12 @@ if $INSTALL_ADMIN; then
   echo ""
 fi
 
-if $INSTALL_CORE; then
-  echo -e "  ${BOLD}Core${RESET}"
+if $INSTALL_EDGE; then
+  echo -e "  ${BOLD}Passerelle${RESET}"
   echo -e "    HTTP    : http://$(hostname -f 2>/dev/null || echo localhost):80"
   echo -e "    HTTPS   : https://$(hostname -f 2>/dev/null || echo localhost):443"
   echo -e "    API int : http://<ip-infra>:8000  ${YELLOW}(restreindre au réseau d'infra — voir ci-dessous)${RESET}"
-  echo -e "    Logs    : journalctl -u goproxify-core -f"
+  echo -e "    Logs    : journalctl -u goproxify-edge -f"
   echo ""
 fi
 
@@ -505,23 +505,23 @@ if $INSTALL_ADMIN; then
   echo -e "  ${CYAN}2.${RESET} Accédez à l'interface d'initialisation (premier lancement) :"
   echo -e "       https://$(hostname -f 2>/dev/null || echo localhost):9443"
   echo ""
-  echo -e "  ${CYAN}3.${RESET} Générez les tokens d'appairage pour Core et/ou Agent :"
-  echo -e "       goproxify token -role core  -node \"\$(hostname)\""
+  echo -e "  ${CYAN}3.${RESET} Générez les tokens d'appairage pour passerelle et/ou Agent :"
+  echo -e "       goproxify token -role edge  -node \"\$(hostname)\""
   echo -e "       goproxify token -role agent -node \"\$(hostname)\""
-  echo -e "     Puis renseignez CORE_TOKEN / AGENT_TOKEN dans ${ENV_FILE}"
+  echo -e "     Puis renseignez EDGE_TOKEN / AGENT_TOKEN dans ${ENV_FILE}"
   echo ""
 fi
 
-if $INSTALL_CORE || $INSTALL_AGENT; then
+if $INSTALL_EDGE || $INSTALL_AGENT; then
   step=$( $INSTALL_ADMIN && echo 4 || echo 1 )
   echo -e "  ${CYAN}${step}.${RESET} Démarrez les services restants :"
-  $INSTALL_CORE  && echo -e "       systemctl start goproxify-core"
+  $INSTALL_EDGE  && echo -e "       systemctl start goproxify-edge"
   $INSTALL_AGENT && echo -e "       systemctl start goproxify-agent"
   echo ""
 fi
 
-if $INSTALL_CORE; then
-  echo -e "  ${YELLOW}Sécurité réseau — port 8000 (API interne Core) :${RESET}"
+if $INSTALL_EDGE; then
+  echo -e "  ${YELLOW}Sécurité réseau — port 8000 (API interne passerelle) :${RESET}"
   echo -e "  Le port 8000 ne doit être accessible que depuis l'Administration."
   echo -e "  Exemples de restriction firewall :"
   echo -e ""
@@ -535,7 +535,7 @@ if $INSTALL_CORE; then
 fi
 
 echo -e "  ${YELLOW}Pour désinstaller :${RESET}"
-echo -e "    systemctl disable --now goproxify-admin goproxify-core goproxify-agent"
+echo -e "    systemctl disable --now goproxify-admin goproxify-edge goproxify-agent"
 echo -e "    rm -f ${SYSTEMD_DIR}/goproxify-*.service"
 echo -e "    rm -f ${INSTALL_DIR}/${BINARY_NAME}"
 echo -e "    userdel ${RUN_USER}"

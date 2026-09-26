@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/api"
-	"github.com/vincamok/goproxify/internal/core/threat"
+	"github.com/vincamok/goproxify/internal/edge/threat"
 )
 
 const (
@@ -31,7 +31,7 @@ func sentinelSimTools() []map[string]any {
 			req("config", "object", "Champs Sentinel à surcharger (ex: {\"rate_limit\":20,\"custom_lists\":{\"paths\":[\"/wp-admin\"]}}), mêmes noms que threat-config"),
 			opt("hours", "number", "Fenêtre de logs rejouée en heures (défaut 1, max 24)"),
 			opt("domain", "string", "Limiter le rejeu à un domaine"),
-			opt("core", "string", "ID du Core dont la config actuelle sert de base (défaut: config globale)"),
+			opt("edge", "string", "ID de la passerelle dont la config actuelle sert de base (défaut: config globale)"),
 		),
 	}}
 }
@@ -51,11 +51,11 @@ func (h *Handler) toolSimulateSentinel(r *http.Request, args map[string]any) (an
 		}
 	}
 	domain, _ := args["domain"].(string)
-	coreID, _ := args["core"].(string)
+	edgeID, _ := args["edge"].(string)
 
 	var current threat.Config
 	var raw string
-	if err := h.DB.QueryRowContext(r.Context(), `SELECT value FROM settings WHERE key=?`, api.ThreatConfigKey(coreID)).Scan(&raw); err == nil {
+	if err := h.DB.QueryRowContext(r.Context(), `SELECT value FROM settings WHERE key=?`, api.ThreatConfigKey(edgeID)).Scan(&raw); err == nil {
 		if err := json.Unmarshal([]byte(raw), &current); err != nil {
 			return nil, fmt.Errorf("config Sentinel actuelle illisible: %w", err)
 		}

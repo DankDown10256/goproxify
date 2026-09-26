@@ -1,6 +1,6 @@
 {
   "_comment": "GOPROXIFY — SCHÉMA CANONIQUE DE CONFIGURATION GLOBAL v4.3 — 2026-07-15",
-  "_note": "Source de vérité unifiée consommée dynamiquement par les Cores Goproxify.",
+  "_note": "Source de vérité unifiée consommée dynamiquement par les passerelles Goproxify.",
 
   "snippets": {
 
@@ -196,8 +196,8 @@
 
   "cluster": {
     "nodes": [
-      { "id": "core-1", "host": "203.0.113.10", "api_port": 8000, "role": "leader"   },
-      { "id": "core-2", "host": "203.0.113.10", "api_port": 8000, "role": "follower" }
+      { "id": "edge-1", "host": "203.0.113.10", "api_port": 8000, "role": "leader"   },
+      { "id": "edge-2", "host": "203.0.113.10", "api_port": 8000, "role": "follower" }
     ],
     "config_sync": {
       "enabled": true,
@@ -242,7 +242,7 @@
         "labels": { "equipe": "dev-web", "projet": "myapp", "criticite": "haute" }
       },
 
-      "core": {
+      "edge": {
         "listen_port": 443,
         "protocol": "https",
         "domain": "myapp.example.fr",
@@ -338,7 +338,7 @@
           "X-Forwarded-Proto": "$scheme"
         },
         "websockets": { "Upgrade": "$http_upgrade", "Connection": "upgrade" },
-        "reponse_add_header": [{ "header": "X-Served-By", "valeur": "Goproxify-Core" }]
+        "reponse_add_header": [{ "header": "X-Served-By", "valeur": "Goproxify-Edge" }]
       },
 
       "performance": {
@@ -370,7 +370,7 @@
       "observability": {
         "logging": {
           "access_log_enabled": true,
-          "access_log_path": "/etc/goproxify/logs/core_access.log",
+          "access_log_path": "/etc/goproxify/logs/edge_access.log",
           "format": "json",
           "rotation": { "enabled": true, "max_size_megabytes": 100, "max_backups": 7, "max_age_days": 14, "compress": true }
         },

@@ -32,13 +32,13 @@ func runDomain() {
 			return
 		}
 		now := time.Now()
-		fmt.Printf("%-36s  %-40s  %-12s  %-10s  %s\n", "ID", "DOMAINE", "EXPIRATION", "STATUT", "CORE")
+		fmt.Printf("%-36s  %-40s  %-12s  %-10s  %s\n", "ID", "DOMAINE", "EXPIRATION", "STATUT", "EDGE")
 		fmt.Println(strings.Repeat("-", 110))
 		for _, d := range domains {
 			id, _ := d["id"].(string)
 			domain, _ := d["domain"].(string)
 			status, _ := d["status"].(string)
-			coreID, _ := d["core_id"].(string)
+			edgeID, _ := d["edge_id"].(string)
 			expiryStr, _ := d["expires_at"].(string)
 			expiry := ""
 			warn := ""
@@ -51,7 +51,7 @@ func runDomain() {
 					}
 				}
 			}
-			fmt.Printf("%-36s  %-40s  %-12s  %-10s  %s%s\n", id, domain, expiry, status, coreID, warn)
+			fmt.Printf("%-36s  %-40s  %-12s  %-10s  %s%s\n", id, domain, expiry, status, edgeID, warn)
 		}
 
 	case "get":
@@ -81,12 +81,12 @@ func runDomain() {
 			domain = flagValue(args, "-domain", "")
 		}
 		if domain == "" {
-			fmt.Fprintln(os.Stderr, "usage: goproxify domain create <domaine> [-core <core-id>]")
+			fmt.Fprintln(os.Stderr, "usage: goproxify domain create <domaine> [-edge <edge-id>]")
 			os.Exit(1)
 		}
 		payload := map[string]any{"domain": domain}
-		if core := flagValue(args, "-core", ""); core != "" {
-			payload["core_id"] = core
+		if edge := flagValue(args, "-edge", ""); edge != "" {
+			payload["edge_id"] = edge
 		}
 		client, err := newAdminClient(args)
 		if err != nil {
@@ -161,7 +161,7 @@ Sous-commandes :
 
 goproxify domain list   [-admin-url …] [-token …]
 goproxify domain get    <id> [-admin-url …] [-token …]
-goproxify domain create <domaine> [-core <core-id>] [-admin-url …] [-token …]
+goproxify domain create <domaine> [-edge <edge-id>] [-admin-url …] [-token …]
 goproxify domain renew  <id> [-admin-url …] [-token …]
 goproxify domain delete <id> [-y] [-admin-url …] [-token …]
 `)

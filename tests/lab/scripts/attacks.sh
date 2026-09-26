@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Batterie d'attaques ciblées avec verdict PASS/FAIL. Code retour = nombre d'échecs.
-# Périmètre : le labo local uniquement (*.lab.test, Core du labo, Admin du labo).
+# Périmètre : le labo local uniquement (*.lab.test, Passerelle du labo, Admin du labo).
 set -u
 . /lab/scripts/hosts.sh
-CORE_HOST=${CORE_HOST:-goproxify-core}
+EDGE_HOST=${EDGE_HOST:-goproxify-edge}
 ADMIN=${LAB_ADMIN_URL:-http://goproxify-admin:9443}
 fail=0
 
@@ -16,7 +16,7 @@ expect_in() { # description got allowed...
   ko "$d : obtenu $got, attendu $*"
 }
 
-# Garde-fou : après un redéploiement, lab-backend recompile son code et le Core répond 502 en attendant.
+# Garde-fou : après un redéploiement, lab-backend recompile son code et la passerelle répond 502 en attendant.
 # Sans cela, tous les contrôles échouent pour une raison sans rapport avec la sécurité.
 ready=0
 for _ in $(seq 1 30); do
@@ -45,16 +45,16 @@ out=$(curl -s -H 'X-Forwarded-For: 6.6.6.6' -H 'X-Real-IP: 6.6.6.6' http://lab-f
 last_xff=$(echo "$out" | jq -r '.headers["X-Forwarded-For"][0] // ""' | awk -F', *' '{print $NF}')
 real=$(echo "$out" | jq -r '.headers["X-Real-Ip"][0] // ""')
 # Ce runner est sur un réseau privé = proxy de confiance par défaut : X-Real-IP fourni peut légitimement être repris.
-# On vérifie donc que le Core ajoute bien l'IP réelle du pair en fin de X-Forwarded-For.
-[ "$last_xff" != "6.6.6.6" ] && ok "Core ajoute l'IP du pair en fin de XFF (xff=$last_xff)" || ko "XFF non complété par le Core (xff=$last_xff)"
+# On vérifie donc que la passerelle ajoute bien l'IP réelle du pair en fin de X-Forwarded-For.
+[ "$last_xff" != "6.6.6.6" ] && ok "Passerelle ajoute l'IP du pair en fin de XFF (xff=$last_xff)" || ko "XFF non complété par la passerelle (xff=$last_xff)"
 echo "  info  X-Real-IP reçu par le backend : ${real:-<absent>} (attendu si le pair est un proxy de confiance)"
 hop=$(curl -s -H 'Connection: X-Secret' -H 'X-Secret: 1' http://lab-fast.lab.test/echo | jq -r '.headers["X-Secret"] // empty')
 [ -z "$hop" ] && ok "en-tête hop-by-hop (Connection:) retiré" || ko "hop-by-hop X-Secret transmis"
 
 echo "== Routage / Host =="
-expect_in "Host inconnu"               "$(code -H 'Host: inconnu.lab.test' "http://$CORE_HOST/")"  404 421 502 503
+expect_in "Host inconnu"               "$(code -H 'Host: inconnu.lab.test' "http://$EDGE_HOST/")"  404 421 502 503
 raw_status() { # requête brute (curl ne sait pas envoyer deux Host)
-  exec 3<>"/dev/tcp/$CORE_HOST/80" || { echo 000; return; }
+  exec 3<>"/dev/tcp/$EDGE_HOST/80" || { echo 000; return; }
   printf '%b' "$1" >&3
   read -r -t 10 line <&3; exec 3>&-
   echo "$line" | awk '{print $2}'
@@ -68,7 +68,7 @@ else ko "corps 3 Mo (> max_body_mb=1) : HTTP $st, backend a reçu '$(head -c 20 
 
 echo "== Request smuggling (CL + TE) =="
 resp=$(printf 'POST / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nGET /admin HTTP/1.1\r\nHost: lab-fast.lab.test\r\n\r\n' \
-  | nc -w 5 "$CORE_HOST" 80 | grep -c '^HTTP/1.1 ')
+  | nc -w 5 "$EDGE_HOST" 80 | grep -c '^HTTP/1.1 ')
 [ "${resp:-0}" -le 1 ] && ok "un seul verdict HTTP pour une requête CL+TE ($resp)" || ko "$resp réponses : smuggling possible"
 
 echo "== Rate limiting =="
@@ -77,7 +77,7 @@ for _ in $(seq 1 120); do [ "$(code http://lab-ratelimit.lab.test/)" = 429 ] && 
 [ $n429 -gt 0 ] && ok "429 renvoyés en rafale ($n429/120)" || ko "aucun 429 sur 120 requêtes rapides (rps=10 burst=20)"
 
 echo "== Robustesse connexions lentes (slowloris) =="
-exec 3<>"/dev/tcp/$CORE_HOST/80"
+exec 3<>"/dev/tcp/$EDGE_HOST/80"
 printf 'GET / HTTP/1.1\r\nHost: lab-fast.lab.test\r\nX-Slow: ' >&3
 start=$(date +%s)
 read -r -t 45 -n1 <&3 || true   # rend la main dès que le serveur ferme (ou après 45 s)

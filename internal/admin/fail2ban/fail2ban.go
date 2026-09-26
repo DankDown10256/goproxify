@@ -45,7 +45,7 @@ type Engine struct {
 	mu  sync.RWMutex
 	cfg Config
 
-	// OnBan est appelé après chaque nouveau ban (push Core / alertes).
+	// OnBan est appelé après chaque nouveau ban (push passerelle / alertes).
 	OnBan func(ip, reason string)
 
 	lastActivity   time.Time
@@ -146,7 +146,7 @@ func (e *Engine) scan() {
 		`SELECT ip, COUNT(*) as n FROM logs
 		 WHERE ts > datetime('now','-%d seconds')
 		   AND status >= 400 AND status < 500 AND status != 404
-		   AND ip != '' AND component = 'core'
+		   AND ip != '' AND component = 'edge'
 		 GROUP BY ip HAVING n >= %d`, window, maxErr))
 	if err != nil {
 		return

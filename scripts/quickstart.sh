@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# GOPROXIFY — Quickstart Docker (Admin + Core + Agent)
+# GOPROXIFY — Quickstart Docker (Admin + Passerelle + Agent)
 #
 # Usage :
 #   curl -fsSL …/scripts/quickstart.sh -o quickstart.sh && bash quickstart.sh
@@ -75,7 +75,7 @@ banner() {
   echo "  ╚██████╔╝╚██████╔╝██║     ██║  ██║╚██████╔╝██╔╝ ██╗██║██║        ██║   "
   echo "   ╚═════╝  ╚═════╝ ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝        ╚═╝   "
   echo -e "${RESET}"
-  echo -e "  ${DIM}Quickstart Docker — Admin + Core + Agent${RESET}"
+  echo -e "  ${DIM}Quickstart Docker — Admin + Passerelle + Agent${RESET}"
   echo ""
 }
 
@@ -137,7 +137,7 @@ set_env_key() {
 resolve_image_tags() {
   # Préversion : toujours le tag flottant preview (SemVer = versions.json pour les builds CI).
   TAG_ADMIN=preview
-  TAG_CORE=preview
+  TAG_EDGE=preview
   TAG_AGENT=preview
   success "Tags images — preview (flottant)"
 }
@@ -155,7 +155,7 @@ write_env() {
   set_env_key GPX_FIRST_ADMIN_EMAIL "$email"
   set_env_key GPX_FIRST_ADMIN_PASSWORD "$password"
   set_env_key GOPROXIFY_ADMIN_TAG "$TAG_ADMIN"
-  set_env_key GOPROXIFY_CORE_TAG "$TAG_CORE"
+  set_env_key GOPROXIFY_EDGE_TAG "$TAG_EDGE"
   set_env_key GOPROXIFY_AGENT_TAG "$TAG_AGENT"
   rm -f "${ENV_FILE}.bak"
   chmod 600 "$ENV_FILE"
@@ -309,6 +309,6 @@ success "Conteneurs running : ${running}"
 
 echo ""
 echo -e "${GREEN}${BOLD}Prêt.${RESET} Ouvrez ${BOLD}http://localhost:${ADMIN_PORT}${RESET}"
-echo -e "  Appairage Core/Agent : automatique via ${BOLD}GPX_PAIRING_SECRET${RESET} (même .env)."
+echo -e "  Appairage passerelle/Agent : automatique via ${BOLD}GPX_PAIRING_SECRET${RESET} (même .env)."
 echo -e "  ${DIM}Ne committez pas .env — secrets à usage unique affichés uniquement à la génération.${RESET}"
 echo ""

@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/auth"
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
-	"github.com/vincamok/goproxify/internal/core/router"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
+	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
 // Backup est le format natif de sauvegarde Goproxify (.gpx-admin-backup / .gpx-full-backup).
@@ -33,7 +33,7 @@ type Backup struct {
 	AlertChannels  []map[string]any           `json:"alert_channels"`
 	AlertRules     []map[string]any           `json:"alert_rules"`
 	DeclaredNodes  []map[string]any           `json:"declared_nodes,omitempty"`
-	Configs        map[string]json.RawMessage `json:"configs,omitempty"` // "admin" | "core" | "agent:<name>"
+	Configs        map[string]json.RawMessage `json:"configs,omitempty"` // "admin" | "edge" | "agent:<name>"
 	Tables         map[string][]map[string]any `json:"tables,omitempty"` // tables de configuration (settings, règles auto, équipes, domaines…)
 }
 
@@ -197,12 +197,12 @@ func Apply(db *sql.DB, b *Backup, sel ImportSelection) ImportResult {
 		_ = json.Unmarshal(cfg, &m)
 		m["id"] = id
 		cfgBytes, _ := json.Marshal(m)
-		targets, err := coreproxy.ListTargets(context.Background(), db)
+		targets, err := edgeproxy.ListTargets(context.Background(), db)
 		if err != nil || len(targets) == 0 {
 			res.Errors++
 			continue
 		}
-		client := coreproxy.NewClient()
+		client := edgeproxy.NewClient()
 		ok := false
 		for _, t := range targets {
 			if _, err := client.Publish(context.Background(), t, id, p.Name, p.Enabled, cfgBytes, "import"); err != nil {
@@ -437,12 +437,12 @@ func Apply(db *sql.DB, b *Backup, sel ImportSelection) ImportResult {
 	return res
 }
 
-// ExportBackup crée un Backup complet depuis la DB (ou fichiers Core).
+// ExportBackup crée un Backup complet depuis la DB (ou fichiers passerelle).
 func ExportBackup(db *sql.DB) (*Backup, error) {
 	b := &Backup{Version: "1", CreatedAt: time.Now()}
 
 	// Proxies
-	envs, err := coreproxy.LoadProductionEnvelopes(context.Background(), db)
+	envs, err := edgeproxy.LoadProductionEnvelopes(context.Background(), db)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +590,7 @@ func ExportBackup(db *sql.DB) (*Backup, error) {
 }
 
 // ExportConfigs lit les fichiers config JSON depuis le disque et les inclut dans le backup.
-// paths : map "admin"→chemin, "core"→chemin, "agent:<name>"→chemin
+// paths : map "admin"→chemin, "edge"→chemin, "agent:<name>"→chemin
 func ExportConfigs(paths map[string]string) map[string]json.RawMessage {
 	if len(paths) == 0 {
 		return nil

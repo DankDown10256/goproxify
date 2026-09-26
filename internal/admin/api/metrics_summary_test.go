@@ -14,22 +14,22 @@ import (
 )
 
 // TestMetricsSummaryDecryptsTokenBeforeBearer vérifie que le proxy
-// GET /internal/v1/metrics/summary vers Core envoie le token en clair même
+// GET /internal/v1/metrics/summary vers passerelle envoie le token en clair même
 // quand tokens.token est chiffré au repos (auth.SealNodeToken) — même bug
-// que backends_health.go et corepush/pusher.go.
+// que backends_health.go et edgepush/pusher.go.
 func TestMetricsSummaryDecryptsTokenBeforeBearer(t *testing.T) {
 	auth.ConfigureNodeTokenKey("test-jwt-secret")
 	defer auth.ConfigureNodeTokenKey("")
 
-	plainToken := "gpx_core_plaintext_xyz789"
+	plainToken := "gpx_edge_plaintext_xyz789"
 	stored, _ := auth.PrepareNodeTokenForStore(plainToken)
 
 	var gotAuth string
-	core := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	edge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		w.Write([]byte(`{}`)) //nolint:errcheck
 	}))
-	defer core.Close()
+	defer edge.Close()
 
 	dir := t.TempDir()
 	db, err := admindb.Open(filepath.Join(dir, "admin.db"))
@@ -39,23 +39,23 @@ func TestMetricsSummaryDecryptsTokenBeforeBearer(t *testing.T) {
 	defer db.Close()
 
 	if _, err := db.Exec(
-		`INSERT INTO nodes (id, node_name, role) VALUES ('core-1', 'core-1', 'core')`,
+		`INSERT INTO nodes (id, node_name, role) VALUES ('edge-1', 'edge-1', 'edge')`,
 	); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(
-		`INSERT INTO tokens (id, token, role, node_name, node_endpoint) VALUES (?, ?, 'core', 'core-1', ?)`,
-		"tok-1", stored, core.URL,
+		`INSERT INTO tokens (id, token, role, node_name, node_endpoint) VALUES (?, ?, 'edge', 'edge-1', ?)`,
+		"tok-1", stored, edge.URL,
 	); err != nil {
 		t.Fatal(err)
 	}
 
 	h := &NodesHandler{DB: db}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/core-1/metrics-summary", nil)
-	h.metricsSummary(rec, req, "core-1")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/edge-1/metrics-summary", nil)
+	h.metricsSummary(rec, req, "edge-1")
 
 	if gotAuth != "Bearer "+plainToken {
-		t.Fatalf("Authorization reçu par Core = %q, attendu %q", gotAuth, "Bearer "+plainToken)
+		t.Fatalf("Authorization reçu par passerelle = %q, attendu %q", gotAuth, "Bearer "+plainToken)
 	}
 }

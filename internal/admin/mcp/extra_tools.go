@@ -128,7 +128,7 @@ func extraTools() []map[string]any {
 			"description": "Déclare un domaine géré (déclenche le challenge ACME). Retourne l'ID créé.",
 			"inputSchema": schema(
 				req("domain", "string", "Nom de domaine (ex: app.example.com)"),
-				opt("core_id", "string", "ID du Core cible (cluster multi-Core)"),
+				opt("edge_id", "string", "ID de la passerelle cible (cluster multi-passerelle)"),
 			),
 		},
 		{
@@ -489,12 +489,12 @@ func (h *Handler) toolCreateDomain(r *http.Request, args map[string]any) (any, e
 	if domain == "" {
 		return nil, fmt.Errorf("domain est requis")
 	}
-	coreID, _ := args["core_id"].(string)
+	edgeID, _ := args["edge_id"].(string)
 	id := uuid.New().String()
 	if _, err := h.DB.ExecContext(r.Context(),
-		`INSERT INTO domains (id, domain, core_id, dns_provider, cert_method, delegation_mode)
+		`INSERT INTO domains (id, domain, edge_id, dns_provider, cert_method, delegation_mode)
 		 VALUES (?,?,?,?,?,?)`,
-		id, domain, coreID, "", "acme", "auto"); err != nil {
+		id, domain, edgeID, "", "acme", "auto"); err != nil {
 		return nil, err
 	}
 	if h.Pusher != nil {
@@ -531,7 +531,7 @@ func (h *Handler) toolObtainCert(r *http.Request, domain string) (any, error) {
 	if err != nil {
 		id = uuid.New().String()
 		if _, err := h.DB.ExecContext(r.Context(),
-			`INSERT INTO domains (id, domain, core_id, dns_provider, cert_method, delegation_mode)
+			`INSERT INTO domains (id, domain, edge_id, dns_provider, cert_method, delegation_mode)
 			 VALUES (?,?,?,?,?,?)`,
 			id, domain, "", "", "acme", "auto"); err != nil {
 			return nil, err

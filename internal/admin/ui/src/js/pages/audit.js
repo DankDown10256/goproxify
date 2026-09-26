@@ -51,7 +51,7 @@ pages.audit = async function() {
     <div class="search-bar" style="flex-wrap:wrap;gap:8px">
       <select id="aud-comp" class="input" style="max-width:140px" onchange="auditFilter()">
         <option value="">${t('logs.comp_ph')}</option>
-        <option>admin</option><option>core</option><option>agent</option>
+        <option>admin</option><option>edge</option><option>agent</option>
       </select>
       <input id="aud-act" class="input search-input" placeholder="${esc(t('audit.action_ph'))}" oninput="auditFilter()">
       <input id="aud-actor" class="input search-input" placeholder="${esc(t('audit.actor_ph'))}" oninput="auditFilter()">

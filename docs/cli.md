@@ -15,7 +15,7 @@ Ces commandes démarrent un composant en tant que processus long.
 | Commande | Rôle |
 |----------|------|
 | `admin` | Control Plane — UI Web, API REST, MCP, alerting |
-| `core` | Data Plane — Reverse proxy HTTP/1·2·3, TCP/UDP L4 |
+| `edge` | Data Plane — Reverse proxy HTTP/1·2·3, TCP/UDP L4 |
 | `agent` | Discovery Docker & métriques |
 | `landing` | Page de présentation (optionnel) |
 
@@ -33,51 +33,51 @@ goproxify admin -reset-password -email <email> -password <nouveau-mdp>
 
 Réinitialise le mot de passe d'un utilisateur sans démarrer le serveur.
 
-### `goproxify core`
+### `goproxify edge`
 
 ```
-goproxify core [-config <chemin>]
+goproxify edge [-config <chemin>]
 ```
 
 Sous-commandes locales (sans accès Admin) :
 
 ```
-goproxify core cache show
-goproxify core cache refresh
-goproxify core cache export [-output <fichier>]
-goproxify core cache clear
+goproxify edge cache show
+goproxify edge cache refresh
+goproxify edge cache export [-output <fichier>]
+goproxify edge cache clear
 
-goproxify core token create -name <nom> [-role admin|agent] [-ttl <durée>]
-goproxify core token list
-goproxify core token revoke <id>
+goproxify edge token create -name <nom> [-role admin|agent] [-ttl <durée>]
+goproxify edge token list
+goproxify edge token revoke <id>
 ```
 
-**`core cache`** — gestion du cache local (table de routage + certs sauvegardés).
-Le Core charge ce cache au démarrage si l'Admin est injoignable.
+**`edge cache`** — gestion du cache local (table de routage + certs sauvegardés).
+La passerelle charge ce cache au démarrage si l'Admin est injoignable.
 
-**`core token`** — tokens d'authentification **locaux** du Core (API interne port 8000).
+**`edge token`** — tokens d'authentification **locaux** de la passerelle (API interne port 8000).
 Distinct de `goproxify token` qui parle à l'Admin.
 
 Variables d'environnement :
 
 | Variable | Défaut |
 |----------|--------|
-| `GPX_CORE_CACHE_PATH` | `/etc/goproxify/core-cache.gpx` |
-| `GPX_CORE_TOKENS_PATH` | `/etc/goproxify/core-tokens.db` |
+| `GPX_EDGE_CACHE_PATH` | `/etc/goproxify/edge-cache.gpx` |
+| `GPX_EDGE_TOKENS_PATH` | `/etc/goproxify/edge-tokens.db` |
 | `GPX_CONTROL_PLANE_AUTH_TOKEN` | — (dérive la clé de déchiffrement du cache) |
 
 ### `goproxify agent`
 
 ```
 goproxify agent [-config <chemin>]
-goproxify agent pair -core <url> -join-token <token>
+goproxify agent pair -edge <url> -join-token <token>
 goproxify agent approve <agent-id> [-admin-url <url>] [-token <token>]
 ```
 
-**Workflow appairage Agent → Core :**
+**Workflow appairage Agent → passerelle :**
 
 1. Admin UI → Tokens → Créer → rôle `agent`, TTL `24h` → obtenir `gpx_join_*`
-2. `goproxify agent pair -core http://core:8000 -join-token gpx_join_xxx`
+2. `goproxify agent pair -edge http://edge:8000 -join-token gpx_join_xxx`
 3. `goproxify agent` → l'Agent se connecte, statut `pending`
 4. `goproxify agent approve <agent-id>` (ou approbation dans l'UI)
 5. L'Agent reçoit son secret HMAC et passe en statut `approved`
@@ -99,30 +99,30 @@ Ces commandes parlent à l'Admin via HTTP.
 
 ### `goproxify token`
 
-Gestion des tokens d'appairage Core/Agent enregistrés dans l'Admin.
+Gestion des tokens d'appairage passerelle/Agent enregistrés dans l'Admin.
 
 ```
-goproxify token create -role core|agent -node <nom> [options]
-  -role        core | agent
-  -node        Nom du nœud (ex: prod-core-1)
+goproxify token create -role edge|agent -node <nom> [options]
+  -role        edge | agent
+  -node        Nom du nœud (ex: prod-edge-1)
   -ttl         Durée de validité (ex: 24h, 7d, 0 = permanent)
-  -endpoint    URL du Core (enregistrée si role=core)
+  -endpoint    URL de la passerelle (enregistrée si role=edge)
   -rbac-role   admin | operator | viewer (défaut: admin)
 
-goproxify token list [-role core|agent]
+goproxify token list [-role edge|agent]
 goproxify token revoke <id>
 ```
 
 Exemples :
 
 ```bash
-goproxify token create -role core  -node prod-1 -endpoint http://core:8000
+goproxify token create -role edge  -node prod-1 -endpoint http://edge:8000
 goproxify token create -role agent -node app-2  -ttl 24h
 goproxify token list
 goproxify token revoke <id>
 ```
 
-> Distinct de `goproxify core token` (tokens locaux du Core, sans Admin).
+> Distinct de `goproxify edge token` (tokens locaux de la passerelle, sans Admin).
 
 ---
 
@@ -131,9 +131,9 @@ goproxify token revoke <id>
 Sauvegardes et restauration.
 
 ```
-goproxify backup create [-target admin|core|all] [-output <dir>]
+goproxify backup create [-target admin|edge|all] [-output <dir>]
   -target  admin : snapshot SQLite Admin (.gpx-admin-backup)
-           core  : export table de routage (.gpx-core-backup)
+           edge  : export table de routage (.gpx-edge-backup)
            all   : les deux (défaut)
   -output  Répertoire de destination (défaut: .)
 
@@ -222,7 +222,7 @@ goproxify cert delete old.example.fr
 
 ### `goproxify architecture`
 
-Historique de `architecture.json` (fichier de vérité de l'architecture : nœuds du wizard, Cores, périmètres). Chaque écriture qui change le fichier en conserve la version précédente.
+Historique de `architecture.json` (fichier de vérité de l'architecture : nœuds du wizard, Passerelles, périmètres). Chaque écriture qui change le fichier en conserve la version précédente.
 
 ```
 goproxify architecture versions
@@ -415,19 +415,19 @@ Domaines gérés par ACME (certificats Let's Encrypt dédiés).
 ```
 goproxify domain list   [-admin-url …] [-token …]
 goproxify domain get    <id> [-admin-url …] [-token …]
-goproxify domain create <domaine> [-core <core-id>] [-admin-url …] [-token …]
+goproxify domain create <domaine> [-edge <edge-id>] [-admin-url …] [-token …]
 goproxify domain renew  <id> [-admin-url …] [-token …]
 goproxify domain delete <id> [-y] [-admin-url …] [-token …]
   -y  Confirmation automatique
 ```
 
-`list` affiche l'expiration en jours (⚠ si < 14 j) et le Core associé.
+`list` affiche l'expiration en jours (⚠ si < 14 j) et la passerelle associé.
 
 Exemples :
 
 ```bash
 goproxify domain list
-goproxify domain create app.example.fr -core prod-core-1
+goproxify domain create app.example.fr -edge prod-edge-1
 goproxify domain renew <id>
 goproxify domain delete <id> -y
 ```
@@ -633,8 +633,8 @@ Sentinel (threat engine global), gestion des bans, config WAF par proxy, et mote
 
 ```
 # Config du moteur Sentinel
-goproxify security threat get  [-core <id>] [-admin-url …] [-token …]
-goproxify security threat set  [-core <id>] -file <threat-config.json> [-admin-url …] [-token …]
+goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
+goproxify security threat set  [-edge <id>] -file <threat-config.json> [-admin-url …] [-token …]
 
 # Bans
 goproxify security bans list   [-admin-url …] [-token …]
@@ -646,7 +646,7 @@ goproxify security waf get -proxy <proxy-id> [-admin-url …] [-token …]
 goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url …] [-token …]
 ```
 
-**`security threat`** — lit ou écrit la configuration du moteur Sentinel (fail2ban, seuils, whitelist globale…). Le paramètre `-core` cible un Core spécifique dans un cluster multi-Core.
+**`security threat`** — lit ou écrit la configuration du moteur Sentinel (fail2ban, seuils, whitelist globale…). Le paramètre `-edge` cible une passerelle spécifique dans un cluster multi-passerelle.
 
 **`security bans`** — liste, ajoute ou supprime des IPs bannies manuellement. `-ttl` accepte des durées Go (`1h`, `24h`, `7d`).
 
@@ -704,13 +704,13 @@ Exemple de fichier règle (`rule.json`) :
 
 ### `goproxify containers`
 
-Conteneurs Docker découverts par les Agents (lecture seule). Agrège les résultats de tous les Cores connectés.
+Conteneurs Docker découverts par les Agents (lecture seule). Agrège les résultats de toutes les passerelles connectées.
 
 ```
 goproxify containers [list] [-admin-url …] [-token …]
 ```
 
-Affiche pour chaque conteneur : le host, TLS, le Core source, l'Agent et les backends.
+Affiche pour chaque conteneur : le host, TLS, la passerelle source, l'Agent et les backends.
 
 Exemples :
 
@@ -754,7 +754,7 @@ goproxify me tokens revoke <id>
 
 ### `goproxify status`
 
-État du cluster — nœuds (Core, Agent HTTP) et agents WS.
+État du cluster — nœuds (Passerelle, Agent HTTP) et agents WS.
 
 ```
 goproxify status [-short]
@@ -775,21 +775,21 @@ goproxify status -short
 GoProxify Access — portail opérateur (terminal web, SSH UUID, coffre secrets).
 
 ```
-goproxify access config get        -core <nom>
-goproxify access config set        -core <nom> -enabled true|false [-public-host <host>]
-goproxify access config push       -core <nom>
+goproxify access config get        -edge <nom>
+goproxify access config set        -edge <nom> -enabled true|false [-public-host <host>]
+goproxify access config push       -edge <nom>
 
-goproxify access destinations list   -core <nom>
-goproxify access destinations create -core <nom> -name <n> -kind ssh|docker -host <h> -port <p> [-tags a,b]
+goproxify access destinations list   -edge <nom>
+goproxify access destinations create -edge <nom> -name <n> -kind ssh|docker -host <h> -port <p> [-tags a,b]
 goproxify access destinations delete -id <uuid>
 
-goproxify access users list          [-core <nom>]
-goproxify access users invite        -email <email> -home-core <nom> [-tags a,b]
+goproxify access users list          [-edge <nom>]
+goproxify access users invite        -email <email> -home-edge <nom> [-tags a,b]
 goproxify access users update        -id <uuid> -status active|disabled
 goproxify access users resend        -id <uuid>
 goproxify access users delete        -id <uuid>
 
-goproxify access audit list          [-core <nom>] [-limit <n>]
+goproxify access audit list          [-edge <nom>] [-limit <n>]
 
 goproxify access templates list
 goproxify access templates get  -key <clé>
@@ -804,7 +804,7 @@ goproxify access templates push
 Nœuds Infrastructure — liste, état temps réel (`live` : santé, débit req/s et score de risque sur 60 s, cf. `GET /api/v1/nodes/live`), acceptation et rejet des nœuds en attente.
 
 ```
-goproxify nodes list         [-role core|agent]
+goproxify nodes list         [-role edge|agent]
 goproxify nodes live
 goproxify nodes accept       -id <pending-id>
 goproxify nodes reject       -id <pending-id>
@@ -818,7 +818,7 @@ Nœuds déclarés via le wizard d'architecture (upsert par rôle + nom).
 
 ```
 goproxify declared list
-goproxify declared create -role core|agent -name <nom> [-region <r>] [-environment <e>] [-config '<json>']
+goproxify declared create -role edge|agent -name <nom> [-region <r>] [-environment <e>] [-config '<json>']
 goproxify declared delete  -id <dn_...>
 ```
 
@@ -831,7 +831,7 @@ Tickets QR / `curl|bash` pour intégrer un hôte (lien `/i/{token}`).
 ```
 goproxify bootstrap create [options]
   -host <nom>              Nom de l'hôte
-  -core-endpoint <url>     Endpoint Core (ex: http://192.0.2.10:8000)
+  -edge-endpoint <url>     Endpoint passerelle (ex: http://192.0.2.10:8000)
   -ttl <heures>            TTL du ticket (défaut 24, max 168)
   -auto-accept true|false  Auto-accept des nœuds liés (défaut true)
   -node-names a,b          Noms pré-approuvés
@@ -843,7 +843,7 @@ goproxify bootstrap create [options]
 Exemples :
 
 ```bash
-goproxify bootstrap create -host edge-1 -core-endpoint http://192.0.2.10:8000 -node-names core-edge -no-qr
+goproxify bootstrap create -host host-1 -edge-endpoint http://192.0.2.10:8000 -node-names edge-main -no-qr
 curl -fsSL "$(goproxify bootstrap create -host h1 -no-qr | jq -r .script_url)" | bash
 ```
 
@@ -876,7 +876,7 @@ Variables d'environnement :
 | Variable | Usage |
 |----------|-------|
 | `GPX_DATA_PATH` | Répertoire racine des données (prioritaire) |
-| `GPX_CORE_CACHE_PATH` | Utilisé pour déduire le répertoire si `GPX_DATA_PATH` absent |
+| `GPX_EDGE_CACHE_PATH` | Utilisé pour déduire le répertoire si `GPX_DATA_PATH` absent |
 
 > Cette commande est destinée à la migration ponctuelle depuis les versions < 0.2. Les nouvelles installations utilisent directement le format YAML.
 
@@ -906,7 +906,7 @@ Chaque composant accepte un fichier JSON optionnel (défaut : `./internal/<compo
 
 ```
 goproxify admin  -config /etc/goproxify/admin.json
-goproxify core   -config /etc/goproxify/core.json
+goproxify edge   -config /etc/goproxify/edge.json
 goproxify agent  -config /etc/goproxify/agent.json
 ```
 

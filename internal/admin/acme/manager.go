@@ -22,10 +22,10 @@ import (
 
 	xacme "golang.org/x/crypto/acme"
 
-	coretls "github.com/vincamok/goproxify/internal/core/tls"
+	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
 )
 
-// CertPusher envoie le certificat déchiffré aux Cores.
+// CertPusher envoie le certificat déchiffré aux passerelles.
 type CertPusher interface {
 	PushCert(ctx context.Context, name string, certPEM, keyPEM []byte)
 }
@@ -178,7 +178,7 @@ func (m *Manager) obtainCertWithProv(ctx context.Context, domain string, prov DN
 	}
 
 	if m.pusher != nil {
-		for _, n := range coretls.PushNames(certName, certPEM) {
+		for _, n := range edgetls.PushNames(certName, certPEM) {
 			m.pusher.PushCert(ctx, n, certPEM, keyPEM)
 		}
 	}
@@ -459,7 +459,7 @@ func (m *Manager) LoadCertsFromDisk(ctx context.Context) {
 			continue
 		}
 		if m.pusher != nil {
-			for _, n := range coretls.PushNames(domain, certPEM) {
+			for _, n := range edgetls.PushNames(domain, certPEM) {
 				m.pusher.PushCert(ctx, n, certPEM, keyPEM)
 			}
 		}

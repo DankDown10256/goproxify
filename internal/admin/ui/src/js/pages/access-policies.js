@@ -1,7 +1,7 @@
 // ── PAGE: Politiques d'accès
-// Vue matricielle croisée : domaines × sujets (utilisateurs, équipes, tokens Core).
+// Vue matricielle croisée : domaines × sujets (utilisateurs, équipes, tokens passerelle).
 // Chaque cellule indique le mode d'accès (read / write) ou "—".
-// La colonne Cores montre quel(s) token(s) reçoit ce domaine et si une délégation existe.
+// La colonne passerelles montre quel(s) token(s) reçoit ce domaine et si une délégation existe.
 
 pages['access-policies'] = async function () {
   const content = document.getElementById('content');
@@ -20,7 +20,7 @@ async function renderAccessPolicies(content) {
       api('GET', '/domains').catch(() => []),
       api('GET', '/users').catch(() => []),
       api('GET', '/teams').catch(() => []),
-      api('GET', '/tokens?role=core').catch(() => []),
+      api('GET', '/tokens?role=edge').catch(() => []),
     ]);
 
     // Détails scopes par utilisateur (parallel)
@@ -41,14 +41,14 @@ async function renderAccessPolicies(content) {
       })
     );
 
-    // Scopes par token Core (parallel) — uniquement tokens actifs non révoqués
+    // Scopes par token passerelle (parallel) — uniquement tokens actifs non révoqués
     const now = Date.now();
-    const activeCoreTokens = (tokens || []).filter(tok =>
+    const activeEdgeTokens = (tokens || []).filter(tok =>
       !tok.revoked && (!tok.expires_at || new Date(tok.expires_at).getTime() > now)
     );
     const tokenScopes = {};
     await Promise.all(
-      activeCoreTokens.map(async tok => {
+      activeEdgeTokens.map(async tok => {
         try {
           const sc = await api('GET', `/tokens/${encodeURIComponent(tok.id)}/scopes`) || [];
           tokenScopes[tok.id] = sc;
@@ -94,7 +94,7 @@ async function renderAccessPolicies(content) {
         const type = sc.scope_type || sc.type;
         const val  = sc.scope_value || sc.value;
         const mode = sc.access_mode || sc.mode || 'read';
-        if (type === 'core') { best = 'write'; break; }
+        if (type === 'edge') { best = 'write'; break; }
         if (type === 'domain' && domainMatch(val, domain)) {
           if (mode === 'write') { best = 'write'; break; }
           if (!best) best = 'read';
@@ -119,15 +119,15 @@ async function renderAccessPolicies(content) {
       return tok.node_name || tok.id?.slice(0, 8) || '?';
     }
 
-    function coreName(id) {
-      const tok = activeCoreTokens.find(t => t.id === id || t.node_name === id);
+    function edgeName(id) {
+      const tok = activeEdgeTokens.find(t => t.id === id || t.node_name === id);
       return tok ? tokenLabel(tok) : (id ? id.slice(0, 10) : '—');
     }
 
     // Token(s) couvrant ce domaine
     function tokensForDomain(domain, entryId, delegId) {
       const relevant = [];
-      for (const tok of activeCoreTokens) {
+      for (const tok of activeEdgeTokens) {
         const scopes = tokenScopes[tok.id] || [];
         const isEntry = tok.id === entryId || tok.node_name === entryId;
         const isDeleg = tok.id === delegId || tok.node_name === delegId;
@@ -136,7 +136,7 @@ async function renderAccessPolicies(content) {
         const covers = (rbac === 'admin' || rbac === 'superadmin') && noScope
           ? true // admin token sans scope = accès global
           : scopes.some(sc => {
-              if (sc.scope_type === 'core') return true;
+              if (sc.scope_type === 'edge') return true;
               return sc.scope_type === 'domain' && domainMatch(sc.scope_value, domain);
             });
         if (covers || isEntry || isDeleg) {
@@ -173,15 +173,15 @@ async function renderAccessPolicies(content) {
 
     const rows = (domains || []).map(d => {
       const domain = d.domain;
-      const entryId = d.core_id;
-      const delegId = d.delegated_to_core_id;
+      const entryId = d.edge_id;
+      const delegId = d.delegated_to_edge_id;
 
-      // Colonne Core d'entrée + délégation
+      // Colonne passerelle d'entrée + délégation
       const entryTag = entryId
-        ? `<span class="tag tag-neutral" style="font-size:10px">${esc(coreName(entryId))}</span>`
+        ? `<span class="tag tag-neutral" style="font-size:10px">${esc(edgeName(entryId))}</span>`
         : `<span style="color:var(--text3)">—</span>`;
       const delegTag = delegId
-        ? `<span class="tag tag-accent" style="font-size:10px" title="${esc(d.delegated_endpoint||'')}">→ ${esc(coreName(delegId))}</span>`
+        ? `<span class="tag tag-accent" style="font-size:10px" title="${esc(d.delegated_endpoint||'')}">→ ${esc(edgeName(delegId))}</span>`
         : '';
 
       // Cellules utilisateurs
@@ -199,12 +199,12 @@ async function renderAccessPolicies(content) {
         return `<td style="text-align:center">${modeTag(mode)}</td>`;
       }).join('');
 
-      // Cellule Cores : liste des tokens qui reçoivent ce domaine
-      const coreEntries = tokensForDomain(domain, entryId, delegId);
-      const coreCellHtml = coreEntries.length === 0
+      // Cellule passerelles : liste des tokens qui reçoivent ce domaine
+      const edgeEntries = tokensForDomain(domain, entryId, delegId);
+      const edgeCellHtml = edgeEntries.length === 0
         ? `<td><span style="color:var(--text3);font-size:11px">—</span></td>`
         : `<td><div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
-            ${coreEntries.map(({ tok, isEntry, isDeleg }) => {
+            ${edgeEntries.map(({ tok, isEntry, isDeleg }) => {
               const label = tokenLabel(tok);
               const mark  = isEntry ? ' ●' : (isDeleg ? ' ⇢' : '');
               return `<span class="tag tag-neutral" style="font-size:10px" title="${esc(tok.node_name||tok.id)}">${esc(label)}${mark}</span>`;
@@ -221,7 +221,7 @@ async function renderAccessPolicies(content) {
         </td>
         ${userCells}
         ${teamCells}
-        ${coreCellHtml}
+        ${edgeCellHtml}
       </tr>`;
     }).join('');
 
@@ -236,7 +236,7 @@ async function renderAccessPolicies(content) {
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="navigate('users')">${t('access.col.users')}</button>
-          <button class="btn btn-ghost btn-sm" onclick="navigate('tokens')">${t('access.col.cores')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="navigate('tokens')">${t('access.col.edges')}</button>
         </div>
       </div>
 
@@ -248,7 +248,7 @@ async function renderAccessPolicies(content) {
                 <th style="min-width:180px" rowspan="2">${t('access.col.domain')}</th>
                 ${noUsers ? '' : `<th colspan="${relevantUsers.length}" style="text-align:center;border-left:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.06em;opacity:.6">${t('access.col.users')}</th>`}
                 ${noTeams ? '' : `<th colspan="${relevantTeams.length}" style="text-align:center;border-left:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.06em;opacity:.6">${t('access.col.teams')}</th>`}
-                <th rowspan="2" style="text-align:center;border-left:1px solid var(--border)">${t('access.col.cores')}</th>
+                <th rowspan="2" style="text-align:center;border-left:1px solid var(--border)">${t('access.col.edges')}</th>
               </tr>
               <tr style="border-bottom:2px solid var(--border)">
                 ${noUsers ? '' : userColsHtml}
@@ -261,8 +261,8 @@ async function renderAccessPolicies(content) {
       </div>
 
       <div style="margin-top:12px;font-size:11px;color:var(--text3);display:flex;gap:16px;flex-wrap:wrap">
-        <span>● = Core d'entrée</span>
-        <span>⇢ = Core délégué</span>
+        <span>● = Passerelle d'entrée</span>
+        <span>⇢ = Passerelle déléguée</span>
         <span style="opacity:.7">${t('access.global_admin')} : droits complets sans grants explicites</span>
       </div>`;
 

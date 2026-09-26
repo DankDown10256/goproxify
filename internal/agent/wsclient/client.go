@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package wsclient fournit le client WebSocket persistant Agent→Core.
+// Package wsclient fournit le client WebSocket persistant Agent→Passerelle.
 // Il remplace progressivement la boucle HTTP heartbeat.
 // Si la connexion WS est impossible, l'Agent retombe sur le heartbeat HTTP existant.
 package wsclient
@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	coreWS "github.com/vincamok/goproxify/internal/core/ws"
+	edgeWS "github.com/vincamok/goproxify/internal/edge/ws"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
@@ -46,15 +46,15 @@ const (
 	metricsInterval   = 10 * time.Second
 )
 
-// CommandHandler est appelé quand Core envoie une commande à l'Agent.
+// CommandHandler est appelé quand la passerelle envoie une commande à l'Agent.
 type CommandHandler func(action string, payload json.RawMessage)
 
-// Client maintient la connexion WS persistante Agent→Core.
+// Client maintient la connexion WS persistante Agent→Passerelle.
 type Client struct {
 	agentID   string
 	agentName string
 	version   string
-	endpoint  string // URL du Core ex: http://goproxify-core:8000
+	endpoint  string // URL de la passerelle ex: http://goproxify-edge:8000
 
 	joinToken string // pour le bootstrap (premier démarrage)
 	hmacSecret string // après approbation, stocké localement
@@ -63,7 +63,7 @@ type Client struct {
 	connMu sync.Mutex
 	seq    atomic.Int64
 
-	onCommand CommandHandler // appelé pour les messages Core→Agent
+	onCommand CommandHandler // appelé pour les messages passerelle→Agent
 
 	log *slog.Logger
 
@@ -75,15 +75,15 @@ type Client struct {
 	Active atomic.Bool
 }
 
-// NewClient crée un nouveau client WS Agent→Core.
+// NewClient crée un nouveau client WS Agent→Passerelle.
 // joinToken est utilisé au premier démarrage ; après approbation, hmacSecret est utilisé.
-func NewClient(agentID, agentName, version, coreEndpoint, joinToken, hmacSecret string, onCommand CommandHandler, log *slog.Logger) *Client {
+func NewClient(agentID, agentName, version, edgeEndpoint, joinToken, hmacSecret string, onCommand CommandHandler, log *slog.Logger) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
 		agentID:    agentID,
 		agentName:  agentName,
 		version:    version,
-		endpoint:   coreEndpoint,
+		endpoint:   edgeEndpoint,
 		joinToken:  joinToken,
 		hmacSecret: hmacSecret,
 		onCommand:  onCommand,
@@ -108,9 +108,9 @@ func (c *Client) Close() {
 // IsActive retourne true si la connexion WS est actuellement établie.
 func (c *Client) IsActive() bool { return c.Active.Load() }
 
-// SendHeartbeat envoie un message heartbeat au Core.
+// SendHeartbeat envoie un message heartbeat à la passerelle.
 func (c *Client) SendHeartbeat(cpuPct, memPct float64, runtimes []string, endpoint string, agentConfig any) {
-	c.sendJSON(coreWS.TypeAgentHeartbeat, map[string]any{
+	c.sendJSON(edgeWS.TypeAgentHeartbeat, map[string]any{
 		"node_name":          c.agentName,
 		"agent_name":         c.agentName,
 		"endpoint":           endpoint,
@@ -123,27 +123,27 @@ func (c *Client) SendHeartbeat(cpuPct, memPct float64, runtimes []string, endpoi
 
 // SendContainers envoie la liste des conteneurs découverts.
 func (c *Client) SendContainers(containers any) {
-	c.sendJSON(coreWS.TypeAgentContainers, containers)
+	c.sendJSON(edgeWS.TypeAgentContainers, containers)
 }
 
 // SendMetrics envoie les métriques par conteneur pour le LB adaptatif.
-func (c *Client) SendMetrics(metrics coreWS.AgentMetricsPayload) {
-	c.sendJSON(coreWS.TypeAgentMetrics, metrics)
+func (c *Client) SendMetrics(metrics edgeWS.AgentMetricsPayload) {
+	c.sendJSON(edgeWS.TypeAgentMetrics, metrics)
 }
 
 // SendEvent envoie un événement cycle de vie.
 func (c *Client) SendEvent(event any) {
-	c.sendJSON(coreWS.TypeAgentEvent, event)
+	c.sendJSON(edgeWS.TypeAgentEvent, event)
 }
 
 // SendLog envoie un batch de logs.
 func (c *Client) SendLog(logs any) {
-	c.sendJSON(coreWS.TypeAgentLog, logs)
+	c.sendJSON(edgeWS.TypeAgentLog, logs)
 }
 
-// SendShellData envoie un chunk stdout vers le Core.
+// SendShellData envoie un chunk stdout vers la passerelle.
 func (c *Client) SendShellData(sessionID string, data []byte) {
-	c.sendJSON(coreWS.TypeShellData, coreWS.ShellDataPayload{
+	c.sendJSON(edgeWS.TypeShellData, edgeWS.ShellDataPayload{
 		SessionID: sessionID,
 		Data:      base64.StdEncoding.EncodeToString(data),
 	})
@@ -151,17 +151,17 @@ func (c *Client) SendShellData(sessionID string, data []byte) {
 
 // SendShellReady confirme que le docker exec est attaché.
 func (c *Client) SendShellReady(sessionID string) {
-	c.sendJSON(coreWS.TypeShellReady, coreWS.ShellReadyPayload{SessionID: sessionID})
+	c.sendJSON(edgeWS.TypeShellReady, edgeWS.ShellReadyPayload{SessionID: sessionID})
 }
 
 // SendShellClose notifie la fin de session.
 func (c *Client) SendShellClose(sessionID string) {
-	c.sendJSON(coreWS.TypeShellClose, coreWS.ShellClosePayload{SessionID: sessionID})
+	c.sendJSON(edgeWS.TypeShellClose, edgeWS.ShellClosePayload{SessionID: sessionID})
 }
 
 // SendShellError signale une erreur d'ouverture exec.
 func (c *Client) SendShellError(sessionID, errMsg string) {
-	c.sendJSON(coreWS.TypeShellError, coreWS.ShellErrorPayload{SessionID: sessionID, Error: errMsg})
+	c.sendJSON(edgeWS.TypeShellError, edgeWS.ShellErrorPayload{SessionID: sessionID, Error: errMsg})
 }
 
 func (c *Client) sendJSON(msgType string, payload any) {
@@ -176,7 +176,7 @@ func (c *Client) sendJSON(msgType string, payload any) {
 	if err != nil {
 		return
 	}
-	msg := coreWS.Message{Seq: c.seq.Add(1), Type: msgType, Payload: b}
+	msg := edgeWS.Message{Seq: c.seq.Add(1), Type: msgType, Payload: b}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := wsjson.Write(ctx, conn, msg); err != nil {
@@ -207,7 +207,7 @@ func (c *Client) connectLoop() {
 		select {
 		case <-c.ctx.Done():
 			return
-		case <-time.After(backoff + coreWS.RandomJitter(backoff/5)):
+		case <-time.After(backoff + edgeWS.RandomJitter(backoff/5)):
 		}
 		backoff *= 2
 		if backoff > reconnectMax {
@@ -242,7 +242,7 @@ func (c *Client) connect() error {
 	}
 
 	// Envoyer le message register
-	regMsg, _ := coreWS.NewMessage(c.seq.Add(1), coreWS.TypeAgentRegister, map[string]string{
+	regMsg, _ := edgeWS.NewMessage(c.seq.Add(1), edgeWS.TypeAgentRegister, map[string]string{
 		"agent_id": c.agentID,
 		"name":     c.agentName,
 		"version":  c.version,
@@ -262,9 +262,9 @@ func (c *Client) connect() error {
 
 	c.log.Info("wsclient: connexion WS établie", "url", wsURL)
 
-	// Lecture des messages entrants (Core → Agent)
+	// Lecture des messages entrants (Passerelle → Agent)
 	for {
-		var msg coreWS.Message
+		var msg edgeWS.Message
 		if err := wsjson.Read(c.ctx, conn, &msg); err != nil {
 			break
 		}
@@ -279,31 +279,31 @@ func (c *Client) connect() error {
 	return nil
 }
 
-// handleIncoming traite les messages Core → Agent.
-func (c *Client) handleIncoming(msg coreWS.Message) {
+// handleIncoming traite les messages passerelle → Agent.
+func (c *Client) handleIncoming(msg edgeWS.Message) {
 	switch msg.Type {
-	case coreWS.TypeApprove:
-		var p coreWS.ApprovePayload
+	case edgeWS.TypeApprove:
+		var p edgeWS.ApprovePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
 			c.hmacSecret = p.AgentHMAC
 			c.joinToken = "" // plus besoin du JOIN_TOKEN
 			saveHMAC(p.AgentHMAC)
 			c.log.Info("wsclient: Agent approuvé, HMAC reçu et persisté")
 		}
-	case coreWS.TypeRotateHMAC:
-		var p coreWS.RotateHMACPayload
+	case edgeWS.TypeRotateHMAC:
+		var p edgeWS.RotateHMACPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
 			c.hmacSecret = p.AgentHMAC
 			saveHMAC(p.AgentHMAC)
 			c.log.Debug("wsclient: HMAC rotatif adopté et persisté")
 		}
-	case coreWS.TypePing:
-		c.sendJSON(coreWS.TypePong, nil)
-	case coreWS.TypeCommand, coreWS.TypeRescan:
+	case edgeWS.TypePing:
+		c.sendJSON(edgeWS.TypePong, nil)
+	case edgeWS.TypeCommand, edgeWS.TypeRescan:
 		if c.onCommand != nil {
 			c.onCommand(msg.Type, msg.Payload)
 		}
-	case coreWS.TypeShellOpen, coreWS.TypeShellData, coreWS.TypeShellClose:
+	case edgeWS.TypeShellOpen, edgeWS.TypeShellData, edgeWS.TypeShellClose:
 		if c.onCommand != nil {
 			c.onCommand(msg.Type, msg.Payload)
 		}

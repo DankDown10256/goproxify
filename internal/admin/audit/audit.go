@@ -26,7 +26,7 @@ const (
 
 // Event décrit un événement à journaliser.
 type Event struct {
-	Component    string   // admin | core | agent
+	Component    string   // admin | edge | agent
 	Action       string   // login, logout, create_proxy, delete_token, …
 	Actor        string   // email de l'utilisateur ou nom du nœud
 	UserID       string

@@ -1,7 +1,7 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package nodeident génère et résout l'identité stable d'un nœud (Core ou Agent).
+// Package nodeident génère et résout l'identité stable d'un nœud (Passerelle ou Agent).
 package nodeident
 
 import (

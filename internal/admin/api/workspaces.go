@@ -149,7 +149,7 @@ func (h *WorkspacesHandler) get(w http.ResponseWriter, r *http.Request, id strin
 		SELECT res.resource_type, res.resource_id,
 			COALESCE(
 				CASE WHEN res.resource_type='proxy' THEN (SELECT name FROM proxies WHERE id=res.resource_id)
-				WHEN res.resource_type='core' THEN (SELECT node_name FROM nodes WHERE id=res.resource_id)
+				WHEN res.resource_type='edge' THEN (SELECT node_name FROM nodes WHERE id=res.resource_id)
 				ELSE '' END,
 			'')
 		FROM workspace_resources res WHERE res.workspace_id=?`, id)
@@ -259,7 +259,7 @@ func (h *WorkspacesHandler) removeMember(w http.ResponseWriter, r *http.Request,
 func (h *WorkspacesHandler) addResource(w http.ResponseWriter, r *http.Request, wsID string) {
 	var body workspaceResource
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil ||
-		(body.ResourceType != "proxy" && body.ResourceType != "domain" && body.ResourceType != "core") ||
+		(body.ResourceType != "proxy" && body.ResourceType != "domain" && body.ResourceType != "edge") ||
 		body.ResourceID == "" {
 		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
 		return
@@ -275,7 +275,7 @@ func (h *WorkspacesHandler) addResource(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *WorkspacesHandler) removeResource(w http.ResponseWriter, r *http.Request, wsID, subID string) {
-	// subID = "proxy/abc" or "domain/abc" or "core/abc"
+	// subID = "proxy/abc" or "domain/abc" or "edge/abc"
 	parts := strings.SplitN(subID, "/", 2)
 	if len(parts) != 2 {
 		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")

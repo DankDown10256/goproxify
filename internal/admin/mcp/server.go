@@ -21,12 +21,12 @@ import (
 
 	"github.com/google/uuid"
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
-	"github.com/vincamok/goproxify/internal/admin/coreproxy"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/admin/internalca"
 	"github.com/vincamok/goproxify/internal/admin/mcpaccess"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
-	"github.com/vincamok/goproxify/internal/core/proxystore"
+	"github.com/vincamok/goproxify/internal/edge/proxystore"
 )
 
 const mcpVersion = "2025-03-26"
@@ -44,15 +44,15 @@ type AgentInfo struct {
 type Handler struct {
 	DB     *sql.DB
 	Log    *slog.Logger
-	Pusher RoutePusher // optionnel — push vers les Cores après create/delete/update
-	// Access (optionnel) — push config / templates portail vers les Cores.
+	Pusher RoutePusher // optionnel — push vers les passerelles après create/delete/update
+	// Access (optionnel) — push config / templates portail vers les passerelles.
 	Access          AccessPusher
 	AccessTemplates AccessTemplatesPusher
 	// Agents (optionnel) — registre en mémoire Admin ; callbacks WS.
 	ListAgents   func() []AgentInfo
 	ApproveAgent func(agentID string)
 	RevokeAgent  func(agentID string)
-	// OnBansChange (optionnel) — push_bans vers les Cores après create/delete ban.
+	// OnBansChange (optionnel) — push_bans vers les passerelles après create/delete ban.
 	OnBansChange func()
 	// ResolvePublicURL (optionnel) — base publique Admin pour les tickets bootstrap (QR / curl|bash).
 	ResolvePublicURL func(r *http.Request) string
@@ -72,7 +72,7 @@ type CertDeployerIface interface {
 	TriggerTarget(ctx context.Context, targetID string) error
 }
 
-// RoutePusher est implémenté par corews.Manager / corepush.Pusher (évite un import cyclique).
+// RoutePusher est implémenté par edgews.Manager / edgepush.Pusher (évite un import cyclique).
 type RoutePusher interface {
 	PushRoutes(ctx context.Context)
 	DeleteRoute(ctx context.Context, id string)
@@ -250,7 +250,7 @@ var tools = []map[string]any{
 	// Nœuds / Agents
 	{
 		"name":        "list_nodes",
-		"description": "Liste les nœuds Core et Agent avec leurs métriques (CPU, mémoire, statut).",
+		"description": "Liste les nœuds passerelle et Agent avec leurs métriques (CPU, mémoire, statut).",
 		"inputSchema": schema(),
 	},
 	{
@@ -260,7 +260,7 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "approve_agent",
-		"description": "Approuve un Agent en attente (envoie approve_agent aux Cores via WS).",
+		"description": "Approuve un Agent en attente (envoie approve_agent aux passerelles via WS).",
 		"inputSchema": schema(req("id", "string", "ID de l'Agent à approuver")),
 	},
 	{
@@ -349,7 +349,7 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "create_security_ban",
-		"description": "Crée un ban IP natif (permanent par défaut). Pousse les bans aux Cores.",
+		"description": "Crée un ban IP natif (permanent par défaut). Pousse les bans aux passerelles.",
 		"inputSchema": schema(
 			req("ip", "string", "Adresse IP à bannir"),
 			opt("reason", "string", "Motif du ban"),
@@ -359,12 +359,12 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "delete_security_ban",
-		"description": "Supprime un ban par son ID et resynchronise les Cores.",
+		"description": "Supprime un ban par son ID et resynchronise les passerelles.",
 		"inputSchema": schema(req("id", "string", "ID du ban")),
 	},
 	{
 		"name":        "ban_ip",
-		"description": "Banne immédiatement une IP via le moteur Sentinel (ban natif). Pousse aux Cores.",
+		"description": "Banne immédiatement une IP via le moteur Sentinel (ban natif). Pousse aux passerelles.",
 		"inputSchema": schema(
 			req("ip", "string", "Adresse IP à bannir"),
 			opt("reason", "string", "Motif du ban (défaut: mcp_ban)"),
@@ -378,7 +378,7 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "rotate_cert",
-		"description": "Force le renouvellement ACME d'un certificat par son domaine et le pousse aux Cores.",
+		"description": "Force le renouvellement ACME d'un certificat par son domaine et le pousse aux passerelles.",
 		"inputSchema": schema(req("domain", "string", "Domaine dont le certificat doit être renouvelé")),
 	},
 	// Certificate Hub
@@ -722,7 +722,7 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 // --- Tool implementations ------------------------------------------------
 
 func (h *Handler) toolListProxies(r *http.Request) (any, error) {
-	envs, err := coreproxy.LoadProductionEnvelopes(r.Context(), h.DB)
+	envs, err := edgeproxy.LoadProductionEnvelopes(r.Context(), h.DB)
 	if err != nil {
 		return nil, err
 	}
@@ -805,7 +805,7 @@ func (h *Handler) toolCreateProxy(r *http.Request, args map[string]any) (any, er
 		return nil, err
 	}
 	actor := adminauth.ActorFromContext(r.Context())
-	if err := h.publishToCores(r.Context(), id, host, true, cfgJSON, actor); err != nil {
+	if err := h.publishToEdges(r.Context(), id, host, true, cfgJSON, actor); err != nil {
 		return nil, err
 	}
 	_ = admindb.WriteAudit(h.DB, actor, "create", "proxy:"+id, host)
@@ -813,7 +813,7 @@ func (h *Handler) toolCreateProxy(r *http.Request, args map[string]any) (any, er
 }
 
 func (h *Handler) resolveProxyEnvelope(ctx context.Context, ref string) (*proxystore.Envelope, error) {
-	envs, err := coreproxy.LoadProductionEnvelopes(ctx, h.DB)
+	envs, err := edgeproxy.LoadProductionEnvelopes(ctx, h.DB)
 	if err != nil {
 		return nil, err
 	}
@@ -843,15 +843,15 @@ func (h *Handler) resolveProxyID(ctx context.Context, ref string) (id, name, cfg
 	return env.ID, env.Host, string(env.Config), en, nil
 }
 
-func (h *Handler) publishToCores(ctx context.Context, id, host string, enabled bool, cfg json.RawMessage, actor string) error {
-	targets, err := coreproxy.ListTargets(ctx, h.DB)
+func (h *Handler) publishToEdges(ctx context.Context, id, host string, enabled bool, cfg json.RawMessage, actor string) error {
+	targets, err := edgeproxy.ListTargets(ctx, h.DB)
 	if err != nil {
 		return err
 	}
 	if len(targets) == 0 {
-		return fmt.Errorf("aucun Core joignable")
+		return fmt.Errorf("aucune passerelle joignable")
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	ok := 0
 	var last error
 	for _, t := range targets {
@@ -922,7 +922,7 @@ func (h *Handler) toolUpdateProxy(r *http.Request, args map[string]any) (any, er
 		return nil, err
 	}
 	actor := adminauth.ActorFromContext(r.Context())
-	if err := h.publishToCores(r.Context(), id, name, enabled == 1, outJSON, actor); err != nil {
+	if err := h.publishToEdges(r.Context(), id, name, enabled == 1, outJSON, actor); err != nil {
 		return nil, err
 	}
 	_ = admindb.WriteAudit(h.DB, actor, "update", "proxy:"+id, name)
@@ -940,7 +940,7 @@ func (h *Handler) toolSetProxyEnabled(r *http.Request, args map[string]any) (any
 		return nil, err
 	}
 	actor := adminauth.ActorFromContext(r.Context())
-	if err := h.publishToCores(r.Context(), id, name, en, json.RawMessage(cfgJSON), actor); err != nil {
+	if err := h.publishToEdges(r.Context(), id, name, en, json.RawMessage(cfgJSON), actor); err != nil {
 		return nil, err
 	}
 	action := "disable"
@@ -958,11 +958,11 @@ func (h *Handler) toolDeleteProxy(r *http.Request, id string) (any, error) {
 	}
 	id = env.ID
 	actor := adminauth.ActorFromContext(r.Context())
-	targets, err := coreproxy.ListTargets(r.Context(), h.DB)
+	targets, err := edgeproxy.ListTargets(r.Context(), h.DB)
 	if err != nil || len(targets) == 0 {
-		return nil, fmt.Errorf("aucun Core joignable")
+		return nil, fmt.Errorf("aucune passerelle joignable")
 	}
-	client := coreproxy.NewClient()
+	client := edgeproxy.NewClient()
 	var deleteErr error
 	for _, t := range targets {
 		if err := client.Delete(r.Context(), t, id); err != nil {
@@ -1167,7 +1167,7 @@ func (h *Handler) toolListSnippets(r *http.Request) (any, error) {
 
 func (h *Handler) toolListDomains(r *http.Request) (any, error) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, domain, core_id, dns_provider, cert_method, delegation_mode,
+		`SELECT id, domain, edge_id, dns_provider, cert_method, delegation_mode,
 		        cert_expires_at, created_at
 		 FROM domains ORDER BY domain`)
 	if err != nil {
@@ -1176,14 +1176,14 @@ func (h *Handler) toolListDomains(r *http.Request) (any, error) {
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id, domain, coreID, dnsProv, certMethod, delegMode string
+		var id, domain, edgeID, dnsProv, certMethod, delegMode string
 		var certExpires *time.Time
 		var createdAt time.Time
-		if err := rows.Scan(&id, &domain, &coreID, &dnsProv, &certMethod, &delegMode, &certExpires, &createdAt); err != nil {
+		if err := rows.Scan(&id, &domain, &edgeID, &dnsProv, &certMethod, &delegMode, &certExpires, &createdAt); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
-			"id": id, "domain": domain, "core_id": coreID,
+			"id": id, "domain": domain, "edge_id": edgeID,
 			"dns_provider": dnsProv, "cert_method": certMethod,
 			"delegation_mode": delegMode, "cert_expires_at": certExpires,
 			"created_at": createdAt,
@@ -1741,7 +1741,7 @@ func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) 
 		}
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, scenario, origin, type, duration, core_name, occurrences, last_seen_at, created_at
+		`SELECT id, ip, scenario, origin, type, duration, edge_name, occurrences, last_seen_at, created_at
 		 FROM security_threats ORDER BY last_seen_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -1750,13 +1750,13 @@ func (h *Handler) toolListSecurityThreats(r *http.Request, args map[string]any) 
 	var out []map[string]any
 	for rows.Next() {
 		var id, occurrences int
-		var ip, scenario, origin, typ, duration, coreName, lastSeenAt, createdAt string
-		if err := rows.Scan(&id, &ip, &scenario, &origin, &typ, &duration, &coreName, &occurrences, &lastSeenAt, &createdAt); err != nil {
+		var ip, scenario, origin, typ, duration, edgeName, lastSeenAt, createdAt string
+		if err := rows.Scan(&id, &ip, &scenario, &origin, &typ, &duration, &edgeName, &occurrences, &lastSeenAt, &createdAt); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "ip": ip, "scenario": scenario, "origin": origin,
-			"type": typ, "duration": duration, "core_name": coreName,
+			"type": typ, "duration": duration, "edge_name": edgeName,
 			"occurrences": occurrences, "last_seen_at": lastSeenAt, "created_at": createdAt,
 		})
 	}
@@ -1781,7 +1781,7 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, core_name, detected_at
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at
 		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC LIMIT 200`, qargs...)
 	if err != nil {
 		return nil, err
@@ -1790,14 +1790,14 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 	var out []map[string]any
 	for rows.Next() {
 		var id int
-		var backend, cveID, desc, status, coreName, detectedAt string
+		var backend, cveID, desc, status, edgeName, detectedAt string
 		var cvss float64
-		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &coreName, &detectedAt); err != nil {
+		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &edgeName, &detectedAt); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "backend_url": backend, "cve_id": cveID, "cvss_score": cvss,
-			"description": desc, "status": status, "core_name": coreName, "detected_at": detectedAt,
+			"description": desc, "status": status, "edge_name": edgeName, "detected_at": detectedAt,
 		})
 	}
 	if out == nil {
@@ -1870,7 +1870,7 @@ func (h *Handler) handleResourcesList(req rpcRequest) rpcResponse {
 	return okResp(req.ID, map[string]any{
 		"resources": []map[string]any{
 			{"uri": "goproxify://proxies", "name": "Proxies", "description": "Liste de toutes les routes proxy", "mimeType": "application/json"},
-			{"uri": "goproxify://nodes", "name": "Nœuds", "description": "Liste des nœuds Core et Agent", "mimeType": "application/json"},
+			{"uri": "goproxify://nodes", "name": "Nœuds", "description": "Liste des nœuds passerelle et Agent", "mimeType": "application/json"},
 			{"uri": "goproxify://agents", "name": "Agents", "description": "Agents WS (pending / approved)", "mimeType": "application/json"},
 			{"uri": "goproxify://alerts", "name": "Alertes", "description": "Règles d'alerting", "mimeType": "application/json"},
 			{"uri": "goproxify://users", "name": "Utilisateurs", "description": "Comptes utilisateurs et rôles", "mimeType": "application/json"},

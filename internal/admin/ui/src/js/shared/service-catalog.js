@@ -1,17 +1,17 @@
 // Service catalog — source de vérité pour images, ports, variables d'env et topologie.
-// Consommé par infra-config.js (_buildCoreOpts, _buildAgentOpts, _buildAdminOpts)
+// Consommé par infra-config.js (_buildEdgeOpts, _buildAgentOpts, _buildAdminOpts)
 // et par le wizard / les visualisations d'infrastructure.
 
 window._gpxCatalog = (function() {
 
   const SERVICES = {
-    core: {
-      label:       'Core',
-      image:       'ghcr.io/vincamok/goproxify/core:preview',
-      command:     'core',
+    edge: {
+      label:       'Passerelle',
+      image:       'ghcr.io/vincamok/goproxify/edge:preview',
+      command:     'edge',
       restart:     'unless-stopped',
-      svcName:     'goproxify-core',
-      volume:      'goproxify_core_data',
+      svcName:     'goproxify-edge',
+      volume:      'goproxify_edge_data',
       mountpoint:  '/etc/goproxify',
       ports: [
         { host: 80,   container: 80,   proto: 'tcp', label: 'HTTP'   },
@@ -23,8 +23,8 @@ window._gpxCatalog = (function() {
         { host: 8444, container: 8444, proto: 'tcp', label: 'Portail web', optional: true, key: 'portal' },
       ],
       env: [
-        { key: 'GPX_IDENTITY_CORE_NODE_NAME', required: true,  secret: false, default: 'goproxify-core',
-          description: "Nom du nœud Core dans l'Admin." },
+        { key: 'GPX_IDENTITY_EDGE_NODE_NAME', required: true,  secret: false, default: 'goproxify-edge',
+          description: "Nom du nœud passerelle dans l'Admin." },
         { key: 'GPX_PAIRING_SECRET',          required: true,  secret: true,
           description: 'Secret de couplage partagé avec Admin et Agents. Hex 32 octets.' },
         { key: 'GPX_ENGINE_LOG_LEVEL',        required: false, secret: false, default: 'info',
@@ -62,18 +62,18 @@ window._gpxCatalog = (function() {
       env: [
         { key: 'GPX_IDENTITY_AGENT_NODE_NAME',               required: false, secret: false, default: 'agent-<hex8> (persisté dans le volume)',
           description: "Nom lisible du nœud Agent dans l'Admin. Optionnel : sans lui un ID stable est auto-généré au premier démarrage et persisté dans /etc/goproxify/agent-node-id. Recommandé pour nommer l'agent lisiblement ou garantir la stabilité si le volume est recréé." },
-        { key: 'GPX_CONTROL_PLANE_CORE_ENDPOINT',            required: true,  secret: false, default: 'http://goproxify-core:8000',
-          description: "URL HTTP du plan de contrôle du Core (port 8000). Réseau interne si même hôte, IP/domaine sinon." },
+        { key: 'GPX_CONTROL_PLANE_EDGE_ENDPOINT',            required: true,  secret: false, default: 'http://goproxify-edge:8000',
+          description: "URL HTTP du plan de contrôle de la passerelle (port 8000). Réseau interne si même hôte, IP/domaine sinon." },
         { key: 'GPX_CONTROL_PLANE_ADMIN_ENDPOINT',           required: false, secret: false, default: 'http://goproxify-admin:9443',
-          description: "URL de l'Admin pour le fallback d'appairage. Si l'appairage via le Core échoue (401, Core pas encore prêt), l'agent tente l'Admin. Recommandé en production." },
+          description: "URL de l'Admin pour le fallback d'appairage. Si l'appairage via la passerelle échoue (401, Passerelle pas encore prêt), l'agent tente l'Admin. Recommandé en production." },
         { key: 'GPX_PAIRING_SECRET',                    required: true,  secret: true,
-          description: 'Même valeur que le Core.' },
+          description: 'Même valeur que la passerelle.' },
         { key: 'GPX_IDENTITY_REGION',                   required: false, secret: false,
           description: 'Région géographique du nœud (affichage Admin).' },
         { key: 'GPX_DOCKER_RUNTIME',                    required: false, secret: false, flag: 'containerRuntime',
           description: 'Runtime conteneur : docker | podman.' },
-        { key: 'GPX_NETWORK_MANAGEMENT_CORE_CONTAINER_NAME', required: false, secret: false, flag: 'containerRuntime',
-          description: "Nom du conteneur Core sur cet hôte (pour la gestion réseau Docker)." },
+        { key: 'GPX_NETWORK_MANAGEMENT_EDGE_CONTAINER_NAME', required: false, secret: false, flag: 'containerRuntime',
+          description: "Nom du conteneur passerelle sur cet hôte (pour la gestion réseau Docker)." },
         { key: 'GPX_KUBERNETES_ENABLED',                required: false, secret: false, flag: 'k8s',
           description: 'Active le support Kubernetes.' },
         { key: 'GPX_PORTAINER_ENABLED',                 required: false, secret: false, flag: 'portainer',
@@ -88,7 +88,7 @@ window._gpxCatalog = (function() {
           description: 'Active l\'autoscaling des services.' },
       ],
       networks: ['goproxify_net'],
-      dependsOn: ['goproxify-core'],
+      dependsOn: ['goproxify-edge'],
     },
 
     admin: {
@@ -106,13 +106,13 @@ window._gpxCatalog = (function() {
         { key: 'GPX_SECURITY_JWT_SECRET',     required: true,  secret: true,
           description: 'Secret JWT pour les sessions admin. Hex 32 octets.' },
         { key: 'GPX_PAIRING_SECRET',          required: true,  secret: true,
-          description: 'Même valeur que le Core.' },
+          description: 'Même valeur que la passerelle.' },
         { key: 'GPX_FIRST_ADMIN_EMAIL',       required: true,  secret: false, default: 'admin@example.com',
           description: 'Email du premier compte admin (créé au premier démarrage).' },
         { key: 'GPX_FIRST_ADMIN_PASSWORD',    required: true,  secret: true,
           description: 'Mot de passe du premier compte admin (min. 12 car.). Changez-le après le premier login.' },
-        { key: 'GPX_IDENTITY_CORE_NODE_NAME', required: true,  secret: false, default: 'goproxify-core',
-          description: 'Nom du nœud Core auquel l\'Admin se connecte. Doit correspondre à GPX_IDENTITY_CORE_NODE_NAME du Core.' },
+        { key: 'GPX_IDENTITY_EDGE_NODE_NAME', required: true,  secret: false, default: 'goproxify-edge',
+          description: 'Nom du nœud passerelle auquel l\'Admin se connecte. Doit correspondre à GPX_IDENTITY_EDGE_NODE_NAME de la passerelle.' },
         { key: 'GPX_SERVER_API_PORT',         required: false, secret: false, default: '9443',
           description: 'Port d\'écoute de l\'Admin.' },
       ],
@@ -130,17 +130,17 @@ window._gpxCatalog = (function() {
 
   // Flux d'intercommunication entre services
   const INTERCOMS = [
-    { from:'agent', to:'core',    proto:'WebSocket', port:8000, path:'/internal/v1/ws/agent',          auth:'pairing', priority:1,
+    { from:'agent', to:'edge',    proto:'WebSocket', port:8000, path:'/internal/v1/ws/agent',          auth:'pairing', priority:1,
       description:'Canal temps réel (heartbeat, événements, ordres). Toujours initié par l\'Agent.' },
-    { from:'agent', to:'core',    proto:'HTTP',      port:8000, path:'/internal/v1/agent/heartbeat',   auth:'pairing', priority:2,
+    { from:'agent', to:'edge',    proto:'HTTP',      port:8000, path:'/internal/v1/agent/heartbeat',   auth:'pairing', priority:2,
       description:'Heartbeat HTTP (fallback si WS inactif). Requiert GPX_IDENTITY_AGENT_NODE_NAME non vide.' },
-    { from:'agent', to:'core',    proto:'HTTP',      port:8000, path:'/internal/v1/agent/events',      auth:'pairing', priority:2,
+    { from:'agent', to:'edge',    proto:'HTTP',      port:8000, path:'/internal/v1/agent/events',      auth:'pairing', priority:2,
       description:'Événements lifecycle (fallback HTTP).' },
-    { from:'admin', to:'core',    proto:'HTTP',      port:8000, path:'/internal/v1/*',                 auth:'pairing',
+    { from:'admin', to:'edge',    proto:'HTTP',      port:8000, path:'/internal/v1/*',                 auth:'pairing',
       description:'API admin : nœuds, proxies, logs, configuration.' },
     { from:'browser', to:'admin', proto:'HTTPS',     port:9443, path:'/*',                             auth:'JWT',
       description:'Interface d\'administration.' },
-    { from:'internet', to:'core', proto:'HTTP/HTTPS',port:'80/443', path:'/*',                         auth:'none',
+    { from:'internet', to:'edge', proto:'HTTP/HTTPS',port:'80/443', path:'/*',                         auth:'none',
       description:'Trafic utilisateur — reverse-proxy vers les services des agents.' },
   ];
 
@@ -148,15 +148,15 @@ window._gpxCatalog = (function() {
   const TOPOLOGIES = {
     single_host: {
       label: 'Mono-hôte',
-      services: ['admin','core','agent'],
-      agentCoreEndpoint: 'http://goproxify-core:8000',
+      services: ['admin','edge','agent'],
+      agentEdgeEndpoint: 'http://goproxify-edge:8000',
       description: 'Tout sur le même hôte. Communication via réseau Docker interne.',
     },
     multi_host: {
       label: 'Multi-hôtes',
-      services: ['admin+core', 'agent...'],
-      agentCoreEndpoint: 'http://<ip-ou-domaine-core>:8000',
-      description: 'Core+Admin sur un hôte, Agent(s) sur d\'autres. Le port 8000 du Core doit être accessible depuis les hôtes agents (pare-feu).',
+      services: ['admin+edge', 'agent...'],
+      agentEdgeEndpoint: 'http://<ip-ou-domaine-edge>:8000',
+      description: 'Passerelle+Admin sur un hôte, Agent(s) sur d\'autres. Le port 8000 de la passerelle doit être accessible depuis les hôtes agents (pare-feu).',
     },
   };
 

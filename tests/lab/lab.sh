@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pilote du labo de tests GoProxify. Usage : tests/lab/lab.sh <commande> [args]
 #
-# Mode local  : Docker sur cette machine (compose run, CORE_IP auto).
+# Mode local  : Docker sur cette machine (compose run, EDGE_IP auto).
 # Mode distant (LAB_REMOTE=1) : le stack lab est déjà déployé (lab-tools, lab-k6) sur un daemon distant ;
 #   les scripts sont déjà embarqués dans les conteneurs (gen-compose.sh) : simple docker exec via le DOCKER_HOST / contexte courant.
 #   Variables : LAB_ADMIN_EMAIL, LAB_ADMIN_PASSWORD (pour seed).
@@ -12,11 +12,11 @@ mkdir -p results
 REMOTE=${LAB_REMOTE:-0}
 
 if [ "$REMOTE" != 1 ]; then
-  core_ip() {
-    docker inspect -f '{{(index .NetworkSettings.Networks "goproxify_net").IPAddress}}' goproxify-core 2>/dev/null \
+  edge_ip() {
+    docker inspect -f '{{(index .NetworkSettings.Networks "goproxify_net").IPAddress}}' goproxify-edge 2>/dev/null \
       || { echo "Stack principale absente : docker compose up -d à la racine." >&2; exit 1; }
   }
-  export CORE_IP; CORE_IP=$(core_ip)
+  export EDGE_IP; EDGE_IP=$(edge_ip)
   [ -f "$ROOT/.env" ] && set -a && . "$ROOT/.env" && set +a
   dc() { docker compose -p goproxify-lab --env-file "$ROOT/.env" -f docker-compose.lab.yml "$@"; }
   run() { dc --profile run run --rm "$@"; }
@@ -50,9 +50,9 @@ case "$cmd" in
     s=${1:-smoke}; [ -f "load/$s.js" ] || { echo "scénario inconnu : $s"; exit 1; }
     k6run "$s" ;;
 
-  soak)   # local uniquement : soak + relevé mémoire/CPU du Core toutes les 10 s
-    ( while sleep 10; do docker stats --no-stream --format '{{.Name}},{{.CPUPerc}},{{.MemUsage}},{{.PIDs}}' goproxify-core \
-        | sed "s/^/$(date +%T),/" >> results/soak-core-stats.csv; done ) & mon=$!
+  soak)   # local uniquement : soak + relevé mémoire/CPU de la passerelle toutes les 10 s
+    ( while sleep 10; do docker stats --no-stream --format '{{.Name}},{{.CPUPerc}},{{.MemUsage}},{{.PIDs}}' goproxify-edge \
+        | sed "s/^/$(date +%T),/" >> results/soak-edge-stats.csv; done ) & mon=$!
     trap 'kill $mon 2>/dev/null' EXIT
     k6run soak ;;
 

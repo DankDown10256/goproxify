@@ -28,8 +28,8 @@ func runBackup() {
 		args := parseFlags(os.Args[3:])
 		target := flagValue(args, "-target", "all")
 		output := flagValue(args, "-output", ".")
-		if target != "admin" && target != "core" && target != "all" && target != "full" {
-			fmt.Fprintf(os.Stderr, "-target doit être 'admin', 'core', 'all' ou 'full' (reçu: %q)\n", target)
+		if target != "admin" && target != "edge" && target != "all" && target != "full" {
+			fmt.Fprintf(os.Stderr, "-target doit être 'admin', 'edge', 'all' ou 'full' (reçu: %q)\n", target)
 			os.Exit(1)
 		}
 		client, err := newAdminClient(args)
@@ -43,9 +43,9 @@ func runBackup() {
 		}
 		if target == "full" {
 			adminConfig := flagValue(args, "-config-admin", "")
-			coreConfig := flagValue(args, "-config-core", "")
+			edgeConfig := flagValue(args, "-config-edge", "")
 			agentConfig := flagValue(args, "-config-agent", "")
-			if err := backupCreateFull(client, output, adminConfig, coreConfig, agentConfig); err != nil {
+			if err := backupCreateFull(client, output, adminConfig, edgeConfig, agentConfig); err != nil {
 				fmt.Fprintf(os.Stderr, "backup full : %v\n", err)
 				os.Exit(1)
 			}
@@ -57,9 +57,9 @@ func runBackup() {
 				os.Exit(1)
 			}
 		}
-		if target == "core" || target == "all" {
-			if err := backupCreateCore(client, output); err != nil {
-				fmt.Fprintf(os.Stderr, "backup core : %v\n", err)
+		if target == "edge" || target == "all" {
+			if err := backupCreateEdge(client, output); err != nil {
+				fmt.Fprintf(os.Stderr, "backup edge : %v\n", err)
 				os.Exit(1)
 			}
 		}
@@ -84,9 +84,9 @@ func runBackup() {
 			// Détecter si c'est un full backup (contient des configs)
 			if isFullBackup(file) {
 				adminConfig := flagValue(args, "-config-admin", "")
-				coreConfig := flagValue(args, "-config-core", "")
+				edgeConfig := flagValue(args, "-config-edge", "")
 				agentConfig := flagValue(args, "-config-agent", "")
-				if err := backupRestoreFull(client, file, yes, adminConfig, coreConfig, agentConfig); err != nil {
+				if err := backupRestoreFull(client, file, yes, adminConfig, edgeConfig, agentConfig); err != nil {
 					fmt.Fprintf(os.Stderr, "backup restore : %v\n", err)
 					os.Exit(1)
 				}
@@ -123,8 +123,8 @@ func runBackup() {
 			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
 			os.Exit(1)
 		}
-		if target == "core" {
-			fmt.Println("Les exports core (.gpx-core-backup) ne sont pas listés en base — utilisez « backup create -target core ».")
+		if target == "edge" {
+			fmt.Println("Les exports edge (.gpx-edge-backup) ne sont pas listés en base — utilisez « backup create -target edge ».")
 			return
 		}
 		var snaps []cliSnapshot
@@ -150,19 +150,19 @@ Sous-commandes :
   restore  Restaure depuis un fichier ou un snapshot stocké
   list     Liste les snapshots Admin
 
-goproxify backup create [-target admin|core|all|full] [-output <dir>] [-admin-url …] [-token …]
+goproxify backup create [-target admin|edge|all|full] [-output <dir>] [-admin-url …] [-token …]
   -target  admin : snapshot SQLite Admin (.gpx-admin-backup JSON)
-           core  : export table de routage (.gpx-core-backup JSON)
+           edge  : export table de routage (.gpx-edge-backup JSON)
            all   : les deux (défaut)
            full  : DB + fichiers config JSON (.gpx-full-backup JSON)
   -output           Répertoire de destination (défaut: .)
   -config-admin     Chemin admin.json (full uniquement, défaut: auto-détecté)
-  -config-core      Chemin core.json  (full uniquement)
+  -config-edge      Chemin edge.json  (full uniquement)
   -config-agent     Chemin agent.json (full uniquement)
 
-goproxify backup restore -file <chemin> [-yes] [-config-admin …] [-config-core …] [-config-agent …]
+goproxify backup restore -file <chemin> [-yes] [-config-admin …] [-config-edge …] [-config-agent …]
   Restaure un .gpx-admin-backup ou .gpx-full-backup.
-  Pour un full backup, -config-admin/-config-core/-config-agent indiquent où écrire les configs.
+  Pour un full backup, -config-admin/-config-edge/-config-agent indiquent où écrire les configs.
 
 goproxify backup restore -id <snapshot-id> [-yes]
   Restaure un snapshot déjà stocké côté Admin.
@@ -216,13 +216,13 @@ func backupCreateAdmin(client *adminClient, output string) error {
 	return nil
 }
 
-func backupCreateCore(client *adminClient, output string) error {
-	data, fname, _, err := client.DoRaw("GET", "/api/v1/backups/core", nil, "")
+func backupCreateEdge(client *adminClient, output string) error {
+	data, fname, _, err := client.DoRaw("GET", "/api/v1/backups/edge", nil, "")
 	if err != nil {
 		return err
 	}
 	if fname == "" {
-		fname = "goproxify-routing-" + time.Now().Format("20060102-150405") + ".gpx-core-backup"
+		fname = "goproxify-routing-" + time.Now().Format("20060102-150405") + ".gpx-edge-backup"
 	}
 	path := filepath.Join(output, fname)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -274,10 +274,10 @@ type fullBackup struct {
 	Version   string                     `json:"version"`
 	CreatedAt time.Time                  `json:"created_at"`
 	DB        json.RawMessage            `json:"db"`      // contenu .gpx-admin-backup
-	Configs   map[string]json.RawMessage `json:"configs"` // "admin", "core", "agent:<name>"
+	Configs   map[string]json.RawMessage `json:"configs"` // "admin", "edge", "agent:<name>"
 }
 
-func backupCreateFull(client *adminClient, output, adminCfg, coreCfg, agentCfg string) error {
+func backupCreateFull(client *adminClient, output, adminCfg, edgeCfg, agentCfg string) error {
 	// 1. Export DB via API
 	dbData, _, _, err := client.DoRaw("GET", "/api/v1/import/export", nil, "")
 	if err != nil {
@@ -303,7 +303,7 @@ func backupCreateFull(client *adminClient, output, adminCfg, coreCfg, agentCfg s
 		fmt.Printf("  config %s : %s\n", key, p)
 	}
 	readConfig("admin", adminCfg, defaultConfigPath("admin"))
-	readConfig("core", coreCfg, defaultConfigPath("core"))
+	readConfig("edge", edgeCfg, defaultConfigPath("edge"))
 	if agentCfg != "" {
 		readConfig("agent", agentCfg, "")
 	}
@@ -342,7 +342,7 @@ func isFullBackup(file string) bool {
 	return len(probe.DB) > 0
 }
 
-func backupRestoreFull(client *adminClient, file string, yes bool, adminCfg, coreCfg, agentCfg string) error {
+func backupRestoreFull(client *adminClient, file string, yes bool, adminCfg, edgeCfg, agentCfg string) error {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -400,8 +400,8 @@ func backupRestoreFull(client *adminClient, file string, yes bool, adminCfg, cor
 	if p := coalesce(adminCfg, defaultConfigPath("admin")); p != "" {
 		paths["admin"] = p
 	}
-	if p := coalesce(coreCfg, defaultConfigPath("core")); p != "" {
-		paths["core"] = p
+	if p := coalesce(edgeCfg, defaultConfigPath("edge")); p != "" {
+		paths["edge"] = p
 	}
 	if agentCfg != "" {
 		paths["agent"] = agentCfg
@@ -427,8 +427,8 @@ func defaultConfigPath(component string) string {
 	switch component {
 	case "admin":
 		return filepath.Join(base, "admin.json")
-	case "core":
-		return filepath.Join(base, "core.json")
+	case "edge":
+		return filepath.Join(base, "edge.json")
 	case "agent":
 		return filepath.Join(base, "agent.json")
 	}

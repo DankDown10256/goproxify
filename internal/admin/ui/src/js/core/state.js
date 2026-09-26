@@ -2,7 +2,7 @@
 const state = {
   token:        localStorage.getItem('gpx_token') || '',
   page:         'dashboard',
-  selectedCore: null,
+  selectedEdge: null,
   user:         null, // rempli après login : { id, email, role, is_super, teams, effective_scopes }
   timezone:     localStorage.getItem('gpx_tz') || '', // IANA (ex. Europe/Paris) — sync via /health
 };
@@ -23,20 +23,20 @@ const Role = {
   // L'utilisateur peut-il écrire (créer/modifier/désactiver) ?
   canWrite: () => Role.isOperator(),
 
-  // L'utilisateur a-t-il un scope de type "core" explicite sur ce Core ?
-  hasCoreScope: (nodeName) => {
+  // L'utilisateur a-t-il un scope de type "edge" explicite sur cette passerelle ?
+  hasEdgeScope: (nodeName) => {
     if (Role.isGlobalAdmin() || Role.isSuperAdmin()) return true;
     return (state.user?.effective_scopes || []).some(s =>
-      s.type === 'core' && _globMatch(s.value, nodeName)
+      s.type === 'edge' && _globMatch(s.value, nodeName)
     );
   },
 
-  // L'utilisateur a-t-il accès (via n'importe quel scope) à au moins un domaine de ce Core ?
-  hasAccessToCore: (core) => {
+  // L'utilisateur a-t-il accès (via n'importe quel scope) à au moins un domaine de cette passerelle ?
+  hasAccessToEdge: (edge) => {
     if (Role.isGlobalAdmin() || Role.isSuperAdmin()) return true;
     const scopes = state.user?.effective_scopes || [];
-    return scopes.some(s => s.type === 'core' && _globMatch(s.value, core.node_name || core.id));
-    // Note : l'accès via domain/proxy/server s'affiche aussi dans le Core qui héberge le domaine,
+    return scopes.some(s => s.type === 'edge' && _globMatch(s.value, edge.node_name || edge.id));
+    // Note : l'accès via domain/proxy/server s'affiche aussi dans la passerelle qui héberge le domaine,
     // mais ce filtrage fin est géré à l'affichage des proxies, pas de la nav.
   },
 };

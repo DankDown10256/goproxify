@@ -238,12 +238,12 @@ async function afterLogin() {
     navigate('onboarding');
     return;
   }
-  // Deep-link depuis les pages d'erreur Core : /?gpx_page=logs&search=<request-id>&component=core
+  // Deep-link depuis les pages d'erreur passerelle : /?gpx_page=logs&search=<request-id>&component=edge
   const params = new URLSearchParams(location.search);
   if (params.get('gpx_page') === 'logs') {
     history.replaceState(null, '', location.pathname || '/');
     const search = params.get('search') || '';
-    const component = params.get('component') || 'core';
+    const component = params.get('component') || 'edge';
     const kind = params.get('kind') || 'access';
     if (typeof openLogs === 'function') {
       logsFilters.search = search;
@@ -341,15 +341,15 @@ function typeBadge(type) {
   return `<span class="tag ${m[type]||'tag-neutral'}">${esc(String(type||'?').toUpperCase())}</span>`;
 }
 
-// Alias utilisé par le dashboard (identique à infraCoreCard, défini plus bas)
-function coreCard(n, idx) { return infraCoreCard(n, idx); }
+// Alias utilisé par le dashboard (identique à infraEdgeCard, défini plus bas)
+function edgeCard(n, idx) { return infraEdgeCard(n, idx); }
 
 // Rendu SVG de la topologie dans #topology-container
 function renderTopology(nodes, health) {
   const container = document.getElementById('topology-container');
   if (!container) return;
 
-  const cores  = nodes.filter(n => n.role === 'core');
+  const edges  = nodes.filter(n => n.role === 'edge');
   const agents = nodes.filter(n => n.role === 'agent');
   const adminOk = health?.status === 'ok';
   const adminNode = { node_name: 'Admin', role: 'admin', status: adminOk ? 'online' : 'offline', version: health?.version || '' };
@@ -394,25 +394,25 @@ function renderTopology(nodes, health) {
     return `<div class="topo-tile-wrap ${sel}" data-node-id="${nodeId}" onclick="_topoSelect('${nodeId}')" ${dbl}>${inner}</div>`;
   };
 
-  const CORE_W = 250, AGENT_W = 195, SLOT_GAP = 20, AGENT_GAP = 10;
+  const EDGE_W = 250, AGENT_W = 195, SLOT_GAP = 20, AGENT_GAP = 10;
 
-  // Groupe les agents par Core (target_core = node_name, ou URL contenant le nom)
-  const agentsByCore = {};
-  const resolveCoreKey = (tc) => {
+  // Groupe les agents par passerelle (target_edge = node_name, ou URL contenant le nom)
+  const agentsByEdge = {};
+  const resolveEdgeKey = (tc) => {
     if (!tc || tc === '__orphans__') return '__orphans__';
-    if (cores.some(c => (c.node_name || c.id) === tc)) return tc;
-    // URL http://core-name:8000 → core-name
+    if (edges.some(c => (c.node_name || c.id) === tc)) return tc;
+    // URL http://edge-name:8000 → edge-name
     const m = String(tc).match(/https?:\/\/([^/:]+)/i);
     if (m) {
       const host = m[1];
-      const hit = cores.find(c => (c.node_name || c.id) === host);
+      const hit = edges.find(c => (c.node_name || c.id) === host);
       if (hit) return hit.node_name || hit.id;
     }
     return tc;
   };
   for (const a of agents) {
-    const tc = resolveCoreKey(a.target_core) || '__orphans__';
-    (agentsByCore[tc] = agentsByCore[tc] || []).push(a);
+    const tc = resolveEdgeKey(a.target_edge) || '__orphans__';
+    (agentsByEdge[tc] = agentsByEdge[tc] || []).push(a);
   }
 
   const mkAgentTile = a => {
@@ -422,18 +422,18 @@ function renderTopology(nodes, health) {
     return wrapTile(aId, a, topoTileInner(a.display_name||a.node_name||'agent', (a.container_runtimes||[]).join(', ')||'—', 'Agent', a.status==='online', a.status==='declared', alert, a.version||''), dbl);
   };
 
-  // Chaque Core = une colonne ; largeur du slot = max(CORE_W, largeur rangée agents)
-  const coreCols = cores.map(c => {
+  // Chaque passerelle = une colonne ; largeur du slot = max(EDGE_W, largeur rangée agents)
+  const edgeCols = edges.map(c => {
     const cName = c.node_name || c.id;
-    const myAgents = agentsByCore[cName] || [];
+    const myAgents = agentsByEdge[cName] || [];
     const n = myAgents.length;
     const agentRowW = n > 0 ? n * AGENT_W + (n-1) * AGENT_GAP : 0;
-    const slotW = Math.max(CORE_W, agentRowW);
+    const slotW = Math.max(EDGE_W, agentRowW);
 
     const cId = c.status === 'declared' ? c.id : (c.node_name || c.id);
     const alert = (c.cpu_pct > 80 || c.mem_pct > 80);
-    const dbl = c.status === 'declared' ? `openInfraWizard('core')` : '';
-    const coreTileHTML = `<div style="width:${CORE_W}px;">${wrapTile(cId, c, topoTileInner(c.display_name||c.node_name||'core', c.endpoint||'—', 'Data Plane', c.status==='online', c.status==='declared', alert, c.version||''), dbl)}</div>`;
+    const dbl = c.status === 'declared' ? `openInfraWizard('edge')` : '';
+    const edgeTileHTML = `<div style="width:${EDGE_W}px;">${wrapTile(cId, c, topoTileInner(c.display_name||c.node_name||'edge', c.endpoint||'—', 'Data Plane', c.status==='online', c.status==='declared', alert, c.version||''), dbl)}</div>`;
 
     const agentsHTML = n > 0 ?
       vline(12) + hbranch(n, AGENT_W, AGENT_GAP) +
@@ -442,42 +442,42 @@ function renderTopology(nodes, health) {
       `</div>` : '';
 
     return { slotW, html:
-      `<div style="flex:0 0 ${slotW}px;display:flex;flex-direction:column;align-items:center;">${coreTileHTML}${agentsHTML}</div>` };
+      `<div style="flex:0 0 ${slotW}px;display:flex;flex-direction:column;align-items:center;">${edgeTileHTML}${agentsHTML}</div>` };
   });
 
   // Admin tile
   const adminHTML =
-    `<div style="display:flex;justify-content:center;"><div style="width:${CORE_W}px;">` +
+    `<div style="display:flex;justify-content:center;"><div style="width:${EDGE_W}px;">` +
     wrapTile('admin', adminNode, topoTileInner('Admin', 'control plane · SQLite', 'Control Plane', adminOk, false, false, adminNode.version||'')) +
     `</div></div>`;
 
-  // H-connecteur Admin → Cores (slots de largeurs potentiellement différentes)
-  let adminToCoresHTML = '';
-  if (cores.length === 1) {
-    adminToCoresHTML = vline(14);
-  } else if (cores.length > 1) {
+  // H-connecteur Admin → passerelles (slots de largeurs potentiellement différentes)
+  let adminToEdgesHTML = '';
+  if (edges.length === 1) {
+    adminToEdgesHTML = vline(14);
+  } else if (edges.length > 1) {
     const dropLine = `<div style="width:2px;height:20px;background:var(--accent);opacity:.4;position:relative;overflow:hidden;"><div style="position:absolute;top:0;left:0;right:0;height:8px;background:var(--accent);animation:connFlow 1.2s linear infinite;"></div></div>`;
-    const dropsHTML = coreCols.map(({slotW}) =>
+    const dropsHTML = edgeCols.map(({slotW}) =>
       `<div style="flex:0 0 ${slotW}px;display:flex;justify-content:center;">${dropLine}</div>`
     ).join('');
-    const firstHalf = coreCols[0].slotW / 2;
-    const lastHalf  = coreCols[coreCols.length-1].slotW / 2;
+    const firstHalf = edgeCols[0].slotW / 2;
+    const lastHalf  = edgeCols[edgeCols.length-1].slotW / 2;
     const bar = `<div style="position:absolute;top:0;left:${firstHalf}px;right:${lastHalf}px;height:2px;background:var(--accent);opacity:.35;transform:translateY(-50%);"></div>`;
-    adminToCoresHTML = vline(14) +
+    adminToEdgesHTML = vline(14) +
       `<div style="position:relative;display:flex;gap:${SLOT_GAP}px;">${bar}${dropsHTML}</div>`;
   }
 
-  const coresRowHTML = cores.length ?
-    adminToCoresHTML +
+  const edgesRowHTML = edges.length ?
+    adminToEdgesHTML +
     `<div style="display:flex;gap:${SLOT_GAP}px;justify-content:center;align-items:flex-start;">` +
-    coreCols.map(c => c.html).join('') + `</div>` : '';
+    edgeCols.map(c => c.html).join('') + `</div>` : '';
 
-  // Agents orphelins : déclarés sans Core cible résolu (même logique URL→nom que le grouping)
-  const knownCoreNames = new Set(cores.map(c => c.node_name || c.id));
+  // Agents orphelins : déclarés sans passerelle cible résolu (même logique URL→nom que le grouping)
+  const knownEdgeNames = new Set(edges.map(c => c.node_name || c.id));
   const orphanAgents = agents.filter(a => {
     if (a.status !== 'declared') return false;
-    const key = resolveCoreKey(a.target_core);
-    return !key || key === '__orphans__' || !knownCoreNames.has(key);
+    const key = resolveEdgeKey(a.target_edge);
+    return !key || key === '__orphans__' || !knownEdgeNames.has(key);
   });
   const orphansHTML = orphanAgents.length ? (
     vline(14) +
@@ -490,7 +490,7 @@ function renderTopology(nodes, health) {
 
   container.innerHTML =
     `<div style="display:flex;flex-direction:column;align-items:center;overflow-x:auto;padding:4px 8px 12px;">` +
-    adminHTML + coresRowHTML + orphansHTML + `</div>`;
+    adminHTML + edgesRowHTML + orphansHTML + `</div>`;
 }
 function statusBadge(ok, declared) {
   if (declared) return '<span class="tag" style="background:var(--bg3);color:var(--text2);opacity:.7;">○ Non connecté</span>';

@@ -1,22 +1,22 @@
-// ── PAGE PARTAGÉE: Sécurité (Admin + Core) ───────────────────────────────
-// ctx = { mode: 'admin'|'core' }
-// Mode core : même UI ; données filtrées sur les proxies / domaines du Core
-// sélectionné (GET /proxies?core=…). Config Fail2Ban / CrowdSec = admin only.
+// ── PAGE PARTAGÉE: Sécurité (Admin + Passerelle) ───────────────────────────────
+// ctx = { mode: 'admin'|'edge' }
+// Mode edge : même UI ; données filtrées sur les proxies / domaines de la passerelle
+// sélectionné (GET /proxies?edge=…). Config Fail2Ban / CrowdSec = admin only.
 
 function securityPageId(variant, mode) {
-  const isCore = mode === 'core';
+  const isEdge = mode === 'edge';
   const map = {
-    overview: isCore ? 'core-security' : 'security',
-    bans:     isCore ? 'core-security-bans' : 'security-bans',
-    vulns:    isCore ? 'core-security-vulns' : 'security-vulns',
-    posture:  isCore ? 'core-security-posture' : 'security-posture',
-    sentinel: isCore ? 'core-security-sentinel' : 'security-sentinel',
+    overview: isEdge ? 'edge-security' : 'security',
+    bans:     isEdge ? 'edge-security-bans' : 'security-bans',
+    vulns:    isEdge ? 'edge-security-vulns' : 'security-vulns',
+    posture:  isEdge ? 'edge-security-posture' : 'security-posture',
+    sentinel: isEdge ? 'edge-security-sentinel' : 'security-sentinel',
   };
   return map[variant] || map.overview;
 }
 
 function securityModeFromPage(page) {
-  return (page || '').startsWith('core-security') ? 'core' : 'admin';
+  return (page || '').startsWith('edge-security') ? 'edge' : 'admin';
 }
 
 function reloadCurrentSecurityPage() {
@@ -34,7 +34,7 @@ function _secParseCfg(p) {
   return (typeof tryJSON === 'function' ? tryJSON(p.config) : null) || {};
 }
 
-function _secBuildCoreFilter(proxies) {
+function _secBuildEdgeFilter(proxies) {
   const proxyIds = new Set();
   const domains = new Set();
   const backends = new Set();
@@ -71,69 +71,69 @@ function _secBackendMatch(url, backends) {
   return false;
 }
 
-async function resolveSecurityCoreCtx(mode) {
-  if (mode !== 'core') return null;
-  const core = state.selectedCore;
-  if (!core) return { missing: true };
-  const tokens = await api('GET', '/tokens?role=core').catch(() => []);
+async function resolveSecurityEdgeCtx(mode) {
+  if (mode !== 'edge') return null;
+  const edge = state.selectedEdge;
+  if (!edge) return { missing: true };
+  const tokens = await api('GET', '/tokens?role=edge').catch(() => []);
   const match = (tokens || []).filter(tok => !tok.revoked && (
-    tok.id === core.id || tok.node_name === core.node_name || tok.node_name === core.id
+    tok.id === edge.id || tok.node_name === edge.node_name || tok.node_name === edge.id
   ));
-  const best = match.find(tok => tok.id === core.id)
+  const best = match.find(tok => tok.id === edge.id)
     || match.find(tok => tok.node_endpoint)
     || match[0]
     || null;
-  const coreRef = best?.id || core.node_name || core.id || '';
-  if (!coreRef) return { missing: true };
-  const proxies = await api('GET', `/proxies?core=${encodeURIComponent(coreRef)}`).catch(() => []);
-  const filter = _secBuildCoreFilter(proxies);
+  const edgeRef = best?.id || edge.node_name || edge.id || '';
+  if (!edgeRef) return { missing: true };
+  const proxies = await api('GET', `/proxies?edge=${encodeURIComponent(edgeRef)}`).catch(() => []);
+  const filter = _secBuildEdgeFilter(proxies);
   return {
-    core,
-    coreRef,
-    coreLabel: core.display_name || core.node_name || core.id || '—',
+    edge,
+    edgeRef,
+    edgeLabel: edge.display_name || edge.node_name || edge.id || '—',
     proxies: proxies || [],
     ...filter,
   };
 }
 
-function securityCoreBanner(coreCtx) {
-  if (!coreCtx?.coreLabel) return '';
+function securityEdgeBanner(edgeCtx) {
+  if (!edgeCtx?.edgeLabel) return '';
   return `<div style="margin-bottom:14px;padding:10px 12px;background:color-mix(in srgb,var(--accent) 7%,transparent);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent);border-radius:6px;font-size:12px;color:var(--text2);">
-    <strong style="color:var(--text1);">${t('security.core_banner_title')}</strong> —
-    ${t('security.core_banner_body', { name: esc(coreCtx.coreLabel) })}
+    <strong style="color:var(--text1);">${t('security.edge_banner_title')}</strong> —
+    ${t('security.edge_banner_body', { name: esc(edgeCtx.edgeLabel) })}
   </div>`;
 }
 
-function filterSecHeaders(headers, coreCtx) {
-  if (!coreCtx) return headers || [];
-  return (headers || []).filter(h => coreCtx.proxyIds.has(h.proxy_id));
+function filterSecHeaders(headers, edgeCtx) {
+  if (!edgeCtx) return headers || [];
+  return (headers || []).filter(h => edgeCtx.proxyIds.has(h.proxy_id));
 }
 
-function filterSecCerts(certs, coreCtx) {
-  if (!coreCtx) return certs || [];
-  return (certs || []).filter(c => _secDomainMatch(c.domain, coreCtx.domains));
+function filterSecCerts(certs, edgeCtx) {
+  if (!edgeCtx) return certs || [];
+  return (certs || []).filter(c => _secDomainMatch(c.domain, edgeCtx.domains));
 }
 
-function filterSecBans(bans, coreCtx) {
-  if (!coreCtx) return bans || [];
-  return (bans || []).filter(b => !b.domain || _secDomainMatch(b.domain, coreCtx.domains));
+function filterSecBans(bans, edgeCtx) {
+  if (!edgeCtx) return bans || [];
+  return (bans || []).filter(b => !b.domain || _secDomainMatch(b.domain, edgeCtx.domains));
 }
 
-function filterSecCVEs(cves, coreCtx) {
-  if (!coreCtx) return cves || [];
-  return (cves || []).filter(c => _secBackendMatch(c.backend_url, coreCtx.backends));
+function filterSecCVEs(cves, edgeCtx) {
+  if (!edgeCtx) return cves || [];
+  return (cves || []).filter(c => _secBackendMatch(c.backend_url, edgeCtx.backends));
 }
 
-function filterSecTimeline(events, coreCtx) {
-  if (!coreCtx) return events || [];
+function filterSecTimeline(events, edgeCtx) {
+  if (!edgeCtx) return events || [];
   return (events || []).filter(e => {
     if (e.type === 'threat') return true;
     if (e.type === 'ban' || e.type === 'cert') {
-      return !e.domain || _secDomainMatch(e.domain, coreCtx.domains);
+      return !e.domain || _secDomainMatch(e.domain, edgeCtx.domains);
     }
     if (e.type === 'cve') {
       const summary = String(e.summary || '').toLowerCase();
-      for (const b of coreCtx.backends) {
+      for (const b of edgeCtx.backends) {
         if (summary.includes(b)) return true;
       }
       return false;
@@ -142,10 +142,10 @@ function filterSecTimeline(events, coreCtx) {
   });
 }
 
-function filterVulnscanState(st, coreCtx) {
-  if (!coreCtx || !st) return st;
+function filterVulnscanState(st, edgeCtx) {
+  if (!edgeCtx || !st) return st;
   const results = Array.isArray(st.results)
-    ? st.results.filter(r => _secBackendMatch(r.url, coreCtx.backends))
+    ? st.results.filter(r => _secBackendMatch(r.url, edgeCtx.backends))
     : [];
   const found = results.reduce((n, r) => n + (r.cves_found || 0), 0);
   return {
@@ -287,33 +287,33 @@ async function renderSecurityOverview(ctx) {
   if (ta) ta.innerHTML = '';
 
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (!isAdmin && coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (!isAdmin && edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
 
-    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    window._secCoreQ = coreQ;
+    const edgeQ = edgeCtx?.edgeRef ? `?edge=${encodeURIComponent(edgeCtx.edgeRef)}` : '';
+    window._secEdgeQ = edgeQ;
     const fetches = [
       api('GET', '/security/overview'),
       api('GET', '/security/timeline?limit=40&source=all'),
       api('GET', '/internal/v1/metrics/summary').catch(() => null),
-      api('GET', `/security/ips-provider${coreQ}`).catch(() => null),
-      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', `/security/ips-provider${edgeQ}`).catch(() => null),
+      api('GET', `/security/threat-config${edgeQ}`).catch(() => null),
       api('GET', '/security/fail2ban').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
       isAdmin ? api('GET', '/rules-engine/rules').catch(() => []) : Promise.resolve([]),
     ];
-    if (coreCtx) {
+    if (edgeCtx) {
       fetches.push(api('GET', '/security/bans?active=true').catch(() => []));
       fetches.push(api('GET', '/security/cves').catch(() => []));
     }
     const [ovData, timeline, metricsSec, ipsProvider, threatCfg, f2bCfg, csCfg, rulesRaw, bansRaw, cvesRaw] = await Promise.all(fetches);
     const ov = ovData?.overview || {};
-    let headers = filterSecHeaders(ov.headers || [], coreCtx);
-    let certs = filterSecCerts(ovData?.certs || [], coreCtx);
-    const allEvents = filterSecTimeline(timeline || [], coreCtx);
+    let headers = filterSecHeaders(ov.headers || [], edgeCtx);
+    let certs = filterSecCerts(ovData?.certs || [], edgeCtx);
+    const allEvents = filterSecTimeline(timeline || [], edgeCtx);
     const recentEvents = allEvents.slice(0, 20);
 
     let activeBans = ov.active_bans || 0;
@@ -325,9 +325,9 @@ async function renderSecurityOverview(ctx) {
     let certsExpiring = ov.certs_expiring || 0;
     let filteredBans = [];
 
-    if (coreCtx) {
-      filteredBans = filterSecBans(bansRaw || [], coreCtx);
-      const cves = filterSecCVEs(cvesRaw || [], coreCtx);
+    if (edgeCtx) {
+      filteredBans = filterSecBans(bansRaw || [], edgeCtx);
+      const cves = filterSecCVEs(cvesRaw || [], edgeCtx);
       activeBans = filteredBans.length;
       openCVEs = cves.filter(c => c.status === 'open').length;
       criticalCVEs = cves.filter(c => c.status === 'open' && (c.cvss_score || 0) >= 7).length;
@@ -346,7 +346,7 @@ async function renderSecurityOverview(ctx) {
     const activeRules = allRules.filter(r => r.enabled).length;
 
     content.innerHTML = `
-      ${securityCoreBanner(coreCtx)}
+      ${securityEdgeBanner(edgeCtx)}
       <div class="sec-grid">
         <div class="sec-tile" style="cursor:pointer" onclick="navigate('${navBans}')" title="${t('security.view_bans')}">
           <div class="sec-tile-label">${t('security.active_bans')}</div>
@@ -463,23 +463,23 @@ async function renderSecurityBans(ctx) {
   // Vue Admin → renderAdminSecurityBans
   if (isAdmin) { renderAdminSecurityBans(); return; }
 
-  // Vue Core : bans actifs + intelligence fusionnés
+  // Vue passerelle : bans actifs + intelligence fusionnés
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   const ta = document.getElementById('topbar-actions');
   if (ta) ta.innerHTML = `
     <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="exportBansCSV && exportBansCSV()">Export CSV</button>
     <button class="btn btn-primary btn-sm" onclick="openBanModal()">+ Ban</button>
-    <button class="btn btn-secondary btn-sm" onclick="renderSecurityBans({mode:'core'})">↺</button>`;
+    <button class="btn btn-secondary btn-sm" onclick="renderSecurityBans({mode:'edge'})">↺</button>`;
 
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
     window._secMode = mode;
-    window._secCoreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+    window._secEdgeQ = edgeCtx?.edgeRef ? `?edge=${encodeURIComponent(edgeCtx.edgeRef)}` : '';
 
     const [bansRaw, threats, kpis, byReason, bySource, timeline, topIPs, bansHistoryRaw] = await Promise.all([
       api('GET', '/security/bans?active=true'),
@@ -491,13 +491,13 @@ async function renderSecurityBans(ctx) {
       api('GET', '/security/bans/intel/top-ips?limit=15').catch(() => []),
       api('GET', '/security/bans?active=false&limit=100').catch(() => []),
     ]);
-    const bans = filterSecBans(bansRaw || [], coreCtx);
-    const bansHistory = filterSecBans(bansHistoryRaw || [], coreCtx);
+    const bans = filterSecBans(bansRaw || [], edgeCtx);
+    const bansHistory = filterSecBans(bansHistoryRaw || [], edgeCtx);
 
     window._secBans = bans;
     window._secBansHistory = bansHistory;
     window._secThreats = threats || [];
-    window._secThreatsShowCore = false;
+    window._secThreatsShowEdge = false;
     window._bansTab = window._bansTab || 'actifs';
 
     const expiringIn1h = bans.filter(b => b.expires_at && (new Date(b.expires_at)-Date.now()) < 3600000 && (new Date(b.expires_at)-Date.now()) > 0).length;
@@ -551,12 +551,12 @@ async function renderSecurityBans(ctx) {
             </div>
           </div>`;
       }
-      const tabBody = document.getElementById('core-bans-tab-body');
+      const tabBody = document.getElementById('edge-bans-tab-body');
       if (tabBody) tabBody.innerHTML = body;
     }
 
     content.innerHTML = `
-      ${securityCoreBanner(coreCtx)}
+      ${securityEdgeBanner(edgeCtx)}
       <!-- KPIs -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
         ${[
@@ -578,13 +578,13 @@ async function renderSecurityBans(ctx) {
             ${t('security.bans_title')}
           </span>
           <div style="display:flex;gap:4px;margin-left:auto;flex-wrap:wrap">
-            ${['actifs','intel','crowdsec','historique'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="window._bansTab='${tab}';document.querySelectorAll('[data-banstab]').forEach(b=>b.className='btn btn-sm'+(b.dataset.banstab===window._bansTab?' btn-primary':' btn-ghost'));renderBansCoreBody()" data-banstab="${tab}">${tab==='actifs'?t('security.bans.tab_active')||'Actifs':tab==='intel'?'Analyse':tab==='crowdsec'?'CrowdSec':'Historique'}</button>`).join('')}
+            ${['actifs','intel','crowdsec','historique'].map(tab=>`<button class="btn btn-sm${window._bansTab===tab?' btn-primary':' btn-ghost'}" onclick="window._bansTab='${tab}';document.querySelectorAll('[data-banstab]').forEach(b=>b.className='btn btn-sm'+(b.dataset.banstab===window._bansTab?' btn-primary':' btn-ghost'));renderBansEdgeBody()" data-banstab="${tab}">${tab==='actifs'?t('security.bans.tab_active')||'Actifs':tab==='intel'?'Analyse':tab==='crowdsec'?'CrowdSec':'Historique'}</button>`).join('')}
           </div>
         </div>
-        <div id="core-bans-tab-body" style="padding:4px 0"></div>
+        <div id="edge-bans-tab-body" style="padding:4px 0"></div>
       </div>`;
 
-    window.renderBansCoreBody = renderBansContent;
+    window.renderBansEdgeBody = renderBansContent;
     renderBansContent();
   } catch(e) { toast(e.message,'error'); }
 }
@@ -630,8 +630,8 @@ window.setBansTab = function(v) {
       btn.className = 'btn btn-sm' + (bv === v ? ' btn-primary' : ' btn-ghost');
     });
   }
-  // Vue Core (onglets fusionnés)
-  if (typeof window.renderBansCoreBody === 'function') window.renderBansCoreBody();
+  // Vue passerelle (onglets fusionnés)
+  if (typeof window.renderBansEdgeBody === 'function') window.renderBansEdgeBody();
 };
 
 async function renderSecurityVulns(ctx) {
@@ -643,9 +643,9 @@ async function renderSecurityVulns(ctx) {
   if (ta) ta.innerHTML = '';
 
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (!isAdmin && coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (!isAdmin && edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
 
@@ -654,9 +654,9 @@ async function renderSecurityVulns(ctx) {
       api('GET', '/security/vulnscan').catch(() => null),
       api('GET', '/security/vulnscan/config').catch(() => null),
     ]);
-    const cves = filterSecCVEs(cvesRaw || [], coreCtx);
-    const vsState = filterVulnscanState(vsStateRaw, coreCtx);
-    window._secCoreCtx = coreCtx;
+    const cves = filterSecCVEs(cvesRaw || [], edgeCtx);
+    const vsState = filterVulnscanState(vsStateRaw, edgeCtx);
+    window._secEdgeCtx = edgeCtx;
     window._secMode = mode;
     window._vsConfig = vsConfigRaw || {};
     window._secCVEs = cves;
@@ -669,7 +669,7 @@ async function renderSecurityVulns(ctx) {
     const backends = new Set(cves.map(c => c.backend_url)).size;
 
     content.innerHTML = `
-      ${securityCoreBanner(coreCtx)}
+      ${securityEdgeBanner(edgeCtx)}
 
       <div class="sec-grid" style="margin-bottom:20px">
         <div class="sec-tile" style="border-left:3px solid var(--red)">
@@ -756,13 +756,13 @@ function cveScoreBadge(score) {
 }
 
 function cveListHTML(cves) {
-  const showCore = window._secMode === 'admin';
-  const cols = showCore ? 7 : 6;
+  const showEdge = window._secMode === 'admin';
+  const cols = showEdge ? 7 : 6;
   return `<div class="table-wrap"><table>
     <thead><tr>
       <th>CVE</th><th>CVSS</th>
       <th>${t('security.col.backend')}</th>
-      ${showCore ? `<th>${t('security.col.core')||'Core'}</th>` : ''}
+      ${showEdge ? `<th>${t('security.col.edge')||'Passerelle'}</th>` : ''}
       <th>${t('security.col.description')}</th>
       <th>${t('security.col.status')}</th>
       <th></th>
@@ -772,7 +772,7 @@ function cveListHTML(cves) {
         <td><a href="https://nvd.nist.gov/vuln/detail/${esc(c.cve_id)}" target="_blank" style="color:var(--accent)" onclick="event.stopPropagation()">${esc(c.cve_id)}</a></td>
         <td>${cveScoreBadge(c.cvss_score)}</td>
         <td class="mono" style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.backend_url)}">${esc(c.backend_url)}</td>
-        ${showCore ? `<td style="font-size:12px;color:var(--text2)">${esc(c.core_name || '—')}</td>` : ''}
+        ${showEdge ? `<td style="font-size:12px;color:var(--text2)">${esc(c.edge_name || '—')}</td>` : ''}
         <td style="font-size:12px;color:var(--text2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.description)}">${esc(c.description)}</td>
         <td><span class="tag ${c.status==='open'?'tag-yellow':c.status==='fixed'?'tag-green':'tag-neutral'}">${esc(c.status)}</span></td>
         <td style="white-space:nowrap">
@@ -954,16 +954,16 @@ async function renderSecurityPosture(ctx) {
   if (ta) ta.innerHTML = '';
 
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (!isAdmin && coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (!isAdmin && edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
 
     const ovData = await api('GET', '/security/overview');
-    const headers = filterSecHeaders(ovData?.overview?.headers || [], coreCtx);
+    const headers = filterSecHeaders(ovData?.overview?.headers || [], edgeCtx);
     content.innerHTML = `
-      ${securityCoreBanner(coreCtx)}
+      ${securityEdgeBanner(edgeCtx)}
       <div class="card blueprint" style="margin-bottom:20px">
         <div class="card-header" style="align-items:flex-start;flex-wrap:wrap;gap:8px;">
           <div>
@@ -984,9 +984,9 @@ pages['security-bans'] = () => renderAdminSecurityBans();
 pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-threats'] = () => renderAdminSecurityThreats();
 pages['security-rules'] = () => renderSecurityRules();
-pages['core-security-ips-engines'] = () => renderSecurityIpsEngines({ mode: 'core' });
+pages['edge-security-ips-engines'] = () => renderSecurityIpsEngines({ mode: 'edge' });
 
-// ── PAGE ADMIN : Vue globale sécurité (agrégat tous Cores) ─────────────────
+// ── PAGE ADMIN : Vue globale sécurité (agrégat toutes les passerelles) ─────────────────
 async function renderAdminSecurityOverview() {
   const content = document.getElementById('content');
   const ta = document.getElementById('topbar-actions');
@@ -1018,7 +1018,7 @@ async function renderAdminSecurityOverview() {
     const csActive  = cs?.enabled  ?? false;
     const wafProfilesActive = mwaf.profiles_active ?? null;
 
-    const coresList = Array.isArray(nodes) ? nodes : [];
+    const edgesList = Array.isArray(nodes) ? nodes : [];
 
     const kpiRow = (icon, value, label, color) => `
       <div style="display:flex;align-items:center;gap:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
@@ -1038,8 +1038,8 @@ async function renderAdminSecurityOverview() {
         ${detail ? `<span style="font-size:11px;color:var(--text2);margin-left:auto">${esc(detail)}</span>` : ''}
       </div>`;
 
-    const coreRows = coresList.map(n => {
-      const pm = mProxies.find(p => p.core_name === (n.node_name || n.id) || p.core_id === n.id);
+    const edgeRows = edgesList.map(n => {
+      const pm = mProxies.find(p => p.edge_name === (n.node_name || n.id) || p.edge_id === n.id);
       const errColor = pm?.error_rate > 5 ? 'var(--red)' : pm?.error_rate > 1 ? 'var(--yellow)' : 'var(--green)';
       return `<tr style="font-size:12px">
         <td style="padding:6px 8px;font-weight:500">${esc(n.display_name || n.node_name || n.id)}</td>
@@ -1048,7 +1048,7 @@ async function renderAdminSecurityOverview() {
         <td style="padding:6px 8px;color:${errColor}">${pm?.error_rate != null ? pm.error_rate.toFixed(1) + '%' : '—'}</td>
         <td style="padding:6px 8px">
           <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px"
-            onclick="selectCoreAndNavigate(${JSON.stringify(n.node_name||n.id)},'core-security')">
+            onclick="selectEdgeAndNavigate(${JSON.stringify(n.node_name||n.id)},'edge-security')">
             Voir →
           </button>
         </td>
@@ -1057,7 +1057,7 @@ async function renderAdminSecurityOverview() {
 
     content.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
-        ${kpiRow('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', activeBans, 'Bans actifs (tous Cores)', activeBans > 0 ? 'var(--red)' : 'var(--green)')}
+        ${kpiRow('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>', activeBans, 'Bans actifs (toutes les passerelles)', activeBans > 0 ? 'var(--red)' : 'var(--green)')}
         ${kpiRow('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', activeThreats, 'Décisions CrowdSec', activeThreats > 0 ? 'var(--red)' : 'var(--green)')}
         ${kpiRow('<path d="M7 1.5L1.2 12a1 1 0 00.9 1.5h11.8a1 1 0 00.9-1.5L8.8 1.5a1 1 0 00-1.8 0z"/><path d="M7 5.5v3.5M7 11h.01"/>', critCVEs, `CVEs critiques (${openCVEs} ouvertes)`, critCVEs > 0 ? 'var(--red)' : 'var(--green)')}
         ${kpiRow('<rect x="2" y="7" width="12" height="7" rx="1.5"/><path d="M4.5 7V4.5a2.5 2.5 0 015 0V7"/>', avgScore + '/100', 'Score posture moyen', avgScore >= 80 ? 'var(--green)' : avgScore >= 50 ? 'var(--yellow)' : 'var(--red)')}
@@ -1078,25 +1078,25 @@ async function renderAdminSecurityOverview() {
         </div>
 
         <div class="card blueprint" style="padding:14px 16px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Cores — vue rapide</div>
-          ${coreRows.length ? `
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Passerelles — vue rapide</div>
+          ${edgeRows.length ? `
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="font-size:11px;color:var(--text2)">
-              <th style="text-align:left;padding:4px 8px">Core</th>
+              <th style="text-align:left;padding:4px 8px">Edge</th>
               <th style="text-align:left;padding:4px 8px">État</th>
               <th style="text-align:left;padding:4px 8px">Req/s</th>
               <th style="text-align:left;padding:4px 8px">Err%</th>
               <th style="padding:4px 8px"></th>
             </tr></thead>
-            <tbody>${coreRows}</tbody>
-          </table>` : '<p style="font-size:12px;color:var(--text2)">Aucun Core enregistré.</p>'}
+            <tbody>${edgeRows}</tbody>
+          </table>` : '<p style="font-size:12px;color:var(--text2)">Aucune passerelle enregistrée.</p>'}
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
         <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-bans')">
           <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bans →</div>
-          <div style="font-size:11px;color:var(--text2)">Voir tous les bans actifs tous Cores</div>
+          <div style="font-size:11px;color:var(--text2)">Voir tous les bans actifs toutes les passerelles</div>
         </div>
         <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-vulns')">
           <div style="font-size:12px;font-weight:600;margin-bottom:4px">Vulnérabilités →</div>
@@ -1104,7 +1104,7 @@ async function renderAdminSecurityOverview() {
         </div>
         <div class="card blueprint" style="padding:12px 14px;cursor:pointer" onclick="navigate('security-threats')">
           <div style="font-size:12px;font-weight:600;margin-bottom:4px">Menaces →</div>
-          <div style="font-size:11px;color:var(--text2)">Timeline événements tous Cores</div>
+          <div style="font-size:11px;color:var(--text2)">Timeline événements toutes les passerelles</div>
         </div>
       </div>`;
   } catch(e) {
@@ -1112,7 +1112,7 @@ async function renderAdminSecurityOverview() {
   }
 }
 
-// ── PAGE ADMIN : Bans agrégés tous Cores ──────────────────────────────────
+// ── PAGE ADMIN : Bans agrégés toutes les passerelles ──────────────────────────────────
 // ── Helpers visuels Ban Intelligence ─────────────────────────────────────────
 
 function _banIntelSparkline(timeline, hours) {
@@ -1228,7 +1228,7 @@ window._intelUnban = async function(ip) {
       await api('DELETE', `/security/bans/${b.id}`);
     }
     toast(`${ip} débanni`, 'success');
-    if (window._secMode === 'core') renderSecurityBans({ mode: 'core' });
+    if (window._secMode === 'edge') renderSecurityBans({ mode: 'edge' });
     else renderAdminSecurityBans();
   } catch(e) { toast(e.message, 'error'); }
 };
@@ -1251,9 +1251,9 @@ async function renderAdminSecurityBans() {
       api('GET', '/security/bans/intel/top-ips?limit=20').catch(() => []),
     ]);
     const bans = bansRaw || [];
-    const byCore = {};
-    bans.forEach(b => { const c = b.core_name || b.core_id || '(global)'; byCore[c] = (byCore[c] || 0) + 1; });
-    const coreBar = Object.entries(byCore).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
+    const byEdge = {};
+    bans.forEach(b => { const c = b.edge_name || b.edge_id || '(global)'; byEdge[c] = (byEdge[c] || 0) + 1; });
+    const edgeBar = Object.entries(byEdge).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
       <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px">
         <span style="min-width:80px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c)}</span>
         <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden">
@@ -1290,15 +1290,15 @@ async function renderAdminSecurityBans() {
         </div>
       </div>
 
-      <!-- Raisons + Par Core -->
+      <!-- Raisons + Par passerelle -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         <div class="card blueprint" style="padding:14px 16px">
           <div style="font-size:13px;font-weight:600;margin-bottom:12px">Raisons de ban</div>
           ${_banIntelDonut(byReason)}
         </div>
         <div class="card blueprint" style="padding:14px 16px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Répartition par Core</div>
-          ${coreBar || '<span style="font-size:12px;color:var(--text3)">Aucun ban actif</span>'}
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px">Répartition par passerelle</div>
+          ${edgeBar || '<span style="font-size:12px;color:var(--text3)">Aucun ban actif</span>'}
         </div>
       </div>
 
@@ -1320,13 +1320,13 @@ async function renderAdminSecurityBans() {
         ${bans.length ? `<div class="table-wrap"><table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:5px 8px">IP</th><th style="text-align:left;padding:5px 8px">Source</th>
-            <th style="text-align:left;padding:5px 8px">Core</th><th style="text-align:left;padding:5px 8px">Raison</th>
+            <th style="text-align:left;padding:5px 8px">Edge</th><th style="text-align:left;padding:5px 8px">Raison</th>
             <th style="text-align:left;padding:5px 8px">Expire</th><th style="padding:5px 8px"></th>
           </tr></thead>
           <tbody>${bans.slice(0,100).map(b=>`<tr style="font-size:12px;border-bottom:1px solid var(--border-subtle,rgba(0,0,0,.04))">
             <td style="padding:5px 8px;font-family:monospace;font-size:11.5px">${esc(b.ip||'—')}</td>
             <td style="padding:5px 8px"><span class="tag tag-neutral" style="font-size:10px">${esc(_secSourceLabel(b.source||'native'))}</span></td>
-            <td style="padding:5px 8px;color:var(--text2)">${esc(b.core_name||b.core_id||'—')}</td>
+            <td style="padding:5px 8px;color:var(--text2)">${esc(b.edge_name||b.edge_id||'—')}</td>
             <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.reason||'—')}</td>
             <td style="padding:5px 8px;font-size:11px;color:var(--text2)">${b.expires_at?fmtDate(b.expires_at):'∞'}</td>
             <td style="padding:5px 8px"><button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--red)" onclick="_intelUnban('${esc(b.ip)}')">✕</button></td>
@@ -1338,7 +1338,7 @@ async function renderAdminSecurityBans() {
   }
 }
 
-// ── PAGE ADMIN : Menaces CrowdSec tous Cores ──────────────────────────────
+// ── PAGE ADMIN : Menaces CrowdSec toutes les passerelles ──────────────────────────────
 async function renderAdminSecurityThreats() {
   const content = document.getElementById('content');
   const ta = document.getElementById('topbar-actions');
@@ -1351,7 +1351,7 @@ async function renderAdminSecurityThreats() {
     ]);
     const events = timeline || [];
     window._secThreats = threats || [];
-    window._secThreatsShowCore = true;
+    window._secThreatsShowEdge = true;
 
     const typeColor = type => {
       if (type === 'ban')    return 'var(--red)';
@@ -1383,12 +1383,12 @@ async function renderAdminSecurityThreats() {
       </div>
 
       <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces CrowdSec — tous Cores</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces CrowdSec — toutes les passerelles</div>
         <div id="sec-threats-panel">${threatsPanelHTML()}</div>
       </div>
 
       <div class="card blueprint" style="padding:14px 16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Timeline événements — tous Cores</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Timeline événements — toutes les passerelles</div>
         ${events.length ? `
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
@@ -1406,38 +1406,38 @@ async function renderAdminSecurityThreats() {
   }
 }
 
-pages['core-security'] = () => renderSecurityOverview({ mode: 'core' });
-pages['core-security-bans'] = () => renderSecurityBans({ mode: 'core' });
-pages['core-security-vulns'] = () => renderSecurityVulns({ mode: 'core' });
-pages['core-security-posture'] = () => renderSecurityPosture({ mode: 'core' });
+pages['edge-security'] = () => renderSecurityOverview({ mode: 'edge' });
+pages['edge-security-bans'] = () => renderSecurityBans({ mode: 'edge' });
+pages['edge-security-vulns'] = () => renderSecurityVulns({ mode: 'edge' });
+pages['edge-security-posture'] = () => renderSecurityPosture({ mode: 'edge' });
 pages['security-sentinel'] = () => renderSentinelDashboard({ mode: 'admin' });
-pages['core-security-sentinel'] = () => renderSentinelDashboard({ mode: 'core' });
+pages['edge-security-sentinel'] = () => renderSentinelDashboard({ mode: 'edge' });
 
 async function renderSecurityIpsEngines({ mode } = {}) {
-  const isCore = mode === 'core';
+  const isEdge = mode === 'edge';
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   const ta = document.getElementById('topbar-actions');
   if (ta) ta.innerHTML = '';
 
-  if (isCore && !state.selectedCore) {
-    content.innerHTML = `<div class="empty"><p style="font-size:15px;font-weight:600">Sélectionnez un Core</p></div>`;
+  if (isEdge && !state.selectedEdge) {
+    content.innerHTML = `<div class="empty"><p style="font-size:15px;font-weight:600">Sélectionnez une passerelle</p></div>`;
     return;
   }
 
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (isCore && coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (isEdge && edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
-    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    window._secCoreQ = coreQ;
+    const edgeQ = edgeCtx?.edgeRef ? `?edge=${encodeURIComponent(edgeCtx.edgeRef)}` : '';
+    window._secEdgeQ = edgeQ;
 
     const [f2bCfg, csCfg, threatCfg] = await Promise.all([
       api('GET', '/security/fail2ban').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
-      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', `/security/threat-config${edgeQ}`).catch(() => null),
     ]);
 
     window._f2bCfg    = f2bCfg    || {};
@@ -1495,7 +1495,7 @@ async function renderSecurityIpsEngines({ mode } = {}) {
             <div style="padding:0 16px 16px">
               <p style="font-size:12px;color:var(--text2);margin:0 0 12px">${t('security.ips_engines.sentinel_desc')}</p>
               <p style="font-size:12px;color:var(--text3);margin:0 0 10px">${t('security.ips_engines.sentinel_hint')}</p>
-              <button class="btn btn-ghost btn-sm" onclick="navigate('${isCore ? 'core-security-sentinel' : 'security-sentinel'}')">${t('security.ips_engines.sentinel_config')} →</button>
+              <button class="btn btn-ghost btn-sm" onclick="navigate('${isEdge ? 'edge-security-sentinel' : 'security-sentinel'}')">${t('security.ips_engines.sentinel_config')} →</button>
             </div>
           </div>
 
@@ -1508,21 +1508,21 @@ async function renderSentinelDashboard({ mode }) {
   const content = document.getElementById('content');
   content.innerHTML = `<div style="padding:20px 0"><div class="spinner"></div></div>`;
   try {
-    const coreCtx = await resolveSecurityCoreCtx(mode);
-    if (mode === 'core' && coreCtx?.missing) {
-      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+    const edgeCtx = await resolveSecurityEdgeCtx(mode);
+    if (mode === 'edge' && edgeCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';
       return;
     }
-    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
-    window._secCoreQ = coreQ;
+    const edgeQ = edgeCtx?.edgeRef ? `?edge=${encodeURIComponent(edgeCtx.edgeRef)}` : '';
+    window._secEdgeQ = edgeQ;
 
     const [bansRaw, threatsRaw, cfg] = await Promise.all([
-      api('GET', `/security/bans?active=true&source=threat${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
-      api('GET', `/security/threats?limit=500${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
-      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
+      api('GET', `/security/bans?active=true&source=threat${edgeQ ? '&' + edgeQ.slice(1) : ''}`).catch(() => []),
+      api('GET', `/security/threats?limit=500${edgeQ ? '&' + edgeQ.slice(1) : ''}`).catch(() => []),
+      api('GET', `/security/threat-config${edgeQ}`).catch(() => null),
     ]);
 
-    const sentinelBans = filterSecBans(bansRaw || [], coreCtx);
+    const sentinelBans = filterSecBans(bansRaw || [], edgeCtx);
     const threats = threatsRaw || [];
     const threatCfg = cfg || {};
 
@@ -1577,7 +1577,7 @@ async function renderSentinelDashboard({ mode }) {
     const svgGear = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
 
     content.innerHTML = `
-      ${securityCoreBanner(coreCtx)}
+      ${securityEdgeBanner(edgeCtx)}
       <div class="page-header" style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
         <h1 class="page-title" style="margin:0;display:flex;align-items:center;gap:8px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="10" ry="6"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg> Sentinel</h1>
         <span class="tag ${cfgEnabled ? 'tag-green' : 'tag-neutral'}">${cfgEnabled ? t('common.active') || 'Actif' : t('common.inactive') || 'Inactif'}</span>
@@ -1739,7 +1739,7 @@ function secProxyCountLabel(n, total) {
   return total != null && n !== total ? `${suffix} / ${total}` : suffix;
 }
 
-function enginesConfigHTML(f2bCfg, csCfg, threatCfg, isCore) {
+function enginesConfigHTML(f2bCfg, csCfg, threatCfg, isEdge) {
   const f2bOn      = !!(f2bCfg?.enabled);
   const csOn       = !!(csCfg?.enabled);
   const sentinelOn = !!(threatCfg?.enabled);
@@ -1752,7 +1752,7 @@ function enginesConfigHTML(f2bCfg, csCfg, threatCfg, isCore) {
   window._f2bCfg    = f2bCfg    || {};
   window._csCfg     = csCfg     || {};
   window._threatCfg = threatCfg || {};
-  const sentinelNav = isCore ? 'core-security-sentinel' : 'security-sentinel';
+  const sentinelNav = isEdge ? 'edge-security-sentinel' : 'security-sentinel';
   return `<div class="card blueprint" style="margin-bottom:20px">
     <div class="card-header"><span class="card-title">${t('security.engines_status')||'Moteurs de sécurité'}</span></div>
     <div style="padding:0 16px 16px">
@@ -2078,7 +2078,7 @@ window.saveThreatConfig = async function(e) {
   };
 
   try {
-    await api('PUT', `/security/threat-config${window._secCoreQ || ''}`, cfg);
+    await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg);
     window._threatCfg = cfg;
     toast(t('security.threat.saved'), 'success');
     closeSentinelSettings();
@@ -2107,7 +2107,7 @@ function serverTimeoutsBanner(cfg) {
     </div>
     <div style="padding:12px 16px">
       <div style="margin-bottom:10px;padding:8px 10px;background:var(--warning-bg,#fff8e1);border-radius:6px;font-size:12px;color:var(--warning-text,#7a5c00)">
-        ⚠️ Ces valeurs sont sauvegardées dans <code>core.json</code> — un <strong>redémarrage du Core</strong> est nécessaire pour les appliquer.
+        ⚠️ Ces valeurs sont sauvegardées dans <code>edge.json</code> — un <strong>redémarrage de la passerelle</strong> est nécessaire pour les appliquer.
       </div>
       <form onsubmit="saveServerConfig(event)" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         <div class="field" style="margin:0">
@@ -2141,9 +2141,9 @@ window.saveServerConfig = async function(e) {
     idle_seconds:        parseInt(document.getElementById('srv-idle')?.value        || '120', 10) || 120,
   };
   try {
-    await api('PUT', `/security/server-config${window._secCoreQ || ''}`, cfg);
+    await api('PUT', `/security/server-config${window._secEdgeQ || ''}`, cfg);
     window._serverCfg = cfg;
-    toast('Timeouts sauvegardés — redémarrez le Core pour les appliquer', 'success');
+    toast('Timeouts sauvegardés — redémarrez la passerelle pour les appliquer', 'success');
   } catch(err) { toast(err.message, 'error'); }
 };
 
@@ -2213,7 +2213,7 @@ function filterSecThreatsList(threats) {
 
   if (q) {
     list = list.filter(th => {
-      const hay = `${th.ip || ''} ${th.scenario || ''} ${th.origin || ''} ${th.type || ''} ${th.core_name || ''}`.toLowerCase();
+      const hay = `${th.ip || ''} ${th.scenario || ''} ${th.origin || ''} ${th.type || ''} ${th.edge_name || ''}`.toLowerCase();
       return hay.includes(q);
     });
   }
@@ -2223,7 +2223,7 @@ function filterSecThreatsList(threats) {
     if (sort === 'ip_asc') return _secLocaleCompare(a.ip, b.ip);
     if (sort === 'ip_desc') return _secLocaleCompare(b.ip, a.ip);
     if (sort === 'scenario') return _secLocaleCompare(a.scenario, b.scenario) || _secLocaleCompare(a.ip, b.ip);
-    if (sort === 'core') return _secLocaleCompare(a.core_name, b.core_name) || _secLocaleCompare(a.ip, b.ip);
+    if (sort === 'edge') return _secLocaleCompare(a.edge_name, b.edge_name) || _secLocaleCompare(a.ip, b.ip);
     if (sort === 'occurrences') return (b.occurrences||0) - (a.occurrences||0) || _secLocaleCompare(a.ip, b.ip);
     if (sort === 'date_asc') {
       const da = Date.parse(_threatDate(a)) || 0, db = Date.parse(_threatDate(b)) || 0;
@@ -2293,7 +2293,7 @@ function threatsToolbarHTML(total, shown, types) {
         <option value="ip_asc" ${sort==='ip_asc'?'selected':''}>${t('security.sort.ip_asc')}</option>
         <option value="ip_desc" ${sort==='ip_desc'?'selected':''}>${t('security.sort.ip_desc')}</option>
         <option value="scenario" ${sort==='scenario'?'selected':''}>${t('security.sort.scenario')}</option>
-        <option value="core" ${sort==='core'?'selected':''}>${t('security.col.core')||'Core'}</option>
+        <option value="edge" ${sort==='edge'?'selected':''}>${t('security.col.edge')||'Passerelle'}</option>
         <option value="occurrences" ${sort==='occurrences'?'selected':''}>${t('security.col.occurrences')||'Occurrences'}</option>
       </select>
     </div>
@@ -2343,7 +2343,7 @@ function bansTableRows(list) {
   </table></div>`;
 }
 
-function threatsTableRows(list, showCore) {
+function threatsTableRows(list, showEdge) {
   if (!list.length) {
     const emptyKey = (window._secThreats || []).length ? 'security.no_threat_filter_match' : 'security.no_crowdsec';
     return `<div class="empty"><p>${t(emptyKey)}</p></div>`;
@@ -2357,7 +2357,7 @@ function threatsTableRows(list, showCore) {
   };
   const ip = _tind('ip', 'ip_asc', 'ip_desc');
   const scenario = _tind('scenario', 'scenario', 'scenario');
-  const core = _tind('core', 'core', 'core');
+  const edge = _tind('edge', 'edge', 'edge');
   const occ = _tind('occurrences', 'occurrences', 'occurrences');
   const date = _tind('date', 'date_asc', 'date_desc');
   return `<div class="table-wrap sec-bans-table-scroll"><table>
@@ -2366,7 +2366,7 @@ function threatsTableRows(list, showCore) {
       <th ${scenario.attr}>${t('security.col.scenario')}${scenario.arrow}</th>
       <th>${t('security.col.origin')}</th>
       <th>${t('security.col.type')}</th>
-      ${showCore ? `<th ${core.attr}>${t('security.col.core')||'Core'}${core.arrow}</th>` : ''}
+      ${showEdge ? `<th ${edge.attr}>${t('security.col.edge')||'Passerelle'}${edge.arrow}</th>` : ''}
       <th ${occ.attr}>${t('security.col.occurrences')||'Occurrences'}${occ.arrow}</th>
       <th ${date.attr}>${t('common.date')}${date.arrow}</th>
     </tr></thead>
@@ -2375,7 +2375,7 @@ function threatsTableRows(list, showCore) {
       <td style="font-size:12px">${esc(th.scenario||'—')}</td>
       <td style="font-size:12px">${esc(th.origin||'—')}</td>
       <td><span class="tag tag-red">${esc(th.type)}</span></td>
-      ${showCore ? `<td style="font-size:12px;color:var(--text2)">${esc(th.core_name||'—')}</td>` : ''}
+      ${showEdge ? `<td style="font-size:12px;color:var(--text2)">${esc(th.edge_name||'—')}</td>` : ''}
       <td style="font-size:12px;text-align:center">${th.occurrences||1}</td>
       <td style="font-size:11px">${_threatDate(th) ? fmtDate(_threatDate(th)) : '—'}</td>
     </tr>`).join('')}</tbody>
@@ -2392,8 +2392,8 @@ function threatsPanelHTML() {
   const all = window._secThreats || [];
   const filtered = filterSecThreatsList(all);
   const types = [...new Set(all.map(th => th.type).filter(Boolean))].sort(_secLocaleCompare);
-  const showCore = window._secThreatsShowCore !== false;
-  return `${threatsToolbarHTML(all.length, filtered.length, types)}<div id="sec-threats-table">${threatsTableRows(filtered, showCore)}</div>`;
+  const showEdge = window._secThreatsShowEdge !== false;
+  return `${threatsToolbarHTML(all.length, filtered.length, types)}<div id="sec-threats-table">${threatsTableRows(filtered, showEdge)}</div>`;
 }
 
 function renderSecBansPanel(opts = {}) {
@@ -2436,7 +2436,7 @@ function renderSecThreatsPanel(opts = {}) {
   }
   const table = document.getElementById('sec-threats-table');
   const count = document.getElementById('sec-threats-count');
-  if (table) table.innerHTML = threatsTableRows(filtered, window._secThreatsShowCore !== false);
+  if (table) table.innerHTML = threatsTableRows(filtered, window._secThreatsShowEdge !== false);
   if (count) {
     count.textContent = filtered.length === all.length
       ? t('security.threats_count', { n: filtered.length })
@@ -2860,7 +2860,7 @@ async function refreshVulnscanPanel() {
   if (!body) { stopVulnscanPoll(); return null; }
   try {
     let st = await api('GET', '/security/vulnscan');
-    if (window._secCoreCtx) st = filterVulnscanState(st, window._secCoreCtx);
+    if (window._secEdgeCtx) st = filterVulnscanState(st, window._secEdgeCtx);
     body.innerHTML = vulnscanPanel(st);
     if (btn) btn.disabled = !!st?.running;
     return st;
@@ -2873,7 +2873,7 @@ function startVulnscanPoll() {
   stopVulnscanPoll();
   window._vulnscanPoll = setInterval(async () => {
     const page = typeof state !== 'undefined' ? state.page : '';
-    if (page !== 'security-vulns' && page !== 'core-security-vulns') {
+    if (page !== 'security-vulns' && page !== 'edge-security-vulns') {
       stopVulnscanPoll();
       return;
     }
@@ -2947,7 +2947,7 @@ window.toggleEngineCS = async function(enabled) {
 window.toggleEngineSentinel = async function(enabled) {
   try {
     const cfg = { ...(window._threatCfg || {}), enabled };
-    await api('PUT', `/security/threat-config${window._secCoreQ || ''}`, cfg);
+    await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg);
     window._threatCfg = cfg;
     const card = document.getElementById('engine-card-sentinel');
     if (card) card.style.borderColor = enabled ? 'var(--green)' : 'var(--border)';
@@ -2957,7 +2957,7 @@ window.toggleEngineSentinel = async function(enabled) {
 
 window.selectIPSProvider = async function(provider) {
   try {
-    await api('PUT', `/security/ips-provider${window._secCoreQ || ''}`, { provider });
+    await api('PUT', `/security/ips-provider${window._secEdgeQ || ''}`, { provider });
     window._ipsProvider = provider;
     toast(t('security.ips.saved'), 'success');
     reloadCurrentSecurityPage();
@@ -3099,21 +3099,21 @@ window.makeBanPermanent = async function(id, ip) {
 
 window.openPrismForBanIP = function(ip) {
   window._prismIpInit = ip;
-  if (state.selectedCore) {
-    navigate('core-prism');
+  if (state.selectedEdge) {
+    navigate('edge-prism');
     return;
   }
-  const cores = window._coreNodes || [];
-  if (cores.length === 1) {
-    selectCore(cores[0], 'core-prism');
+  const edges = window._edgeNodes || [];
+  if (edges.length === 1) {
+    selectEdge(edges[0], 'edge-prism');
     return;
   }
-  if (cores.length > 1) {
-    toast('Sélectionnez un Core pour ouvrir Prism', 'info');
+  if (edges.length > 1) {
+    toast('Sélectionnez une passerelle pour ouvrir Prism', 'info');
     navigate('infrastructure');
     return;
   }
-  toast(t('logs.prism_need_core'), 'error');
+  toast(t('logs.prism_need_edge'), 'error');
 };
 
 window.showBanHistory = async function(ip) {
@@ -3121,10 +3121,10 @@ window.showBanHistory = async function(ip) {
   const [events, wafProfile] = await Promise.all([
     api('GET', `/security/ip-timeline?ip=${encodeURIComponent(ip)}`).catch(() => []),
     (async () => {
-      const coreId = state.selectedCore || window._selectedCoreId;
-      if (!coreId) return null;
+      const edgeId = state.selectedEdge || window._selectedEdgeId;
+      if (!edgeId) return null;
       try {
-        const profiles = await coreProxy(coreId, 'GET', '/internal/v1/waf/behavior/profiles');
+        const profiles = await edgeProxy(edgeId, 'GET', '/internal/v1/waf/behavior/profiles');
         return (profiles || {})[ip] || null;
       } catch { return null; }
     })(),
@@ -3187,13 +3187,13 @@ async function renderWAFBehaviorProfiles(ctx) {
   const el = document.getElementById('content');
   if (!el) return;
 
-  const coreCtx = ctx?.mode === 'core' ? ctx : null;
-  const coreId = coreCtx?.coreId || window._selectedCoreId;
+  const edgeCtx = ctx?.mode === 'edge' ? ctx : null;
+  const edgeId = edgeCtx?.edgeId || window._selectedEdgeId;
 
   let profiles = {};
   try {
-    if (coreId) {
-      profiles = await coreProxy(coreId, 'GET', '/internal/v1/waf/behavior/profiles') || {};
+    if (edgeId) {
+      profiles = await edgeProxy(edgeId, 'GET', '/internal/v1/waf/behavior/profiles') || {};
     }
   } catch(e) { /* ignore */ }
 
@@ -3234,7 +3234,7 @@ async function renderWAFBehaviorProfiles(ctx) {
                     : `<span title="${info.clean_requests} req propres">–</span>`}
                 </td>
                 <td style="padding:8px 12px;text-align:right;">
-                  <button class="btn btn-sm" style="color:var(--red)" onclick="deleteWAFBehaviorProfile('${ip}', ${JSON.stringify(coreId||'')}, ${JSON.stringify(ctx||{})})">Supprimer</button>
+                  <button class="btn btn-sm" style="color:var(--red)" onclick="deleteWAFBehaviorProfile('${ip}', ${JSON.stringify(edgeId||'')}, ${JSON.stringify(ctx||{})})">Supprimer</button>
                 </td>
               </tr>`).join('')}
           </tbody>
@@ -3242,17 +3242,17 @@ async function renderWAFBehaviorProfiles(ctx) {
     </div>`;
 }
 
-window.deleteWAFBehaviorProfile = async function(ip, coreId, ctx) {
+window.deleteWAFBehaviorProfile = async function(ip, edgeId, ctx) {
   try {
-    if (coreId) {
-      await coreProxy(coreId, 'DELETE', `/internal/v1/waf/behavior/profiles/${encodeURIComponent(ip)}`);
+    if (edgeId) {
+      await edgeProxy(edgeId, 'DELETE', `/internal/v1/waf/behavior/profiles/${encodeURIComponent(ip)}`);
     }
     toast('Profil supprimé', 'success');
     renderWAFBehaviorProfiles(ctx);
   } catch(e) { toast(e.message, 'error'); }
 };
 
-pages['core-security-waf-profiles'] = (ctx) => renderWAFBehaviorProfiles({ ...ctx, mode: 'core' });
+pages['edge-security-waf-profiles'] = (ctx) => renderWAFBehaviorProfiles({ ...ctx, mode: 'edge' });
 
 window.updateCVE = async function(id, status) {
   try {
@@ -3270,7 +3270,7 @@ const _COND_TYPES = [
   { value: 'engine_silent',    label: 'Moteur IPS silencieux' },
   { value: 'proxy_error_rate', label: 'Taux d\'erreurs proxy' },
   { value: 'ban_repeat',       label: 'IP récidiviste (multi-ban)' },
-  { value: 'node_offline',     label: 'Core/Agent hors ligne' },
+  { value: 'node_offline',     label: 'Passerelle/Agent hors ligne' },
   { value: 'cert_expiring',    label: 'Certificat TLS expirant' },
 ];
 

@@ -1,0 +1,62 @@
+# User-Agent blacklist — GoProxify threat engine
+# One substring per line (case-insensitive). Lines starting with # are ignored.
+# Replace this file in the volume to update without restarting.
+#
+# Scanners / fuzzers
+sqlmap
+nikto
+masscan
+zgrab
+nmap
+dirbuster
+gobuster
+wfuzz
+feroxbuster
+ffuf
+dirb
+burpsuite
+acunetix
+nessus
+openvas
+havij
+w3af
+vega
+skipfish
+arachni
+zap
+nuclei
+# Exploit frameworks
+metasploit
+msfconsole
+# Bad bots / scrapers
+python-requests/2.1
+libwww-perl
+lwp-trivial
+curl/7.1
+curl/7.2
+curl/7.3
+wget/1.
+go-http-client/1.1
+java/1.
+perl/
+ruby/
+scrapy
+phantomjs
+headlesschrome
+python-urllib
+python-httpx
+httpclient
+apache-httpclient
+okhttp/1.
+okhttp/2.
+# DDoS / flood tools
+loic
+hoic
+slowloris
+torshammer
+# Credential stuffing
+hydra
+medusa
+thc-hydra
+patator
+crowbar

@@ -1,21 +1,21 @@
 # GoProxify — Référence des métriques Prometheus
 
-Toutes les métriques sont exposées au format Prometheus sur le port interne du Core (`/metrics`).  
+Toutes les métriques sont exposées au format Prometheus sur le port interne de la passerelle (`/metrics`).  
 Préfixes : `gpx_*` (data plane) · `goproxify_*` (plan de contrôle).
 
 ---
 
-## Plan de données — Core (`gpx_core_*`)
+## Plan de données — passerelle (`gpx_edge_*`)
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_core_requests_total` | Counter | `host`, `method`, `status` | Requêtes HTTP proxifiées (status = code HTTP) |
-| `gpx_core_request_duration_seconds` | Histogram | `host` | Durée totale vue client (pipeline inclus) |
-| `gpx_core_active_requests` | Gauge | `host` | Requêtes HTTP en cours |
-| `gpx_core_bytes_received_total` | Counter | — | Octets reçus (Content-Length) |
-| `gpx_core_bytes_sent_total` | Counter | — | Octets envoyés (body réponse) |
-| `gpx_core_routes_total` | Gauge | — | Routes actives en mémoire |
-| `gpx_core_certs_total` | Gauge | — | Certificats TLS en mémoire |
+| `gpx_edge_requests_total` | Counter | `host`, `method`, `status` | Requêtes HTTP proxifiées (status = code HTTP) |
+| `gpx_edge_request_duration_seconds` | Histogram | `host` | Durée totale vue client (pipeline inclus) |
+| `gpx_edge_active_requests` | Gauge | `host` | Requêtes HTTP en cours |
+| `gpx_edge_bytes_received_total` | Counter | — | Octets reçus (Content-Length) |
+| `gpx_edge_bytes_sent_total` | Counter | — | Octets envoyés (body réponse) |
+| `gpx_edge_routes_total` | Gauge | — | Routes actives en mémoire |
+| `gpx_edge_certs_total` | Gauge | — | Certificats TLS en mémoire |
 
 ---
 
@@ -147,22 +147,22 @@ rate(gpx_auth_attempts_total{result="failure"}[5m]) > 10
 
 ---
 
-## Bytes par proxy (`gpx_core_*` — par host)
+## Bytes par proxy (`gpx_edge_*` — par host)
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_core_bytes_received_by_host_total` | Counter | `host` | Octets reçus par proxy (Content-Length) |
-| `gpx_core_bytes_sent_by_host_total` | Counter | `host` | Octets envoyés par proxy (body réponse) |
+| `gpx_edge_bytes_received_by_host_total` | Counter | `host` | Octets reçus par proxy (Content-Length) |
+| `gpx_edge_bytes_sent_by_host_total` | Counter | `host` | Octets envoyés par proxy (body réponse) |
 
-Complètent les agrégats globaux `gpx_core_bytes_received_total` / `gpx_core_bytes_sent_total` avec une granularité par domaine.
+Complètent les agrégats globaux `gpx_edge_bytes_received_total` / `gpx_edge_bytes_sent_total` avec une granularité par domaine.
 
 ---
 
-## Peers Core (`gpx_peer_*`)
+## Peers passerelle (`gpx_peer_*`)
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_peer_sync_duration_seconds` | Histogram | `peer` | Durée d'une synchronisation avec un Core pair (scores LB + profils WAF) |
+| `gpx_peer_sync_duration_seconds` | Histogram | `peer` | Durée d'une synchronisation avec une passerelle pair (scores LB + profils WAF) |
 
 Buckets : 10 ms → 5 s.
 
@@ -243,20 +243,20 @@ Buckets : 1 s → 300 s.
 
 ## Plan de contrôle WebSocket (`goproxify_ws_*` / `goproxify_controlplane_*`)
 
-### Côté Core
+### Côté passerelle
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
 | `goproxify_ws_connections_active` | Gauge | `role` | Connexions WS actives (`admin`, `agent`) |
-| `goproxify_ws_messages_sent_total` | Counter | `role`, `type` | Messages WS envoyés par le Core |
+| `goproxify_ws_messages_sent_total` | Counter | `role`, `type` | Messages WS envoyés par la passerelle |
 
 ### Côté Admin
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `goproxify_controlplane_ws_reconnects_total` | Counter | `core_id` | Reconnexions WebSocket Admin→Core |
+| `goproxify_controlplane_ws_reconnects_total` | Counter | `edge_id` | Reconnexions WebSocket Admin→Passerelle |
 
-Une valeur élevée indique une instabilité réseau ou des redémarrages Core fréquents.
+Une valeur élevée indique une instabilité réseau ou des redémarrages passerelle fréquents.
 
 ---
 
@@ -274,16 +274,16 @@ Une valeur élevée indique une instabilité réseau ou des redémarrages Core f
 ## Endpoint Prometheus
 
 ```
-GET http://<core-internal-host>:8000/metrics
+GET http://<edge-internal-host>:8000/metrics
 Authorization: Bearer <token>
 ```
 
-Le scraping sans authentification peut être activé via la config réseau du Core.
+Le scraping sans authentification peut être activé via la config réseau de la passerelle.
 
 ## Résumé JSON (usage Admin UI)
 
 ```
-GET http://<core-internal-host>:8000/internal/v1/metrics/summary
+GET http://<edge-internal-host>:8000/internal/v1/metrics/summary
 Authorization: Bearer <token>
 ```
 

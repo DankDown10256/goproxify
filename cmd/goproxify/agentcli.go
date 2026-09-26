@@ -30,14 +30,14 @@ func runAgentCmd() {
 			fmt.Println("(aucun agent)")
 			return
 		}
-		fmt.Printf("%-36s  %-30s  %-12s  %s\n", "ID", "NOM", "STATUT", "CORE")
+		fmt.Printf("%-36s  %-30s  %-12s  %s\n", "ID", "NOM", "STATUT", "EDGE")
 		fmt.Println(strings.Repeat("-", 90))
 		for _, a := range agents {
 			id, _ := a["id"].(string)
 			name, _ := a["name"].(string)
 			status, _ := a["status"].(string)
-			coreID, _ := a["core_id"].(string)
-			fmt.Printf("%-36s  %-30s  %-12s  %s\n", id, name, status, coreID)
+			edgeID, _ := a["edge_id"].(string)
+			fmt.Printf("%-36s  %-30s  %-12s  %s\n", id, name, status, edgeID)
 		}
 
 	case "get":

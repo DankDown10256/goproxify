@@ -28,7 +28,7 @@ func runContainers() {
 			fmt.Println("(aucun conteneur découvert)")
 			return
 		}
-		fmt.Printf("%-40s  %-10s  %-20s  %-20s  %s\n", "HOST", "TLS", "CORE", "AGENT", "BACKENDS")
+		fmt.Printf("%-40s  %-10s  %-20s  %-20s  %s\n", "HOST", "TLS", "EDGE", "AGENT", "BACKENDS")
 		fmt.Println(strings.Repeat("-", 110))
 		for _, c := range containers {
 			host, _ := c["host"].(string)
@@ -36,7 +36,7 @@ func runContainers() {
 			if t, ok := c["tls"].(bool); ok && t {
 				tls = "oui"
 			}
-			core, _ := c["core_name"].(string)
+			edge, _ := c["edge_name"].(string)
 			agent, _ := c["agent_name"].(string)
 			backends := ""
 			if b, ok := c["backends"].([]any); ok {
@@ -51,14 +51,14 @@ func runContainers() {
 					backends = backends[:37] + "…"
 				}
 			}
-			fmt.Printf("%-40s  %-10s  %-20s  %-20s  %s\n", host, tls, core, agent, backends)
+			fmt.Printf("%-40s  %-10s  %-20s  %-20s  %s\n", host, tls, edge, agent, backends)
 		}
 
 	case "help":
 		fmt.Print(`Usage: goproxify containers [list] [options]
 
 Affiche les conteneurs Docker découverts par les Agents (lecture seule).
-Agrège les résultats de tous les Cores connectés.
+Agrège les résultats de toutes les passerelles connectées.
 
 goproxify containers list [-admin-url …] [-token …]
 goproxify containers      [-admin-url …] [-token …]

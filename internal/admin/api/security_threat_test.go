@@ -15,7 +15,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/api"
 )
 
-func TestThreatConfigIsStoredAndPushedPerCore(t *testing.T) {
+func TestThreatConfigIsStoredAndPushedPerEdge(t *testing.T) {
 	db, err := sql.Open("sqlite", "file:threat_cfg_test?mode=memory&cache=shared")
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestThreatConfigIsStoredAndPushedPerCore(t *testing.T) {
 	var pushedTo []string
 	h := &api.SecurityHandler{
 		DB:                   db,
-		OnThreatConfigChange: func(coreRef string, _ any) { pushedTo = append(pushedTo, coreRef) },
+		OnThreatConfigChange: func(edgeRef string, _ any) { pushedTo = append(pushedTo, edgeRef) },
 	}
 
 	put := func(query string) {
@@ -48,20 +48,20 @@ func TestThreatConfigIsStoredAndPushedPerCore(t *testing.T) {
 		return strings.TrimSpace(rec.Body.String())
 	}
 
-	put("?core=core-b")
+	put("?edge=edge-b")
 
-	if got := get("?core=core-b"); got != `{"enabled":true}` {
-		t.Fatalf("config du Core: %q", got)
+	if got := get("?edge=edge-b"); got != `{"enabled":true}` {
+		t.Fatalf("config de la passerelle: %q", got)
 	}
 	if got := get(""); got != `{"enabled":false}` {
-		t.Fatalf("la config globale ne doit pas être touchée par une écriture par Core: %q", got)
+		t.Fatalf("la config globale ne doit pas être touchée par une écriture par passerelle: %q", got)
 	}
-	if len(pushedTo) != 1 || pushedTo[0] != "core-b" {
-		t.Fatalf("push visé sur core-b uniquement, reçu %v", pushedTo)
+	if len(pushedTo) != 1 || pushedTo[0] != "edge-b" {
+		t.Fatalf("push visé sur edge-b uniquement, reçu %v", pushedTo)
 	}
 
 	put("")
 	if len(pushedTo) != 2 || pushedTo[1] != "" {
-		t.Fatalf("écriture globale : push à tous (coreRef vide), reçu %v", pushedTo)
+		t.Fatalf("écriture globale : push à tous (edgeRef vide), reçu %v", pushedTo)
 	}
 }

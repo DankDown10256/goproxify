@@ -76,7 +76,7 @@ Actions :
 
 Exemples :
   goproxify nodes list
-  goproxify nodes list -role core
+  goproxify nodes list -role edge
   goproxify nodes live
   goproxify nodes accept -id <pending-id>
   goproxify nodes reject -id <pending-id>
@@ -156,13 +156,13 @@ func declaredUsage() {
 
 Actions :
   list     Liste les nœuds déclarés (wizard architecture)
-  create   Déclare un nœud Core ou Agent (upsert rôle+nom)
+  create   Déclare un nœud passerelle ou Agent (upsert rôle+nom)
   delete   Supprime un nœud déclaré
 
 Exemples :
   goproxify declared list
-  goproxify declared create -role core -name core-edge -region eu-west
-  goproxify declared create -role agent -name agent-1 -config '{"target_core":"core-edge"}'
+  goproxify declared create -role edge -name edge-main -region eu-west
+  goproxify declared create -role agent -name agent-1 -config '{"target_edge":"edge-main"}'
   goproxify declared delete -id dn_abc123
 
 ` + adminAuthHint() + "\n")
@@ -176,7 +176,7 @@ func runBootstrap() {
 		client := mustAdminClient(args)
 		body := map[string]any{
 			"host_name":     flagValue(args, "-host", ""),
-			"core_endpoint": flagValue(args, "-core-endpoint", ""),
+			"edge_endpoint": flagValue(args, "-edge-endpoint", ""),
 			"payload":       map[string]any{},
 		}
 		if ttl := flagValue(args, "-ttl", ""); ttl != "" {
@@ -242,11 +242,11 @@ func runBootstrap() {
 func bootstrapUsage() {
 	fmt.Print(`Usage: goproxify bootstrap create [options]
 
-Crée un ticket d'intégration (QR + lien /i/{token} + curl|bash) ancré au Core.
+Crée un ticket d'intégration (QR + lien /i/{token} + curl|bash) ancré à la passerelle.
 
 Options :
   -host <nom>              Nom de l'hôte
-  -core-endpoint <url>     Endpoint Core (ex: http://core:8000)
+  -edge-endpoint <url>     Endpoint passerelle (ex: http://edge:8000)
   -ttl <heures>            TTL du ticket (défaut 24, max 168)
   -auto-accept true|false  Auto-accept des nœuds liés (défaut true)
   -node-names a,b          Noms de nœuds pour l'auto-accept
@@ -255,7 +255,7 @@ Options :
   -no-qr                   Omet le champ qr_code (base64) dans la sortie
 
 Exemples :
-  goproxify bootstrap create -host edge-1 -core-endpoint http://192.0.2.10:8000 -node-names core-edge -no-qr
+  goproxify bootstrap create -host host-1 -edge-endpoint http://192.0.2.10:8000 -node-names edge-main -no-qr
   curl -fsSL "$(goproxify bootstrap create -host h1 -no-qr | jq -r .script_url)" | bash
 
 ` + adminAuthHint() + "\n")

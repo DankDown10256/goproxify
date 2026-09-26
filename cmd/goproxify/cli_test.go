@@ -76,7 +76,7 @@ func TestFilterProxiesBySelect(t *testing.T) {
 }
 
 func TestMaskToken(t *testing.T) {
-	tok := "gpx_core_abcdef0123456789"
+	tok := "gpx_edge_abcdef0123456789"
 	m := maskToken(tok)
 	if m == tok || len(m) >= len(tok) {
 		t.Fatalf("maskToken did not mask: %q", m)
@@ -94,13 +94,13 @@ func TestAdminClientDoJSON(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": "1", "token": "gpx_core_abc", "role": "core"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "1", "token": "gpx_edge_abc", "role": "edge"})
 	}))
 	defer srv.Close()
 
 	c := &adminClient{base: srv.URL, token: "test-tok", client: srv.Client()}
 	var out map[string]string
-	if _, err := c.DoJSON("POST", "/api/v1/tokens", map[string]string{"role": "core"}, &out, 201); err != nil {
+	if _, err := c.DoJSON("POST", "/api/v1/tokens", map[string]string{"role": "edge"}, &out, 201); err != nil {
 		t.Fatal(err)
 	}
 	if out["id"] != "1" {
@@ -149,7 +149,7 @@ func TestCollectImportFiles(t *testing.T) {
 // jamais s'exécuter (le fichier "existe" déjà), donc les variables GPX_*
 // (cluster, identité…) sont silencieusement ignorées.
 func TestConfigPathMatchesBackupDefault(t *testing.T) {
-	for _, component := range []string{"admin", "core", "agent"} {
+	for _, component := range []string{"admin", "edge", "agent"} {
 		got := configPath(component, map[string]string{})
 		want := defaultConfigPath(component)
 		if want == "" {
@@ -166,7 +166,7 @@ func TestConfigPathMatchesBackupDefault(t *testing.T) {
 
 // TestConfigPathFlagOverride vérifie que -config prime toujours sur le défaut.
 func TestConfigPathFlagOverride(t *testing.T) {
-	got := configPath("core", map[string]string{"-config": "/custom/path.json"})
+	got := configPath("edge", map[string]string{"-config": "/custom/path.json"})
 	if got != "/custom/path.json" {
 		t.Fatalf("configPath avec -config = %q", got)
 	}

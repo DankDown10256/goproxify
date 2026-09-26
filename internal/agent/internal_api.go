@@ -21,7 +21,7 @@ import (
 	agentdocker "github.com/vincamok/goproxify/internal/agent/docker"
 )
 
-// internalAPI expose une API HTTP locale sur laquelle le Core / l'Admin poussent des commandes.
+// internalAPI expose une API HTTP locale sur laquelle la passerelle / l'Admin poussent des commandes.
 // Écoute sur :8001 (configurable). Auth Bearer obligatoire (fail-closed).
 type internalAPI struct {
 	port int
@@ -287,12 +287,12 @@ func applyConfigPatch(cfgPath string, patch json.RawMessage) error {
 					continue
 				}
 			}
-			// Merge récursif pour les sous-objets imbriqués (ex: endpoint_cores).
+			// Merge récursif pour les sous-objets imbriqués (ex: endpoint_edges).
 			if baseVal, ok := baseObj[k]; ok {
 				var bSub, pSub map[string]json.RawMessage
 				if json.Unmarshal(baseVal, &bSub) == nil && json.Unmarshal(v, &pSub) == nil {
 					for sk, sv := range pSub {
-						// Merge de chaque sous-entrée (ex: un endpoint_core par nom).
+						// Merge de chaque sous-entrée (ex: un endpoint_edge par nom).
 						if bEntry, ok2 := bSub[sk]; ok2 {
 							var bEnt, pEnt map[string]json.RawMessage
 							if json.Unmarshal(bEntry, &bEnt) == nil && json.Unmarshal(sv, &pEnt) == nil {

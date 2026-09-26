@@ -11,7 +11,7 @@ import (
 
 func TestRedactSecrets(t *testing.T) {
 	b := &importer.Backup{
-		Tokens: []importer.BackupToken{{ID: "t1", Token: "secret-tok", Role: "core"}},
+		Tokens: []importer.BackupToken{{ID: "t1", Token: "secret-tok", Role: "edge"}},
 		AlertChannels: []map[string]any{
 			{"id": "c1", "config": map[string]any{"url": "https://hooks.ex/x", "token": "abc", "secret": "xyz"}},
 		},
