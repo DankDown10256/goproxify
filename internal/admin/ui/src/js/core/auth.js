@@ -267,7 +267,7 @@ async function afterLogin() {
     navigate('logs');
     return;
   }
-  navigate('dashboard');
+  navigate(pageFromHash() || 'dashboard');
 }
 
 function updateSidebarUser(u) {

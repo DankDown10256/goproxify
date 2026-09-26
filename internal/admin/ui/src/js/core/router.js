@@ -95,6 +95,7 @@ function navigate(page) {
     outgoing._cleanup = null;
   }
   state.page = page;
+  if (location.hash.slice(1) !== page) history.pushState(null, '', '#' + page);
 
   // Ferme la sidebar sur mobile après navigation
   if (window.innerWidth <= SIDEBAR_MQ) closeSidebar();
@@ -120,6 +121,20 @@ function navigate(page) {
     content.innerHTML = `<div class="empty"><p>${typeof t === 'function' ? t('common.wip') : 'Page under construction.'}</p></div>`;
   }
 }
+
+// Page demandée par l'URL (#page) ; les pages Core exigent un Core sélectionné.
+function pageFromHash() {
+  const page = location.hash.slice(1);
+  if (!page || !pages[page]) return null;
+  if (CORE_PAGES.has(page) && !state.selectedCore) return null;
+  return page;
+}
+
+window.addEventListener('hashchange', () => {
+  if (!state.token) return;
+  const page = pageFromHash();
+  if (page && page !== state.page) navigate(page);
+});
 
 function syncNavActive(page) {
   document.querySelectorAll('.nav-item').forEach(el => {
