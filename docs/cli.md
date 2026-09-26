@@ -220,6 +220,24 @@ goproxify cert delete old.example.fr
 
 ---
 
+### `goproxify architecture`
+
+Historique de `architecture.json` (fichier de vérité de l'architecture : nœuds du wizard, Cores, périmètres). Chaque écriture qui change le fichier en conserve la version précédente.
+
+```
+goproxify architecture versions
+goproxify architecture restore -name <version>
+```
+
+Exemple :
+
+```bash
+goproxify architecture versions
+goproxify architecture restore -name architecture-20260926T070623359846127Z.json
+```
+
+---
+
 ### `goproxify internal-ca`
 
 Génère et gère une autorité de certification (CA) interne, pour émettre des certificats serveur/client internes hors ACME (services internes sans exposition publique).

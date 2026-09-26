@@ -74,6 +74,8 @@ func main() {
 		runProxy()
 	case "cert":
 		runCert()
+	case "architecture":
+		runArchitecture()
 	case "internal-ca":
 		runInternalCA()
 	case "user":
@@ -140,6 +142,7 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   update    Mise à jour des images Docker (via Agent)
   proxy     Proxies (list/get/enable/disable/delete)
   cert      Certificats TLS (list/obtain/delete)
+  architecture  Historique de architecture.json (versions/restore)
   internal-ca CA interne (create-ca/list-ca/issue/list-certs/revoke)
   user      Utilisateurs (list/get/create/update/passwd/delete)
   audit     Journal d'audit (list/export)

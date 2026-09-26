@@ -169,6 +169,9 @@ type CoreHeartbeatPayload struct {
 	Version  string  `json:"version"`
 	CPUPct   float64 `json:"cpu_pct"`
 	MemPct   float64 `json:"mem_pct"`
+	// ClusterPeers : pairs Raft du Core (id → URL raft). L'Admin s'en sert pour
+	// découvrir les Cores du groupe sans variable supplémentaire.
+	ClusterPeers map[string]string `json:"cluster_peers,omitempty"`
 }
 
 // AdminTokenPayload transporte le token HTTP qu'Admin utilise pour appeler l'API interne du Core.

@@ -127,11 +127,12 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 	}
 	rows.Close()
 
+	// architecture.json fait foi : reconnecter ses Cores, puis aligner la base dessus.
+	m.registerArchitectureCores(ctx)
+	m.applyArchitecture(ctx)
+
 	if len(entries) == 0 {
 		m.restoreCoreTokensFromDisk(ctx)
-		if m.archStore != nil {
-			_ = m.archStore.LoadIntoDB(ctx, m.db)
-		}
 		// reload after restore
 		rows2, err2 := m.db.QueryContext(ctx,
 			`SELECT id, node_name, node_endpoint, COALESCE(rbac_role, 'admin')
@@ -150,10 +151,8 @@ func (m *Manager) LoadFromDB(ctx context.Context) error {
 	} else {
 		// Persist current tokens to disk
 		m.saveCoreTokensToDisk(ctx)
-		if m.archStore != nil {
-			go func() { _ = m.archStore.SyncFromDB(ctx, m.db) }()
-		}
 	}
+	m.seedArchitecture(ctx)
 
 	n := 0
 	for _, e := range entries {
@@ -394,16 +393,35 @@ func (m *Manager) ConnectFromEnv(ctx context.Context) {
 // Préfère un token qui a déjà des périmètres. Crée un nouveau token sinon.
 // Retourne l'ID et le rbac_role du token.
 func (m *Manager) ensureCoreToken(ctx context.Context, nodeName, endpoint string) (id, rbacRole string, err error) {
+	return m.ensureCoreTokenWithID(ctx, nodeName, endpoint, "")
+}
+
+// ensureCoreTokenWithID comme ensureCoreToken, mais crée le token sous wantID (si non vide) :
+// les périmètres RBAC sont liés à l'ID du nœud, qui doit rester celui d'architecture.json.
+func (m *Manager) ensureCoreTokenWithID(ctx context.Context, nodeName, endpoint, wantID string) (id, rbacRole string, err error) {
 	acc := rbac.ResolveCoreAccess(ctx, m.db, nodeName)
 	if acc.TokenID != "" {
 		_, _ = m.db.ExecContext(ctx,
 			`UPDATE tokens SET node_endpoint=? WHERE id=?`, endpoint, acc.TokenID)
 		if m.archStore != nil {
-			_ = m.archStore.UpsertEndpoint(acc.TokenID, endpoint, acc.Role)
+			_ = m.archStore.EnsureCore(acc.TokenID, nodeName, endpoint, acc.Role)
 		}
 		return acc.TokenID, acc.Role, nil
 	}
-	id = uuid.New().String()
+	id = wantID
+	if id == "" && m.archStore != nil {
+		if nodes, lerr := m.archStore.List(); lerr == nil {
+			for _, n := range nodes {
+				if n.Role == "core" && n.Name == nodeName {
+					id = n.ID
+					break
+				}
+			}
+		}
+	}
+	if id == "" {
+		id = uuid.New().String()
+	}
 	tok := auth.GenerateToken("core", nodeName)
 	stored, hash := auth.PrepareNodeTokenForStore(tok)
 	_, err = m.db.ExecContext(ctx,
@@ -412,6 +430,9 @@ func (m *Manager) ensureCoreToken(ctx context.Context, nodeName, endpoint string
 		id, stored, hash, nodeName, endpoint)
 	if err == nil {
 		m.saveCoreTokensToDisk(ctx)
+		if m.archStore != nil {
+			_ = m.archStore.EnsureCore(id, nodeName, endpoint, "admin")
+		}
 	}
 	return id, "admin", err
 }
@@ -669,6 +690,7 @@ func (m *Manager) handleCoreHeartbeat(msg coreWS.Message) {
 	if err != nil {
 		m.log.Warn("corews: upsert heartbeat Core", "err", err)
 	}
+	m.discoverClusterPeers(ctx, hb)
 }
 
 // newClient crée un Client WS pour un Core donné.

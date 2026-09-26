@@ -567,6 +567,23 @@ Déclare un nœud (`role`: `core`|`agent`, `name`, `region`, `environment`, `con
 
 Supprime un nœud déclaré.
 
+### `GET /api/v1/architecture/versions` `[AUTH]`
+
+Rôle admin requis. Liste les versions conservées de `architecture.json` (la plus récente d'abord). Une version est enregistrée à chaque écriture qui change le fichier (50 conservées).
+
+**Réponse :**
+```json
+[{"name": "architecture-20260926T070623359846127Z.json", "saved_at": "2026-09-26T07:06:23Z", "size": 384}]
+```
+
+### `POST /api/v1/architecture/restore` `[AUTH]`
+
+Rôle admin requis. Remet en place une version conservée, réaligne la base dessus et reconnecte les Cores qu'elle décrit. L'état remplacé est lui-même conservé : une restauration est réversible.
+
+**Body :** `{"name": "architecture-20260926T070623359846127Z.json"}`
+
+**Réponse :** `{"restored": "<name>", "applied": {"declared": 2, "removed": 0, "scopes": 0, "domains": 0}}`. Un nom qui n'est pas une version conservée renvoie `404`.
+
 ### `POST /api/v1/bootstrap-tickets` `[AUTH]`
 
 Crée un ticket one-shot pour intégrer un hôte (QR + lien + script).

@@ -195,10 +195,14 @@ func (h *TokensHandler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.ArchStore != nil && req.Role == "core" {
-		_ = h.ArchStore.Upsert(archstore.NodeEntry{
+		if err := h.ArchStore.Upsert(archstore.NodeEntry{
 			ID: id, Role: "core", Name: req.NodeName,
 			Endpoint: endpoint, RBACRole: req.RBACRole,
-		})
+		}); err != nil {
+			h.Log.Error("tokens: architecture.json", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
 	}
 
 	actor := adminauth.UserIDFromContext(r.Context())
@@ -379,7 +383,11 @@ func (h *TokensHandler) addScope(w http.ResponseWriter, r *http.Request, tokenID
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "add_token_scope", "token:"+tokenID, req.ScopeType+":"+req.Value)
 	if h.ArchStore != nil {
-		_ = h.ArchStore.AddScope(tokenID, archstore.ScopeEntry{ID: id, Type: req.ScopeType, Value: req.Value})
+		if err := h.ArchStore.AddScope(tokenID, archstore.ScopeEntry{ID: id, Type: req.ScopeType, Value: req.Value}); err != nil {
+			h.Log.Error("tokens: architecture.json", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
 	}
 	h.resyncAfterScopeChange()
 	s := tokenScopeRow{ID: id, ScopeType: req.ScopeType, Value: req.Value}
@@ -403,7 +411,11 @@ func (h *TokensHandler) removeScope(w http.ResponseWriter, r *http.Request, toke
 	actor := adminauth.UserIDFromContext(r.Context())
 	_ = admindb.WriteAudit(h.DB, actor, "remove_token_scope", "token:"+tokenID, scopeID)
 	if h.ArchStore != nil {
-		_ = h.ArchStore.RemoveScope(tokenID, scopeID)
+		if err := h.ArchStore.RemoveScope(tokenID, scopeID); err != nil {
+			h.Log.Error("tokens: architecture.json", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
 	}
 	h.resyncAfterScopeChange()
 	w.WriteHeader(http.StatusNoContent)

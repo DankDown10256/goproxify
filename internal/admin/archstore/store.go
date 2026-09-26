@@ -2,76 +2,101 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package archstore persiste le référentiel architecture (nœuds déclarés, scopes RBAC)
-// dans architecture.yaml — source de vérité indépendante de la base SQLite.
+// dans architecture.json — source de vérité de l'architecture, la base SQLite n'en est
+// qu'un cache dérivé.
 //
-// Flux normal : mutations → écriture fichier + DB.
-// Reprise DB vide : LoadIntoDB recharge le fichier en DB.
+// Flux : mutation → écriture du fichier (version précédente conservée) → ApplyToDB.
+// Au démarrage : ApplyToDB aligne la base sur le fichier ; SeedFromDB ne sert qu'à
+// créer un premier fichier depuis une base existante.
 package archstore
 
 import (
-	"context"
-	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-
-	"gopkg.in/yaml.v3"
 )
 
 const (
 	schemaVersion = 1
-	filename      = "architecture.yaml"
+	filename      = "architecture.json"
 )
 
 // ScopeEntry est un périmètre RBAC attaché à un nœud Core.
 type ScopeEntry struct {
-	ID    string `yaml:"id"`
-	Type  string `yaml:"type"`
-	Value string `yaml:"value"`
+	ID    string `json:"id"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 // NodeEntry décrit un nœud de l'architecture (Core ou Agent).
 // Ne contient pas de secrets — les tokens sealed sont dans node_tokens.json.
 type NodeEntry struct {
-	ID          string       `yaml:"id"`
-	Role        string       `yaml:"role"`
-	Name        string       `yaml:"name"`
-	Endpoint    string       `yaml:"endpoint,omitempty"`
-	RBACRole    string       `yaml:"rbac_role,omitempty"`
-	Region      string       `yaml:"region,omitempty"`
-	Environment string       `yaml:"environment,omitempty"`
-	Config      string       `yaml:"config,omitempty"` // JSON brut du wizard déclaré
-	Scopes      []ScopeEntry `yaml:"scopes,omitempty"`
+	ID          string          `json:"id"`
+	Role        string          `json:"role"`
+	Name        string          `json:"name"`
+	Endpoint    string          `json:"endpoint,omitempty"`
+	RBACRole    string          `json:"rbac_role,omitempty"`
+	Region      string          `json:"region,omitempty"`
+	Environment string          `json:"environment,omitempty"`
+	Config      json.RawMessage `json:"config,omitempty"` // config du wizard déclaré
+	Scopes      []ScopeEntry    `json:"scopes,omitempty"`
+}
+
+// wizardDeclared : le nœud vient de l'assistant Infrastructure (il porte sa config) ;
+// il vit dans la table declared_nodes, qu'il soit connecté ou non.
+func (n NodeEntry) wizardDeclared() bool { return len(n.Config) > 0 }
+
+// ControlEndpoint retourne l'adresse que l'Admin doit joindre pour ce Core : `endpoint` s'il est
+// posé, sinon `reachable_host` de la config du wizard (host:port du hub du Core). Vide si inconnue.
+func (n NodeEntry) ControlEndpoint() string {
+	if n.Role != "core" {
+		return ""
+	}
+	if n.Endpoint != "" {
+		return n.Endpoint
+	}
+	var cfg struct {
+		ReachableHost string `json:"reachable_host"`
+	}
+	if len(n.Config) == 0 || json.Unmarshal(n.Config, &cfg) != nil || cfg.ReachableHost == "" {
+		return ""
+	}
+	if strings.Contains(cfg.ReachableHost, "://") {
+		return cfg.ReachableHost
+	}
+	return "http://" + cfg.ReachableHost
 }
 
 // DomainEntry décrit un domaine géré (TLS, ACME, délégation inter-Core).
 type DomainEntry struct {
-	ID                string `yaml:"id"`
-	Domain            string `yaml:"domain"`
-	CoreID            string `yaml:"core_id"`
-	DNSProvider       string `yaml:"dns_provider"`
-	DNSCredentials    string `yaml:"dns_credentials,omitempty"` // chiffré côté DB, répliqué tel quel
-	CertMethod        string `yaml:"cert_method"`
-	DelegatedToCoreID string `yaml:"delegated_to_core_id,omitempty"`
-	DelegatedEndpoint string `yaml:"delegated_endpoint,omitempty"`
-	DelegationMode    string `yaml:"delegation_mode,omitempty"`
+	ID                string `json:"id"`
+	Domain            string `json:"domain"`
+	CoreID            string `json:"core_id"`
+	DNSProvider       string `json:"dns_provider"`
+	DNSCredentials    string `json:"dns_credentials,omitempty"` // chiffré côté DB, répliqué tel quel
+	CertMethod        string `json:"cert_method"`
+	DelegatedToCoreID string `json:"delegated_to_core_id,omitempty"`
+	DelegatedEndpoint string `json:"delegated_endpoint,omitempty"`
+	DelegationMode    string `json:"delegation_mode,omitempty"`
 }
 
-// Architecture est la racine du fichier YAML.
+// Architecture est la racine du fichier JSON.
 type Architecture struct {
-	SchemaVersion int           `yaml:"schema_version"`
-	Nodes         []NodeEntry   `yaml:"nodes"`
-	Domains       []DomainEntry `yaml:"domains,omitempty"`
+	SchemaVersion int           `json:"schema_version"`
+	Nodes         []NodeEntry   `json:"nodes"`
+	Domains       []DomainEntry `json:"domains,omitempty"`
 }
 
-// Store lit et écrit architecture.yaml de façon atomique.
+// Store lit et écrit architecture.json de façon atomique.
 type Store struct {
 	mu   sync.RWMutex
 	path string
 }
 
-// New crée un Store ciblant <dir>/architecture.yaml.
+// New crée un Store ciblant <dir>/architecture.json.
 func New(dir string) *Store {
 	return &Store{path: filepath.Join(dir, filename)}
 }
@@ -90,7 +115,24 @@ func (s *Store) List() ([]NodeEntry, error) {
 	return arch.Nodes, nil
 }
 
-// Upsert insère ou met à jour un nœud (identifié par ID).
+// CoreEndpoints retourne les nœuds Core du fichier qui portent un endpoint joignable par l'Admin.
+func (s *Store) CoreEndpoints() ([]NodeEntry, error) {
+	nodes, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var out []NodeEntry
+	for _, n := range nodes {
+		if ep := n.ControlEndpoint(); ep != "" && n.Name != "" {
+			n.Endpoint = ep
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+// Upsert insère ou met à jour un nœud (identifié par ID). Les périmètres et la config
+// du wizard déjà présents sont conservés si le nouvel enregistrement n'en porte pas.
 func (s *Store) Upsert(node NodeEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -100,6 +142,18 @@ func (s *Store) Upsert(node NodeEntry) error {
 	}
 	for i, n := range arch.Nodes {
 		if n.ID == node.ID {
+			if len(node.Scopes) == 0 {
+				node.Scopes = n.Scopes
+			}
+			if len(node.Config) == 0 {
+				node.Config = n.Config
+			}
+			if node.Region == "" {
+				node.Region = n.Region
+			}
+			if node.Environment == "" {
+				node.Environment = n.Environment
+			}
 			arch.Nodes[i] = node
 			return s.writeLocked(arch)
 		}
@@ -184,7 +238,8 @@ func (s *Store) UpsertEndpoint(nodeID, endpoint, rbacRole string) error {
 	}
 	for i, n := range arch.Nodes {
 		if n.ID == nodeID {
-			if endpoint != "" {
+			// Pas de doublon : l'adresse déjà portée par reachable_host (wizard) n'est pas recopiée.
+			if endpoint != "" && (n.Endpoint != "" || n.ControlEndpoint() != endpoint) {
 				arch.Nodes[i].Endpoint = endpoint
 			}
 			if rbacRole != "" {
@@ -196,163 +251,18 @@ func (s *Store) UpsertEndpoint(nodeID, endpoint, rbacRole string) error {
 	return nil
 }
 
-// LoadIntoDB ré-insère les nœuds du fichier dans la DB si les tables concernées
-// sont vides (reprise après corruption).
-func (s *Store) LoadIntoDB(ctx context.Context, db *sql.DB) error {
-	nodes, err := s.List()
-	if err != nil || len(nodes) == 0 {
-		return err
-	}
-
-	// declared_nodes : restaurer uniquement si table vide.
-	var dnCount int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_nodes`).Scan(&dnCount)
-	if dnCount == 0 {
-		for _, n := range nodes {
-			cfg := n.Config
-			if cfg == "" {
-				cfg = "{}"
-			}
-			db.ExecContext(ctx, //nolint:errcheck
-				`INSERT OR IGNORE INTO declared_nodes(id, role, name, region, environment, config)
-				 VALUES(?,?,?,?,?,?)`,
-				n.ID, n.Role, n.Name, n.Region, n.Environment, cfg)
-		}
-	}
-
-	// token_scopes : restaurer uniquement si table vide.
-	var scCount int
-	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM token_scopes`).Scan(&scCount)
-	if scCount == 0 {
-		for _, n := range nodes {
-			for _, sc := range n.Scopes {
-				db.ExecContext(ctx, //nolint:errcheck
-					`INSERT OR IGNORE INTO token_scopes(id, token_id, scope_type, scope_value)
-					 VALUES(?,?,?,?)`,
-					sc.ID, n.ID, sc.Type, sc.Value)
-			}
-		}
-	}
-
-	// domains : restaurer uniquement si table vide.
-	s.mu.RLock()
-	arch, _ := s.readLocked()
-	s.mu.RUnlock()
-	if arch != nil {
-		var domCount int
-		_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM domains`).Scan(&domCount)
-		if domCount == 0 {
-			for _, d := range arch.Domains {
-				db.ExecContext(ctx, //nolint:errcheck
-					`INSERT OR IGNORE INTO domains(id, domain, core_id, dns_provider, dns_credentials,
-					  cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode)
-					 VALUES(?,?,?,?,?,?,?,?,?)`,
-					d.ID, d.Domain, d.CoreID, d.DNSProvider, d.DNSCredentials,
-					d.CertMethod, d.DelegatedToCoreID, d.DelegatedEndpoint, d.DelegationMode)
-			}
-		}
-	}
-
-	return nil
-}
-
-// SyncFromDB (re)construit le fichier depuis la DB — utile après import ou migration.
-func (s *Store) SyncFromDB(ctx context.Context, db *sql.DB) error {
-	var nodes []NodeEntry
-
-	// Nœuds déclarés (wizard).
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, role, name, COALESCE(region,''), COALESCE(environment,''), COALESCE(config,'{}')
-		 FROM declared_nodes ORDER BY created_at`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var n NodeEntry
-			if rows.Scan(&n.ID, &n.Role, &n.Name, &n.Region, &n.Environment, &n.Config) == nil {
-				nodes = append(nodes, n)
-			}
-		}
-		rows.Close()
-	}
-
-	// Nœuds Core appairés (tokens) non encore dans declared_nodes.
-	inNodes := map[string]bool{}
-	for _, n := range nodes {
-		inNodes[n.ID] = true
-	}
-	trows, err := db.QueryContext(ctx,
-		`SELECT id, node_name, COALESCE(node_endpoint,''), COALESCE(rbac_role,'admin')
-		 FROM tokens WHERE role='core' AND revoked=0`)
-	if err == nil {
-		defer trows.Close()
-		for trows.Next() {
-			var id, name, ep, rbac string
-			if trows.Scan(&id, &name, &ep, &rbac) == nil && !inNodes[id] {
-				nodes = append(nodes, NodeEntry{
-					ID: id, Role: "core", Name: name,
-					Endpoint: ep, RBACRole: rbac,
-				})
-				inNodes[id] = true
-			}
-		}
-		trows.Close()
-	}
-
-	// Scopes par nœud.
-	idxNode := map[string]int{}
-	for i, n := range nodes {
-		idxNode[n.ID] = i
-	}
-	srows, err := db.QueryContext(ctx,
-		`SELECT id, token_id, scope_type, scope_value FROM token_scopes ORDER BY token_id`)
-	if err == nil {
-		defer srows.Close()
-		for srows.Next() {
-			var sid, tid, stype, sval string
-			if srows.Scan(&sid, &tid, &stype, &sval) == nil {
-				if idx, ok := idxNode[tid]; ok {
-					nodes[idx].Scopes = append(nodes[idx].Scopes, ScopeEntry{
-						ID: sid, Type: stype, Value: sval,
-					})
-				}
-			}
-		}
-	}
-
-	// Domaines (TLS, ACME, délégations).
-	var domains []DomainEntry
-	drows, err := db.QueryContext(ctx,
-		`SELECT id, domain, core_id, dns_provider, COALESCE(dns_credentials,'{}'),
-		        cert_method, delegated_to_core_id, delegated_endpoint, delegation_mode
-		 FROM domains ORDER BY domain`)
-	if err == nil {
-		defer drows.Close()
-		for drows.Next() {
-			var d DomainEntry
-			if drows.Scan(&d.ID, &d.Domain, &d.CoreID, &d.DNSProvider, &d.DNSCredentials,
-				&d.CertMethod, &d.DelegatedToCoreID, &d.DelegatedEndpoint, &d.DelegationMode) == nil {
-				domains = append(domains, d)
-			}
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeLocked(&Architecture{SchemaVersion: schemaVersion, Nodes: nodes, Domains: domains})
-}
-
 // --- helpers internes ---
 
 func (s *Store) readLocked() (*Architecture, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Architecture{SchemaVersion: schemaVersion}, nil
+			return &Architecture{SchemaVersion: schemaVersion, Nodes: []NodeEntry{}}, nil
 		}
 		return nil, fmt.Errorf("archstore: read %s: %w", s.path, err)
 	}
 	var arch Architecture
-	if err := yaml.Unmarshal(data, &arch); err != nil {
+	if err := json.Unmarshal(data, &arch); err != nil {
 		return nil, fmt.Errorf("archstore: parse %s: %w", s.path, err)
 	}
 	if arch.Nodes == nil {
@@ -365,9 +275,13 @@ func (s *Store) writeLocked(arch *Architecture) error {
 	if arch.SchemaVersion == 0 {
 		arch.SchemaVersion = schemaVersion
 	}
-	data, err := yaml.Marshal(arch)
+	data, err := json.MarshalIndent(arch, "", "  ")
 	if err != nil {
 		return fmt.Errorf("archstore: marshal: %w", err)
+	}
+	data = append(data, '\n')
+	if err := s.snapshotLocked(data); err != nil {
+		return err
 	}
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -392,4 +306,41 @@ func (s *Store) writeLocked(arch *Architecture) error {
 		return fmt.Errorf("archstore: rename: %w", err)
 	}
 	return nil
+}
+
+// EnsureCore garantit qu'un Core connecté figure dans le fichier, sans jamais dédoubler :
+// un nœud déjà présent (même ID) voit son endpoint/rôle mis à jour, un Core déjà décrit
+// sous un autre ID mais le même nom (nœud du wizard) est laissé tel quel.
+func (s *Store) EnsureCore(id, name, endpoint, rbacRole string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	arch, err := s.readLocked()
+	if err != nil {
+		return err
+	}
+	for i, n := range arch.Nodes {
+		if n.ID != id {
+			continue
+		}
+		changed := false
+		if endpoint != "" && (n.Endpoint != "" || n.ControlEndpoint() != endpoint) && n.Endpoint != endpoint {
+			arch.Nodes[i].Endpoint = endpoint
+			changed = true
+		}
+		if rbacRole != "" && n.RBACRole != rbacRole {
+			arch.Nodes[i].RBACRole = rbacRole
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		return s.writeLocked(arch)
+	}
+	for _, n := range arch.Nodes {
+		if n.Role == "core" && n.Name == name {
+			return nil
+		}
+	}
+	arch.Nodes = append(arch.Nodes, NodeEntry{ID: id, Role: "core", Name: name, Endpoint: endpoint, RBACRole: rbacRole})
+	return s.writeLocked(arch)
 }

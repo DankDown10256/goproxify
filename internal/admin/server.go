@@ -327,6 +327,11 @@ func (s *Server) Start(ctx context.Context) error {
 	autoConfigurer := &api.AgentAutoConfigurer{DB: s.db, Log: s.log, Nodes: nodesH}
 	go autoConfigurer.Start(ctx)
 	declaredNodesH := &api.DeclaredNodesHandler{DB: s.db, Log: s.log, CoreNodeName: s.cfg.Identity.CoreNodeName, Scheduler: backupSched, ArchStore: archStore}
+	architectureH := &api.ArchitectureHandler{DB: s.db, Log: s.log, Store: archStore, OnRestore: func() {
+		if manager != nil {
+			go manager.ReloadArchitecture(context.Background())
+		}
+	}}
 	bootstrapH := &api.BootstrapHandler{
 		DB:  s.db,
 		Log: s.log,
@@ -477,7 +482,7 @@ func (s *Server) Start(ctx context.Context) error {
 	ipProfilesH := &api.IPProfilesHandler{DB: s.db, Log: s.log, Updater: ipUpdater, OnChange: syncConfig}
 	syncArch := func() {
 		if archStore != nil {
-			go archStore.SyncFromDB(context.Background(), s.db) //nolint:errcheck
+			go archStore.SyncDomainsFromDB(context.Background(), s.db) //nolint:errcheck
 		}
 	}
 	teamsH := &api.TeamsHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
@@ -656,6 +661,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/nodes/", protected(nodesH))
 	mux.Handle("/api/v1/declared-nodes", protected(declaredNodesH))
 	mux.Handle("/api/v1/declared-nodes/", protected(declaredNodesH))
+	mux.Handle("/api/v1/architecture/", adminOnly(architectureH))
 	mux.Handle("POST /api/v1/bootstrap-tickets", protected(http.HandlerFunc(bootstrapH.ServeCreate)))
 	mux.Handle("/api/v1/node-events", protected(nodeEventsH))
 	mux.Handle("/api/v1/discovered-containers", protected(discoveredH))

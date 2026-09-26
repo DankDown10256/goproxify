@@ -226,6 +226,8 @@ func (s *Server) wsHeartbeatLoop(ctx context.Context) {
 			Version:  buildinfo.Core,
 			CPUPct:   cpuPct,
 			MemPct:   memPct,
+
+			ClusterPeers: s.cfg.Cluster.Peers,
 		})
 		s.wsHub.BroadcastToAdmins(msg)
 	}

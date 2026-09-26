@@ -675,8 +675,8 @@ services:
     networks: [goproxify_net]
     environment:
       - LAB_ADMIN_URL=http://goproxify-admin:9443
-      - LAB_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL:-admin@exemple.com}
-      - LAB_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD:-admin123}
+      - LAB_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL:-}
+      - LAB_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD:-}
       - LAB_CORE=http://goproxify-core
     volumes:
       - ./scripts:/lab/scripts:ro

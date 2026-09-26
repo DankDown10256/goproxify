@@ -198,6 +198,8 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 
 The **Infrastructure → + Add** entry opens an **architecture canvas** (hosts + palette): Core / Agent / Admin placement, Access / Portainer / K8s options, multi-Core and HA groups. For each host, copy-paste install packs + bootstrap ticket (QR / `/i/{token}` link / `curl|bash`) anchored to the Core. Nodes declared from the canvas can be **auto-accepted** on connection.
 
+The canvas state lives in **`architecture.json`** (Admin `state/` folder), the reference file of the architecture: declared nodes, Cores, RBAC scopes. The Admin reconnects the Cores it describes at startup (address taken from `endpoint`, or from the node's `reachable_host`), aligns its database on the file, and keeps the previous **50 versions** of the file (`goproxify architecture versions|restore`, `GET /api/v1/architecture/versions`). Cores of an HA group announce their Raft peers in their heartbeat, so the Admin discovers the other members without extra configuration.
+
 ### Multi-Core delegation
 
 A domain can be **delegated**: the entry Core (DNS / public IP) forwards traffic to a target Core.

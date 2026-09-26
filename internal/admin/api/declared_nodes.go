@@ -212,10 +212,14 @@ func (h *DeclaredNodesHandler) create(w http.ResponseWriter, r *http.Request) {
 	n.Config = json.RawMessage(cfgBack)
 
 	if h.ArchStore != nil {
-		_ = h.ArchStore.Upsert(archstore.NodeEntry{
+		if err := h.ArchStore.Upsert(archstore.NodeEntry{
 			ID: n.ID, Role: n.Role, Name: n.Name,
-			Region: n.Region, Environment: n.Environment, Config: cfgBack,
-		})
+			Region: n.Region, Environment: n.Environment, Config: json.RawMessage(cfgBack),
+		}); err != nil {
+			h.Log.Error("declared_nodes: architecture.json", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
 	}
 
 	if existingID != "" {
@@ -242,7 +246,11 @@ func (h *DeclaredNodesHandler) delete(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	if h.ArchStore != nil {
-		_ = h.ArchStore.Delete(id)
+		if err := h.ArchStore.Delete(id); err != nil {
+			h.Log.Error("declared_nodes: architecture.json", "err", err)
+			writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
