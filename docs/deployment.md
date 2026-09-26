@@ -61,6 +61,11 @@ Navigateur Admin
 - **Admin** : interface web de configuration. Porte 9443. Communique avec le Core via son API interne (port 8000 — ne pas exposer sur Internet).  
 - **Agent** : tourne sur chaque hôte Docker. Lit `docker.sock`, remonte les conteneurs et métriques au Core. N'expose aucun port.
 
+**Deux exemples d'architecture** (il en existe bien d'autres) :
+
+- **Home lab** — 1 Admin · 1 Core · 1 Agent sur une machine : sections 3 à 6.
+- **Entreprise redondé** — 1 Admin · 2 Cores (passerelles, derrière un DNS round-robin ou une IP virtuelle) · 4 hôtes internes avec un Agent chacun : Admin + Core 1 comme le home lab, puis section 7 (second Core) et section 8 (un Agent par hôte). Le trafic se lit de haut en bas : Internet → passerelles → Agents (proxies HTTP(S) par labels) ou hôtes (proxies TCP/UDP). L'Admin est le lien de gestion des Cores.
+
 **Secret de couplage (`GPX_PAIRING_SECRET`)** : les trois services partagent la même valeur. C'est le seul mécanisme d'authentification au démarrage. Générez-le aléatoirement, ne le réutilisez jamais entre environnements.
 
 ---

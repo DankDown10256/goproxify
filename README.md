@@ -65,6 +65,44 @@ Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Support: [Discussions](https
 | **Admin** | Control Plane — UI, API, alerting | SQLite (config, users, tokens) | `:9443` |
 | **Agent** | Docker discovery & metrics | Volatile | `:9191` (Prometheus) — **no inbound WS port** |
 
+### Example layouts
+
+Many layouts are possible; two reference examples (also shown on the landing page). Read them top to bottom: Internet → gateways (Cores) → Agents (HTTP(S) proxies via labels) or hosts (TCP/UDP proxies). The Admin is the management link to the Cores.
+
+**Home lab — 1 Admin · 1 Core · 1 Agent**
+
+```
+              INTERNET
+                 │ HTTPS · TCP · UDP
+                 ▼
+  ADMIN ◄──► GATEWAY (Core)
+                 │
+        ┌────────┴─────────┐
+        ▼                  ▼
+  Docker host          Other host (NAS, VM…)
+  AGENT + containers   TCP/UDP direct, no Agent
+  (HTTP(S) via labels)
+```
+
+**Enterprise, redundant — 1 Admin · 2 Cores · 4 hosts with Agents**
+
+```
+                    INTERNET
+                       │ HTTPS · TCP · UDP
+        DNS round-robin or virtual IP
+           ┌───────────┴───────────┐
+           ▼                       ▼
+   GATEWAY 1 (Core) ◄─ ADMIN ─► GATEWAY 2 (Core)
+           └───────────┬───────────┘
+                Internal network
+     ┌──────────┬──────┴───┬──────────┐
+     ▼          ▼          ▼          ▼
+   HOST 1     HOST 2     HOST 3     HOST 4
+   AGENT      AGENT      AGENT      AGENT
+```
+
+Step-by-step install for both: [docs/deployment.md](docs/deployment.md).
+
 ---
 
 ## Quick start

@@ -508,6 +508,11 @@
     .arch-panel.active { display: block; }
     .arch-svg text { font-family: var(--font); }
 
+    .inst-panel { display: none; }
+    .inst-panel.active { display: block; }
+    .inst-step { font-size: 1rem; font-weight: 700; margin: 8px 0 4px; }
+    .inst-step-body { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px; }
+
     /* Install */
     .tabs-nav {
       display: flex;
@@ -1351,6 +1356,12 @@
     <h2 class="section-title fade-in" data-i18n="sec.install">Get started in 5 minutes</h2>
     <p class="section-sub fade-in" data-i18n="sec.install.sub">A ready-to-run Admin + Core + Agent stack. Pick your method.</p>
 
+    <div class="arch-tabs fade-in" role="tablist">
+      <button type="button" class="inst-scn arch-tab active" role="tab" aria-selected="true" data-inst="home" data-i18n="install.scn.home">Home lab</button>
+      <button type="button" class="inst-scn arch-tab" role="tab" aria-selected="false" data-inst="ent" data-i18n="install.scn.ent">Enterprise · redundant</button>
+    </div>
+
+    <div class="inst-panel active" id="inst-home">
     <div class="install-wrapper fade-in">
       <div class="tabs-nav">
         <button class="tab-btn active" data-tab="script" data-i18n="install.tab.script">Script</button>
@@ -1739,7 +1750,73 @@ agent:
         </div>
       </div>
     </div>
-    <p class="arch-note fade-in" data-i18n="install.ent.note">Redundant setup? Start the same way, then use the architecture assistant in the Admin to add a second Core and Agents on your other hosts: each machine gets its own install steps and QR code.</p>
+    </div>
+
+    <div class="inst-panel" id="inst-ent">
+      <div class="install-wrapper">
+        <div style="padding:20px 24px 8px">
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:20px;line-height:1.6" data-i18n="install.ent.intro">One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).</p>
+
+          <h3 class="inst-step" data-i18n="install.ent.s1">1. Admin + Gateway 1</h3>
+          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Core.</p>
+
+          <h3 class="inst-step" data-i18n="install.ent.s2">2. Gateway 2 (second Core)</h3>
+          <p class="inst-step-body" data-i18n="install.ent.s2.body">On a second machine, run a Core with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.</p>
+          <div class="file-block">
+            <div class="file-block-header">
+              <span class="file-block-name">docker-compose.yml — core 2</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-ent-core')">Copy</button>
+            </div>
+            <pre id="fb-ent-core">services:
+  goproxify-core:
+    image: ghcr.io/vincamok/goproxify/core:preview
+    container_name: goproxify-core
+    restart: unless-stopped
+    command: ["core"]
+    environment:
+      - GPX_PAIRING_SECRET=<span class="v">&lt;same as the Admin&gt;</span>
+      - GPX_IDENTITY_CORE_NODE_NAME=<span class="v">core-2</span>
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8000:8000"
+    volumes:
+      - core2_data:/etc/goproxify
+
+volumes:
+  core2_data:</pre>
+          </div>
+
+          <h3 class="inst-step" data-i18n="install.ent.s3">3. One Agent per host</h3>
+          <p class="inst-step-body" data-i18n="install.ent.s3.body">On each internal host, run an Agent that points to a Core. Give every Agent a unique node name, then approve it in the Admin (Agents menu).</p>
+          <div class="file-block">
+            <div class="file-block-header">
+              <span class="file-block-name">docker-compose.yml — agent</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyFileBlock('fb-ent-agent')">Copy</button>
+            </div>
+            <pre id="fb-ent-agent">services:
+  goproxify-agent:
+    image: ghcr.io/vincamok/goproxify/agent:preview
+    container_name: goproxify-agent
+    restart: unless-stopped
+    command: ["agent"]
+    environment:
+      - GPX_PAIRING_SECRET=<span class="v">&lt;same as the Admin&gt;</span>
+      - GPX_CONTROL_PLANE_CORE_ENDPOINT=http://<span class="v">&lt;core-ip&gt;</span>:8000
+      - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<span class="v">&lt;admin-ip&gt;</span>:9443
+      - GPX_IDENTITY_AGENT_NODE_NAME=<span class="v">agent-host-1</span>
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - agent_data:/etc/goproxify
+
+volumes:
+  agent_data:</pre>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:4px 0 8px;line-height:1.6" data-i18n="install.ent.tip">Tip: the architecture assistant in the Admin generates these steps, with a QR code, for each machine.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -2215,8 +2292,17 @@ agent:
       'sec.architecture': 'Two example setups',
       'sec.architecture.sub': 'Many layouts are possible — here are two examples. A home lab needs one Admin, one Core and one Agent. For production, add a second gateway and an Agent on every host. Read the diagram top to bottom: Internet, gateways, then your apps and hosts.',
       'sec.install': 'Get started in 5 minutes',
-      'sec.install.sub': 'The home lab layout in one go: Admin + Core + Agent on a single machine. Pick your method.',
-      'install.ent.note': 'Redundant setup? Start the same way, then use the architecture assistant in the Admin to add a second Core and Agents on your other hosts: each machine gets its own install steps and QR code.',
+      'sec.install.sub': 'Choose your layout, then your method. The home lab runs Admin + Core + Agent on one machine.',
+      'install.scn.home': 'Home lab',
+      'install.scn.ent': 'Enterprise · redundant',
+      'install.ent.intro': 'One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).',
+      'install.ent.s1': '1. Admin + Gateway 1',
+      'install.ent.s1.body': 'On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Core.',
+      'install.ent.s2': '2. Gateway 2 (second Core)',
+      'install.ent.s2.body': 'On a second machine, run a Core with its own node name, then register it in the Admin (Infrastructure → Wizard): it goes from declared to online.',
+      'install.ent.s3': '3. One Agent per host',
+      'install.ent.s3.body': 'On each internal host, run an Agent that points to a Core. Give every Agent a unique node name, then approve it in the Admin (Agents menu).',
+      'install.ent.tip': 'Tip: the architecture assistant in the Admin generates these steps, with a QR code, for each machine.',
       'sec.alerting': '10 alert channels',
       'sec.alerting.sub': 'Each alert rule can notify multiple teams on multiple channels at once. Alertmanager-inspired model.',
       'sec.stack': 'Tech stack',
@@ -2363,8 +2449,17 @@ agent:
       'sec.architecture': 'Deux exemples d’architecture',
       'sec.architecture.sub': 'Il existe de multiples architectures, en voici deux exemples. Un home lab tient avec un Admin, un Core et un Agent. En production, ajoutez une seconde passerelle et un Agent sur chaque hôte. Lisez le schéma de haut en bas : Internet, passerelles, puis vos applications et hôtes.',
       'sec.install': 'Démarrer en 5 minutes',
-      'sec.install.sub': 'La configuration home lab d’un seul coup : Admin + Core + Agent sur une seule machine. Choisissez votre méthode.',
-      'install.ent.note': 'Configuration redondée ? Démarrez de la même façon, puis utilisez l’assistant d’architecture de l’Admin pour ajouter un second Core et des Agents sur vos autres hôtes : chaque machine reçoit ses étapes d’installation et son QR code.',
+      'sec.install.sub': 'Choisissez votre architecture, puis votre méthode. Le home lab fait tourner Admin + Core + Agent sur une seule machine.',
+      'install.scn.home': 'Home lab',
+      'install.scn.ent': 'Entreprise · redondé',
+      'install.ent.intro': 'Un rôle par machine, mêmes images. Utilisez le même GPX_PAIRING_SECRET partout et ouvrez le port 8000 entre les machines (pare-feu : uniquement depuis vos propres hôtes).',
+      'install.ent.s1': '1. Admin + Passerelle 1',
+      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Script ou Docker Compose) : elle démarre l’Admin et le premier Core.',
+      'install.ent.s2': '2. Passerelle 2 (second Core)',
+      'install.ent.s2.body': 'Sur une seconde machine, lancez un Core avec son propre nom de nœud, puis enregistrez-le dans l’Admin (Infrastructure → Wizard) : il passe de declared à online.',
+      'install.ent.s3': '3. Un Agent par hôte',
+      'install.ent.s3.body': 'Sur chaque hôte interne, lancez un Agent qui pointe vers un Core. Donnez à chaque Agent un nom de nœud unique, puis approuvez-le dans l’Admin (menu Agents).',
+      'install.ent.tip': 'Astuce : l’assistant d’architecture de l’Admin génère ces étapes, avec un QR code, pour chaque machine.',
       'sec.alerting': "10 canaux d'alerte",
       'sec.alerting.sub': "Chaque règle d'alerte peut notifier plusieurs équipes sur plusieurs canaux à la fois. Modèle inspiré d'Alertmanager.",
       'sec.stack': 'Stack technique',
@@ -2511,8 +2606,17 @@ agent:
       'sec.architecture': 'Dos ejemplos de arquitectura',
       'sec.architecture.sub': 'Hay múltiples arquitecturas posibles; estos son dos ejemplos. Un home lab necesita un Admin, un Core y un Agent. En producción, añade una segunda pasarela y un Agent en cada host. Lee el esquema de arriba abajo: Internet, pasarelas, y luego tus apps y hosts.',
       'sec.install': 'Empezar en 5 minutos',
-      'sec.install.sub': 'La configuración home lab de una vez: Admin + Core + Agent en una sola máquina. Elige tu método.',
-      'install.ent.note': '¿Configuración redundante? Empieza igual y usa el asistente de arquitectura del Admin para añadir un segundo Core y Agents en tus otros hosts: cada máquina recibe sus pasos de instalación y su QR.',
+      'sec.install.sub': 'Elige tu arquitectura y luego tu método. El home lab ejecuta Admin + Core + Agent en una sola máquina.',
+      'install.scn.home': 'Home lab',
+      'install.scn.ent': 'Empresa · redundante',
+      'install.ent.intro': 'Un rol por máquina, mismas imágenes. Usa el mismo GPX_PAIRING_SECRET en todas partes y abre el puerto 8000 entre máquinas (firewall: solo desde tus propios hosts).',
+      'install.ent.s1': '1. Admin + Pasarela 1',
+      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Script o Docker Compose): arranca el Admin y el primer Core.',
+      'install.ent.s2': '2. Pasarela 2 (segundo Core)',
+      'install.ent.s2.body': 'En una segunda máquina, lanza un Core con su propio nombre de nodo y regístralo en el Admin (Infrastructure → Wizard): pasa de declared a online.',
+      'install.ent.s3': '3. Un Agent por host',
+      'install.ent.s3.body': 'En cada host interno, lanza un Agent que apunte a un Core. Da a cada Agent un nombre de nodo único y apruébalo en el Admin (menú Agents).',
+      'install.ent.tip': 'Consejo: el asistente de arquitectura del Admin genera estos pasos, con un QR, para cada máquina.',
       'sec.alerting': '10 canales de alerta',
       'sec.alerting.sub': 'Cada regla de alerta puede notificar a varios equipos en varios canales a la vez. Modelo inspirado en Alertmanager.',
       'sec.stack': 'Stack técnico',
@@ -2659,8 +2763,17 @@ agent:
       'sec.architecture': 'Zwei Beispiel-Architekturen',
       'sec.architecture.sub': 'Es gibt viele mögliche Architekturen, hier zwei Beispiele. Ein Home Lab braucht einen Admin, einen Core und einen Agent. In Produktion kommen ein zweites Gateway und ein Agent auf jedem Host dazu. Das Schema von oben nach unten lesen: Internet, Gateways, dann Apps und Hosts.',
       'sec.install': 'In 5 Minuten starten',
-      'sec.install.sub': 'Das Home-Lab-Setup in einem Rutsch: Admin + Core + Agent auf einer Maschine. Wählen Sie Ihre Methode.',
-      'install.ent.note': 'Redundantes Setup? Starten Sie genauso, und nutzen Sie dann den Architektur-Assistenten im Admin, um einen zweiten Core und Agents auf Ihren anderen Hosts hinzuzufügen: Jede Maschine erhält eigene Install-Schritte und einen QR-Code.',
+      'sec.install.sub': 'Wählen Sie Ihre Architektur, dann Ihre Methode. Das Home Lab betreibt Admin + Core + Agent auf einer Maschine.',
+      'install.scn.home': 'Home Lab',
+      'install.scn.ent': 'Unternehmen · redundant',
+      'install.ent.intro': 'Eine Rolle pro Maschine, dieselben Images. Überall dasselbe GPX_PAIRING_SECRET verwenden und Port 8000 zwischen den Maschinen öffnen (Firewall: nur von Ihren eigenen Hosts).',
+      'install.ent.s1': '1. Admin + Gateway 1',
+      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Skript oder Docker Compose): Sie startet den Admin und den ersten Core.',
+      'install.ent.s2': '2. Gateway 2 (zweiter Core)',
+      'install.ent.s2.body': 'Auf einer zweiten Maschine einen Core mit eigenem Node-Namen starten und im Admin registrieren (Infrastructure → Wizard): er wechselt von declared auf online.',
+      'install.ent.s3': '3. Ein Agent pro Host',
+      'install.ent.s3.body': 'Auf jedem internen Host einen Agent starten, der auf einen Core zeigt. Jedem Agent einen eindeutigen Node-Namen geben und im Admin freigeben (Menü Agents).',
+      'install.ent.tip': 'Tipp: Der Architektur-Assistent im Admin erzeugt diese Schritte samt QR-Code für jede Maschine.',
       'sec.alerting': '10 Alert-Kanäle',
       'sec.alerting.sub': 'Jede Alert-Regel kann mehrere Teams auf mehreren Kanälen gleichzeitig benachrichtigen. Alertmanager-inspiriertes Modell.',
       'sec.stack': 'Tech-Stack',
@@ -3090,7 +3203,18 @@ agent:
     });
   });
 
-  var archTabs = document.querySelectorAll('.arch-tab');
+  var instScns = document.querySelectorAll('.inst-scn');
+  instScns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      instScns.forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+      document.querySelectorAll('.inst-panel').forEach(function(p) { p.classList.remove('active'); });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+      document.getElementById('inst-' + btn.dataset.inst).classList.add('active');
+    });
+  });
+
+  var archTabs = document.querySelectorAll('.arch-tab[data-arch]');
   archTabs.forEach(function(btn) {
     btn.addEventListener('click', function() {
       archTabs.forEach(function(b) { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });

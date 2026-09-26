@@ -33,6 +33,15 @@ The Core is the **single connection hub** — only it needs an accessible port. 
 
 ---
 
+## Example layouts
+
+Two reference layouts (also on the landing page), read top to bottom: Internet → gateways (Cores) → Agents (HTTP(S) proxies via labels) or hosts (TCP/UDP proxies). The Admin is the management link to the Cores.
+
+- **Home lab**: 1 Admin · 1 Core · 1 Agent. HTTP(S) sites reach Docker containers through the Agent; TCP/UDP services go straight to a host, no Agent needed.
+- **Enterprise, redundant**: 1 Admin · 2 Cores behind DNS round-robin or a virtual IP · 4 internal hosts, each running an Agent. Both Cores route over the internal network; the Admin manages both.
+
+Install steps: [deployment.md](deployment.md).
+
 ## Components
 
 ### Core (Data Plane)
