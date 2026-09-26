@@ -34,8 +34,9 @@ type SecurityHandler struct {
 	ScanCtx    context.Context
 	// OnBansChange notifie un changement de bans (push vers les Cores).
 	OnBansChange func()
-	// OnThreatConfigChange envoie la config du moteur de détection aux Cores.
-	OnThreatConfigChange func(cfg any)
+	// OnThreatConfigChange envoie la config du moteur de détection au Core visé
+	// (coreRef vide = tous les Cores).
+	OnThreatConfigChange func(coreRef string, cfg any)
 	// OnServerConfigChange envoie les timeouts HTTP/QUIC aux Cores (redémarrage requis).
 	OnServerConfigChange func(cfg any)
 }
@@ -868,7 +869,7 @@ func (h *SecurityHandler) putThreatConfig(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if h.OnThreatConfigChange != nil {
-		h.OnThreatConfigChange(cfg)
+		h.OnThreatConfigChange(coreID, cfg)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

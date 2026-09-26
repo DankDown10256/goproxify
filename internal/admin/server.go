@@ -398,9 +398,9 @@ func (s *Server) Start(ctx context.Context) error {
 		CrowdSec:     csBouncer,
 		ScanCtx:      ctx,
 		OnBansChange: pushBans,
-		OnThreatConfigChange: func(cfg any) {
+		OnThreatConfigChange: func(coreRef string, cfg any) {
 			if manager != nil {
-				go manager.PushThreatConfig(context.Background(), cfg)
+				go manager.PushThreatConfig(context.Background(), coreRef, cfg)
 			}
 		},
 		OnServerConfigChange: func(cfg any) {

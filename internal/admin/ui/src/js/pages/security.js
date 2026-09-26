@@ -294,6 +294,7 @@ async function renderSecurityOverview(ctx) {
     }
 
     const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+    window._secCoreQ = coreQ;
     const fetches = [
       api('GET', '/security/overview'),
       api('GET', '/security/timeline?limit=40&source=all'),
@@ -1425,10 +1426,18 @@ async function renderSecurityIpsEngines({ mode } = {}) {
   }
 
   try {
+    const coreCtx = await resolveSecurityCoreCtx(mode);
+    if (isCore && coreCtx?.missing) {
+      content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_core') + '</p>';
+      return;
+    }
+    const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+    window._secCoreQ = coreQ;
+
     const [f2bCfg, csCfg, threatCfg] = await Promise.all([
       api('GET', '/security/fail2ban').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
-      api('GET', '/security/threat-config').catch(() => null),
+      api('GET', `/security/threat-config${coreQ}`).catch(() => null),
     ]);
 
     window._f2bCfg    = f2bCfg    || {};
@@ -1505,6 +1514,7 @@ async function renderSentinelDashboard({ mode }) {
       return;
     }
     const coreQ = coreCtx?.coreRef ? `?core=${encodeURIComponent(coreCtx.coreRef)}` : '';
+    window._secCoreQ = coreQ;
 
     const [bansRaw, threatsRaw, cfg] = await Promise.all([
       api('GET', `/security/bans?active=true&source=threat${coreQ ? '&' + coreQ.slice(1) : ''}`).catch(() => []),
@@ -2937,7 +2947,7 @@ window.toggleEngineCS = async function(enabled) {
 window.toggleEngineSentinel = async function(enabled) {
   try {
     const cfg = { ...(window._threatCfg || {}), enabled };
-    await api('PUT', '/security/threat-config', cfg);
+    await api('PUT', `/security/threat-config${window._secCoreQ || ''}`, cfg);
     window._threatCfg = cfg;
     const card = document.getElementById('engine-card-sentinel');
     if (card) card.style.borderColor = enabled ? 'var(--green)' : 'var(--border)';

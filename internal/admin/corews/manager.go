@@ -1925,13 +1925,16 @@ func (m *Manager) PushTunnelConfig(ctx context.Context, nodeID string) {
 	}
 }
 
-// PushThreatConfig envoie la config du Sentinel à tous les Cores via WS.
-func (m *Manager) PushThreatConfig(ctx context.Context, cfg any) {
+// PushThreatConfig envoie la config du Sentinel au Core coreRef (nom ou id), ou à tous si vide.
+func (m *Manager) PushThreatConfig(ctx context.Context, coreRef string, cfg any) {
 	body, err := json.Marshal(cfg)
 	if err != nil {
 		return
 	}
 	for _, e := range m.allEntries() {
+		if coreRef != "" && e.nodeName != coreRef && e.id != coreRef {
+			continue
+		}
 		e := e
 		go func() {
 			if err := e.client.PushJSON(coreWS.TypePushThreatConfig, json.RawMessage(body)); err != nil {
