@@ -11,7 +11,7 @@ import (
 
 func TestLoadAgentLegacyCoreKeys(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "agent.json")
-	legacy := `{"control_plane":{"core_endpoint":"http://goproxify-core:8000"},"network_management":{"core_container_name":"goproxify-core"}}`
+	legacy := `{"control_plane":{"core_endpoint":"http://edge:8000"},"network_management":{"core_container_name":"edge"}}`
 	if err := os.WriteFile(p, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestLoadAgentLegacyCoreKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ControlPlane.EdgeEndpoint != "http://goproxify-core:8000" || cfg.NetworkManagement.EdgeContainerName != "goproxify-core" {
+	if cfg.ControlPlane.EdgeEndpoint != "http://edge:8000" || cfg.NetworkManagement.EdgeContainerName != "edge" {
 		t.Fatalf("clés core_* non reprises : %+v %+v", cfg.ControlPlane, cfg.NetworkManagement)
 	}
 }
