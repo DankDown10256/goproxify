@@ -115,6 +115,11 @@ func TestToolRequiredScope(t *testing.T) {
 	if rbac.ToolRequiredScope("delete_proxy") != rbac.ScopeProxiesDelete {
 		t.Fatal()
 	}
+	for _, tool := range []string{"get_prism_anomalies", "get_prism_geo"} {
+		if rbac.ToolRequiredScope(tool) != rbac.ScopeLogsRead {
+			t.Fatalf("%s doit exiger logs:read", tool)
+		}
+	}
 	if rbac.ToolRequiredScope("list_agents") != rbac.ScopeNodesRead {
 		t.Fatal()
 	}

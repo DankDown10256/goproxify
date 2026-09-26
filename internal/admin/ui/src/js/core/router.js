@@ -20,19 +20,19 @@ const App = {
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
-  'security','security-bans','security-vulns','security-threats','security-rules','automation','rules-store','mcp-access',
+  'security','security-bans','security-vulns','security-rules','automation','rules-store','mcp-access',
   'backups','import','docker-labels','prism',
 ]);
 const EDGE_PAGES = new Set([
   'edge-trafic','edge-proxies','edge-streams','edge-waf','edge-ipfilter',
   'edge-certs','edge-auth','edge-logs-access','edge-logs-system',
-  'edge-observability','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
+  'edge-observability','edge-obs-synthese','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
   'edge-tunnel',
   'portal','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-bans','security-vulns','security-threats','security-sentinel','security-posture','security-rules','automation','rules-store',
+  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','rules-store',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
 ]);
 
@@ -221,6 +221,7 @@ function renderNavItem(item) {
 const SPACE_EQUIV = {
   'admin-trafic': 'edge-trafic',
   'admin-observability': 'edge-observability',
+  'obs-synthese': 'edge-obs-synthese',
   'logs': 'edge-logs-access',
   'logs-system': 'edge-logs-system',
   'prism': 'edge-prism',

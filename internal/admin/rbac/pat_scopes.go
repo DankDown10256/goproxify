@@ -96,7 +96,7 @@ var mcpTools = []string{
 	"approve_agent", "revoke_agent", "create_declared_node", "delete_declared_node",
 	"create_bootstrap_ticket", "accept_node", "reject_node",
 	"list_alerts", "get_metrics", "get_proxy_metrics", "list_backups", "list_users", "list_snippets",
-	"list_domains", "list_certs", "list_logs", "simulate_sentinel_config", "list_teams",
+	"list_domains", "list_certs", "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo", "list_teams",
 	"get_audit_log", "get_security_overview", "list_security_bans", "list_security_threats", "list_security_cves",
 	"create_security_ban", "delete_security_ban",
 	"get_portal_config", "list_portal_destinations", "preview_portal_destinations",
@@ -219,7 +219,7 @@ func ToolRequiredScope(tool string) string {
 		return ScopeDomainsRead
 	case "list_certs":
 		return ScopeCertsRead
-	case "list_logs", "simulate_sentinel_config":
+	case "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo":
 		return ScopeLogsRead
 	case "list_teams":
 		return ScopeTeamsRead

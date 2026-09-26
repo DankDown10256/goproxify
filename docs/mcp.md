@@ -683,6 +683,34 @@ Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant
 
 ---
 
+### `get_prism_anomalies`
+
+Anomalies détectées par Prism : pic d'erreurs, IP dominante, pays en erreur, backend en difficulté, part de bots élevée. Scope : `logs:read`.
+
+| Paramètre | Type   | Requis | Description                                              |
+|-----------|--------|--------|----------------------------------------------------------|
+| `hours`   | number | —      | Fenêtre analysée en heures (défaut 24, max 720)          |
+| `edge`    | string | —      | Passerelle (nom du nœud ou id du token) ; omis = toutes  |
+| `proxy`   | string | —      | Domaine du proxy ; omis = tous                           |
+
+Chaque résultat : `kind`, `level` (`critical` | `warning`), `subject`, `label`, `value`, `baseline`, `count`. Mêmes règles que `GET /api/v1/prism/anomalies`.
+
+---
+
+### `get_prism_geo`
+
+Trafic par pays (requêtes, erreurs, taux d'erreur, IPs bannies) ou par ville (position approximative issue de la géolocalisation IP). Scope : `logs:read`.
+
+| Paramètre | Type   | Requis | Description                                                        |
+|-----------|--------|--------|--------------------------------------------------------------------|
+| `level`   | string | —      | `country` (défaut) ou `city`                                       |
+| `hours`   | number | —      | Fenêtre analysée en heures (défaut 24, max 720)                    |
+| `edge`    | string | —      | Passerelle (nom du nœud ou id du token) ; omis = toutes            |
+| `proxy`   | string | —      | Domaine du proxy ; omis = tous                                     |
+| `limit`   | number | —      | Villes retournées (défaut 300, max 1000) ; ignoré au niveau pays   |
+
+---
+
 ### `simulate_sentinel_config`
 
 Dry-run Sentinel : rejoue les access logs récents contre une config candidate et la compare à la config actuelle, **sans rien modifier**. Permet de répondre à « si j'applique cette règle, combien de requêtes légitimes auraient été bloquées dans la dernière heure ? » avant de faire `PUT /security/threat-config`. Scope : `logs:read`.

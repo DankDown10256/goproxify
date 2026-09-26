@@ -63,6 +63,11 @@ const APP_CONFIG = {
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
       children: [
         {
+          page: 'obs-synthese',
+          label: 'Synthèse',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+        },
+        {
           page: 'logs',
           label: 'Logs d\'accès',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h8M4 8h6M4 11h4"/><rect x="2" y="2" width="12" height="12" rx="2"/></svg>',
@@ -218,6 +223,11 @@ const APP_CONFIG = {
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
       children: [
         {
+          page: 'edge-obs-synthese',
+          label: 'Synthèse',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>',
+        },
+        {
           page: 'edge-logs-access',
           label: 'Logs d\'accès',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h8M4 9h6M4 12h4"/><rect x="2" y="2" width="12" height="12" rx="2"/></svg>',
@@ -271,7 +281,6 @@ const APP_CONFIG = {
         { page: 'security',          key: 'overview', label: 'Synthèse' },
         { page: 'security-vulns',    key: 'vulns',    label: 'Vulnérabilités' },
         { page: 'security-bans',     key: 'bans',     label: 'Bans' },
-        { page: 'security-threats',  key: 'threats',  label: 'Menaces' },
         { page: 'security-sentinel', key: 'sentinel', label: 'Sentinel' },
         { page: 'security-posture',  key: 'posture',  label: 'En-têtes & certificats' },
       ],
@@ -315,7 +324,6 @@ const APP_CONFIG = {
     security:               'Sécurité — Vue globale',
     'security-bans':        'Bans — toutes les passerelles',
     'security-vulns':       'Vulnérabilités — toutes les passerelles',
-    'security-threats':     'Menaces — toutes les passerelles',
     'security-rules':       'Règles automatiques',
     'rules-store':          'Store de règles',
     'mcp-access':           'Accès MCP',
@@ -330,6 +338,8 @@ const APP_CONFIG = {
     'edge-prism':       'Prism',
     'admin-observability': 'Observabilité',
     'edge-observability': 'Observabilité',
+    'obs-synthese':     'Synthèse',
+    'edge-obs-synthese': 'Synthèse',
     'edge-metrics':     'Métriques',
     'edge-tunnel':      'Tunnel L4 mTLS',
     'edge-security':           'Sécurité',

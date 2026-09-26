@@ -84,6 +84,8 @@ func main() {
 		runAudit()
 	case "logs":
 		runLogs()
+	case "prism":
+		runPrism()
 	case "snippet":
 		runSnippet()
 	case "domain":
@@ -147,6 +149,7 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   user      Utilisateurs (list/get/create/update/passwd/delete)
   audit     Journal d'audit (list/export)
   logs      Logs d'accès et système (list/export)
+  prism     Analyse du trafic (anomalies, carte géographique)
   alert     Canaux et règles d'alerte (channels/rules/test)
   snippet   Snippets de sécurité réutilisables (list/get/create/update/delete)
   domain    Domaines gérés ACME (list/get/create/renew/delete)

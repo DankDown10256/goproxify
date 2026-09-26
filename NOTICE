@@ -16,5 +16,12 @@ identified.
 
 Third-party notices
 -------------------
+Bundled front-end assets (internal/admin/ui/src/lib/):
+
+- Leaflet 1.9.4 — BSD 2-Clause, Copyright (c) 2010-2023 Volodymyr Agafonkin,
+  (c) 2010-2011 CloudMade. License text: internal/admin/ui/src/lib/leaflet/LICENSE
+- Natural Earth 50m country boundaries (simplified by scripts/gen_world_geojson.go)
+  — public domain, https://www.naturalearthdata.com/
+
 (None identified beyond standard Go module dependencies under
 permissive licenses — Apache-2.0, MIT, BSD — as of the pre-publish audit.)

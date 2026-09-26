@@ -34,10 +34,14 @@ type GeoResolver struct {
 }
 
 type ipAPIResult struct {
-	Query       string `json:"query"`
-	CountryCode string `json:"countryCode"`
-	Country     string `json:"country"`
-	Status      string `json:"status"`
+	Query       string  `json:"query"`
+	CountryCode string  `json:"countryCode"`
+	Country     string  `json:"country"`
+	Status      string  `json:"status"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	City        string  `json:"city"`
+	RegionName  string  `json:"regionName"`
 }
 
 var privateNets []*net.IPNet
@@ -120,6 +124,100 @@ func (g *GeoResolver) cacheEntry(ip, cc, cn string) {
 		ip, cc, cn)
 }
 
+// cacheResult enregistre pays et position ; ne remplace pas une entrée existante.
+func (g *GeoResolver) cacheResult(ip string, r ipAPIResult) {
+	if r.Status != "success" || r.CountryCode == "" {
+		g.cacheEntry(ip, "XX", "Unknown")
+		return
+	}
+	_, _ = g.DB.Exec(
+		`INSERT OR IGNORE INTO geoip_cache (ip, country_code, country_name, lat, lon, city, region) VALUES (?,?,?,?,?,?,?)`,
+		ip, r.CountryCode, r.Country, r.Lat, r.Lon, r.City, r.RegionName)
+}
+
+// lookupBatch interroge ip-api.com (HTTP gratuit, ≤100 IPs, 45 req/min).
+// Aucune écriture : l'appelant décide quoi cacher en cas d'échec.
+func (g *GeoResolver) lookupBatch(ctx context.Context, ips []string) ([]ipAPIResult, error) {
+	payload := make([]map[string]string, len(ips))
+	for i, ip := range ips {
+		payload[i] = map[string]string{"query": ip}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"http://ip-api.com/batch?fields=query,countryCode,country,status,lat,lon,city,regionName", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ip-api.com status %d", resp.StatusCode)
+	}
+	var results []ipAPIResult
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// backfillPositions complète lat/lon/ville des entrées créées avant la carte détaillée.
+func (g *GeoResolver) backfillPositions(ctx context.Context) {
+	rows, err := g.DB.QueryContext(ctx,
+		`SELECT ip FROM geoip_cache
+		 WHERE lat IS NULL AND country_code NOT IN ('LO','XX','')
+		 LIMIT 100`)
+	if err != nil {
+		return
+	}
+	byQuery := map[string][]string{}
+	var queries, unusable []string
+	for rows.Next() {
+		var raw string
+		if rows.Scan(&raw) != nil {
+			continue
+		}
+		q := normalizeIP(raw)
+		if q == "" || isPrivate(q) {
+			unusable = append(unusable, raw)
+			continue
+		}
+		if _, ok := byQuery[q]; !ok {
+			queries = append(queries, q)
+		}
+		byQuery[q] = append(byQuery[q], raw)
+	}
+	rows.Close()
+	// (0,0) = position inconnue : exclue de la carte, plus jamais ré-interrogée.
+	for _, raw := range unusable {
+		_, _ = g.DB.Exec(`UPDATE geoip_cache SET lat=0, lon=0 WHERE ip=?`, raw)
+	}
+	if len(queries) == 0 {
+		return
+	}
+	results, err := g.lookupBatch(ctx, queries)
+	if err != nil {
+		g.log().Warn("geoip: complément de positions échoué (réessai au prochain cycle)", "err", err)
+		return
+	}
+	for _, r := range results {
+		lat, lon := r.Lat, r.Lon
+		if r.Status != "success" {
+			lat, lon = 0, 0
+		}
+		for _, raw := range byQuery[r.Query] {
+			_, _ = g.DB.Exec(`UPDATE geoip_cache SET lat=?, lon=?, city=?, region=? WHERE ip=?`,
+				lat, lon, r.City, r.RegionName, raw)
+		}
+	}
+}
+
 func (g *GeoResolver) resolve(ctx context.Context) {
 	rows, err := g.DB.QueryContext(ctx,
 		`SELECT DISTINCT ip FROM logs
@@ -157,76 +255,45 @@ func (g *GeoResolver) resolve(ctx context.Context) {
 	rows.Close()
 
 	if len(toResolve) == 0 {
+		g.backfillPositions(ctx)
 		return
 	}
 
-	// Dédupliquer les query IP pour le batch API.
 	seen := make(map[string]struct{}, len(queryToLog))
-	payload := make([]map[string]string, 0, len(queryToLog))
+	queries := make([]string, 0, len(queryToLog))
 	for _, p := range toResolve {
 		if _, ok := seen[p.queryIP]; ok {
 			continue
 		}
 		seen[p.queryIP] = struct{}{}
-		payload = append(payload, map[string]string{"query": p.queryIP})
+		queries = append(queries, p.queryIP)
 	}
-	body, err := json.Marshal(payload)
+
+	// Ne pas cacher en cas d'échec réseau : on réessaiera au prochain tick.
+	results, err := g.lookupBatch(ctx, queries)
 	if err != nil {
-		g.log().Warn("geoip: marshal batch échoué", "err", err)
-		return
-	}
-
-	// ip-api.com batch (HTTP free, ≤100 IPs, 45 req/min). Ne pas cacher
-	// en cas d'échec réseau : on réessaiera au prochain tick.
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"http://ip-api.com/batch?fields=query,countryCode,country,status", bytes.NewReader(body))
-	if err != nil {
-		g.log().Warn("geoip: requête batch impossible", "err", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		g.log().Warn("geoip: appel ip-api.com échoué (réessai au prochain cycle)", "err", err, "n", len(payload))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		g.log().Warn("geoip: ip-api.com status non-OK", "status", resp.StatusCode)
-		return
-	}
-
-	var results []ipAPIResult
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		g.log().Warn("geoip: décodage réponse échoué", "err", err)
+		g.log().Warn("geoip: appel ip-api.com échoué (réessai au prochain cycle)", "err", err, "n", len(queries))
 		return
 	}
 
 	cached := 0
 	for _, r := range results {
-		cc, cn := r.CountryCode, r.Country
-		if r.Status != "success" || cc == "" {
-			cc, cn = "XX", "Unknown"
-		}
 		logIPs := queryToLog[r.Query]
 		if len(logIPs) == 0 {
 			// API peut renvoyer une forme canonique différente.
 			logIPs = queryToLog[normalizeIP(r.Query)]
 		}
 		if len(logIPs) == 0 {
-			g.cacheEntry(r.Query, cc, cn)
+			g.cacheResult(r.Query, r)
 			cached++
 			continue
 		}
 		for _, logIP := range logIPs {
-			g.cacheEntry(logIP, cc, cn)
+			g.cacheResult(logIP, r)
 			cached++
 		}
 	}
-	g.log().Debug("geoip: cache mis à jour", "resolved", cached, "queried", len(payload))
+	g.log().Debug("geoip: cache mis à jour", "resolved", cached, "queried", len(queries))
 }
 
 // GetGeoBreakdown retourne la répartition du trafic par pays,
@@ -280,6 +347,66 @@ type LiveIPEvent struct {
 	Status      int    `json:"status"`
 	Domain      string `json:"domain"`
 	Ts          string `json:"ts"`
+	// Position approximative (ville) ; 0/0 tant que l'IP n'est pas localisée.
+	City string  `json:"city"`
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+}
+
+// GeoPoint agrège le trafic d'une ville (position approximative issue de la géolocalisation IP).
+type GeoPoint struct {
+	City        string  `json:"city"`
+	Region      string  `json:"region"`
+	CountryCode string  `json:"country_code"`
+	CountryName string  `json:"country_name"`
+	Lat         float64 `json:"lat"`
+	Lon         float64 `json:"lon"`
+	Requests    int64   `json:"requests"`
+	Errors      int64   `json:"errors"`
+	ErrorRate   float64 `json:"error_rate"`
+	IPs         int64   `json:"ips"`
+	BannedIPs   int64   `json:"banned_ips"`
+}
+
+// GetGeoPoints retourne le trafic agrégé par ville (les plus actives d'abord).
+// Les IPs pas encore localisées (lat/lon absents ou 0/0) sont ignorées.
+func GetGeoPoints(db *sql.DB, p Params, limit int) []GeoPoint {
+	if limit <= 0 || limit > 1000 {
+		limit = 300
+	}
+	w, args := where(p)
+	rows, err := db.Query(fmt.Sprintf(
+		`SELECT g.city, g.region, g.country_code, g.country_name,
+		        AVG(g.lat), AVG(g.lon),
+		        COUNT(*) AS n,
+		        SUM(CASE WHEN l.status >= 400 THEN 1 ELSE 0 END),
+		        COUNT(DISTINCT l.ip),
+		        COUNT(DISTINCT CASE WHEN l.ip IN (
+		            SELECT ip FROM security_bans WHERE expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP
+		        ) THEN l.ip END)
+		 FROM (SELECT ip, status FROM logs %s) l
+		 JOIN geoip_cache g ON g.ip = l.ip
+		 WHERE g.lat IS NOT NULL AND (g.lat != 0 OR g.lon != 0)
+		 GROUP BY g.country_code, g.region, g.city
+		 ORDER BY n DESC LIMIT ?`, w), append(args, limit)...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	out := []GeoPoint{}
+	for rows.Next() {
+		var pt GeoPoint
+		if rows.Scan(&pt.City, &pt.Region, &pt.CountryCode, &pt.CountryName, &pt.Lat, &pt.Lon,
+			&pt.Requests, &pt.Errors, &pt.IPs, &pt.BannedIPs) != nil {
+			continue
+		}
+		if pt.Requests > 0 {
+			pt.ErrorRate = float64(pt.Errors) / float64(pt.Requests) * 100
+		}
+		out = append(out, pt)
+	}
+	return out
 }
 
 // GetLiveIPs retourne les événements IP récents pour la vue live de la carte.
@@ -315,7 +442,10 @@ func GetLiveIPs(db *sql.DB, since time.Time, proxy, nodeName string, limit int) 
 		        COALESCE(g.country_name,'Unknown') AS cn,
 		        l.status,
 		        l.domain,
-		        l.ts
+		        l.ts,
+		        COALESCE(g.city,''),
+		        COALESCE(g.lat,0),
+		        COALESCE(g.lon,0)
 		 FROM logs l
 		 LEFT JOIN geoip_cache g ON g.ip = l.ip
 		 %s
@@ -329,7 +459,7 @@ func GetLiveIPs(db *sql.DB, since time.Time, proxy, nodeName string, limit int) 
 	var out []LiveIPEvent
 	for rows.Next() {
 		var ev LiveIPEvent
-		_ = rows.Scan(&ev.IP, &ev.CountryCode, &ev.CountryName, &ev.Status, &ev.Domain, &ev.Ts)
+		_ = rows.Scan(&ev.IP, &ev.CountryCode, &ev.CountryName, &ev.Status, &ev.Domain, &ev.Ts, &ev.City, &ev.Lat, &ev.Lon)
 		switch {
 		case bannedIPs[ev.IP]:
 			ev.Kind = "banned"

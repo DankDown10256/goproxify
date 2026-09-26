@@ -8,6 +8,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed src
@@ -27,7 +28,12 @@ func Handler() http.Handler {
 			// SPA fallback → index.html
 			r.URL.Path = "/"
 		}
-		w.Header().Set("Cache-Control", "no-cache")
+		if strings.HasPrefix(r.URL.Path, "/lib/") {
+			// Bibliothèques embarquées (Leaflet, contours des pays) : versionnées avec le binaire.
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 }

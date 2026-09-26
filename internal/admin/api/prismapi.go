@@ -40,6 +40,8 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.agents(w, r)
 	case r.Method == http.MethodGet && path == "geo":
 		h.geo(w, r)
+	case r.Method == http.MethodGet && path == "geo/points":
+		h.geoPoints(w, r)
 	case r.Method == http.MethodGet && path == "referrers":
 		h.referrers(w, r)
 	case r.Method == http.MethodGet && path == "compare":
@@ -50,6 +52,8 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.export(w, r)
 	case r.Method == http.MethodGet && path == "backend-errors":
 		h.backendErrors(w, r)
+	case r.Method == http.MethodGet && path == "anomalies":
+		h.anomalies(w, r)
 	case r.Method == http.MethodGet && path == "bans/timeline":
 		h.bansTimeline(w, r)
 	case r.Method == http.MethodGet && path == "bans/by-source":
@@ -193,6 +197,12 @@ func (h *PrismHandler) geo(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, entries)
 }
 
+func (h *PrismHandler) geoPoints(w http.ResponseWriter, r *http.Request) {
+	p := prismParams(r)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	jsonOK(w, analytics.GetGeoPoints(h.DB, p, limit))
+}
+
 func (h *PrismHandler) referrers(w http.ResponseWriter, r *http.Request) {
 	p := prismParams(r)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -285,79 +295,17 @@ func (h *PrismHandler) export(w http.ResponseWriter, r *http.Request) {
 
 // backendErrors retourne le taux d'erreurs par proxy/backend sur la fenêtre Prism (from/to).
 func (h *PrismHandler) backendErrors(w http.ResponseWriter, r *http.Request) {
-	p := prismParams(r)
-	from := p.From.UTC().Format(time.RFC3339)
-	to := p.To.UTC().Format(time.RFC3339)
-
-	// Placeholders JOIN : from, to, [node_name] — puis WHERE : [proxy]
-	args := []any{from, to}
-	nodeJoin := ""
-	if p.NodeName != "" {
-		nodeJoin = " AND l.node_name = ?"
-		args = append(args, p.NodeName)
-	}
-	proxyFilter := ""
-	if p.Proxy != "" {
-		proxyFilter = " AND json_extract(p.config,'$.host') = ?"
-		args = append(args, p.Proxy)
-	}
-
-	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT
-		   p.name,
-		   json_extract(p.config,'$.host') AS domain,
-		   json_extract(p.config,'$.backend') AS backend_url,
-		   COUNT(l.id)                          AS total,
-		   SUM(CASE WHEN l.status>=400 THEN 1 ELSE 0 END) AS errors,
-		   ROUND(100.0*SUM(CASE WHEN l.status>=400 THEN 1 ELSE 0 END)/NULLIF(COUNT(l.id),0),1) AS error_rate,
-		   ROUND(AVG(l.latency_ms),0)            AS avg_lat_ms
-		 FROM proxies p
-		 LEFT JOIN logs l ON l.domain = json_extract(p.config,'$.host')
-		                 AND l.ts >= ?
-		                 AND l.ts <= ?
-		                 AND l.status > 0`+nodeJoin+`
-		 WHERE p.enabled=1`+proxyFilter+`
-		 GROUP BY p.id
-		 HAVING COUNT(l.id) > 0
-		 ORDER BY error_rate DESC, total DESC
-		 LIMIT 20`, args...)
+	rows, err := analytics.GetBackendErrors(r.Context(), h.DB, prismParams(r))
 	if err != nil {
 		prismJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-	type row struct {
-		Name       string  `json:"name"`
-		Domain     string  `json:"domain"`
-		BackendURL string  `json:"backend_url"`
-		Total      int64   `json:"total"`
-		Errors     int64   `json:"errors"`
-		ErrorRate  float64 `json:"error_rate"`
-		AvgLatMs   float64 `json:"avg_lat_ms"`
-	}
-	var out []row
-	for rows.Next() {
-		var rr row
-		var backendURL, domain *string
-		var errRate sql.NullFloat64
-		if rows.Scan(&rr.Name, &domain, &backendURL, &rr.Total, &rr.Errors, &errRate, &rr.AvgLatMs) != nil {
-			continue
-		}
-		if domain != nil {
-			rr.Domain = *domain
-		}
-		if backendURL != nil {
-			rr.BackendURL = *backendURL
-		}
-		if errRate.Valid {
-			rr.ErrorRate = errRate.Float64
-		}
-		out = append(out, rr)
-	}
-	if out == nil {
-		out = []row{}
-	}
-	jsonOK(w, out)
+	jsonOK(w, rows)
+}
+
+// anomalies retourne les écarts détectés sur la fenêtre Prism (pic d'erreurs, IP dominante, pays, backends, bots).
+func (h *PrismHandler) anomalies(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, analytics.DetectAnomalies(r.Context(), h.DB, prismParams(r)))
 }
 
 func prismJSONErr(w http.ResponseWriter, err error, code int) {

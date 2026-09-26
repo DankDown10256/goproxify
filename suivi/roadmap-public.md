@@ -17,7 +17,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Tableau de bord en trois vues** : Santé (verdict et actions à mener), Cockpit (indicateurs, courbe 1 h, passerelles, certificats) et Carte (origine du trafic par pays, blocages par couche, latence par passerelle)
 - **Page Routage** (ex-Trafic) : tuile proxy et vue tableau refaites (hôte en titre, actions secondaires dans un menu ⋯, fonctions en icônes, métriques en ligne) ; modale de proxy unifiée (navigation latérale groupée par intention, section WAF à part avec sélecteur de plateformes applicatives) ; vues « état » (santé, KPIs, courbe) et « maître/détail » ; création de proxy en mode Simple (cartes de protections), lignes dépliables, courbes alimentées par un historique de métriques côté Admin
 - **Menu unifié Admin / passerelles** : un rail latéral (Admin + une pastille par passerelle, recherche au-delà de 6) remplace la liste de passerelles ; un seul menu (Routage, Observabilité, Sécurité) commun, suivi de la section Plateforme (Admin) ou Passerelle (Portail Access, Tunnel L4, Paramètres) ; l’entrée « Trafic » devient « Routage »
-- **Menu Sécurité en onglets** (Synthèse, Vulnérabilités, Bans, Menaces, Sentinel, En-têtes & certificats), Synthèse unique (score, bans par source, menaces, timeline) et fenêtre « Moteurs de sécurité » à interrupteurs par capacité et page **Vulnérabilités** en vue Parc / Liste avec tiroir de détail, identique pour l’Admin et les passerelles, adaptée au mobile
+- **Menu Sécurité en onglets** (Synthèse, Vulnérabilités, Bans, Sentinel, En-têtes & certificats), Synthèse unique (score, bans par source, menaces, timeline) et fenêtre « Moteurs de sécurité » à interrupteurs par capacité et page **Vulnérabilités** en vue Parc / Liste avec tiroir de détail, identique pour l’Admin et les passerelles, adaptée au mobile
 - **Page Bans** refonte : une seule page pour l’Admin et les passerelles (KPI, frise 48 h, pays, sources, liste filtrable avec actions groupées, adaptée au mobile) ; les bans sont rattachés à leur passerelle d’origine
 - **Moteurs IPS** : page unifiée Fail2Ban / CrowdSec avec configuration in-place
 - **Timeouts serveur HTTP/QUIC** : ReadHeader, Read, Write, Idle configurables depuis l’Admin et propagés aux passerelles
@@ -27,6 +27,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
 - **Prism** : taux d’erreurs et IPs bannies par pays ; bouton accès rapide depuis la table des bans
 - **Prism** : refonte « centre de commande » (carte zoomable, anomalies détectées, onglets) — livré
+- **Observabilité** : Synthèse commune à l’Admin et aux passerelles, Prism recentré (onglets Chemins / IP / Sources / Pays / Backends), carte Leaflet avec vue par ville et connexions en direct, carte « Attaques en direct » dans la Synthèse sécurité, anomalies calculées côté serveur (API, MCP `get_prism_anomalies` / `get_prism_geo`, CLI `goproxify prism`) — livré
+- **Observabilité** : Alertes et SLO (budget d’erreur), Backends dans la page Métriques, régions sur la carte (Natural Earth admin-1), fond vectoriel auto-hébergé pour zoomer jusqu’à la rue — prévu
 - [x] **Sentinel — page en onglets et tiroir de réglages** : vue d'ensemble, détections, listes et exceptions ; simulation sur les logs récents avant d'enregistrer (`POST /security/threat-config/simulate`, `goproxify security threat simulate`)
 
 ### v0.2 — Architecture distribuée _(juillet – août 2026)_

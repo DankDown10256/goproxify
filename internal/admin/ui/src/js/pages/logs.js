@@ -120,13 +120,12 @@ pages['logs-system'] = function() {
 pages['edge-logs-access'] = function() {
   openLogs({ kind: 'access', component: 'edge', node_name: edgeLogNodeName(), node_id: edgeLogNodeID(), lockComp: true, keepFilters: hasActiveLogFilters() });
 };
-// Menu Observabilité passerelle → atterrit sur les logs d'accès
+// Menu Observabilité (passerelle et Admin) → atterrit sur la Synthèse
 pages['edge-observability'] = function() {
-  navigate('edge-logs-access');
+  navigate('edge-obs-synthese');
 };
-// Menu Observabilité Admin → atterrit sur les logs d'accès
 pages['admin-observability'] = function() {
-  navigate('logs');
+  navigate('obs-synthese');
 };
 pages['edge-logs-system'] = function() {
   logsFilters.ip = '';

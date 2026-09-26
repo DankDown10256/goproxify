@@ -696,77 +696,8 @@ async function renderSecurityPosture(ctx) {
 
 pages['security-vulns'] = () => renderSecurityVulns({ mode: 'admin' });
 pages['security-posture'] = () => renderSecurityPosture({ mode: 'admin' });
-pages['security-threats'] = () => renderAdminSecurityThreats();
 pages['security-rules'] = () => renderSecurityRules();
 pages['edge-security-ips-engines'] = () => renderSecurityIpsEngines({ mode: 'edge' });
-
-// ── PAGE ADMIN : Menaces CrowdSec toutes les passerelles ──────────────────────────────
-async function renderAdminSecurityThreats() {
-  const content = document.getElementById('content');
-  const ta = document.getElementById('topbar-actions');
-  if (ta) ta.innerHTML = `<button class="btn btn-secondary" onclick="pages['security-threats']()">↺ Actualiser</button>`;
-  content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
-  try {
-    const [timeline, threats] = await Promise.all([
-      api('GET', '/security/timeline?limit=100&source=all').catch(() => []),
-      api('GET', '/security/threats?limit=300').catch(() => []),
-    ]);
-    const events = timeline || [];
-    window._secThreats = threats || [];
-    window._secThreatsShowEdge = true;
-
-    const typeColor = type => {
-      if (type === 'ban')    return 'var(--red)';
-      if (type === 'unban')  return 'var(--green)';
-      if (type === 'threat') return 'var(--orange,#d97706)';
-      if (type === 'alert')  return 'var(--yellow)';
-      return 'var(--text2)';
-    };
-    const eventRows = events.map(e => `<tr style="font-size:12px">
-      <td style="padding:5px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${e.created_at ? esc(fmtDate(e.created_at)) : '—'}</td>
-      <td style="padding:5px 8px">
-        <span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,${typeColor(e.type)} 15%,transparent);color:${typeColor(e.type)}">${esc(e.type || '—')}</span>
-      </td>
-      <td style="padding:5px 8px;font-family:monospace;font-size:11px">${esc(e.ip || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px">${esc(e.source || '—')}</td>
-      <td style="padding:5px 8px;color:var(--text2);font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(e.summary||'')}">${esc(e.summary || '—')}</td>
-    </tr>`).join('');
-
-    content.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-bottom:20px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${events.length>0?'var(--accent)':'var(--text)'}">${events.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Événements (derniers 100)</div>
-        </div>
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
-          <div style="font-size:22px;font-weight:700;color:${threats.length>0?'var(--red)':'var(--green)'}">${threats.length}</div>
-          <div style="font-size:11px;color:var(--text2)">Menaces CrowdSec (toutes)</div>
-        </div>
-      </div>
-
-      <div class="card blueprint" style="padding:14px 16px;margin-bottom:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Menaces CrowdSec — toutes les passerelles</div>
-        <div id="sec-threats-panel">${threatsPanelHTML()}</div>
-      </div>
-
-      <div class="card blueprint" style="padding:14px 16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:10px">Timeline événements — toutes les passerelles</div>
-        ${events.length ? `
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:5px 8px">Date</th>
-            <th style="text-align:left;padding:5px 8px">Type</th>
-            <th style="text-align:left;padding:5px 8px">IP</th>
-            <th style="text-align:left;padding:5px 8px">Source</th>
-            <th style="text-align:left;padding:5px 8px">Détail</th>
-          </tr></thead>
-          <tbody>${eventRows}</tbody>
-        </table>` : '<p style="font-size:12px;color:var(--text2)">Aucun événement récent.</p>'}
-      </div>`;
-  } catch(e) {
-    content.innerHTML = `<div class="err">${esc(e.message || e)}</div>`;
-  }
-}
 
 pages['edge-security-vulns'] = () => renderSecurityVulns({ mode: 'edge' });
 pages['edge-security-posture'] = () => renderSecurityPosture({ mode: 'edge' });

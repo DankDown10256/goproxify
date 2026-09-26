@@ -346,6 +346,30 @@ goproxify logs export -format json -output access.json
 
 ---
 
+### `goproxify prism`
+
+Analyse du trafic (mêmes données que la page Prism).
+
+```
+goproxify prism anomalies
+  [-hours <n>]  [-edge <nœud>]  [-proxy <hôte>]
+  [-admin-url …] [-token …]
+
+goproxify prism geo
+  [-level country|city]  [-limit <n>]
+  [-hours <n>]  [-edge <nœud>]  [-proxy <hôte>]
+  [-admin-url …] [-token …]
+```
+
+Exemples :
+
+```bash
+goproxify prism anomalies -hours 6 -edge paris-01
+goproxify prism geo -level city -limit 20
+```
+
+---
+
 ### `goproxify alert`
 
 Canaux de notification, règles d'alerte, et tests.

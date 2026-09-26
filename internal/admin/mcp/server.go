@@ -599,6 +599,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListSecurityThreats(r, p.Arguments)
 	case "list_security_cves":
 		result, toolErr = h.toolListSecurityCVEs(r, p.Arguments)
+	case "get_prism_anomalies":
+		result, toolErr = h.toolGetPrismAnomalies(r, p.Arguments)
+	case "get_prism_geo":
+		result, toolErr = h.toolGetPrismGeo(r, p.Arguments)
 	case "get_portal_config":
 		result, toolErr = h.toolGetPortalConfig(r, p.Arguments)
 	case "update_portal_config":

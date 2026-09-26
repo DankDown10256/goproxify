@@ -210,6 +210,7 @@ func TestToolsListIncludesNewTools(t *testing.T) {
 	want := map[string]bool{
 		"update_proxy": true, "set_proxy_enabled": true, "list_agents": true,
 		"approve_agent": true, "list_security_bans": true, "get_security_overview": true,
+		"get_prism_anomalies": true, "get_prism_geo": true,
 	}
 	for _, tool := range resp.Result.Tools {
 		delete(want, tool.Name)

@@ -2,7 +2,68 @@
 // ctx = { mode: 'admin'|'edge' }. Admin : agrégat de toutes les passerelles. Passerelle : données
 // filtrées sur ses proxies / domaines (resolveSecurityEdgeCtx), réglages Sentinel propres à la passerelle.
 
-const _syn = { mode: 'admin', tl: 'all', tlN: 8, events: [] };
+const _syn = { mode: 'admin', tl: 'all', tlN: 8, events: [], atkLive: true, atkStyle: 'zones', atkTimer: null };
+
+// Carte des attaques : requêtes en erreur et IPs bannies des 24 dernières heures (couche fixe),
+// puis flux temps réel des événements « error » / « banned » (pulsations sur la ville source).
+async function synAttackMap(mode) {
+  if (_syn.atkTimer) { clearInterval(_syn.atkTimer); _syn.atkTimer = null; }
+  const box = document.getElementById('sy-atk-map');
+  if (!box) return;
+  const node = mode === 'edge' ? edgePrismNodeName() : '';
+  const to = new Date();
+  const q = new URLSearchParams({ from: new Date(to - 86400000).toISOString(), to: to.toISOString() });
+  if (node) q.set('node_name', node);
+  const [geo, pts] = await Promise.all([
+    api('GET', '/prism/geo?' + q).catch(() => []),
+    api('GET', '/prism/geo/points?' + q + '&limit=300').catch(() => []),
+  ]);
+  let ctl;
+  try { ctl = await gpxGeoMap(box, {}); } catch { box.innerHTML = ''; return; }
+  const push = () => ctl.update({ countries: Array.isArray(geo) ? geo : [], points: Array.isArray(pts) ? pts : [], mode: 'errors', style: _syn.atkStyle });
+  push();
+
+  const feedEl = document.getElementById('sy-atk-feed');
+  let feed = [];
+  let since = new Date().toISOString();
+  const renderFeed = () => {
+    if (!feedEl) return;
+    feedEl.innerHTML = feed.length ? feed.map(ev => `<div class="live-feed-row">
+      <span class="live-feed-kind" style="color:${ev.kind === 'banned' ? 'var(--red)' : 'var(--yellow)'}">${ev.kind === 'banned' ? 'BAN' : 'ERR'}</span>
+      <span class="live-feed-flag">${esc(ev.country_code || '')}</span>
+      <code class="live-feed-ip">${esc(ev.ip)}</code>
+      <span class="live-feed-domain" title="${esc(ev.domain)}">${esc(ev.domain)}</span>
+      <span class="live-feed-ts">${esc((ev.ts || '').replace('T', ' ').slice(11, 19))}</span></div>`).join('')
+      : `<div style="color:var(--text3);font-size:12px;padding:8px 0">${esc(t('sy.atk_wait'))}</div>`;
+  };
+  renderFeed();
+
+  window.synAtkStyle = s => {
+    _syn.atkStyle = s;
+    push();
+    document.querySelectorAll('.sy-atk-style').forEach(b => b.classList.toggle('active', b.dataset.style === s));
+  };
+  window.synAtkLive = () => {
+    _syn.atkLive = !_syn.atkLive;
+    const b = document.getElementById('sy-atk-live');
+    if (b) { b.classList.toggle('is-active', _syn.atkLive); b.setAttribute('aria-pressed', String(_syn.atkLive)); }
+  };
+
+  _syn.atkTimer = setInterval(async () => {
+    if (!box.isConnected) { clearInterval(_syn.atkTimer); _syn.atkTimer = null; ctl.destroy(); return; }
+    if (!_syn.atkLive) return;
+    const p = new URLSearchParams({ since, limit: '100' });
+    if (node) p.set('node_name', node);
+    const ev = await api('GET', '/prism/live-ips?' + p).catch(() => []);
+    if (!Array.isArray(ev) || !ev.length) return;
+    since = ev[0].ts || since;
+    const fresh = ev.filter(e => e.kind !== 'visit' && !feed.some(f => f.ip === e.ip && f.ts === e.ts));
+    if (!fresh.length) return;
+    ctl.pulse(fresh);
+    feed = [...fresh, ...feed].slice(0, 8);
+    renderFeed();
+  }, 4000);
+}
 
 function synCertScore(certs) {
   if (!certs.length) return 100;
@@ -156,6 +217,18 @@ async function renderSecuritySynthese(ctx) {
 
       ${synEnginesHTML(f2bCfg, csCfg, threatCfg, rules, isAdmin)}
 
+      <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('sy.atk_title'))} <span class="vs-hint" style="font-weight:400">${esc(t('sy.atk_sub'))}</span></h3>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button type="button" id="sy-atk-live" class="btn btn-ghost btn-sm${_syn.atkLive ? ' is-active' : ''}" aria-pressed="${_syn.atkLive}" onclick="synAtkLive()">${esc(t('sy.atk_live'))}</button>
+          <span class="btn-group" role="group">
+            <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'zones' ? ' active' : ''}" data-style="zones" onclick="synAtkStyle('zones')">${esc(t('sy.atk_zones'))}</button>
+            <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'cities' ? ' active' : ''}" data-style="cities" onclick="synAtkStyle('cities')">${esc(t('sy.atk_cities'))}</button>
+          </span>
+          <a onclick="navigate('${isAdmin ? 'prism' : 'edge-prism'}')">${esc(t('sy.atk_prism'))}</a>
+        </span></div>
+        <div id="sy-atk-map" class="prism-mapbox gm-box" style="height:340px"><div class="spinner" style="margin:120px auto"></div></div>
+        <div id="sy-atk-feed" class="live-feed" style="max-height:170px;overflow-y:auto;font-size:11px;margin-top:8px"></div></div>
+
       <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('security.overview_activity_24h'))}</h3></div>${secActivityChartHTML(events)}</div>
 
       <div class="sy-grid2">
@@ -175,6 +248,7 @@ async function renderSecuritySynthese(ctx) {
       </div>
 
       <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('sy.timeline'))}</h3></div><div id="sy-tl-box">${synTimelineHTML()}</div></div>`;
+    synAttackMap(mode);
   } catch (e) { toast(e.message, 'error'); }
 }
 
