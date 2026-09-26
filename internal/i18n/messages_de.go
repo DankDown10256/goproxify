@@ -49,6 +49,7 @@ var messagesDE = map[string]string{
 	"api.err.json":        "ungültiges JSON",
 	"api.err.json_body":   "ungültiger JSON-Körper",
 	"api.err.not_found":   "nicht gefunden",
+	"api.err.conflict":    "bereits bearbeitet",
 	"api.err.unauth":      "nicht authentifiziert",
 	"api.err.forbidden":   "verboten",
 	"api.err.bad_request": "ungültige Anfrage",

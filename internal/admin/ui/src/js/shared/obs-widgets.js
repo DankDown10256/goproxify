@@ -207,18 +207,19 @@ function obsStatusHtml(groups) {
 // Anomalies détectées côté serveur (/prism/anomalies) → lignes affichables.
 function obsAnomalyRows(list) {
   const pl = n => obsNum(n);
+  const sub = a => t('pz.an_err_sub', { rate: a.value.toFixed(1), n: pl(a.count) });
   return (list || []).map(a => {
     switch (a.kind) {
       case 'error_spike':
-        return { lvl: 'r', ico: '!', title: 'Pic d\'erreurs', sub: `${pl(a.value)} erreurs à ${esc(String(a.subject).replace('T', ' ').slice(5, 16))} (moy. ${a.baseline.toFixed(0)})`, act: `data-prism="bucket" data-bucket="${esc(a.subject)}"`, actLabel: 'Zoomer' };
+        return { lvl: 'r', ico: '!', title: t('pz.an_spike'), sub: t('pz.an_spike_sub', { n: pl(a.value), at: esc(String(a.subject).replace('T', ' ').slice(5, 16)), avg: a.baseline.toFixed(0) }), act: `data-prism="bucket" data-bucket="${esc(a.subject)}"`, actLabel: t('pz.a_zoom') };
       case 'dominant_ip':
-        return { lvl: 'y', ico: '⚑', title: `IP dominante ${esc(a.subject)}`, sub: `${a.value.toFixed(0)}% du trafic · ${pl(a.count)} req`, act: a.banned ? '' : `data-prism="ban" data-ip="${esc(a.subject)}"`, actLabel: 'Bannir' };
+        return { lvl: 'y', ico: '⚑', title: t('pz.an_ip', { ip: esc(a.subject) }), sub: t('pz.an_ip_sub', { pct: a.value.toFixed(0), n: pl(a.count) }), act: a.banned ? '' : `data-prism="ban" data-ip="${esc(a.subject)}"`, actLabel: t('pz.ban_btn') };
       case 'country_errors':
-        return { lvl: 'y', ico: '◎', title: `${esc(a.label)} : erreurs élevées`, sub: `${a.value.toFixed(1)}% d'erreurs sur ${pl(a.count)} req`, act: `data-prism="country" data-cc="${esc(a.subject)}"`, actLabel: 'Détail' };
+        return { lvl: 'y', ico: '◎', title: t('pz.an_country', { name: esc(a.label) }), sub: sub(a), act: `data-prism="country" data-cc="${esc(a.subject)}"`, actLabel: t('pz.a_detail') };
       case 'backend_errors':
-        return { lvl: 'r', ico: '⛌', title: `Backend en difficulté : ${esc(a.subject || a.label)}`, sub: `${a.value.toFixed(1)}% d'erreurs sur ${pl(a.count)} req`, act: 'data-prism="tab" data-tab="berrs"', actLabel: 'Voir' };
+        return { lvl: 'r', ico: '⛌', title: t('pz.an_backend', { name: esc(a.subject || a.label) }), sub: sub(a), act: `data-prism="filter-proxy" data-proxy="${esc(a.subject)}"`, actLabel: t('pz.a_filter') };
       case 'bot_share':
-        return { lvl: 'y', ico: '🤖', title: 'Part de bots élevée', sub: `${a.value.toFixed(0)}% du trafic`, act: 'data-prism="tab" data-tab="sources"', actLabel: 'Voir' };
+        return { lvl: 'y', ico: '🤖', title: t('pz.an_bots'), sub: t('pz.an_bots_sub', { pct: a.value.toFixed(0) }), act: 'data-prism="tab" data-tab="sources"', actLabel: t('pz.a_see') };
       default:
         return null;
     }
@@ -227,7 +228,7 @@ function obsAnomalyRows(list) {
 
 function obsAnomaliesHtml(list, opts = {}) {
   const rows = obsAnomalyRows(list).slice(0, opts.limit || 5);
-  if (!rows.length) return '<p class="prism-muted">✓ Aucune anomalie sur la période.</p>';
+  if (!rows.length) return `<p class="prism-muted">${t('pz.an_none')}</p>`;
   return rows.map(i => `
     <div class="prism-ins">
       <span class="prism-ins-ico ${i.lvl}">${i.ico}</span>

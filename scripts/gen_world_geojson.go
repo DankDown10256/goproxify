@@ -1,11 +1,16 @@
 //go:build ignore
 
-// Génère internal/admin/ui/src/lib/world/countries.geojson à partir de
-// Natural Earth 50m (domaine public) : propriétés réduites à {iso, name},
+// Génère les contours embarqués depuis Natural Earth (domaine public) : propriétés réduites,
 // coordonnées arrondies et simplifiées (Douglas-Peucker) pour rester léger.
 //
+// Pays (Natural Earth 50m) :
 //	curl -L -o ne50.geojson https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson
 //	go run scripts/gen_world_geojson.go ne50.geojson internal/admin/ui/src/lib/world/countries.geojson
+//
+// Régions (Natural Earth 10m admin-1, tout pays) : {iso, code, name}
+//
+//	curl -L -o ne10a1.geojson https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson
+//	go run scripts/gen_world_geojson.go ne10a1.geojson internal/admin/ui/src/lib/world/regions.geojson
 package main
 
 import (
@@ -16,7 +21,7 @@ import (
 	"strings"
 )
 
-const tolerance = 0.04 // degrés (~4 km) : invisible jusqu'au zoom 6
+var tolerance = 0.04 // degrés (~4 km) : invisible jusqu'au zoom 6 ; 0.06 pour les régions
 
 type feature struct {
 	Properties map[string]any `json:"properties"`
@@ -98,14 +103,23 @@ func main() {
 	b.WriteString(`{"type":"FeatureCollection","features":[`)
 	first := true
 	for _, f := range fc.Features {
+		regions := strings.Contains(os.Args[1], "a1")
+		if regions {
+			tolerance = 0.06
+		}
 		iso, _ := f.Properties["ISO_A2_EH"].(string)
-		if iso == "" || iso == "-99" {
+		name, _ := f.Properties["NAME"].(string)
+		code := ""
+		if regions {
+			iso, _ = f.Properties["iso_a2"].(string)
+			name, _ = f.Properties["name"].(string)
+			code, _ = f.Properties["iso_3166_2"].(string)
+		} else if iso == "" || iso == "-99" {
 			iso, _ = f.Properties["ISO_A2"].(string)
 		}
 		if iso == "" || iso == "-99" {
 			continue
 		}
-		name, _ := f.Properties["NAME"].(string)
 		var coords any
 		_ = json.Unmarshal(f.Geometry.Coordinates, &coords)
 		var polys [][][][]float64
@@ -125,7 +139,7 @@ func main() {
 			continue
 		}
 		geom, _ := json.Marshal(map[string]any{"type": "MultiPolygon", "coordinates": polys})
-		props, _ := json.Marshal(map[string]string{"iso": iso, "name": name})
+		props, _ := json.Marshal(map[string]string{"iso": iso, "code": code, "name": name})
 		if !first {
 			b.WriteByte(',')
 		}

@@ -697,6 +697,19 @@ Chaque résultat : `kind`, `level` (`critical` | `warning`), `subject`, `label`,
 
 ---
 
+### `get_prism_slo`
+
+SLO de disponibilité (réponses non-5xx) sur une fenêtre glissante : disponibilité, budget d'erreur restant, vitesse de consommation sur 1 h et 6 h, état (`ok`, `warning`, `critical`, `exhausted`). Scope : `logs:read`.
+
+| Paramètre | Type   | Requis | Description                                              |
+|-----------|--------|--------|----------------------------------------------------------|
+| `target`  | number | —      | Objectif en % (défaut : objectif enregistré, 99.9)       |
+| `days`    | number | —      | Fenêtre en jours (défaut 30, max 90)                     |
+| `edge`    | string | —      | Passerelle (nom du nœud ou id du token) ; omis = toutes  |
+| `proxy`   | string | —      | Domaine du proxy ; omis = tous                           |
+
+---
+
 ### `get_prism_geo`
 
 Trafic par pays (requêtes, erreurs, taux d'erreur, IPs bannies) ou par ville (position approximative issue de la géolocalisation IP). Scope : `logs:read`.
@@ -1034,6 +1047,22 @@ Création / mise à jour : `edge_name`, `name`, `kind` (`ssh`\|`docker`), `host`
 ### Users — `list_portal_users`, `invite_portal_user`, `update_portal_user`, `delete_portal_user`, `resend_portal_invite`
 
 Invitation : `email`, `home_edge`, `tags` (SMTP Admin requis).
+
+### Sessions en direct — `list_portal_sessions`, `terminate_portal_session`
+
+`list_portal_sessions` (`edge`, scope `portal:read`) liste les connexions en cours ; `terminate_portal_session` (`edge`, `id`, scope `portal:write`) en ferme une.
+
+### Accès temporaires — `list_portal_access_requests`, `decide_portal_access_request`
+
+`list_portal_access_requests` (`edge`, `status` optionnel, scope `portal:read`) liste les demandes ; `decide_portal_access_request` (`id`, `decision` = `approve`\|`deny`\|`revoke`, `duration_min` optionnel pour `approve`, scope `portal:write`) tranche une demande.
+
+### Politique d'accès — `get_portal_policy`, `set_portal_policy`
+
+`get_portal_policy` (`edge`, scope `portal:read`) lit la politique ; `set_portal_policy` (`edge` + `hours_enabled`, `days`, `start_time`, `end_time`, `timezone`, `ip_allow`, `idle_timeout_min`, `record_sessions`, `record_retention_days`, scope `portal:write`) la remplace en entier : un champ absent revient à « pas de restriction ».
+
+### Enregistrements — `list_portal_recordings`, `delete_portal_recording`
+
+`list_portal_recordings` (`edge`, scope `portal:read`) liste les métadonnées ; `delete_portal_recording` (`edge`, `id`, scope `portal:write`) supprime un enregistrement. Le contenu se rejoue dans l'interface ou s'exporte avec la CLI.
 
 ### `list_portal_audit`
 

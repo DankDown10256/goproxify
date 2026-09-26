@@ -34,9 +34,11 @@ function openPrism(opts = {}) {
     proxy: opts.proxy || window._prismProxyInit || '',
     ip: opts.ip || window._prismIpInit || '',
     path: opts.path || window._prismPathInit || '',
-    from: opts.from || '',
-    to: opts.to || '',
+    from: opts.from || window._prismFromInit || '',
+    to: opts.to || window._prismToInit || '',
   };
+  window._prismFromInit = '';
+  window._prismToInit = '';
   window._prismProxyInit = '';
   window._prismIpInit = '';
   window._prismPathInit = '';
@@ -178,13 +180,13 @@ async function renderPrismPage() {
     if (selNode && !lockNode) chips.push(['node', 'Edge', selNode]);
     if (selProxy) chips.push(['proxy', 'Proxy', selProxy]);
     if (selIp) chips.push(['ip', 'IP', selIp]);
-    if (selPathFilter) chips.push(['path', 'Chemin', selPathFilter]);
+    if (selPathFilter) chips.push(['path', t('pz.path'), selPathFilter]);
     if (!chips.length) return '<div id="prism-filter-chips"></div>';
     return `<div id="prism-filter-chips" class="filter-chips" style="margin-bottom:12px">${chips.map(([k,l,v]) =>
       `<span class="filter-chip">${esc(l)}: <b>${esc(v)}</b>
-        <button type="button" class="filter-chip-x" data-prism="clear-filter" data-key="${esc(k)}" title="Retirer">✕</button></span>`
+        <button type="button" class="filter-chip-x" data-prism="clear-filter" data-key="${esc(k)}" title="${esc(t('pz.remove'))}">✕</button></span>`
     ).join('')}
-    <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" data-prism="clear-filter" data-key="*">Tout effacer</button>
+    <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px" data-prism="clear-filter" data-key="*">${esc(t('pz.clear_all'))}</button>
     <button type="button" class="btn btn-secondary btn-sm" data-prism="to-logs" title="${esc(t('prism.to_logs'))}">→ Logs</button>
     </div>`;
   }
@@ -300,15 +302,15 @@ async function renderPrismPage() {
   }
 
   const PRISM_TABS = [
-    ['paths', 'Chemins', 'px-paths'], ['ips', 'IP', 'px-ips'], ['sources', 'Sources', 'px-sources'],
-    ['countries', 'Pays', 'px-countries'], ['berrs', 'Backends', 'px-berrs'],
+    ['paths', t('pz.tab_paths'), 'px-paths'], ['ips', 'IP', 'px-ips'], ['sources', t('pz.tab_sources'), 'px-sources'],
+    ['countries', t('pz.tab_countries'), 'px-countries'],
   ];
 
   let activeTab = 'paths';
 
   function tabsHtml() {
     return `<div class="prism-tabs" id="prism-tabs">${PRISM_TABS.map(([k, l]) =>
-      `<button type="button" class="${k === activeTab ? 'on' : ''}" data-prism="tab" data-tab="${k}">${l}</button>`).join('')}<button type="button" class="prism-tab-link" data-prism="to-bans" title="Sécurité › Bans">Bans →</button></div>
+      `<button type="button" class="${k === activeTab ? 'on' : ''}" data-prism="tab" data-tab="${k}">${l}</button>`).join('')}<button type="button" class="prism-tab-link" data-prism="to-bans" title="${esc(t('pz.bans_title'))}">${esc(t('pz.bans_link'))}</button></div>
       ${PRISM_TABS.map(([k, , id]) => `<div class="prism-pane" id="${id}" ${k === activeTab ? '' : 'hidden'}>${spin}</div>`).join('')}`;
   }
 
@@ -324,8 +326,8 @@ async function renderPrismPage() {
       <div class="prism-hero">
         <div class="prism-panel prism-mapcard" id="prism-geo-panel" style="min-height:80px">${spin}</div>
         <div class="prism-rail">
-          <div class="prism-panel"><div class="prism-panel-title">Anomalies détectées</div><div id="px-anoms"><p class="prism-muted">Analyse…</p></div></div>
-          <div class="prism-panel"><div class="prism-panel-title">Top pays</div><div id="px-topc"><p class="prism-muted">…</p></div></div>
+          <div class="prism-panel"><div class="prism-panel-title">${esc(t('obs.syn.anoms'))}</div><div id="px-anoms"><p class="prism-muted">${esc(t('pz.analyzing'))}</p></div></div>
+          <div class="prism-panel"><div class="prism-panel-title">${esc(t('obs.syn.countries'))}</div><div id="px-topc"><p class="prism-muted">…</p></div></div>
         </div>
       </div>
       <div class="prism-two">
@@ -373,9 +375,6 @@ async function renderPrismPage() {
       })
       .catch(guard(() => upd('px-ips', ipsHtml([]))));
 
-    apiP('GET', '/prism/backend-errors?' + q, signal)
-      .then(d => { upd('px-berrs', backendErrorsHtml(d)); })
-      .catch(guard(() => upd('px-berrs', backendErrorsHtml([]))));
 
     apiP('GET', '/prism/geo?' + q, signal)
       .then(d => {
@@ -385,7 +384,7 @@ async function renderPrismPage() {
       })
       .catch(guard(() => upd('prism-geo-panel', geoHtml([]))));
 
-    apiP('GET', '/prism/geo/points?' + q + '&limit=300', signal)
+    apiP('GET', '/prism/geo/points?' + q + '&limit=1000', signal)
       .then(d => { _lastGeoPoints = Array.isArray(d) ? d : []; applyGeo(); })
       .catch(() => {});
 
@@ -419,7 +418,7 @@ async function renderPrismPage() {
       ]);
     } catch(e) {
       if (e && e.name === 'AbortError') return;
-      if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = 'Actualiser'; }
+      if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = t('obs.syn.refresh'); }
       toast('Prism : ' + (e.message || t('prism.load_err')), 'error');
       return;
     }
@@ -451,7 +450,7 @@ async function renderPrismPage() {
       if (compareOpen) showCompare(true);
       root.insertAdjacentHTML('beforeend', '<aside class="prism-drawer" id="prism-drawer"></aside>');
       const btn = document.getElementById('prism-refresh-btn');
-      if (btn) { btn.disabled = false; btn.textContent = 'Actualiser'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('obs.syn.refresh'); }
     }
 
     // D — Passe 2 : chaque panneau s'affiche dès que sa requête répond (indépendants)
@@ -479,7 +478,7 @@ async function renderPrismPage() {
     }).join('');
     const edgeSelect = lockNode ? '' : `
         <select id="prism-node" class="form-input" style="max-width:180px" data-prism="node" title="${esc(t('prism.filter_edge'))}">
-          <option value="">Toutes les passerelles</option>
+          <option value="">${esc(t('obs.syn.all_edges'))}</option>
           ${edgeOpts}
         </select>`;
     const icoCompare = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>`;
@@ -492,7 +491,7 @@ async function renderPrismPage() {
         <div class="prism-fg">
           ${edgeSelect}
           <select id="prism-proxy" class="form-input" style="max-width:160px" data-prism="proxy">
-            <option value="">Tous les proxies</option>
+            <option value="">${esc(t('pz.all_proxies'))}</option>
             ${proxyOpts}
           </select>
         </div>
@@ -506,7 +505,7 @@ async function renderPrismPage() {
         <div class="prism-fg-sep"></div>
         <div class="prism-fg" style="gap:4px">${quickBtns}</div>
         <div class="prism-fg prism-fg-end" style="gap:4px">
-          <button type="button" class="btn btn-primary btn-sm" id="prism-refresh-btn" data-prism="refresh">Actualiser</button>
+          <button type="button" class="btn btn-primary btn-sm" id="prism-refresh-btn" data-prism="refresh">${esc(t('obs.syn.refresh'))}</button>
           <span id="prism-live-indicator" class="prism-live-indicator" style="display:${liveMode ? 'inline-flex' : 'none'};margin:0 4px">
             <span class="logs-live-dot"></span>Live
           </span>
@@ -531,9 +530,9 @@ async function renderPrismPage() {
     if (!agents||agents.length===0) return `<div class="prism-panel-title">${t('prism.components')}</div><p style="color:var(--text3);font-size:13px">${t('prism.no_data')}</p>`;
     const maxR = Math.max(...agents.map(a=>a.requests),1);
     return `
-      <div class="prism-panel-title">Composants / Bots</div>
+      <div class="prism-panel-title">${esc(t('pz.components'))}</div>
       <table class="prism-table">
-        <thead><tr><th>Composant</th><th>Req.</th><th>Part</th></tr></thead>
+        <thead><tr><th>${esc(t('pz.component'))}</th><th>${esc(t('prism.req_short'))}</th><th>${esc(t('prism.share'))}</th></tr></thead>
         <tbody>${agents.slice(0,15).map(a=>`
           <tr>
             <td>${esc(a.name)} ${a.is_bot?'<span class="prism-bot-badge">BOT</span>':''}</td>
@@ -548,13 +547,13 @@ async function renderPrismPage() {
     const maxR = Math.max(...list.map(p=>p.requests),1);
     const page = Math.floor(pathOffset/pathLimit)+1;
     return `
-      <div class="prism-panel-title">Top chemins</div>
+      <div class="prism-panel-title">${esc(t('pz.top_paths'))}</div>
       <div class="prism-search">
         <input type="text" id="prism-path-search" class="form-input" placeholder="${esc(t('prism.filter_ph'))}" value="${esc(pathSearch)}" style="flex:1" data-prism="path-search-input">
-        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-search">Chercher</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-search">${esc(t('pz.search'))}</button>
       </div>
       <table class="prism-table">
-        <thead><tr><th>Chemin</th><th>Req.</th><th>Err.</th><th>Lat. moy.</th><th>Volume</th><th></th></tr></thead>
+        <thead><tr><th>${esc(t('pz.path'))}</th><th>${esc(t('prism.req_short'))}</th><th>${esc(t('pz.err_short'))}</th><th>${esc(t('prism.lat_avg'))}</th><th>${esc(t('pz.volume'))}</th><th></th></tr></thead>
         <tbody>${list.map(p=>`
           <tr>
             <td style="font-family:monospace;font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.path)}">
@@ -564,15 +563,15 @@ async function renderPrismPage() {
             <td style="color:${p.errors>0?'var(--red)':'var(--text3)'}">${fmtNum(p.errors)}</td>
             <td>${p.avg_lat_ms.toFixed(0)} ms</td>
             <td><span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(p.requests/maxR*100).toFixed(1)}%"></span></span></td>
-            <td><button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="to-logs" data-path="${esc(p.path)}" title="Voir dans les logs">
+            <td><button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="to-logs" data-path="${esc(p.path)}" title="${esc(t('prism.filter_logs'))}">
               <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
             </button></td>
           </tr>`).join('')}</tbody>
       </table>
       <div class="prism-pagination">
-        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-prev" ${pathOffset===0?'disabled':''}>← Préc.</button>
-        <span style="color:var(--text3)">Page ${page}</span>
-        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-next" ${hasMore?'':'disabled'}>Suiv. →</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-prev" ${pathOffset===0?'disabled':''}>${esc(t('pz.prev'))}</button>
+        <span style="color:var(--text3)">${t('pz.page', { n: page })}</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-prism="path-next" ${hasMore?'':'disabled'}>${esc(t('pz.next'))}</button>
       </div>`;
   }
 
@@ -598,7 +597,7 @@ async function renderPrismPage() {
               <button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="to-logs" data-ip="${esc(i.ip)}" title="${esc(t('prism.filter_logs'))}">
                 <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
               </button>
-              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="rescan" data-ip="${esc(i.ip)}" title="Re-scanner cette IP">${icoRescan}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="rescan" data-ip="${esc(i.ip)}" title="${esc(t('pz.rescan_ip'))}">${icoRescan}</button>
               ${banned
                 ? `<span class="btn btn-ghost btn-icon btn-sm" title="${esc(t('prism.banned'))}" style="color:var(--red);opacity:.9;cursor:default;pointer-events:none">${icoBan}</span>`
                 : `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="ban" data-ip="${esc(i.ip)}" title="${esc(t('prism.ban'))}">${icoBan}</button>`}
@@ -626,24 +625,25 @@ async function renderPrismPage() {
       <div id="prism-live-feed-wrap" style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <span class="logs-live-dot"></span>
-          <span style="font-size:11px;font-weight:600;color:var(--text2)">Connexions temps réel</span>
+          <span style="font-size:11px;font-weight:600;color:var(--text2)">${esc(t('pz.live_conns'))}</span>
         </div>
         <div id="prism-live-feed" style="max-height:200px;overflow-y:auto;font-size:11px">
-          <div style="color:var(--text3);font-size:12px;padding:8px 0">En attente de trafic…</div>
+          <div style="color:var(--text3);font-size:12px;padding:8px 0">${esc(t('prism.wait_traffic'))}</div>
         </div>
       </div>` : '';
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <span class="prism-panel-title" style="margin:0">Trafic par pays${liveMode ? ' <span class="logs-live-dot" style="margin-left:6px"></span>' : ''}</span>
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.by_country'))}${liveMode ? ' <span class="logs-live-dot" style="margin-left:6px"></span>' : ''}</span>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <div class="btn-group" role="group" aria-label="Vue">
-            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='requests'?'active':''}" data-prism="geo-mode" data-mode="requests">Requêtes</button>
-            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='error_rate'?'active':''}" data-prism="geo-mode" data-mode="error_rate">Tx erreurs</button>
-            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='banned_ips'?'active':''}" data-prism="geo-mode" data-mode="banned_ips">IPs bannies</button>
+            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='requests'?'active':''}" data-prism="geo-mode" data-mode="requests">${esc(t('prism.requests'))}</button>
+            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='error_rate'?'active':''}" data-prism="geo-mode" data-mode="error_rate">${esc(t('pz.err_rate_short'))}</button>
+            <button type="button" class="btn btn-xs geo-mode-btn ${geoViewMode==='banned_ips'?'active':''}" data-prism="geo-mode" data-mode="banned_ips">${esc(t('pz.banned_ips'))}</button>
           </div>
           <div class="btn-group" role="group" aria-label="Style">
-            <button type="button" class="btn btn-xs geo-style-btn ${geoStyle==='zones'?'active':''}" data-prism="geo-style" data-style="zones">Zones</button>
-            <button type="button" class="btn btn-xs geo-style-btn ${geoStyle==='cities'?'active':''}" data-prism="geo-style" data-style="cities">Villes</button>
+            <button type="button" class="btn btn-xs geo-style-btn ${geoStyle==='zones'?'active':''}" data-prism="geo-style" data-style="zones">${esc(t('sy.atk_zones'))}</button>
+            <button type="button" class="btn btn-xs geo-style-btn ${geoStyle==='cities'?'active':''}" data-prism="geo-style" data-style="cities">${esc(t('sy.atk_cities'))}</button>
+            <button type="button" class="btn btn-xs geo-style-btn ${geoStyle==='regions'?'active':''}" data-prism="geo-style" data-style="regions">${esc(t('sy.atk_regions'))}</button>
           </div>
         </div>
       </div>
@@ -681,7 +681,7 @@ async function renderPrismPage() {
           <span class="prism-toprow-main"><span class="prism-toprow-head"><span>${esc(e.country_name)}</span><b>${label}</b></span>
           <span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(v / maxVal * 100).toFixed(1)}%;background:rgb(${r},${g},${b})"></span></span></span>
         </button>`;
-      }).join('') : '<p class="prism-muted">Aucune donnée.</p>';
+      }).join('') : `<p class="prism-muted">${t('prism.no_data')}</p>`;
     }
 
     const flag = cc => {
@@ -691,12 +691,12 @@ async function renderPrismPage() {
     const maxR = Math.max(...geo.map(g => g.requests), 1);
     const pane = document.getElementById('px-countries');
     if (!pane) return;
-    pane.innerHTML = `<div class="prism-panel-title">Trafic par pays</div>
+    pane.innerHTML = `<div class="prism-panel-title">${esc(t('pz.by_country'))}</div>
       <div class="geo-stats-table" style="overflow-x:auto;border-top:1px solid var(--border)">
       <table class="prism-table">
         <thead><tr>
-          <th>Pays</th><th>Req.</th><th>Part</th>
-          <th>Erreurs</th><th>Tx err.</th><th>IPs bannies</th>
+          <th>${esc(t('pz.tab_countries'))}</th><th>${esc(t('prism.req_short'))}</th><th>${esc(t('prism.share'))}</th>
+          <th>${esc(t('prism.errors'))}</th><th>${esc(t('pz.err_rate_abbr'))}</th><th>${esc(t('pz.banned_ips'))}</th>
         </tr></thead>
         <tbody>${geo.slice(0, 15).map(entry => {
           const errRateHigh = (entry.error_rate || 0) >= 5;
@@ -725,16 +725,16 @@ async function renderPrismPage() {
     const stat = (l, v, warn) => `<div class="prism-dstat"><span>${l}</span><b${warn ? ' style="color:var(--red)"' : ''}>${v}</b></div>`;
     dr.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span class="prism-panel-title" style="margin:0">Détail pays</span>
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.country_detail'))}</span>
         <button type="button" class="btn btn-ghost btn-sm" data-prism="close-drawer">✕</button>
       </div>
       <div style="font-size:36px;line-height:1">${flagOf}</div>
       <div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:4px 0">${esc(e.country_name)} <span style="font-size:12px;color:var(--text3);font-weight:500">${esc(cc)}</span></div>
-      <div style="color:var(--text3);margin-bottom:14px">${fmtNum(e.requests)} requêtes · ${(e.pct || 0).toFixed(1)}% du trafic</div>
+      <div style="color:var(--text3);margin-bottom:14px">${t('pz.req_share', { n: fmtNum(e.requests), pct: (e.pct || 0).toFixed(1) })}</div>
       <div class="prism-dstats">
-        ${stat('Erreurs', fmtNum(e.errors || 0))}
-        ${stat('Taux d\'erreur', (e.error_rate || 0).toFixed(1) + '%', (e.error_rate || 0) >= 10)}
-        ${stat('IPs bannies', fmtNum(e.banned_ips || 0), (e.banned_ips || 0) > 0)}
+        ${stat(t('prism.errors'), fmtNum(e.errors || 0))}
+        ${stat(t('prism.error_rate'), (e.error_rate || 0).toFixed(1) + '%', (e.error_rate || 0) >= 10)}
+        ${stat(t('pz.banned_ips'), fmtNum(e.banned_ips || 0), (e.banned_ips || 0) > 0)}
       </div>`;
     dr.classList.add('open');
   }
@@ -748,35 +748,35 @@ async function renderPrismPage() {
     dr.innerHTML = `<div class="spinner" style="margin:40px auto"></div>`;
     try {
       const d = await api('GET', '/prism/ip-scan?' + qp().replace(/(^|&)ip=[^&]*/, '') + '&ip=' + encodeURIComponent(ip));
-      const verdict = { banned: ['Bannie', 'var(--red)'], suspect: ['Suspecte', '#f59e0b'], clean: ['Aucun signal', 'var(--green)'] }[d.verdict] || ['—', 'var(--text3)'];
+      const verdict = { banned: [t('pz.v_banned'), 'var(--red)'], suspect: [t('pz.v_suspect'), '#f59e0b'], clean: [t('pz.v_clean'), 'var(--green)'] }[d.verdict] || ['—', 'var(--text3)'];
       const when = s => s ? s.replace('T', ' ').slice(0, 16) : '—';
       dr.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <span class="prism-panel-title" style="margin:0">Scan d'IP</span>
+          <span class="prism-panel-title" style="margin:0">${esc(t('pz.ip_scan'))}</span>
           <button type="button" class="btn btn-ghost btn-sm" data-prism="close-drawer">✕</button>
         </div>
         <div class="mono" style="font-size:18px;font-weight:700">${esc(d.ip)}</div>
         <div style="margin:6px 0 14px"><span class="prism-verdict" style="--v:${verdict[1]}">${verdict[0]}</span>
-          <span style="color:var(--text3);font-size:11px;margin-left:8px">scanné à ${esc(when(d.scanned_at))} UTC</span></div>
+          <span style="color:var(--text3);font-size:11px;margin-left:8px">${esc(t('pz.scanned_at', { when: when(d.scanned_at) }))}</span></div>
         <div class="prism-dstats">
-          <div class="prism-dstat"><span>Requêtes (période)</span><b>${fmtNum(d.requests)}</b></div>
-          <div class="prism-dstat"><span>Erreurs</span><b${d.errors ? ' style="color:var(--red)"' : ''}>${fmtNum(d.errors)}</b></div>
-          <div class="prism-dstat"><span>Bans passés</span><b>${d.ban_history}</b></div>
-          <div class="prism-dstat"><span>Dernière activité</span><b style="font-size:13px">${esc(when(d.last_seen))}</b></div>
+          <div class="prism-dstat"><span>${esc(t('pz.requests_period'))}</span><b>${fmtNum(d.requests)}</b></div>
+          <div class="prism-dstat"><span>${esc(t('prism.errors'))}</span><b${d.errors ? ' style="color:var(--red)"' : ''}>${fmtNum(d.errors)}</b></div>
+          <div class="prism-dstat"><span>${esc(t('pz.past_bans'))}</span><b>${d.ban_history}</b></div>
+          <div class="prism-dstat"><span>${esc(t('pz.last_activity'))}</span><b style="font-size:13px">${esc(when(d.last_seen))}</b></div>
         </div>
-        <div class="prism-panel-title" style="margin:16px 0 6px">Bans actifs</div>
+        <div class="prism-panel-title" style="margin:16px 0 6px">${esc(t('pz.active_bans'))}</div>
         ${(d.bans || []).length ? d.bans.map(b => `<div class="prism-bansrc">
-            <div class="prism-bansrc-head"><span class="prism-src-badge${b.sentinel ? ' sentinel' : ''}">${esc(b.source_label)}</span>${b.sentinel ? '<span class="prism-src-origin">source : Sentinel</span>' : ''}</div>
+            <div class="prism-bansrc-head"><span class="prism-src-badge${b.sentinel ? ' sentinel' : ''}">${esc(b.source_label)}</span>${b.sentinel ? `<span class="prism-src-origin">${esc(t('pz.source_sentinel'))}</span>` : ''}</div>
             <div class="prism-bantech"><span>${esc(b.technique)}</span><span style="color:var(--text3)">${esc(when(b.since))}</span></div>
-          </div>`).join('') : '<p class="prism-muted">Aucun ban actif.</p>'}
-        <div class="prism-panel-title" style="margin:16px 0 6px">Décisions de menace</div>
-        ${(d.threats || []).length ? d.threats.map(x => `<div class="prism-bantech"><span>${esc(x.scenario)} <span style="color:var(--text3)">· ${esc(x.origin)}</span></span><b>×${x.occurrences}</b></div>`).join('') : '<p class="prism-muted">Aucune décision enregistrée.</p>'}
-        <div class="prism-panel-title" style="margin:16px 0 6px">Chemins les plus visés</div>
-        ${(d.top_paths || []).length ? d.top_paths.map(x => `<div class="prism-bantech"><span class="mono" style="overflow:hidden;text-overflow:ellipsis" title="${esc(x.path)}">${esc(x.path)}</span><b>${x.requests}${x.errors ? ` <span style="color:var(--red);font-weight:500">(${x.errors} err.)</span>` : ''}</b></div>`).join('') : '<p class="prism-muted">Aucune requête sur la période.</p>'}
+          </div>`).join('') : `<p class="prism-muted">${t('pz.no_active_ban')}</p>`}
+        <div class="prism-panel-title" style="margin:16px 0 6px">${esc(t('pz.threat_decisions'))}</div>
+        ${(d.threats || []).length ? d.threats.map(x => `<div class="prism-bantech"><span>${esc(x.scenario)} <span style="color:var(--text3)">· ${esc(x.origin)}</span></span><b>×${x.occurrences}</b></div>`).join('') : `<p class="prism-muted">${t('pz.no_decision')}</p>`}
+        <div class="prism-panel-title" style="margin:16px 0 6px">${esc(t('pz.top_targeted'))}</div>
+        ${(d.top_paths || []).length ? d.top_paths.map(x => `<div class="prism-bantech"><span class="mono" style="overflow:hidden;text-overflow:ellipsis" title="${esc(x.path)}">${esc(x.path)}</span><b>${x.requests}${x.errors ? ` <span style="color:var(--red);font-weight:500">(${x.errors} err.)</span>` : ''}</b></div>`).join('') : `<p class="prism-muted">${t('pz.no_request')}</p>`}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">
-          <button type="button" class="btn btn-secondary btn-sm" data-prism="rescan" data-ip="${esc(d.ip)}">${icoRescan} Re-scanner</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-prism="rescan" data-ip="${esc(d.ip)}">${icoRescan} ${esc(t('pz.rescan'))}</button>
           <button type="button" class="btn btn-secondary btn-sm" data-prism="to-logs" data-ip="${esc(d.ip)}">→ Logs</button>
-          ${d.verdict !== 'banned' ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" data-prism="ban" data-ip="${esc(d.ip)}">Bannir</button>` : ''}
+          ${d.verdict !== 'banned' ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" data-prism="ban" data-ip="${esc(d.ip)}">${esc(t('pz.ban_btn'))}</button>` : ''}
         </div>`;
     } catch (e) {
       dr.innerHTML = `<p style="color:var(--red)">${esc(t('prism.error'))}: ${esc(e.message || '')}</p>`;
@@ -868,8 +868,8 @@ async function renderPrismPage() {
     if (!geo || geo.length === 0) {
       if (_prismGeoCtl) { _prismGeoCtl.destroy(); _prismGeoCtl = null; }
       container.innerHTML = `<p style="color:var(--text3);font-size:13px;padding:16px">${t('prism.wait_geo')}<br><span style="font-size:11px">${t('prism.geo_bg')}</span></p>`;
-      upd('px-topc', '<p class="prism-muted">Aucune donnée.</p>');
-      upd('px-countries', '<p class="prism-muted">Aucune donnée.</p>');
+      upd('px-topc', `<p class="prism-muted">${t('prism.no_data')}</p>`);
+      upd('px-countries', `<p class="prism-muted">${t('prism.no_data')}</p>`);
       return;
     }
 
@@ -884,7 +884,7 @@ async function renderPrismPage() {
         ctl.el = container;
         _prismGeoCtl = ctl;
       } catch {
-        container.innerHTML = '<p style="color:var(--text3);font-size:13px;padding:16px">Carte indisponible.</p>';
+        container.innerHTML = `<p style="color:var(--text3);font-size:13px;padding:16px">${t('pz.map_unavailable')}</p>`;
         return;
       } finally {
         _geoBuilding = false;
@@ -901,17 +901,17 @@ async function renderPrismPage() {
     const stat = (l, v, warn) => `<div class="prism-dstat"><span>${l}</span><b${warn ? ' style="color:var(--red)"' : ''}>${v}</b></div>`;
     dr.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span class="prism-panel-title" style="margin:0">Détail ville</span>
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.city_detail'))}</span>
         <button type="button" class="btn btn-ghost btn-sm" data-prism="close-drawer">✕</button>
       </div>
       <div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:4px 0">${esc(place)} <span style="font-size:12px;color:var(--text3);font-weight:500">${esc(pt.country_code)}</span></div>
-      <div style="color:var(--text3);margin-bottom:14px">${fmtNum(pt.requests)} requêtes · ${fmtNum(pt.ips)} IP</div>
+      <div style="color:var(--text3);margin-bottom:14px">${t('pz.req_ips', { n: fmtNum(pt.requests), ips: fmtNum(pt.ips) })}</div>
       <div class="prism-dstats">
-        ${stat('Erreurs', fmtNum(pt.errors || 0))}
-        ${stat('Taux d\'erreur', (pt.error_rate || 0).toFixed(1) + '%', (pt.error_rate || 0) >= 10)}
-        ${stat('IPs bannies', fmtNum(pt.banned_ips || 0), (pt.banned_ips || 0) > 0)}
+        ${stat(t('prism.errors'), fmtNum(pt.errors || 0))}
+        ${stat(t('prism.error_rate'), (pt.error_rate || 0).toFixed(1) + '%', (pt.error_rate || 0) >= 10)}
+        ${stat(t('pz.banned_ips'), fmtNum(pt.banned_ips || 0), (pt.banned_ips || 0) > 0)}
       </div>
-      <p class="prism-muted" style="margin-top:14px">Position approximative issue de la géolocalisation IP (précision de l'ordre de la ville).</p>`;
+      <p class="prism-muted" style="margin-top:14px">${t('pz.approx_pos')}</p>`;
     dr.classList.add('open');
   }
 
@@ -923,7 +923,7 @@ async function renderPrismPage() {
     if (!refs || refs.length === 0) return `<div class="prism-panel-title">${t('prism.top_refs')}</div><p style="color:var(--text3);font-size:13px">${t('prism.no_refs')}</p>`;
     const maxR = Math.max(...refs.map(r=>r.requests), 1);
     return `
-      <div class="prism-panel-title">Top référents</div>
+      <div class="prism-panel-title">${esc(t('prism.top_refs'))}</div>
       <table class="prism-table">
         <thead><tr><th>${t('prism.referrer')}</th><th>${t('prism.req_short')}</th><th>${t('prism.share')}</th></tr></thead>
         <tbody>${refs.map(r=>`
@@ -932,28 +932,6 @@ async function renderPrismPage() {
             <td>${fmtNum(r.requests)}</td>
             <td><span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(r.requests/maxR*100).toFixed(1)}%"></span></span> <span style="font-size:11px;color:var(--text3)">${r.pct.toFixed(1)}%</span></td>
           </tr>`).join('')}</tbody>
-      </table>`;
-  }
-
-  function backendErrorsHtml(rows) {
-    if (!rows || rows.length === 0) return `<div class="prism-panel-title">${t('prism.backends_err')}</div><p style="color:var(--text3);font-size:13px">${t('prism.no_data_avail')}</p>`;
-    const maxRate = Math.max(...rows.map(r=>r.error_rate), 1);
-    return `
-      <div class="prism-panel-title">${t('prism.backends_err')}</div>
-      <table class="prism-table">
-        <thead><tr><th>Proxy</th><th>${t('prism.domain')}</th><th>Backend</th><th>${t('prism.requests')}</th><th>${t('prism.errors')}</th><th>${t('prism.rate')}</th><th>${t('prism.lat_avg')}</th><th></th></tr></thead>
-        <tbody>${rows.map(r=>`<tr>
-          <td style="font-size:12px">${esc(r.name)}</td>
-          <td style="font-size:12px"><button type="button" class="log-filter-link" data-prism="filter-proxy" data-proxy="${esc(r.domain||'')}">${esc(r.domain||'—')}</button></td>
-          <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)" title="${esc(r.backend_url)}">${esc(r.backend_url||'—')}</td>
-          <td>${fmtNum(r.total)}</td>
-          <td style="color:${r.errors>0?'var(--red)':'var(--text2)'}">${fmtNum(r.errors)}</td>
-          <td><span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(r.error_rate/maxRate*100).toFixed(1)}%;background:var(--red)"></span></span> <span style="font-size:11px;color:${r.error_rate>10?'var(--red)':r.error_rate>5?'var(--yellow)':'var(--text3)'}">${r.error_rate.toFixed(1)}%</span></td>
-          <td style="color:var(--text2);font-size:12px">${r.avg_lat_ms}ms</td>
-          <td><button type="button" class="btn btn-ghost btn-icon btn-sm" data-prism="to-logs" data-domain="${esc(r.domain||'')}" data-status="5" title="${esc(t('prism.error_logs'))}">
-            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
-          </button></td>
-        </tr>`).join('')}</tbody>
       </table>`;
   }
 

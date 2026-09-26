@@ -45,6 +45,8 @@ func Load[T AdminConfig | EdgeConfig | AgentConfig | LandingConfig](configPath s
 	v.SetConfigType("json")
 
 	v.SetDefault("geoip.auto_download", true)
+	v.SetDefault("geoip.city_db_path", "/etc/goproxify/geoip/GeoLite2-City.mmdb")
+	v.SetDefault("geoip.city_db_url", "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-City.mmdb")
 	v.SetDefault("geoip.db_path", "/etc/goproxify/geoip/GeoLite2-Country.mmdb")
 	v.SetDefault("geoip.db_url", "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb")
 	v.SetDefault("timeouts.read_header_seconds", 10)

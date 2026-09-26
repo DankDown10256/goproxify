@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -23,6 +24,9 @@ type SSHServer struct {
 	mu       sync.Mutex
 	audit    func(AuditEvent)
 	shell    *ShellBroker
+	live     *LiveRegistry
+	policy   func() Policy
+	record   func(actor, targetID, facade, remote string) *Recording
 }
 
 type connAuth struct {
@@ -166,6 +170,14 @@ func (s *SSHServer) authUUID(id string, auth *connAuth) (*ssh.Permissions, error
 func (s *SSHServer) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, sessionID, clientPW, remote string) {
 	defer ch.Close()
 
+	if s.policy != nil {
+		host, _, _ := net.SplitHostPort(remote)
+		if why := s.policy().denyReason(net.ParseIP(host), time.Now()); why != "" {
+			_, _ = ch.Write([]byte("goproxify portal: " + why + "\n"))
+			s.audit(AuditEvent{Actor: remote, Facade: FacadeSSH, Success: false, Detail: "policy: " + why})
+			return
+		}
+	}
 	sess, ok := s.sessions.Acquire(sessionID)
 	if !ok {
 		_, _ = ch.Write([]byte("session invalide ou déjà utilisée\n"))
@@ -174,6 +186,14 @@ func (s *SSHServer) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, sess
 		})
 		return
 	}
+	live := s.live.Track(sess.Username, sess.TargetID, string(FacadeSSH), remote, func() { _ = ch.Close() })
+	defer live.Done()
+	var rec *Recording
+	if s.record != nil {
+		rec = s.record(sess.Username, sess.TargetID, string(FacadeSSH), remote)
+	}
+	defer rec.Close()
+	userCh := touchChannel{Channel: ch, h: live, rec: rec}
 
 	if sess.Target.Kind == TargetDocker {
 		if s.shell == nil {
@@ -191,7 +211,7 @@ func (s *SSHServer) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, sess
 			return
 		}
 		s.audit(AuditEvent{Actor: sess.Username, TargetID: sess.TargetID, Facade: FacadeSSH, Success: true, Detail: "docker start"})
-		_ = BridgeSSHChannelIO(remote, ch, reqs)
+		_ = BridgeSSHChannelIO(remote, userCh, reqs)
 		s.audit(AuditEvent{Actor: sess.Username, TargetID: sess.TargetID, Facade: FacadeSSH, Success: true, Detail: "docker end"})
 		return
 	}
@@ -217,7 +237,7 @@ func (s *SSHServer) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, sess
 	s.audit(AuditEvent{
 		Actor: sess.Username, TargetID: sess.TargetID, Facade: FacadeSSH, Success: true, Detail: "start",
 	})
-	err := BridgeSSH(target, ch, reqs)
+	err := BridgeSSH(target, userCh, reqs)
 	okEnd := err == nil
 	detail := "end"
 	if err != nil {

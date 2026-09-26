@@ -252,6 +252,70 @@ func portalTools() []map[string]any {
 			),
 		},
 		{
+			"name":        "list_portal_sessions",
+			"description": "Liste les connexions Access en cours sur une passerelle (SSH et web), remontées en direct.",
+			"inputSchema": schema(req("edge", "string", "Nom de la passerelle")),
+		},
+		{
+			"name":        "terminate_portal_session",
+			"description": "Termine une connexion Access en cours (l'id vient de list_portal_sessions).",
+			"inputSchema": schema(
+				req("edge", "string", "Nom de la passerelle"),
+				req("id", "string", "ID de la connexion"),
+			),
+		},
+		{
+			"name":        "list_portal_access_requests",
+			"description": "Liste les demandes d'accès temporaire Access d'une passerelle (en attente, accordées, refusées…).",
+			"inputSchema": schema(
+				req("edge", "string", "Nom de la passerelle"),
+				opt("status", "string", "pending, approved, denied ou revoked"),
+			),
+		},
+		{
+			"name":        "decide_portal_access_request",
+			"description": "Approuve, refuse ou révoque une demande d'accès temporaire Access.",
+			"inputSchema": schema(
+				req("id", "string", "ID de la demande"),
+				req("decision", "string", "approve, deny ou revoke"),
+				opt("duration_min", "number", "Durée accordée en minutes (approve ; défaut = durée demandée, max 1440)"),
+			),
+		},
+		{
+			"name":        "get_portal_policy",
+			"description": "Retourne la politique d'accès Access d'une passerelle (plages horaires, IP autorisées, inactivité).",
+			"inputSchema": schema(req("edge", "string", "Nom de la passerelle")),
+		},
+		{
+			"name":        "set_portal_policy",
+			"description": "Remplace la politique d'accès Access d'une passerelle. Les champs absents reviennent à leur valeur par défaut (pas de restriction).",
+			"inputSchema": schema(
+				req("edge", "string", "Nom de la passerelle"),
+				opt("hours_enabled", "boolean", "Limiter les accès à des horaires"),
+				opt("days", "array", "Jours autorisés, 0 = dimanche à 6 = samedi"),
+				opt("start_time", "string", "Début HH:MM"),
+				opt("end_time", "string", "Fin HH:MM (après le début)"),
+				opt("timezone", "string", "Fuseau IANA, ex. Europe/Paris"),
+				opt("ip_allow", "array", "IP ou CIDR autorisés ; vide = tous"),
+				opt("idle_timeout_min", "number", "Fermeture après N minutes sans saisie ; 0 = jamais"),
+				opt("record_sessions", "boolean", "Enregistrer la sortie des terminaux (rejeu dans l'admin)"),
+				opt("record_retention_days", "number", "Jours de conservation des enregistrements ; 0 = illimitée"),
+			),
+		},
+		{
+			"name":        "list_portal_recordings",
+			"description": "Liste les enregistrements de sessions Access d'une passerelle (métadonnées ; le rejeu se fait dans l'interface ou avec la CLI).",
+			"inputSchema": schema(req("edge", "string", "Nom de la passerelle")),
+		},
+		{
+			"name":        "delete_portal_recording",
+			"description": "Supprime définitivement un enregistrement de session Access.",
+			"inputSchema": schema(
+				req("edge", "string", "Nom de la passerelle"),
+				req("id", "string", "ID de l'enregistrement"),
+			),
+		},
+		{
 			"name":        "list_portal_templates",
 			"description": "Liste les templates HTML Access (login, vault, shell…).",
 			"inputSchema": schema(),
@@ -526,4 +590,85 @@ func (h *Handler) toolDeletePortalTemplate(r *http.Request, args map[string]any)
 
 func (h *Handler) toolPushPortalTemplates(r *http.Request) (any, error) {
 	return h.callPortalTemplates(r, http.MethodPost, "/api/v1/portal-page-templates/push", map[string]any{})
+}
+
+func (h *Handler) toolListPortalSessions(r *http.Request, args map[string]any) (any, error) {
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
+	}
+	return h.callPortal(r, http.MethodGet, "/api/v1/portal/sessions?edge="+url.QueryEscape(edge), nil)
+}
+
+func (h *Handler) toolTerminatePortalSession(r *http.Request, args map[string]any) (any, error) {
+	edge, id := argStr(args, "edge"), argStr(args, "id")
+	if edge == "" || id == "" {
+		return nil, fmt.Errorf("edge et id requis")
+	}
+	return h.callPortal(r, http.MethodDelete, "/api/v1/portal/sessions/"+url.PathEscape(id)+"?edge="+url.QueryEscape(edge), nil)
+}
+
+func (h *Handler) toolListPortalAccessRequests(r *http.Request, args map[string]any) (any, error) {
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
+	}
+	q := url.Values{"edge": {edge}}
+	if st := argStr(args, "status"); st != "" {
+		q.Set("status", st)
+	}
+	return h.callPortal(r, http.MethodGet, "/api/v1/portal/access-requests?"+q.Encode(), nil)
+}
+
+func (h *Handler) toolDecidePortalAccessRequest(r *http.Request, args map[string]any) (any, error) {
+	id, decision := argStr(args, "id"), argStr(args, "decision")
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	if decision != "approve" && decision != "deny" && decision != "revoke" {
+		return nil, fmt.Errorf("decision doit être approve, deny ou revoke")
+	}
+	body := map[string]any{}
+	if _, ok := args["duration_min"]; ok {
+		body["duration_min"] = argInt(args, "duration_min", 0)
+	}
+	return h.callPortal(r, http.MethodPost, "/api/v1/portal/access-requests/"+url.PathEscape(id)+"/"+decision, body)
+}
+
+func (h *Handler) toolGetPortalPolicy(r *http.Request, args map[string]any) (any, error) {
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
+	}
+	return h.callPortal(r, http.MethodGet, "/api/v1/portal/policy?edge="+url.QueryEscape(edge), nil)
+}
+
+func (h *Handler) toolSetPortalPolicy(r *http.Request, args map[string]any) (any, error) {
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
+	}
+	body := map[string]any{}
+	for _, k := range []string{"hours_enabled", "days", "start_time", "end_time", "timezone", "ip_allow", "idle_timeout_min", "record_sessions", "record_retention_days"} {
+		if v, ok := args[k]; ok {
+			body[k] = v
+		}
+	}
+	return h.callPortal(r, http.MethodPut, "/api/v1/portal/policy?edge="+url.QueryEscape(edge), body)
+}
+
+func (h *Handler) toolListPortalRecordings(r *http.Request, args map[string]any) (any, error) {
+	edge := argStr(args, "edge")
+	if edge == "" {
+		return nil, fmt.Errorf("edge requis")
+	}
+	return h.callPortal(r, http.MethodGet, "/api/v1/portal/recordings?edge="+url.QueryEscape(edge), nil)
+}
+
+func (h *Handler) toolDeletePortalRecording(r *http.Request, args map[string]any) (any, error) {
+	edge, id := argStr(args, "edge"), argStr(args, "id")
+	if edge == "" || id == "" {
+		return nil, fmt.Errorf("edge et id requis")
+	}
+	return h.callPortal(r, http.MethodDelete, "/api/v1/portal/recordings/"+url.PathEscape(id)+"?edge="+url.QueryEscape(edge), nil)
 }

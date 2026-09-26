@@ -49,6 +49,7 @@ var messagesES = map[string]string{
 	"api.err.json":        "JSON no válido",
 	"api.err.json_body":   "cuerpo JSON no válido",
 	"api.err.not_found":   "no encontrado",
+	"api.err.conflict":    "ya procesado",
 	"api.err.unauth":      "no autenticado",
 	"api.err.forbidden":   "prohibido",
 	"api.err.bad_request": "solicitud incorrecta",

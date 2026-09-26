@@ -96,11 +96,11 @@ var mcpTools = []string{
 	"approve_agent", "revoke_agent", "create_declared_node", "delete_declared_node",
 	"create_bootstrap_ticket", "accept_node", "reject_node",
 	"list_alerts", "get_metrics", "get_proxy_metrics", "list_backups", "list_users", "list_snippets",
-	"list_domains", "list_certs", "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo", "list_teams",
+	"list_domains", "list_certs", "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo", "get_prism_slo", "list_teams",
 	"get_audit_log", "get_security_overview", "list_security_bans", "list_security_threats", "list_security_cves",
 	"create_security_ban", "delete_security_ban",
 	"get_portal_config", "list_portal_destinations", "preview_portal_destinations",
-	"list_portal_users", "list_portal_audit", "list_portal_templates", "get_portal_template",
+	"list_portal_users", "list_portal_audit", "list_portal_sessions", "terminate_portal_session", "list_portal_access_requests", "decide_portal_access_request", "get_portal_policy", "set_portal_policy", "list_portal_recordings", "delete_portal_recording", "list_portal_templates", "get_portal_template",
 	"update_portal_config", "push_portal",
 	"create_portal_destination", "update_portal_destination", "delete_portal_destination",
 	"invite_portal_user", "update_portal_user", "delete_portal_user", "resend_portal_invite",
@@ -219,7 +219,7 @@ func ToolRequiredScope(tool string) string {
 		return ScopeDomainsRead
 	case "list_certs":
 		return ScopeCertsRead
-	case "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo":
+	case "list_logs", "simulate_sentinel_config", "get_prism_anomalies", "get_prism_geo", "get_prism_slo":
 		return ScopeLogsRead
 	case "list_teams":
 		return ScopeTeamsRead
@@ -230,12 +230,12 @@ func ToolRequiredScope(tool string) string {
 	case "create_security_ban", "delete_security_ban":
 		return ScopeSecurityWrite
 	case "get_portal_config", "list_portal_destinations", "preview_portal_destinations",
-		"list_portal_users", "list_portal_audit", "list_portal_templates", "get_portal_template":
+		"list_portal_users", "list_portal_audit", "list_portal_sessions", "list_portal_access_requests", "get_portal_policy", "list_portal_recordings", "list_portal_templates", "get_portal_template":
 		return ScopePortalRead
 	case "update_portal_config", "push_portal",
 		"create_portal_destination", "update_portal_destination", "delete_portal_destination",
 		"invite_portal_user", "update_portal_user", "delete_portal_user", "resend_portal_invite",
-		"upsert_portal_template", "delete_portal_template", "push_portal_templates":
+		"terminate_portal_session", "decide_portal_access_request", "set_portal_policy", "delete_portal_recording", "upsert_portal_template", "delete_portal_template", "push_portal_templates":
 		return ScopePortalWrite
 	default:
 		return ""
@@ -325,6 +325,10 @@ func RequiredScopeForRequest(r *http.Request) string {
 			return ScopeAuditRead
 		}
 		return ScopeImportWrite
+	case strings.HasPrefix(path, "/api/v1/portal/recordings/"),
+		strings.HasPrefix(path, "/api/v1/portal/sessions/") && strings.HasSuffix(path, "/watch"):
+		// Contenu d'un terminal (rejeu, observation en direct) : plus sensible qu'une simple lecture.
+		return ScopePortalWrite
 	case strings.HasPrefix(path, "/api/v1/portal"),
 		strings.HasPrefix(path, "/api/v1/portal-page-templates"):
 		if method == http.MethodGet {

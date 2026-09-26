@@ -16,7 +16,7 @@ async function synAttackMap(mode) {
   if (node) q.set('node_name', node);
   const [geo, pts] = await Promise.all([
     api('GET', '/prism/geo?' + q).catch(() => []),
-    api('GET', '/prism/geo/points?' + q + '&limit=300').catch(() => []),
+    api('GET', '/prism/geo/points?' + q + '&limit=1000').catch(() => []),
   ]);
   let ctl;
   try { ctl = await gpxGeoMap(box, {}); } catch { box.innerHTML = ''; return; }
@@ -223,6 +223,7 @@ async function renderSecuritySynthese(ctx) {
           <span class="btn-group" role="group">
             <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'zones' ? ' active' : ''}" data-style="zones" onclick="synAtkStyle('zones')">${esc(t('sy.atk_zones'))}</button>
             <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'cities' ? ' active' : ''}" data-style="cities" onclick="synAtkStyle('cities')">${esc(t('sy.atk_cities'))}</button>
+            <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'regions' ? ' active' : ''}" data-style="regions" onclick="synAtkStyle('regions')">${esc(t('sy.atk_regions'))}</button>
           </span>
           <a onclick="navigate('${isAdmin ? 'prism' : 'edge-prism'}')">${esc(t('sy.atk_prism'))}</a>
         </span></div>

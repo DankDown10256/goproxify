@@ -812,6 +812,56 @@ La clé de réplication du groupe (`ha_key`) n'est jamais renvoyée : l'Admin la
 
 Repousse la config du portail à la passerelle (à tous les membres du groupe HA).
 
+### `GET /api/v1/portal/sessions?edge=` · `DELETE /api/v1/portal/sessions/{id}?edge=`
+
+Connexions SSH et web pontées en cours sur une passerelle. La passerelle envoie l'instantané à chaque connexion ou déconnexion, et toutes les 30 s tant qu'une connexion est ouverte. `GET` renvoie `{"sessions":[{id, actor, target_id, facade, remote, since}]}`. `DELETE` demande à la passerelle de fermer la connexion (`204`, `404` si elle est déjà terminée) et journalise l'action dans l'audit Admin. Portée `portal:read` pour lire, `portal:write` pour terminer.
+
+### `GET /api/v1/portal/sessions/{id}/watch?edge=`
+
+Observe en direct la sortie d'une connexion en cours (flux `text/event-stream`). Chaque événement `data:` porte un morceau de sortie du terminal en base64, précédé de la fin déjà émise (32 Kio) à l'ouverture ; `event: end` annonce la fin de la session. On voit ce que l'utilisateur voit, jamais ce qu'il tape. L'observation est journalisée dans l'audit Admin (`watch`) et dans l'audit du portail (`observed_by_admin`). Elle exige la portée `portal:write`, comme la lecture d'un enregistrement, car elle donne accès au contenu d'un terminal. `404` si la connexion est déjà terminée. La CLI l'expose avec `goproxify access sessions watch`.
+
+### Accès temporaires — `/api/v1/portal/access-requests`
+
+Un utilisateur du portail demande l'accès à une destination qu'il ne voit pas (motif obligatoire, durée de 5 à 480 minutes) ; la passerelle transmet la demande à l'Admin, qui prévient par email les comptes admin et superadmin si le SMTP est configuré. Un administrateur l'approuve ou la refuse. L'accès approuvé est poussé à la passerelle (à tous les membres d'un groupe HA) et expire tout seul.
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/api/v1/portal/access-requests?edge=&status=` | Demandes de la passerelle (`pending`, `approved`, `denied`, `revoked` ; une demande accordée échue est renvoyée `expired`) |
+| `POST` | `/api/v1/portal/access-requests/{id}/approve` | Corps optionnel `{"duration_min": n}` (1 à 1440, défaut : durée demandée) |
+| `POST` | `/api/v1/portal/access-requests/{id}/deny` | Refuse une demande en attente |
+| `POST` | `/api/v1/portal/access-requests/{id}/revoke` | Retire un accès accordé avant son terme |
+
+Réponse `204` ; `409` si la demande n'est plus dans le bon état, `404` si elle n'existe pas. Une demande en attente pour le même utilisateur et la même destination n'est pas dupliquée. Portée `portal:read` pour lire, `portal:write` pour décider. Côté portail utilisateur : `GET /api/access/requestable` (destinations demandables) et `POST /api/access/requests` (`target_id`, `reason`, `duration_min`).
+
+### `GET /api/v1/portal/policy?edge=` · `PUT /api/v1/portal/policy?edge=`
+
+Politique d'accès du portail, enregistrée avec la config de la passerelle (celle du groupe pour un groupe HA) et poussée à chaque `PUT`. Le formulaire `PUT /api/v1/portal` ne la modifie pas.
+
+| Champ | Description |
+|-------|-------------|
+| `hours_enabled` | Active la limitation horaire |
+| `days` | Jours autorisés, `0` = dimanche à `6` = samedi |
+| `start_time`, `end_time` | `HH:MM`, la fin suit le début (pas de plage sur minuit) |
+| `timezone` | Nom IANA (`Europe/Paris`), UTC si vide |
+| `ip_allow` | Adresses ou plages CIDR autorisées ; vide = toutes |
+| `idle_timeout_min` | Ferme une session après N minutes sans saisie de l'utilisateur ; `0` = jamais |
+| `record_sessions` | Enregistre la sortie des terminaux (voir ci-dessous) |
+| `record_retention_days` | Jours de conservation des enregistrements ; `0` = illimitée |
+
+`400` avec le motif si la politique est invalide. Hors plage horaire ou depuis une adresse non autorisée, la passerelle refuse la connexion au portail, l'ouverture d'une session et la connexion SSH (`403`), et journalise le refus dans l'audit. Les sessions déjà ouvertes ne sont coupées que par l'inactivité. Derrière la passerelle, l'adresse du client est la dernière entrée de `X-Forwarded-For`. Portée `portal:read` pour lire, `portal:write` pour modifier.
+
+### Enregistrements de sessions — `/api/v1/portal/recordings`
+
+Quand `record_sessions` est actif dans la politique, la passerelle enregistre la sortie du terminal de chaque nouvelle session (SSH, web, Docker) au format asciicast v2. La saisie de l'utilisateur n'est jamais gardée. Les fichiers restent sur la passerelle, chiffrés au repos avec une clé dérivée du secret du portail ; l'Admin les relaie à la demande. Un enregistrement est limité à 8 Mio de sortie (marqué `truncated` au-delà) et n'est écrit qu'à la fin de la session. `record_retention_days` supprime automatiquement les plus anciens (`0` = conservation illimitée).
+
+| Méthode | Chemin | Description |
+|---------|--------|-------------|
+| `GET` | `/api/v1/portal/recordings?edge=` | `{"recordings":[{id, actor, target_id, facade, remote, started, duration_sec, bytes, truncated}]}`, du plus récent au plus ancien |
+| `GET` | `/api/v1/portal/recordings/{id}?edge=` | Fichier asciicast (`application/x-asciicast`), lecture journalisée dans l'audit Admin |
+| `DELETE` | `/api/v1/portal/recordings/{id}?edge=` | Suppression définitive (`204`), journalisée |
+
+`502` si la passerelle est injoignable, `404` si l'enregistrement n'existe pas. Portée `portal:read` pour lister ; `portal:write` pour lire le contenu d'un enregistrement ou le supprimer. Le contenu n'est pas exposé en MCP.
+
 Les destinations (`/api/v1/portal/destinations`) et les utilisateurs (`/api/v1/portal/users`) suivent la même règle : rattachés au groupe, visibles et modifiables depuis n'importe quel membre. Au démarrage, les données propres aux membres d'avant les groupes sont rattachées au groupe (config du premier membre, destinations en double retirées, un désaccord de config est signalé dans le log, jamais écrasé).
 
 ## Moteur de règles automatiques
@@ -1080,5 +1130,7 @@ Codes d'erreur :
 - `GET /api/v1/prism/bans/breakdown` — bans actifs ventilés par source puis par technique de détection : `[{source, source_label, sentinel, technique, label, count}]`. `sentinel: true` pour la source `threat` (moteur Sentinel de la passerelle : techniques `ip`, `ua`, `path`, `rate` et leurs variantes `custom_*`) ; Fail2Ban est rapporté en `errors`, CrowdSec par scénario.
 - `GET /api/v1/prism/ip-scan?ip=<ip>[&from&to]` — ré-analyse à la demande d'une IP : `verdict` (`banned` | `suspect` | `clean`), bans actifs (avec source/technique), nombre de bans passés, décisions de menace, requêtes/erreurs sur la période et chemins les plus visés.
 - `GET /api/v1/prism/geo/points?[from&to&proxy&node_name&limit]` — trafic agrégé par ville, les plus actives d'abord (`limit` 300 par défaut, 1000 max) : `[{city, region, country_code, country_name, lat, lon, requests, errors, error_rate, ips, banned_ips}]`. La position est approximative (géolocalisation IP, précision de l'ordre de la ville) ; les IPs pas encore localisées sont ignorées.
-- `GET /api/v1/prism/anomalies?[from&to&proxy&node_name]` — écarts détectés sur la période, critiques d'abord : `[{kind, level, subject, label, value, baseline, count, banned?}]`. `kind` : `error_spike` (point de la courbe > moyenne + 2,5 écarts-types, au moins 10 erreurs ; `subject` = tranche horaire), `dominant_ip` (au moins 20 % des requêtes et 50 requêtes ; `banned` si déjà bannie), `country_errors` (au moins 10 % d'erreurs sur 50 requêtes, 2 max), `backend_errors` (plus de 10 % d'erreurs sur 20 requêtes, 2 max), `bot_share` (au moins 30 %). `level` : `critical` | `warning`.
+- `GET /api/v1/prism/anomalies?[from&to&proxy&node_name]` — écarts détectés sur la période, critiques d'abord : `[{kind, level, subject, label, value, baseline, count, banned?}]`. `kind` : `error_spike` (point de la courbe > moyenne + 2,5 écarts-types, au moins 10 erreurs ; `subject` = tranche horaire), `dominant_ip` (au moins 20 % des requêtes et 50 requêtes ; `banned` si déjà bannie), `country_errors` (au moins 20 % d'erreurs sur 50 requêtes, 2 max), `backend_errors` (plus de 10 % d'erreurs sur 20 requêtes, 2 max), `bot_share` (au moins 30 %). `level` : `critical` | `warning`.
+- `GET /api/v1/prism/slo?[target&days&proxy&node_name]` — SLO de disponibilité (réponses non-5xx) sur une fenêtre glissante (`target` en % : objectif enregistré, 99.9 par défaut ; `days` : 30 par défaut, 90 max ; `from`/`to` ignorés) : `{target, days, requests, errors, availability, budget_total, budget_left_pct, burn_1h, burn_6h, state}`. `burn_*` vaut 1 quand le budget est consommé exactement au rythme de l'objectif. `state` : `exhausted` (budget consommé), `critical` (burn ≥ 14,4 sur 1 h et ≥ 6 sur 6 h), `warning` (burn ≥ 3 sur 6 h), sinon `ok`.
+- `GET /api/v1/prism/slo/config` → `{target}` ; `PUT /api/v1/prism/slo/config` `{target}` (admin, entre 90 et 99.999) — objectif SLO enregistré (réglage `slo.target`, 99.9 par défaut), utilisé par l'écran, `GET /prism/slo` sans `target`, l'outil MCP `get_prism_slo` et l'alerte `slo_burn`.
 - `GET /api/v1/prism/live-ips` renvoie en plus `city`, `lat`, `lon` (0/0 tant que l'IP n'est pas localisée).

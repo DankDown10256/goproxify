@@ -36,11 +36,13 @@ func BuildPortalPayload(db *sql.DB, g GroupResolver, edgeName string) PortalConf
 	scope := scopeFor(g, edgeName)
 	cfg := loadPortalConfig(db, scope)
 	cfg.EdgeName = edgeName
+	grantEdges := []string{edgeName}
 
 	group, inGroup := strings.CutPrefix(scope, groupScopePrefix)
 	if inGroup {
 		cfg.HAGroup = group
 		cfg.HAMembers = memberNames(g, group)
+		grantEdges = cfg.HAMembers
 		if cfg.HASessionMode != HASessionShared {
 			cfg.HASessionMode = HASessionSticky
 		}
@@ -49,6 +51,7 @@ func BuildPortalPayload(db *sql.DB, g GroupResolver, edgeName string) PortalConf
 		cfg.HASessionMode = ""
 	}
 
+	cfg.Grants = listActiveGrants(db, grantEdges)
 	// L'activation est une propriété du nœud (wizard : config.portal). Un nœud qui n'héberge pas le
 	// portail reçoit quand même la config du groupe, en attente, pour être prêt à prendre le relais.
 	if g != nil {

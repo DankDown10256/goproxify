@@ -338,8 +338,8 @@ Supported formats: nginx, HAProxy, Traefik YAML, Traefik TOML, Traefik Labels, C
 - TLS certificate, snippet, token, user, team management
 - Integrations: Prism (traffic analysis), Security dashboard, Backups, Import
 - **Logs**: aggregated view (access + system + audit), filters, pagination, live mode via WebSocket
-- **Observability overview**: one page for the Admin (all Edges, Edge selector) and each Edge menu (Edge locked): top anomalies, KPIs, traffic chart, HTTP codes, Edge table, proxies to watch, top countries, certificates to renew
-- **Prism**: command-center layout, KPIs with sparklines, Leaflet map with bundled country outlines (no external tiles; zones or cities, requests / error rate / banned IPs, live pulses at the source city), server-side anomaly detection (`/prism/anomalies`, MCP `get_prism_anomalies`, CLI `goproxify prism anomalies`), country and city drill-down, time series, HTTP codes, tabs Paths / IPs / Sources (components, bots, referrers) / Countries / Backends, period comparison, IP scan, CSV/JSON/HTML/PDF exports
+- **Observability overview**: one page for the Admin (all Edges, Edge selector) and each Edge menu (Edge locked): top anomalies, KPIs, traffic chart, HTTP codes, Edge table, proxies to watch, top countries, certificates to renew, availability SLO with error budget and burn rate (`/prism/slo`, MCP `get_prism_slo`, alert trigger `slo_burn` evaluated every 5 min per Edge and fleet-wide)
+- **Prism**: command-center layout, KPIs with sparklines, Leaflet map with bundled country outlines (no external tiles; zones, cities or regions of every country, requests / error rate / banned IPs, live pulses at the source city), server-side anomaly detection (`/prism/anomalies`, MCP `get_prism_anomalies`, CLI `goproxify prism anomalies`), country and city drill-down, time series, HTTP codes, tabs Paths / IPs / Sources (components, bots, referrers) / Countries, period comparison, IP scan, CSV/JSON/HTML/PDF exports
 - **Live attacks map** on the Security overview: errors and banned IPs of the last 24 h plus a live feed of `error` / `banned` events, per Edge or for the whole fleet
 
 ---

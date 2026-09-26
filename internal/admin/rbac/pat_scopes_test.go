@@ -6,6 +6,7 @@ package rbac_test
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -175,3 +176,20 @@ type responseDiscard struct{}
 func (responseDiscard) Header() http.Header       { return http.Header{} }
 func (responseDiscard) Write([]byte) (int, error) { return 0, nil }
 func (responseDiscard) WriteHeader(statusCode int) {}
+
+func TestPortalTerminalContentNeedsWriteScope(t *testing.T) {
+	scope := func(method, path string) string {
+		return rbac.RequiredScopeForRequest(httptest.NewRequest(method, path, nil))
+	}
+	for _, c := range []struct{ method, path, want string }{
+		{http.MethodGet, "/api/v1/portal/recordings?edge=a", rbac.ScopePortalRead},
+		{http.MethodGet, "/api/v1/portal/recordings/abc?edge=a", rbac.ScopePortalWrite},
+		{http.MethodGet, "/api/v1/portal/sessions?edge=a", rbac.ScopePortalRead},
+		{http.MethodGet, "/api/v1/portal/sessions/abc/watch?edge=a", rbac.ScopePortalWrite},
+		{http.MethodDelete, "/api/v1/portal/sessions/abc?edge=a", rbac.ScopePortalWrite},
+	} {
+		if got := scope(c.method, c.path); got != c.want {
+			t.Errorf("%s %s: %q, attendu %q", c.method, c.path, got, c.want)
+		}
+	}
+}

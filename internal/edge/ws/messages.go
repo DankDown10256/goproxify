@@ -34,6 +34,7 @@ const (
 	TypePushErrorPages      = "push_error_pages"
 	TypePushPortal          = "push_portal"
 	TypePushPortalTemplates = "push_portal_templates"
+	TypeKillPortalSession   = "kill_portal_session" // termine une connexion pontée du portail (payload : {"id"})
 	TypeFullSync            = "full_sync"
 	TypeApproveAgent        = "approve_agent"
 	TypeRevokeAgent         = "revoke_agent"
@@ -75,6 +76,8 @@ const (
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
+	TypePortalLive            = "portal_live" // instantané des connexions pontées en cours
+	TypePortalAccessRequest   = "portal_access_request" // demande d'accès temporaire d'un utilisateur du portail
 	TypeThreatBan             = "threat_ban"         // IP bannie par le moteur de détection automatique
 	TypeF2BBan                = "f2b_ban"            // IP bannie par le moteur Fail2Ban passerelle
 	TypeCrowdSecDecisions     = "crowdsec_decisions" // décisions CrowdSec passerelle→Admin (agrégation)

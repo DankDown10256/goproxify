@@ -27,8 +27,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
 - **Prism** : taux d’erreurs et IPs bannies par pays ; bouton accès rapide depuis la table des bans
 - **Prism** : refonte « centre de commande » (carte zoomable, anomalies détectées, onglets) — livré
-- **Observabilité** : Synthèse commune à l’Admin et aux passerelles, Prism recentré (onglets Chemins / IP / Sources / Pays / Backends), carte Leaflet avec vue par ville et connexions en direct, carte « Attaques en direct » dans la Synthèse sécurité, anomalies calculées côté serveur (API, MCP `get_prism_anomalies` / `get_prism_geo`, CLI `goproxify prism`) — livré
-- **Observabilité** : Alertes et SLO (budget d’erreur), Backends dans la page Métriques, régions sur la carte (Natural Earth admin-1), fond vectoriel auto-hébergé pour zoomer jusqu’à la rue — prévu
+- **Observabilité** : Synthèse commune à l’Admin et aux passerelles, Prism recentré (onglets Chemins / IP / Sources / Pays), carte Leaflet avec vues par ville et par région et connexions en direct, carte « Attaques en direct » dans la Synthèse sécurité, anomalies calculées côté serveur (API, MCP `get_prism_anomalies` / `get_prism_geo`, CLI `goproxify prism`) — livré
+- **Observabilité** : Fond vectoriel auto-hébergé pour zoomer jusqu’à la rue — prévu
 - [x] **Sentinel — page en onglets et tiroir de réglages** : vue d'ensemble, détections, listes et exceptions ; simulation sur les logs récents avant d'enregistrer (`POST /security/threat-config/simulate`, `goproxify security threat simulate`)
 
 ### v0.2 — Architecture distribuée _(juillet – août 2026)_
@@ -51,6 +51,12 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [x] Stabiliser les tags SemVer et Releases GitHub régulières
 - [x] Hygiène CI publique (lint/tests documentés)
 - [x] Polish UX Access et docs opérateur
+- [x] **Portail Access en onglets** (Synthèse, Destinations, Utilisateurs, Modèles, Audit, Réglages) — livré
+- [x] **Portail Access : sessions en direct** (lister, terminer ; API, CLI, MCP) — livré
+- [x] **Portail Access : accès temporaires avec approbation** (demande depuis le portail, onglet Approbations, expiration automatique ; API, CLI, MCP) — livré
+- [x] **Portail Access : politiques d'accès** (plages horaires, IP autorisées, déconnexion sur inactivité ; onglet Politiques, API, CLI, MCP) — livré
+- [x] **Portail Access : enregistrement et rejeu des sessions** (sortie du terminal chiffrée sur la passerelle, conservation réglable, lecteur dans l'admin ; API, CLI, MCP) — livré
+- [x] **Portail Access : observation en direct d'une session** (sortie du terminal, journalisée ; UI, API, CLI) et **notification email** des demandes d'accès — livré
 - [x] SBOM attaché à chaque Release (workflow sbom-sign.yml)
 
 ### Résilience backend (v0.4)

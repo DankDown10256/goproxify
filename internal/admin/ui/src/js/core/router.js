@@ -29,7 +29,7 @@ const EDGE_PAGES = new Set([
   'edge-observability','edge-obs-synthese','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
   'edge-tunnel',
-  'portal','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
+  'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
   'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','rules-store',

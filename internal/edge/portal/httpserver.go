@@ -30,6 +30,11 @@ type HTTPServer struct {
 	audit             func(AuditEvent)
 	srv               *http.Server
 	shell             *ShellBroker
+	live              *LiveRegistry
+	policy            func() Policy
+	record            func(actor, targetID, facade, remote string) *Recording
+	grants            *GrantSet
+	onAccessRequest   func(AccessRequest) error
 	providers         AuthProviderLookup
 	masterSecret      string
 	onInviteCompleted func(userID string)
@@ -95,6 +100,8 @@ func (h *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions", h.auth(h.handleListSessions))
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.auth(h.handleRevokeSession))
 	mux.HandleFunc("GET /api/audit", h.auth(h.handleListAudit))
+	mux.HandleFunc("GET /api/access/requestable", h.auth(h.handleRequestable))
+	mux.HandleFunc("POST /api/access/requests", h.auth(h.handleAccessRequest))
 	mux.HandleFunc("GET /api/favorites", h.auth(h.handleListFavorites))
 	mux.HandleFunc("PUT /api/favorites", h.auth(h.handlePutFavorites))
 	mux.HandleFunc("POST /api/favorites/{id}", h.auth(h.handleToggleFavorite))
@@ -221,6 +228,9 @@ func (h *HTTPServer) handleCompleteInvite(w http.ResponseWriter, r *http.Request
 }
 
 func (h *HTTPServer) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if h.policyBlocks(w, r) {
+		return
+	}
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -391,15 +401,22 @@ func (h *HTTPServer) handleListTargets(w http.ResponseWriter, r *http.Request, p
 		AgentName string     `json:"agent_name,omitempty"`
 		Container string     `json:"container,omitempty"`
 		Tags      []string   `json:"tags,omitempty"`
+		ExpiresAt string     `json:"expires_at,omitempty"` // accès temporaire approuvé
 	}
 	userTags := h.userTags(pt.UserID)
 	var out []item
-	for _, c := range FilterCatalog(h.store.Catalog(), userTags) {
-		out = append(out, item{
+	for _, c := range h.store.Catalog() {
+		it := item{
 			ID: c.ID, Name: c.Name, Kind: c.Kind, Source: "catalog",
 			Host: c.Host, Port: c.Port, AgentName: c.AgentName, Container: c.Container,
 			Tags: c.Tags,
-		})
+		}
+		if exp, ok := h.grants.Expiry(pt.UserID, c.ID); ok && !CatalogVisible(userTags, c.Tags) {
+			it.ExpiresAt = exp.Format(time.RFC3339)
+		} else if !CatalogVisible(userTags, c.Tags) {
+			continue
+		}
+		out = append(out, it)
 	}
 	if h.cfg != nil && h.cfg.AllowPersonalTargets {
 		for _, p := range h.store.PersonalTargets(pt.UserID) {
@@ -560,6 +577,9 @@ func (h *HTTPServer) handleDeleteVault(w http.ResponseWriter, r *http.Request, p
 }
 
 func (h *HTTPServer) handleCreateSession(w http.ResponseWriter, r *http.Request, pt portalToken) {
+	if h.policyBlocks(w, r) {
+		return
+	}
 	var body struct {
 		TargetID string        `json:"target_id"`
 		Source   string        `json:"source"`
@@ -581,7 +601,7 @@ func (h *HTTPServer) handleCreateSession(w http.ResponseWriter, r *http.Request,
 			http.Error(w, "cible catalogue introuvable", http.StatusNotFound)
 			return
 		}
-		if !CatalogVisible(h.userTags(pt.UserID), c.Tags) {
+		if _, granted := h.grants.Expiry(pt.UserID, c.ID); !granted && !CatalogVisible(h.userTags(pt.UserID), c.Tags) {
 			http.Error(w, "cible catalogue introuvable", http.StatusNotFound)
 			return
 		}
@@ -742,6 +762,9 @@ func (h *HTTPServer) handleToggleFavorite(w http.ResponseWriter, r *http.Request
 }
 
 func (h *HTTPServer) handleWS(w http.ResponseWriter, r *http.Request) {
+	if h.policyBlocks(w, r) {
+		return
+	}
 	id := r.PathValue("uuid")
 	sess, ok := h.sessions.Acquire(id)
 	if !ok {
@@ -753,9 +776,15 @@ func (h *HTTPServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.Close(websocket.StatusNormalClosure, "")
+	live := h.live.Track(sess.Username, sess.TargetID, string(FacadeWeb), r.RemoteAddr, func() {
+		go func() { _ = c.Close(websocket.StatusPolicyViolation, "session terminée") }()
+	})
+	defer live.Done()
 
 	ctx := r.Context()
-	rw := &wsRW{ctx: ctx, c: c}
+	rec := h.startRecording(sess.Username, sess.TargetID, string(FacadeWeb), r.RemoteAddr)
+	defer rec.Close()
+	rw := touchRW{ReadWriteCloser: &wsRW{ctx: ctx, c: c}, h: live, rec: rec}
 
 	if sess.Target.Kind == TargetDocker {
 		if h.shell == nil {

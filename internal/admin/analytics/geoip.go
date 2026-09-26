@@ -13,7 +13,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/oschwald/maxminddb-golang"
 )
 
 // GeoEntry répartition du trafic par pays.
@@ -31,6 +34,12 @@ type GeoEntry struct {
 type GeoResolver struct {
 	DB  *sql.DB
 	Log *slog.Logger
+	// MMDBPath : base GeoLite2-City locale. Présente, elle remplace ip-api.com (aucune IP ne sort) ;
+	// absente ou illisible, on retombe sur ip-api.com.
+	MMDBPath string
+
+	mu     sync.Mutex
+	reader *maxminddb.Reader
 }
 
 type ipAPIResult struct {
@@ -57,6 +66,66 @@ func init() {
 			privateNets = append(privateNets, network)
 		}
 	}
+}
+
+type mmdbCity struct {
+	Country struct {
+		ISOCode string            `maxminddb:"iso_code"`
+		Names   map[string]string `maxminddb:"names"`
+	} `maxminddb:"country"`
+	City struct {
+		Names map[string]string `maxminddb:"names"`
+	} `maxminddb:"city"`
+	Subdivisions []struct {
+		Names map[string]string `maxminddb:"names"`
+	} `maxminddb:"subdivisions"`
+	Location struct {
+		Latitude  float64 `maxminddb:"latitude"`
+		Longitude float64 `maxminddb:"longitude"`
+	} `maxminddb:"location"`
+}
+
+// local retourne la base GeoLite2-City si elle est disponible (ouverte au premier usage, elle peut arriver après le démarrage).
+func (g *GeoResolver) local() *maxminddb.Reader {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.reader == nil && g.MMDBPath != "" {
+		if r, err := maxminddb.Open(g.MMDBPath); err == nil {
+			g.reader = r
+			g.log().Info("geoip: base locale GeoLite2-City utilisée", "path", g.MMDBPath)
+		}
+	}
+	return g.reader
+}
+
+func lookupLocal(r *maxminddb.Reader, ip string) ipAPIResult {
+	res := ipAPIResult{Query: ip, Status: "fail"}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return res
+	}
+	var rec mmdbCity
+	if err := r.Lookup(parsed, &rec); err != nil || rec.Country.ISOCode == "" {
+		return res
+	}
+	res.Status, res.CountryCode, res.Country = "success", rec.Country.ISOCode, rec.Country.Names["en"]
+	res.City, res.Lat, res.Lon = rec.City.Names["en"], rec.Location.Latitude, rec.Location.Longitude
+	if len(rec.Subdivisions) > 0 {
+		res.RegionName = rec.Subdivisions[0].Names["en"]
+	}
+	return res
+}
+
+// lookup résout des IPs : base locale si présente, sinon ip-api.com.
+func (g *GeoResolver) lookup(ctx context.Context, ips []string) ([]ipAPIResult, error) {
+	if r := g.local(); r != nil {
+		out := make([]ipAPIResult, len(ips))
+		for i, ip := range ips {
+			out[i] = lookupLocal(r, ip)
+		}
+		return out, nil
+	}
+	return g.lookupBatch(ctx, ips)
 }
 
 // Start lance la résolution en arrière-plan toutes les 60 secondes.
@@ -109,6 +178,14 @@ func isPrivate(ip string) bool {
 		}
 	}
 	return false
+}
+
+// batchLimit : 100 IPs par minute avec ip-api.com (quota gratuit), bien plus avec une base locale.
+func (g *GeoResolver) batchLimit() int {
+	if g.local() != nil {
+		return 5000
+	}
+	return 100
 }
 
 func (g *GeoResolver) log() *slog.Logger {
@@ -172,7 +249,7 @@ func (g *GeoResolver) backfillPositions(ctx context.Context) {
 	rows, err := g.DB.QueryContext(ctx,
 		`SELECT ip FROM geoip_cache
 		 WHERE lat IS NULL AND country_code NOT IN ('LO','XX','')
-		 LIMIT 100`)
+		 LIMIT ?`, g.batchLimit())
 	if err != nil {
 		return
 	}
@@ -201,7 +278,7 @@ func (g *GeoResolver) backfillPositions(ctx context.Context) {
 	if len(queries) == 0 {
 		return
 	}
-	results, err := g.lookupBatch(ctx, queries)
+	results, err := g.lookup(ctx, queries)
 	if err != nil {
 		g.log().Warn("geoip: complément de positions échoué (réessai au prochain cycle)", "err", err)
 		return
@@ -223,7 +300,7 @@ func (g *GeoResolver) resolve(ctx context.Context) {
 		`SELECT DISTINCT ip FROM logs
 		 WHERE ip != '' AND status > 0
 		   AND ip NOT IN (SELECT ip FROM geoip_cache)
-		 LIMIT 100`)
+		 LIMIT ?`, g.batchLimit())
 	if err != nil {
 		g.log().Warn("geoip: lecture IPs échouée", "err", err)
 		return
@@ -270,7 +347,7 @@ func (g *GeoResolver) resolve(ctx context.Context) {
 	}
 
 	// Ne pas cacher en cas d'échec réseau : on réessaiera au prochain tick.
-	results, err := g.lookupBatch(ctx, queries)
+	results, err := g.lookup(ctx, queries)
 	if err != nil {
 		g.log().Warn("geoip: appel ip-api.com échoué (réessai au prochain cycle)", "err", err, "n", len(queries))
 		return

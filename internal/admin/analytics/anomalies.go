@@ -137,10 +137,10 @@ func DetectAnomalies(ctx context.Context, db *sql.DB, p Params) []Anomaly {
 		}
 	}
 
-	// Pays en erreur : ≥ 10 % d'erreurs sur au moins 50 requêtes (2 maximum).
+	// Pays en erreur : ≥ 20 % d'erreurs sur au moins 50 requêtes (2 maximum).
 	n := 0
 	for _, g := range GetGeoBreakdown(db, p) {
-		if g.Requests >= 50 && g.ErrorRate >= 10 && n < 2 {
+		if g.Requests >= 50 && g.ErrorRate >= 20 && n < 2 {
 			out = append(out, Anomaly{Kind: "country_errors", Level: "warning", Subject: g.CountryCode,
 				Label: g.CountryName, Value: g.ErrorRate, Count: g.Requests})
 			n++

@@ -179,6 +179,15 @@ MaxMind's terms require attribution and accept that the database is used offline
 
 To disable auto-download, set `geoip.auto_download: false` in `edge.json` and supply your own database.
 
+### Admin: Prism map (city-level position)
+
+The Admin geolocates client IPs to draw the Prism map (country, city, region). Two modes:
+
+- **Local database (default when available)**: the Admin downloads **GeoLite2-City** in the background at startup (`geoip.auto_download: true`, path `geoip.city_db_path`, source `geoip.city_db_url`, default `/etc/goproxify/geoip/GeoLite2-City.mmdb`). IPs are resolved offline and never leave the Admin.
+- **Fallback: ip-api.com**: while the database is absent (download in progress, disabled, or unreachable), the Admin queries the public service ip-api.com over plain HTTP, **which sends the client IPs to that third party**. Set `geoip.auto_download: true` (or place the file yourself) to avoid it, and block outbound access to `ip-api.com` if it must never be used.
+
+Results (IP, country, city, region, latitude, longitude) are cached in the Admin database (`geoip_cache`). Positions are approximate (city level).
+
 ---
 
 ## 4. Third-party integrations (operator-configured)

@@ -7,6 +7,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -24,6 +26,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/mailer"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
+	"github.com/vincamok/goproxify/internal/edge/portal"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
 	edgeWS "github.com/vincamok/goproxify/internal/edge/ws"
@@ -67,6 +70,8 @@ type Manager struct {
 	onAgentPending func(id, name, version string)
 	onLogBatch     func(entries []edgeWS.LogEntryPayload)
 	onWAFReloaded  func(nodeName string)
+	liveMu         sync.RWMutex
+	portalLive     map[string][]portal.LiveSession // instantané par passerelle (node_name)
 	alertEngine    *alerting.Engine
 }
 
@@ -480,6 +485,10 @@ func (m *Manager) HandleEdgeMessage(msg edgeWS.Message) {
 		}
 	case edgeWS.TypePortalSendEmailOTP:
 		m.handlePortalSendEmailOTP(msg.Payload)
+	case edgeWS.TypePortalAccessRequest:
+		m.handlePortalAccessRequest(msg.Payload)
+	case edgeWS.TypePortalLive:
+		m.handlePortalLive(msg.Payload)
 	case edgeWS.TypePortalAudit:
 		m.handlePortalAudit(msg.Payload)
 	case edgeWS.TypeThreatBan:
@@ -1971,5 +1980,91 @@ func (m *Manager) PushThreatConfig(ctx context.Context, scope string, cfg any) {
 				m.log.Warn("edgews: push threat config", "edge", e.nodeName, "err", err)
 			}
 		}()
+	}
+}
+
+func (m *Manager) handlePortalLive(raw json.RawMessage) {
+	var p struct {
+		NodeName string               `json:"node_name"`
+		Sessions []portal.LiveSession `json:"sessions"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil || p.NodeName == "" {
+		return
+	}
+	m.liveMu.Lock()
+	if m.portalLive == nil {
+		m.portalLive = map[string][]portal.LiveSession{}
+	}
+	m.portalLive[p.NodeName] = p.Sessions
+	m.liveMu.Unlock()
+}
+
+// PortalLive retourne les dernières connexions pontées reçues de la passerelle.
+func (m *Manager) PortalLive(edgeName string) []portal.LiveSession {
+	m.liveMu.RLock()
+	defer m.liveMu.RUnlock()
+	return append([]portal.LiveSession(nil), m.portalLive[edgeName]...)
+}
+
+// KillPortalSession demande à la passerelle de fermer une connexion ; false si elle est inconnue.
+func (m *Manager) KillPortalSession(edgeName, id string) bool {
+	known := false
+	for _, s := range m.PortalLive(edgeName) {
+		if s.ID == id {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return false
+	}
+	for _, e := range m.allEntries() {
+		if e.nodeName != edgeName {
+			continue
+		}
+		if err := e.client.PushJSON(edgeWS.TypeKillPortalSession, map[string]string{"id": id}); err != nil {
+			m.log.Warn("edgews/manager: kill portal session", "edge", edgeName, "err", err)
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func (m *Manager) handlePortalAccessRequest(raw json.RawMessage) {
+	var p struct {
+		NodeName    string `json:"node_name"`
+		UserID      string `json:"user_id"`
+		Username    string `json:"username"`
+		TargetID    string `json:"target_id"`
+		Reason      string `json:"reason"`
+		DurationMin int    `json:"duration_min"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	if !api.InsertPortalAccessRequest(m.db, p.NodeName, p.UserID, p.Username, p.TargetID, p.Reason, p.DurationMin) {
+		return
+	}
+	m.notifyAccessRequest(p.NodeName, p.Username, p.TargetID, p.Reason, p.DurationMin)
+}
+
+// notifyAccessRequest prévient par email les administrateurs d'une nouvelle demande d'accès temporaire.
+// Sans SMTP configuré, la demande reste visible dans l'onglet Approbations.
+func (m *Manager) notifyAccessRequest(edge, username, targetID, reason string, durationMin int) {
+	var name string
+	_ = m.db.QueryRow(`SELECT name FROM portal_destinations WHERE id=?`, targetID).Scan(&name)
+	if name == "" {
+		name = targetID
+	}
+	body := fmt.Sprintf("%s demande l'accès à « %s » sur la passerelle %s pendant %d minutes.\n\nMotif : %s\n\nÀ traiter dans Portail Access › Approbations.\n",
+		username, name, edge, durationMin, reason)
+	for _, to := range api.PortalAccessRecipients(m.db) {
+		if err := mailer.Send(m.db, to, "Demande d'accès Access en attente", body); err != nil {
+			if !errors.Is(err, mailer.ErrNotConfigured) {
+				m.log.Warn("edgews: notification demande d'accès", "to", to, "err", err)
+			}
+			return
+		}
 	}
 }

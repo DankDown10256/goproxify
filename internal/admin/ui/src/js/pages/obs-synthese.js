@@ -7,6 +7,7 @@
 const OBS_RANGES = [['15 min', 900000], ['1h', 3600000], ['6h', 21600000], ['24h', 86400000], ['7j', 604800000]];
 let _obsSynRangeMs = 86400000;
 let _obsSynNode = '';
+const OBS_SLO_TARGETS = [99, 99.5, 99.9, 99.95, 99.99];
 
 pages['obs-synthese'] = function() { renderObsSynthese({ node_name: '', lock: false }); };
 pages['edge-obs-synthese'] = function() { renderObsSynthese({ node_name: edgePrismNodeName(), lock: true }); };
@@ -24,14 +25,16 @@ async function renderObsSynthese(scope) {
   main.innerHTML = `<div class="spinner" style="margin:60px auto"></div>`;
 
   const allEdges = scope.lock ? [] : ((await api('GET', '/nodes').catch(() => [])) || []).filter(n => n.role === 'edge');
-  const [kpis, timeline, status, geo, anoms, backends, domains, edgeKpis] = await Promise.all([
+  const [kpis, uniq, timeline, status, geo, anoms, backends, domains, slo, edgeKpis] = await Promise.all([
     api('GET', '/prism/kpis?' + qs).catch(() => ({})),
+    api('GET', '/prism/unique-ips?' + qs).catch(() => ({})),
     api('GET', `/prism/timeline?${qs}&bucket=${bucket}`).catch(() => []),
     api('GET', '/prism/status?' + qs).catch(() => []),
     api('GET', '/prism/geo?' + qs).catch(() => []),
     api('GET', '/prism/anomalies?' + qs).catch(() => []),
     api('GET', '/prism/backend-errors?' + qs).catch(() => []),
     api('GET', '/domains').catch(() => []),
+    api('GET', '/prism/slo' + (node ? '?node_name=' + encodeURIComponent(node) : '')).catch(() => null),
     Promise.all((node ? [] : allEdges.slice(0, 12)).map(n => {
       const p = new URLSearchParams({ from: from.toISOString(), to: now.toISOString(), node_name: n.node_name || n.display_name || n.id });
       return api('GET', '/prism/kpis?' + p).catch(() => ({}));
@@ -110,6 +113,30 @@ async function renderObsSynthese(scope) {
         </div>`).join('') : `<p class="prism-muted">${esc(t('obs.syn.certs_none'))}</p>`}
     </div>`;
 
+  const sloCard = !slo ? '' : (() => {
+    const cls = { ok: 'var(--green)', warning: 'var(--yellow)', critical: 'var(--red)', exhausted: 'var(--red)' }[slo.state] || 'var(--text2)';
+    const left = Math.max(0, Math.min(100, slo.budget_left_pct));
+    const burn = v => `<b style="color:${v >= 6 ? 'var(--red)' : v >= 3 ? 'var(--yellow)' : 'inherit'}">${v.toFixed(1)}×</b>`;
+    return `<div class="prism-panel" style="margin-bottom:14px">
+      <div class="prism-panel-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span>${esc(t('obs.syn.slo', { days: slo.days }))}</span>
+        <select class="form-input" style="max-width:110px" data-obs="slo-target" aria-label="${esc(t('obs.syn.slo_target'))}">
+          ${[...new Set([...OBS_SLO_TARGETS, slo.target])].sort((a, b) => a - b).map(v => `<option value="${v}" ${v === slo.target ? 'selected' : ''}>${v} %</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+        <div><div style="font-size:26px;font-weight:700;color:${cls}">${slo.availability.toFixed(slo.availability >= 99.9 ? 3 : 2)}%</div>
+          <div class="prism-muted">${esc(t('obs.syn.slo_avail'))} · ${esc(t('obs.syn.slo_state_' + slo.state))}</div></div>
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3)"><span>${esc(t('obs.syn.slo_budget'))}</span><b style="color:var(--text)">${left.toFixed(0)}%</b></div>
+          <span class="prism-bar-bg" style="display:block;height:8px"><span class="prism-bar-fill" style="width:${left}%;background:${left < 20 ? 'var(--red)' : left < 50 ? 'var(--yellow)' : 'var(--green)'}"></span></span>
+          <div class="prism-muted" style="margin-top:4px">${obsNum(slo.errors)} / ${obsNum(Math.round(slo.budget_total))} ${esc(t('obs.syn.slo_errors'))}</div>
+        </div>
+        <div style="font-size:13px"><div>${esc(t('obs.syn.slo_burn'))} 1 h ${burn(slo.burn_1h)}</div><div>${esc(t('obs.syn.slo_burn'))} 6 h ${burn(slo.burn_6h)}</div></div>
+      </div>
+    </div>`;
+  })();
+
   main.innerHTML = `<div id="obs-syn-root">
     <div class="prism-filters">
       <div class="prism-fg">${nodeSel}</div>
@@ -124,7 +151,8 @@ async function renderObsSynthese(scope) {
       <div class="prism-panel-title">${esc(t('obs.syn.anoms'))}</div>
       ${obsAnomaliesHtml(anomRows, { limit: 3 })}
     </div>` : ''}
-    ${obsKpisHtml(kpis, timelinePts)}
+    ${sloCard}
+    ${obsKpisHtml({ ...kpis, unique_ips: uniq?.unique_ips ?? kpis?.unique_ips }, timelinePts)}
     <div class="prism-two">
       <div class="prism-panel">${obsTimelineHtml(timelinePts, { live: bucket === 'minute' })}</div>
       <div class="prism-panel">${obsStatusHtml(Array.isArray(status) ? status : [])}</div>
@@ -134,9 +162,11 @@ async function renderObsSynthese(scope) {
   const root = document.getElementById('obs-syn-root');
 
   const openPrism_ = (opts = {}) => {
-    if (scope.lock) { window._prismProxyInit = opts.proxy || ''; window._prismIpInit = opts.ip || ''; navigate('edge-prism'); return; }
     window._prismProxyInit = opts.proxy || '';
     window._prismIpInit = opts.ip || '';
+    window._prismFromInit = opts.from || '';
+    window._prismToInit = opts.to || '';
+    if (scope.lock) { navigate('edge-prism'); return; }
     if (node) { const e = allEdges.find(n => (n.node_name || n.display_name || n.id) === node); if (e) { selectEdge(e, 'edge-prism'); return; } }
     navigate('prism');
   };
@@ -155,14 +185,33 @@ async function renderObsSynthese(scope) {
       const opts = { status: el.getAttribute('data-status') || '', date_from: from.toISOString(), date_to: now.toISOString() };
       if (typeof openLogsFiltered === 'function') openLogsFiltered(opts);
     }
+    else if (act === 'bucket') openPrism_(obsBucketRange(el.getAttribute('data-bucket') || '', bucket));
     else if (act === 'ban') openPrism_({ ip: el.getAttribute('data-ip') || '' });
+    else if (act === 'filter-proxy') openPrism_({ proxy: el.getAttribute('data-proxy') || '' });
     else if (act) openPrism_();
     if (el.hasAttribute('data-obs') || act) e.preventDefault();
   };
   root.onchange = e => {
+    const sl = e.target.closest('[data-obs="slo-target"]');
+    if (sl) {
+      api('PUT', '/prism/slo/config', { target: parseFloat(sl.value) })
+        .catch(err => toast(err.message, 'error'))
+        .finally(() => renderObsSynthese(scope));
+      return;
+    }
     const el = e.target.closest('[data-obs="node"]');
     if (!el) return;
     _obsSynNode = el.value;
     renderObsSynthese(scope);
   };
+}
+
+// Tranche de la courbe (heure locale du serveur, « AAAA-MM-JJTHH:MM ») → période datetime-local pour Prism.
+function obsBucketRange(b, unit) {
+  const start = new Date(b.length === 10 ? b + 'T00:00' : b);
+  if (isNaN(start)) return {};
+  const p = n => String(n).padStart(2, '0');
+  const fmt = d => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  const span = b.length === 10 ? 86400000 : unit === 'minute' ? 60000 : 3600000;
+  return { from: fmt(start), to: fmt(new Date(start.getTime() + span - 60000 + (unit === 'minute' ? 60000 : 0))) };
 }

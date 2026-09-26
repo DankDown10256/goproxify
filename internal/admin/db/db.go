@@ -693,6 +693,22 @@ func migrate(db *sql.DB) error {
 			detail     TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_portal_audit_edge ON portal_audit (edge_name, id DESC)`,
+		`CREATE TABLE IF NOT EXISTS portal_access_requests (
+			id           TEXT PRIMARY KEY,
+			edge_name    TEXT NOT NULL,
+			user_id      TEXT NOT NULL,
+			username     TEXT NOT NULL DEFAULT '',
+			target_id    TEXT NOT NULL,
+			target_name  TEXT NOT NULL DEFAULT '',
+			reason       TEXT NOT NULL DEFAULT '',
+			duration_min INTEGER NOT NULL DEFAULT 0,
+			status       TEXT NOT NULL DEFAULT 'pending',
+			created_at   TEXT NOT NULL,
+			decided_by   TEXT NOT NULL DEFAULT '',
+			decided_at   TEXT NOT NULL DEFAULT '',
+			expires_at   TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_portal_access_requests_edge ON portal_access_requests (edge_name, status)`,
 		`CREATE TABLE IF NOT EXISTS portal_page_templates (
 			page_key   TEXT PRIMARY KEY,
 			name       TEXT NOT NULL DEFAULT '',

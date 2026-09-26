@@ -22,6 +22,16 @@ func init() {
 			),
 		},
 		map[string]any{
+			"name":        "get_prism_slo",
+			"description": "SLO de disponibilité (réponses non-5xx) sur une fenêtre glissante : disponibilité, budget d'erreur restant, vitesse de consommation (1 h et 6 h) et état.",
+			"inputSchema": schema(
+				opt("target", "number", "Objectif en % (défaut 99.9)"),
+				opt("days", "number", "Fenêtre en jours (défaut 30, max 90)"),
+				opt("edge", "string", "Passerelle (nom du nœud ou id du token) ; omis = toutes"),
+				opt("proxy", "string", "Domaine du proxy ; omis = tous"),
+			),
+		},
+		map[string]any{
 			"name":        "get_prism_geo",
 			"description": "Trafic par pays (requêtes, erreurs, taux d'erreur, IPs bannies) ou par ville (position approximative issue de la géolocalisation IP).",
 			"inputSchema": schema(
@@ -75,4 +85,11 @@ func (h *Handler) toolGetPrismGeo(r *http.Request, args map[string]any) (any, er
 		entries = []analytics.GeoEntry{}
 	}
 	return entries, nil
+}
+
+func (h *Handler) toolGetPrismSLO(r *http.Request, args map[string]any) (any, error) {
+	p := h.prismToolParams(r, args)
+	target, _ := args["target"].(float64)
+	days, _ := args["days"].(float64)
+	return analytics.GetSLO(r.Context(), h.DB, analytics.Params{Proxy: p.Proxy, NodeName: p.NodeName}, target, int(days)), nil
 }

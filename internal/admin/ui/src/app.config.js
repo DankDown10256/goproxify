@@ -193,28 +193,6 @@ const APP_CONFIG = {
       section: 'Passerelle',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="10" height="8" rx="1"/><path d="M6 13v2M10 13v2M5 9h6"/></svg>',
       guard: ({ hasEdgeScope }) => hasEdgeScope,
-      children: [
-        {
-          page: 'edge-portal-catalog',
-          label: 'Catalogue Access',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="10" height="8" rx="1"/><path d="M6 8h6"/></svg>',
-        },
-        {
-          page: 'edge-portal-users',
-          label: 'Users Access',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.2 2.2-4 5-4s5 1.8 5 4"/></svg>',
-        },
-        {
-          page: 'portal-templates',
-          label: 'Templates Access',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3h8v12H4zM6 6h4M6 9h4"/><path d="M10 15l2 2 4-4"/></svg>',
-        },
-        {
-          page: 'portal-audit',
-          label: 'Audit Access',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2h6l4 4v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4M5 9h6M5 12h4"/></svg>',
-        },
-      ],
     },
     {
       // Atterrissage dédié (évite que gpxPageLabel écrase le label par « Logs d'accès »)
@@ -275,6 +253,21 @@ const APP_CONFIG = {
   // Un groupe = une rubrique de la sidebar dont les sous-pages s'affichent en onglets.
   // `root` est l'entrée de la sidebar (surlignée quel que soit l'onglet actif).
   pageTabs: [
+    {
+      root: 'portal',
+      tabs: [
+        { page: 'portal',              key: 'p_overview',  label: 'Synthèse' },
+        { page: 'edge-portal-catalog', key: 'p_dest',      label: 'Destinations' },
+        { page: 'edge-portal-users',   key: 'p_users',     label: 'Utilisateurs' },
+        { page: 'portal-sessions',     key: 'p_sessions',  label: 'Sessions' },
+        { page: 'portal-approvals',    key: 'p_approvals', label: 'Approbations' },
+        { page: 'portal-policy',       key: 'p_policy',    label: 'Politiques' },
+        { page: 'portal-recordings',   key: 'p_recordings', label: 'Enregistrements' },
+        { page: 'portal-templates',    key: 'p_templates', label: 'Modèles' },
+        { page: 'portal-audit',        key: 'p_audit',     label: 'Audit' },
+        { page: 'portal-settings',     key: 'p_settings',  label: 'Réglages' },
+      ],
+    },
     {
       root: 'security',
       tabs: [
@@ -355,6 +348,11 @@ const APP_CONFIG = {
     'ip-profiles':      'Profils IP (Threat Feeds)',
     'edge-auth':        'Auth / SSO',
     portal:             'Portail Access',
+    'portal-settings':  'Réglages Access',
+    'portal-sessions':  'Sessions Access',
+    'portal-approvals': 'Approbations Access',
+    'portal-policy':    'Politiques Access',
+    'portal-recordings': 'Enregistrements Access',
     'portal-templates': 'Templates Access',
     'portal-audit':     'Audit Access',
     'admin-portal-catalog': 'Catalogue Access',

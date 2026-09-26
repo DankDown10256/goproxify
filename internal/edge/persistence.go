@@ -245,3 +245,34 @@ func (s *Server) wsHeartbeatLoop(ctx context.Context) {
 	}
 }
 
+
+// sendPortalLive envoie à l'Admin l'instantané des connexions pontées en cours du portail.
+func (s *Server) sendPortalLive() {
+	if s.portal == nil {
+		return
+	}
+	msg, err := edgews.NewMessage(0, edgews.TypePortalLive, map[string]any{
+		"node_name": s.cfg.Identity.NodeName,
+		"sessions":  s.portal.LiveSessions(),
+	})
+	if err != nil {
+		return
+	}
+	s.wsHub.BroadcastToAdmins(msg)
+}
+
+// portalLiveLoop renvoie l'instantané toutes les 30 s pour qu'un Admin redémarré retrouve l'état.
+func (s *Server) portalLiveLoop(ctx context.Context) {
+	tk := time.NewTicker(30 * time.Second)
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+			if s.portal != nil && len(s.portal.LiveSessions()) > 0 {
+				s.sendPortalLive()
+			}
+		}
+	}
+}

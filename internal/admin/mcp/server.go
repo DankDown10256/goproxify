@@ -601,6 +601,8 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListSecurityCVEs(r, p.Arguments)
 	case "get_prism_anomalies":
 		result, toolErr = h.toolGetPrismAnomalies(r, p.Arguments)
+	case "get_prism_slo":
+		result, toolErr = h.toolGetPrismSLO(r, p.Arguments)
 	case "get_prism_geo":
 		result, toolErr = h.toolGetPrismGeo(r, p.Arguments)
 	case "get_portal_config":
@@ -629,6 +631,22 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolDeletePortalUser(r, p.Arguments)
 	case "resend_portal_invite":
 		result, toolErr = h.toolResendPortalInvite(r, p.Arguments)
+	case "list_portal_sessions":
+		result, toolErr = h.toolListPortalSessions(r, p.Arguments)
+	case "terminate_portal_session":
+		result, toolErr = h.toolTerminatePortalSession(r, p.Arguments)
+	case "list_portal_access_requests":
+		result, toolErr = h.toolListPortalAccessRequests(r, p.Arguments)
+	case "decide_portal_access_request":
+		result, toolErr = h.toolDecidePortalAccessRequest(r, p.Arguments)
+	case "get_portal_policy":
+		result, toolErr = h.toolGetPortalPolicy(r, p.Arguments)
+	case "set_portal_policy":
+		result, toolErr = h.toolSetPortalPolicy(r, p.Arguments)
+	case "list_portal_recordings":
+		result, toolErr = h.toolListPortalRecordings(r, p.Arguments)
+	case "delete_portal_recording":
+		result, toolErr = h.toolDeletePortalRecording(r, p.Arguments)
 	case "list_portal_audit":
 		result, toolErr = h.toolListPortalAudit(r, p.Arguments)
 	case "list_portal_templates":

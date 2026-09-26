@@ -492,6 +492,23 @@ pre.chain {
           </div>
         </div>
         <ul class="tile-grid" id="list"></ul>
+        <div id="reqBlock" class="hidden" style="margin-top:1.25rem">
+          <h3 style="margin-top:0;padding-top:0;border:none">Demander un accès temporaire</h3>
+          <div class="row">
+            <div><label for="reqTarget">Destination</label><select id="reqTarget"></select></div>
+            <div><label for="reqDuration">Durée</label>
+              <select id="reqDuration">
+                <option value="30">30 minutes</option>
+                <option value="60" selected>1 heure</option>
+                <option value="240">4 heures</option>
+                <option value="480">8 heures</option>
+              </select>
+            </div>
+          </div>
+          <div class="tight" style="margin-top:.75rem"><label for="reqReason">Motif</label><input id="reqReason" maxlength="500" placeholder="Ticket, intervention prévue…"/></div>
+          <div class="tight" style="margin-top:.75rem"><button type="button" class="btn-primary" id="btnRequest">Envoyer la demande</button></div>
+          <div id="reqMsg" class="err"></div>
+        </div>
         <div id="personalBlock" class="hidden" style="margin-top:1.25rem">
           <h3 style="margin-top:0;padding-top:0;border:none">Cible personnelle</h3>
           <div class="row">
@@ -920,6 +937,7 @@ async function refreshAll() {
   } catch (_) {}
   $('personalBlock').classList.toggle('hidden', !state.allowPersonal);
   await refreshTargets();
+  await refreshRequestable();
   await refreshVault();
   await refreshSessions();
   await refreshAudit();
@@ -1072,7 +1090,9 @@ function renderCatalog() {
     const head = document.createElement('div');
     head.className = 'tile-head';
     head.innerHTML = '<div><strong>' + esc(t.name) + '</strong><div class="meta">' +
-      esc(t.source) + ' · ' + esc(t.kind) + ' · ' + esc(meta) + '</div></div>';
+      esc(t.source) + ' · ' + esc(t.kind) + ' · ' + esc(meta) +
+      (t.expires_at ? ' · accès jusqu’à ' + esc(new Date(t.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : '') +
+      '</div></div>';
     const star = document.createElement('button');
     star.type = 'button';
     star.className = 'star' + (isFav(t.id) ? ' on' : '');
@@ -1096,6 +1116,32 @@ function renderCatalog() {
       ((state.targets || []).length ? 'Aucun résultat pour cette recherche.' : 'Aucune cible visible.') + '</li>';
   }
 }
+async function refreshRequestable() {
+  try {
+    const d = await api('/api/access/requestable');
+    const list = d.targets || [];
+    const sel = $('reqTarget'); sel.innerHTML = '';
+    list.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.id; o.textContent = t.name + ' (' + t.kind + ')';
+      sel.append(o);
+    });
+    $('reqBlock').classList.toggle('hidden', !d.enabled || !list.length);
+  } catch (_) { $('reqBlock').classList.add('hidden'); }
+}
+$('btnRequest').addEventListener('click', async () => {
+  const msg = $('reqMsg'); msg.textContent = ''; msg.style.color = '';
+  try {
+    await api('/api/access/requests', { method: 'POST', body: JSON.stringify({
+      target_id: $('reqTarget').value,
+      reason: $('reqReason').value,
+      duration_min: parseInt($('reqDuration').value, 10),
+    }) });
+    $('reqReason').value = '';
+    msg.style.color = 'inherit';
+    msg.textContent = 'Demande envoyée. Elle apparaîtra dans le catalogue une fois approuvée.';
+  } catch (e) { msg.textContent = e.message || String(e); }
+});
 async function toggleFavorite(id) {
   try {
     const d = await api('/api/favorites/' + encodeURIComponent(id), { method: 'POST', body: '{}' });

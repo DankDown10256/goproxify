@@ -17,6 +17,7 @@ type Config struct {
 	Require2FA           bool   `json:"require_2fa"`            // off par défaut (KTD3)
 	SessionTTLSec        int    `json:"session_ttl_sec"`        // défaut 60 (KTD1)
 	SessionMode          string `json:"session_mode"`           // one_shot | multi
+	Policy               Policy `json:"policy"`                 // restrictions d'accès (poussées par l'Admin)
 
 	// Haute disponibilité (poussés par l'Admin) : réplication du magasin entre les passerelles du groupe.
 	HAGroup      string   `json:"ha_group,omitempty"`

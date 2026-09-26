@@ -49,6 +49,7 @@ var messagesFR = map[string]string{
 	"api.err.json":        "JSON invalide",
 	"api.err.json_body":   "corps JSON invalide",
 	"api.err.not_found":   "introuvable",
+	"api.err.conflict":    "déjà traité",
 	"api.err.unauth":      "non authentifié",
 	"api.err.forbidden":   "interdit",
 	"api.err.bad_request": "requête invalide",

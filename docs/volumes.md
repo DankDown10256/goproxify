@@ -28,6 +28,7 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 | `edge-tokens.db` | Base SQLite des tokens d'authentification des nœuds (Admin → passerelle) |
 | `edge-node-id` | Identité stable du nœud passerelle |
 | `geoip/GeoLite2-Country.mmdb` | Base GeoIP téléchargée automatiquement (si `GPX_GEOIP_AUTO_DOWNLOAD=true`) |
+| `geoip/GeoLite2-City.mmdb` | Base GeoIP ville de l'Admin (carte Prism), téléchargée automatiquement (si `GPX_GEOIP_AUTO_DOWNLOAD=true`) ; sans elle, repli sur ip-api.com |
 | `bans/` | Bannissements IP persistés |
 | `threat-lists/` | Listes de menaces téléchargées (IPs malveillantes, etc.) |
 | `logs/access.log` | Journal d'accès HTTP du reverse proxy |

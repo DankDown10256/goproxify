@@ -45,6 +45,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/vulnscan"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	"github.com/vincamok/goproxify/internal/config"
+	"github.com/vincamok/goproxify/internal/edge/geoip"
 	edgeWS "github.com/vincamok/goproxify/internal/edge/ws"
 )
 
@@ -531,7 +532,15 @@ func (s *Server) Start(ctx context.Context) error {
 		},
 	}
 
-	geoResolver := &analytics.GeoResolver{DB: s.db, Log: s.log}
+	geoResolver := &analytics.GeoResolver{DB: s.db, Log: s.log, MMDBPath: s.cfg.GeoIP.CityDBPath}
+	if s.cfg.GeoIP.AutoDownload && s.cfg.GeoIP.CityDBPath != "" {
+		// Téléchargement en arrière-plan (plusieurs dizaines de Mo) : d'ici là, ip-api.com sert de repli.
+		go func() {
+			if err := geoip.Ensure(s.cfg.GeoIP.CityDBPath, s.cfg.GeoIP.CityDBURL, s.log); err != nil {
+				s.log.Warn("geoip: base GeoLite2-City indisponible, repli sur ip-api.com", "err", err)
+			}
+		}()
+	}
 	geoResolver.Start(ctx)
 
 	f2bEngine.Start(ctx)

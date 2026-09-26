@@ -274,6 +274,18 @@ func New(cfg *config.EdgeConfig, cfgPath ...string) (*Server, error) {
 		}
 		s.wsHub.BroadcastToAdmins(msg)
 	})
+	s.portal.SetLiveHook(s.sendPortalLive)
+	s.portal.SetAccessRequestHook(func(req portal.AccessRequest) error {
+		msg, err := edgews.NewMessage(0, edgews.TypePortalAccessRequest, map[string]any{
+			"node_name": s.cfg.Identity.NodeName, "user_id": req.UserID, "username": req.Username,
+			"target_id": req.TargetID, "reason": req.Reason, "duration_min": req.DurationMin,
+		})
+		if err != nil {
+			return err
+		}
+		s.wsHub.BroadcastToAdmins(msg)
+		return nil
+	})
 	s.portal.SetAuthProviders(s.providerStore)
 
 	// Access logs + system logs → Admin (Prism / Logs) via WS dès qu'un Admin est connecté.
@@ -397,6 +409,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Heartbeat passerelle → Admin via WebSocket
 	go s.wsHeartbeatLoop(ctx)
+	go s.portalLiveLoop(ctx)
 
 	// Marquage offline des Agents inactifs
 	go s.agentOfflineLoop(ctx)

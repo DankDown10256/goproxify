@@ -2132,7 +2132,7 @@ button.bn-rank:hover{background:var(--bg2)}
 }
 
 /* ── Carte Leaflet partagée (shared/geomap.js) ───────────────────────────── */
-.prism-mapbox.gm-box{cursor:auto;touch-action:auto}
+.prism-mapbox.gm-box{cursor:auto;touch-action:auto;isolation:isolate}
 .gm-box.leaflet-container{background:var(--bg3);font:inherit;color:var(--text)}
 .gm-box .leaflet-bar a,.gm-box .leaflet-bar a:hover{background:var(--bg2);color:var(--text);border-color:var(--border)}
 .gm-box .leaflet-bar a:hover{border-color:var(--accent)}
@@ -2148,3 +2148,10 @@ button.bn-rank:hover{background:var(--bg2)}
 .gm-hint{background:color-mix(in srgb,var(--bg2) 90%,transparent);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;color:var(--text3)}
 .prism-tab-link{margin-left:auto;background:none;border:0;color:var(--text3);font-size:12px;cursor:pointer;padding:6px 10px}
 .prism-tab-link:hover{color:var(--accent)}
+
+/* Prism / Synthèse : filtres sur mobile (dates et sélecteurs passent à la ligne, barre non collante) */
+@media(max-width:700px){
+  .prism-filters{position:static;box-shadow:none}
+  .prism-fg{flex-wrap:wrap;flex-shrink:1;max-width:100%}
+  .prism-fg input[type=datetime-local],.prism-fg select{max-width:100%!important;flex:1 1 150px;min-width:0}
+}

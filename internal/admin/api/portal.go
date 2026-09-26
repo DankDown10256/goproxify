@@ -32,6 +32,8 @@ type PortalConfig struct {
 	SessionMode          string                 `json:"session_mode"`
 	Catalog              []portal.CatalogTarget `json:"catalog"`
 	Users                []portal.SyncedUser    `json:"users,omitempty"`
+	Grants               []portal.AccessGrant   `json:"grants,omitempty"`
+	Policy               *portal.Policy         `json:"policy,omitempty"` // nil = inchangée par le formulaire Réglages
 	EdgeName             string                 `json:"edge_name,omitempty"` // Passerelle cible (echo)
 
 	// Haute disponibilité : la config est celle du groupe HA de la passerelle (voir portal_group.go).
@@ -64,6 +66,22 @@ func (h *PortalHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/destinations") {
 		h.handleDestinations(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/recordings") {
+		h.handleRecordings(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/policy") {
+		h.handlePolicy(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/access-requests") {
+		h.handleAccessRequests(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/sessions") {
+		h.handleLiveSessions(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/portal/audit") {
@@ -127,6 +145,8 @@ func (h *PortalHandler) put(w http.ResponseWriter, r *http.Request) {
 	}
 	// Champs calculés ou secrets : jamais acceptés du client.
 	cfg.HAGroup, cfg.HAMembers, cfg.HAStandby, cfg.HAKey = "", nil, false, ""
+	cfg.Grants = nil
+	cfg.Policy = loadPortalConfig(h.DB, scope).Policy // ne se modifie que par /portal/policy
 	if cfg.HASessionMode != HASessionShared {
 		cfg.HASessionMode = HASessionSticky
 	}

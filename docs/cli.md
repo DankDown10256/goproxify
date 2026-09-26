@@ -824,6 +824,18 @@ goproxify access users update        -id <uuid> -status active|disabled
 goproxify access users resend        -id <uuid>
 goproxify access users delete        -id <uuid>
 
+goproxify access policy get           -edge <nom>
+goproxify access policy set           -edge <nom> [-hours true -days 1,2,3,4,5 -start 07:00 -end 20:00 -tz Europe/Paris -ip <cidr,…> -idle <min> -record true -retention <jours>]
+goproxify access recordings list     -edge <nom>
+goproxify access recordings get      -edge <nom> -id <uuid> > session.cast
+goproxify access recordings delete   -edge <nom> -id <uuid>
+goproxify access requests list        -edge <nom> [-status pending]
+goproxify access requests approve     -id <uuid> [-minutes <n>]
+goproxify access requests deny        -id <uuid>
+goproxify access requests revoke      -id <uuid>
+goproxify access sessions list        -edge <nom>
+goproxify access sessions watch       -edge <nom> -id <uuid>
+goproxify access sessions terminate   -edge <nom> -id <uuid>
 goproxify access audit list          [-edge <nom>] [-limit <n>]
 
 goproxify access templates list

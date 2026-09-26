@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/alerting"
+	"github.com/vincamok/goproxify/internal/admin/analytics"
 )
 
 // Config paramètre les seuils de surveillance.
@@ -19,10 +20,11 @@ type Config struct {
 	ErrorRatePct  float64 // ex: 10.0 → alerte si >10% d'erreurs 4xx/5xx
 	LatencyMsP95  int64   // ex: 2000 → alerte si latence moyenne >2s
 	WindowSec     int     // fenêtre d'observation (défaut 300s)
+	SLOTarget     float64 // > 0 : alerte SLO active (l'objectif lui-même est le réglage `slo.target`, 99,9 % par défaut) ; 0 la désactive
 }
 
 func DefaultConfig() Config {
-	return Config{ErrorRatePct: 10.0, LatencyMsP95: 2000, WindowSec: 300}
+	return Config{ErrorRatePct: 10.0, LatencyMsP95: 2000, WindowSec: 300, SLOTarget: 99.9}
 }
 
 // Monitor surveille les logs et déclenche des alertes.
@@ -56,6 +58,9 @@ func (m *Monitor) Start(ctx context.Context) {
 }
 
 func (m *Monitor) scan() {
+	for _, ev := range m.sloEvents(context.Background()) {
+		m.engine.Emit(ev)
+	}
 	window := m.cfg.WindowSec
 	if window <= 0 {
 		window = 300
@@ -114,4 +119,41 @@ func (m *Monitor) scan() {
 			})
 		}
 	}
+}
+
+// sloEvents évalue l'SLO de disponibilité (30 jours) de la flotte puis de chaque passerelle ayant du trafic récent.
+// Un événement par périmètre dont l'état n'est pas « ok » ; le délai de rappel des règles évite les répétitions.
+func (m *Monitor) sloEvents(ctx context.Context) []alerting.Event {
+	if m.cfg.SLOTarget <= 0 {
+		return nil
+	}
+	scopes := []string{""}
+	if rows, err := m.db.QueryContext(ctx, `SELECT DISTINCT node_name FROM logs WHERE ts > datetime('now','-6 hours') AND status > 0 AND node_name != ''`); err == nil {
+		for rows.Next() {
+			var n string
+			if rows.Scan(&n) == nil {
+				scopes = append(scopes, n)
+			}
+		}
+		rows.Close()
+	}
+	var out []alerting.Event
+	for _, node := range scopes {
+		s := analytics.GetSLO(ctx, m.db, analytics.Params{NodeName: node}, 0, 30)
+		if s.State == "ok" {
+			continue
+		}
+		sev := alerting.SevWarning
+		if s.State == "critical" || s.State == "exhausted" {
+			sev = alerting.SevCritical
+		}
+		out = append(out, alerting.Event{
+			Trigger: alerting.TriggerSLOBurn, Severity: sev, NodeName: node, Component: "admin",
+			Detail: map[string]any{
+				"state": s.State, "target": s.Target, "availability": fmt.Sprintf("%.3f%%", s.Availability),
+				"budget_left": fmt.Sprintf("%.0f%%", s.BudgetLeft), "burn_1h": fmt.Sprintf("%.1fx", s.Burn1h), "burn_6h": fmt.Sprintf("%.1fx", s.Burn6h),
+			},
+		})
+	}
+	return out
 }

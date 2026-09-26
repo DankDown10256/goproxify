@@ -71,6 +71,10 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("DELETE /internal/v1/waf/behavior/profiles/{ip}", s.handleWAFBehaviorDeleteProfile)
 	mux.HandleFunc("POST /internal/v1/settings", s.handlePushSettings)
 	mux.HandleFunc("POST /internal/v1/portal", s.handlePushPortal)
+	mux.HandleFunc("GET /internal/v1/portal/recordings", s.handlePortalRecordingsList)
+	mux.HandleFunc("GET /internal/v1/portal/sessions/{id}/watch", s.handlePortalSessionWatch)
+	mux.HandleFunc("GET /internal/v1/portal/recordings/{id}", s.handlePortalRecordingGet)
+	mux.HandleFunc("DELETE /internal/v1/portal/recordings/{id}", s.handlePortalRecordingDelete)
 	mux.HandleFunc("GET /internal/v1/portal/replica", s.handlePortalReplicaExport)
 	mux.HandleFunc("POST /internal/v1/portal/replica", s.handlePortalReplicaImport)
 	mux.HandleFunc("POST /internal/v1/cluster/peers", s.handlePushClusterPeers)
@@ -896,6 +900,8 @@ type portalPushPayload struct {
 	SessionMode          string                 `json:"session_mode"`
 	Catalog              []portal.CatalogTarget `json:"catalog"`
 	Users                []portal.SyncedUser    `json:"users"`
+	Grants               []portal.AccessGrant   `json:"grants"`
+	Policy               portal.Policy          `json:"policy"`
 
 	// Haute disponibilité : voir portal.Config.
 	HAGroup       string   `json:"ha_group"`
@@ -930,6 +936,7 @@ func (s *Server) applyPortalPush(payload portalPushPayload) {
 		Require2FA:           payload.Require2FA,
 		SessionTTLSec:        payload.SessionTTLSec,
 		SessionMode:          payload.SessionMode,
+		Policy:               payload.Policy,
 		HAGroup:              payload.HAGroup,
 		HAMembers:            payload.HAMembers,
 		HAKey:                payload.HAKey,
@@ -945,6 +952,9 @@ func (s *Server) applyPortalPush(payload portalPushPayload) {
 			if err := s.portal.SetCatalog(payload.Catalog); err != nil {
 				s.log.Warn("portal: catalog", "err", err)
 			}
+		}
+		if payload.Grants != nil {
+			s.portal.SetGrants(payload.Grants)
 		}
 		if payload.Users != nil {
 			if err := s.portal.SyncUsers(payload.Users); err != nil {

@@ -21,6 +21,14 @@ type AdminConfig struct {
 		TLSEnabled bool   `mapstructure:"tls_enabled"`
 	} `mapstructure:"server"`
 
+	// GeoIP : base MaxMind GeoLite2-City locale (position des IPs pour la carte Prism). Sans elle,
+	// la géolocalisation passe par ip-api.com (les IPs y sont envoyées).
+	GeoIP struct {
+		AutoDownload bool   `mapstructure:"auto_download"` // télécharge la base si absente
+		CityDBPath   string `mapstructure:"city_db_path"`  // chemin .mmdb sur le volume Admin
+		CityDBURL    string `mapstructure:"city_db_url"`   // URL de téléchargement si absente
+	} `mapstructure:"geoip"`
+
 	Storage struct {
 		BasePath  string `mapstructure:"base_path"`  // Racine /etc/goproxify en prod
 		SQLiteDSN string `mapstructure:"sqlite_dsn"` // Chemin absolu vers goproxify.db

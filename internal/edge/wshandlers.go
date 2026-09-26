@@ -213,6 +213,17 @@ func (s *Server) handleWSAdminMessage(connID string, msg edgews.Message) error {
 		}
 		s.applyPortalPush(payload)
 
+	case edgews.TypeKillPortalSession:
+		var p struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			return err
+		}
+		if s.portal != nil && s.portal.KillLive(p.ID) {
+			s.log.Info("ws/admin: connexion portail terminée", "id", p.ID)
+		}
+
 	case edgews.TypePushErrorPages:
 		var tpls []errorpages.Template
 		if err := json.Unmarshal(msg.Payload, &tpls); err != nil {

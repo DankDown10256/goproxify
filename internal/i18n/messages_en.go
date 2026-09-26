@@ -53,6 +53,7 @@ var messagesEN = map[string]string{
 	"api.err.json":        "invalid JSON",
 	"api.err.json_body":   "invalid JSON body",
 	"api.err.not_found":   "not found",
+	"api.err.conflict":    "already handled",
 	"api.err.unauth":      "not authenticated",
 	"api.err.forbidden":   "forbidden",
 	"api.err.bad_request": "bad request",

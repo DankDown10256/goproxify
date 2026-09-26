@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
 )
@@ -29,6 +32,12 @@ type Service struct {
 	onInviteCompleted func(userID string)
 	sendEmailOTP      func(email, code string) error
 	onAudit           func(AuditEvent)
+	live              *LiveRegistry
+	grants            *GrantSet
+	policy            atomic.Pointer[Policy]
+	reapStop          chan struct{}
+	rec               *RecordingStore
+	onAccessRequest   func(AccessRequest) error
 	pageTemplates     *TemplateStore
 	onStoreChange     func()
 }
@@ -38,6 +47,8 @@ func NewService(log *slog.Logger) *Service {
 	return &Service{
 		log:           log,
 		sessions:      NewSessionManager(),
+		live:          NewLiveRegistry(),
+		grants:        NewGrantSet(),
 		audit:         AuditLogger(log),
 		pageTemplates: NewTemplateStore(),
 	}
@@ -73,6 +84,8 @@ func (s *Service) ApplyConfig(cfg Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg.Defaults()
+	pol := cfg.Policy
+	s.policy.Store(&pol)
 
 	if cfg.HAGroup != "" && cfg.HAKey != "" {
 		if os.Getenv("GPX_PORTAL_MASTER_KEY") == "" {
@@ -112,6 +125,7 @@ func (s *Service) ApplyConfig(cfg Config) error {
 		s.cfg.SessionMode = cfg.SessionMode
 		s.cfg.HAGroup, s.cfg.HAMembers, s.cfg.HAKey = cfg.HAGroup, cfg.HAMembers, cfg.HAKey
 		s.cfg.HASharedSess, s.cfg.HAStandby = cfg.HASharedSess, cfg.HAStandby
+		s.cfg.Policy = cfg.Policy
 		s.cfg.Enabled = true
 		s.log.Info("portal: config à chaud", "public_host", s.cfg.PublicHost, "users", s.store.UserCount(),
 			"allow_personal", s.cfg.AllowPersonalTargets, "require_2fa", s.cfg.Require2FA,
@@ -146,6 +160,10 @@ func (s *Service) stopLocked() {
 		s.sshSrv.Stop()
 		s.sshSrv = nil
 	}
+	if s.reapStop != nil {
+		close(s.reapStop)
+		s.reapStop = nil
+	}
 	s.running = false
 }
 
@@ -163,6 +181,12 @@ func (s *Service) startLocked() error {
 	s.store = store
 	s.sessions = NewSessionManager()
 	s.masterSecret = secret
+	if rec, err := NewRecordingStore(filepath.Join(filepath.Dir(s.cfg.DBPath), "recordings"), secret); err != nil {
+		s.log.Warn("portal: dossier des enregistrements indisponible", "err", err)
+		s.rec = nil
+	} else {
+		s.rec = rec
+	}
 	store.SetOnChange(s.onStoreChange)
 
 	baseLog := AuditLogger(s.log)
@@ -176,6 +200,11 @@ func (s *Service) startLocked() error {
 
 	httpSrv := NewHTTPServer(&s.cfg, store, s.sessions, s.log, s.audit)
 	httpSrv.shell = s.shell
+	httpSrv.live = s.live
+	httpSrv.grants = s.grants
+	httpSrv.policy = s.Policy
+	httpSrv.record = s.startRecording
+	httpSrv.onAccessRequest = s.onAccessRequest
 	httpSrv.providers = s.providers
 	httpSrv.masterSecret = secret
 	httpSrv.onInviteCompleted = s.onInviteCompleted
@@ -195,12 +224,17 @@ func (s *Service) startLocked() error {
 		return err
 	}
 	sshSrv.shell = s.shell
+	sshSrv.live = s.live
+	sshSrv.policy = s.Policy
+	sshSrv.record = s.startRecording
 	if err := sshSrv.Start(fmt.Sprintf(":%d", s.cfg.SSHPort)); err != nil {
 		httpSrv.Stop()
 		return fmt.Errorf("portal ssh: %w", err)
 	}
 	s.sshSrv = sshSrv
 	s.running = true
+	s.reapStop = make(chan struct{})
+	go s.reapLoop(s.reapStop)
 	authHint := s.cfg.AuthProviderID
 	if authHint == "" {
 		authHint = "(local)"
@@ -323,4 +357,117 @@ func (s *Service) ReplicaInfo() (store *Store, key string, members []string, sha
 		return nil, "", nil, false, false
 	}
 	return s.store, s.cfg.HAKey, append([]string(nil), s.cfg.HAMembers...), s.cfg.HASharedSess, true
+}
+
+// SetLiveHook notifie l'extérieur à chaque changement de la liste des connexions en cours.
+func (s *Service) SetLiveHook(fn func()) { s.live.SetOnChange(fn) }
+
+// LiveSessions retourne les connexions pontées en cours.
+func (s *Service) LiveSessions() []LiveSession { return s.live.List() }
+
+// KillLive ferme une connexion en cours ; false si elle est déjà terminée.
+func (s *Service) KillLive(id string) bool { return s.live.Kill(id) }
+
+// SetGrants remplace les accès temporaires approuvés (push Admin).
+func (s *Service) SetGrants(list []AccessGrant) { s.grants.Replace(list) }
+
+// SetAccessRequestHook fournit l'envoi des demandes d'accès vers l'Admin.
+func (s *Service) SetAccessRequestHook(fn func(AccessRequest) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onAccessRequest = fn
+	if s.httpSrv != nil {
+		s.httpSrv.onAccessRequest = fn
+	}
+}
+
+// Policy retourne la politique d'accès courante.
+func (s *Service) Policy() Policy {
+	if p := s.policy.Load(); p != nil {
+		return *p
+	}
+	return Policy{}
+}
+
+// reapLoop ferme les connexions inactives selon la politique, jusqu'à l'arrêt du service.
+func (s *Service) reapLoop(stop <-chan struct{}) {
+	tk := time.NewTicker(30 * time.Second)
+	ticks := 0
+	defer tk.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tk.C:
+			ticks++
+			if ticks%120 == 0 {
+				if days := s.Policy().RecordRetentionDays; days > 0 {
+					if n := s.recordingStore().Purge(days, time.Now()); n > 0 {
+						s.log.Info("portal: enregistrements expirés supprimés", "count", n)
+					}
+				}
+			}
+			mins := s.Policy().IdleTimeoutMin
+			if mins <= 0 {
+				continue
+			}
+			for _, m := range s.live.ReapIdle(time.Duration(mins)*time.Minute, time.Now()) {
+				s.audit(AuditEvent{Actor: m.Actor, TargetID: m.TargetID, Facade: SessionFacade(m.Facade), Success: true, Detail: "idle_timeout"})
+			}
+		}
+	}
+}
+
+func (s *Service) recordingStore() *RecordingStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rec
+}
+
+// startRecording ouvre l'enregistrement d'une session quand la politique le demande.
+func (s *Service) startRecording(actor, targetID, facade, remote string) *Recording {
+	if !s.Policy().RecordSessions {
+		return nil
+	}
+	return s.recordingStore().Start(actor, targetID, facade, remote)
+}
+
+// ListRecordings retourne les enregistrements de sessions de cette passerelle.
+func (s *Service) ListRecordings() ([]RecordingMeta, error) {
+	st := s.recordingStore()
+	if st == nil {
+		return []RecordingMeta{}, nil
+	}
+	return st.List()
+}
+
+// ReadRecording retourne un enregistrement déchiffré (asciicast v2).
+func (s *Service) ReadRecording(id string) ([]byte, error) {
+	st := s.recordingStore()
+	if st == nil {
+		return nil, os.ErrNotExist
+	}
+	return st.Read(id)
+}
+
+// DeleteRecording supprime un enregistrement.
+func (s *Service) DeleteRecording(id string) error {
+	st := s.recordingStore()
+	if st == nil {
+		return os.ErrNotExist
+	}
+	return st.Delete(id)
+}
+
+// WatchLive s'abonne à la sortie d'une connexion en cours pour un administrateur qui l'observe ;
+// l'observation est journalisée dans l'audit du portail.
+func (s *Service) WatchLive(id string) (backlog []byte, out <-chan []byte, cancel func(), ok bool) {
+	meta, backlog, out, cancel, ok := s.live.Subscribe(id)
+	if !ok {
+		return nil, nil, nil, false
+	}
+	if s.audit != nil {
+		s.audit(AuditEvent{Actor: meta.Actor, TargetID: meta.TargetID, Facade: SessionFacade(meta.Facade), Success: true, Detail: "observed_by_admin"})
+	}
+	return backlog, out, cancel, true
 }

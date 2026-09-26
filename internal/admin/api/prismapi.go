@@ -6,12 +6,14 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/analytics"
+	"github.com/vincamok/goproxify/internal/admin/rbac"
 )
 
 // PrismHandler sert les endpoints d'analyse Prism.
@@ -52,6 +54,12 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.export(w, r)
 	case r.Method == http.MethodGet && path == "backend-errors":
 		h.backendErrors(w, r)
+	case r.Method == http.MethodGet && path == "slo":
+		h.slo(w, r)
+	case r.Method == http.MethodGet && path == "slo/config":
+		jsonOK(w, map[string]float64{"target": analytics.LoadSLOTarget(r.Context(), h.DB)})
+	case r.Method == http.MethodPut && path == "slo/config":
+		rbac.RequireAdmin(h.DB)(http.HandlerFunc(h.putSLOConfig)).ServeHTTP(w, r)
 	case r.Method == http.MethodGet && path == "anomalies":
 		h.anomalies(w, r)
 	case r.Method == http.MethodGet && path == "bans/timeline":
@@ -301,6 +309,31 @@ func (h *PrismHandler) backendErrors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, rows)
+}
+
+// putSLOConfig enregistre l'objectif SLO (%), partagé par l'écran, l'API, le MCP et l'alerte slo_burn.
+func (h *PrismHandler) putSLOConfig(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Target float64 `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || !analytics.ValidSLOTarget(body.Target) {
+		prismJSONErr(w, errors.New("target doit être compris entre 90 et 99.999"), http.StatusBadRequest)
+		return
+	}
+	if err := analytics.SaveSLOTarget(r.Context(), h.DB, body.Target); err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]float64{"target": body.Target})
+}
+
+// slo retourne l'SLO de disponibilité (5xx) sur une fenêtre glissante : target (%, défaut : objectif enregistré), days (défaut 30), proxy, node_name.
+func (h *PrismHandler) slo(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	target, _ := strconv.ParseFloat(q.Get("target"), 64)
+	days, _ := strconv.Atoi(q.Get("days"))
+	p := analytics.Params{Proxy: q.Get("proxy"), NodeName: q.Get("node_name")}
+	jsonOK(w, analytics.GetSLO(r.Context(), h.DB, p, target, days))
 }
 
 // anomalies retourne les écarts détectés sur la fenêtre Prism (pic d'erreurs, IP dominante, pays, backends, bots).
