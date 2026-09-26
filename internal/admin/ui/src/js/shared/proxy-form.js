@@ -643,7 +643,7 @@ window.exportProxies = function(fmt) {
   }
 };
 
-window.openProxyModal = async function(id, initialTab) {
+window.openProxyModal = async function(id, initialTab, secTab) {
   let existing = null;
   if (id) {
     try { existing = await api('GET', `/proxies/${encodeURIComponent(id)}`); } catch {}
@@ -1246,7 +1246,6 @@ window.openProxyModal = async function(id, initialTab) {
 
   const footer = `
     ${id ? `<div style="margin-right:auto;display:flex;align-items:center;gap:4px;">
-      <button class="btn btn-ghost" style="display:flex;align-items:center;gap:6px;" onclick="closeModal();setTimeout(()=>openProxySecModal('${esc(id)}'),30)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Sécurité</button>
       <button class="btn btn-ghost" style="display:flex;align-items:center;gap:6px;" onclick="closeModal();setTimeout(()=>openDockerLabelsFromProxy('${esc(id)}'),30)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="10" rx="2"/><path d="M6 8V6h3v2M11 8V5h3v3M16 8V6h3v2"/></svg>Labels</button>
     </div>` : ''}
     <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
@@ -1257,6 +1256,7 @@ window.openProxyModal = async function(id, initialTab) {
     <span style="color:var(--text2);">Activé</span>
   </label>`;
   modal(id ? 'Modifier le proxy' : 'Nouveau proxy', body, footer, true, headerRight);
+  document.querySelector('#modal-overlay .dialog')?.classList.add('pm-dialog');
   if (initialTab) switchProxyTab(initialTab);
   updateProxyForm();
   // Peupler le sélecteur de certificats
@@ -1303,24 +1303,22 @@ window.openProxyModal = async function(id, initialTab) {
       certSel.outerHTML = `<input id="p-cert" class="input" placeholder="cert-name" value="${esc(val)}">`;
     });
   }
+  await _psecMount(id || '', secTab || (id ? 'recap' : 'params'), document.getElementById('ptab-protection'));
 };
 
 window.updateProxyForm = function() {
   updateSSOForm();
 };
 
-window.switchProxyTab = function(tab) {
-  ['general','entetes','auth','resilience','avance','yaml'].forEach(t => {
+window.switchProxyTab = function(tab, secTab) {
+  ['general','entetes','auth','protection','resilience','avance','yaml'].forEach(t => {
     const panel = document.getElementById('ptab-' + t);
-    if (panel) panel.style.display = t === tab ? 'flex' : 'none';
+    if (panel) panel.style.display = t === tab ? (t === 'protection' ? 'block' : 'flex') : 'none';
   });
   document.querySelectorAll('#proxy-tabs [data-tab]').forEach(el => {
-    const active = el.dataset.tab === tab;
-    el.style.color = active ? 'var(--accent)' : 'var(--text2)';
-    el.style.fontWeight = active ? '600' : '400';
-    el.style.background = active ? 'color-mix(in srgb,var(--accent) 8%,transparent)' : '';
-    el.style.borderLeft = active ? '2.5px solid var(--accent)' : '2.5px solid transparent';
+    el.classList.toggle('active', el.dataset.tab === tab);
   });
+  if (tab === 'protection' && secTab && typeof switchSecTab === 'function') switchSecTab(secTab);
   if (tab === 'yaml') window._refreshYamlTab();
 };
 
@@ -1347,7 +1345,7 @@ window._collectProxyConfig = function() {
     const domainVals = [...document.querySelectorAll('.p-domain-val')].map(i=>i.value.trim()).filter(Boolean);
     const host = domainVals[0] || '';
     const aliases = domainVals.slice(1);
-    return {
+    const collected = {
       type, host, ...(aliases.length ? { aliases } : {}),
       tls_enabled: isHTTPS || false,
       backends,
@@ -1358,6 +1356,7 @@ window._collectProxyConfig = function() {
       type, host, ...(aliases.length ? { aliases } : { aliases: undefined }),
       tls_enabled: isHTTPS || false, backends,
     };
+    return document.getElementById('psec-tabs') ? _psecBuildConfig(collected) : collected;
   } catch { return window._openProxyCfg || {}; }
 };
 
@@ -1622,7 +1621,7 @@ window._addErrorPageRow = function() {
   list.lastElementChild?.querySelector('.p-error-code')?.focus();
 };
 
-window.saveProxy = async function(id) {
+window.saveProxy = async function(id, opts = {}) {
   // ── Mode YAML brut : la textarea prime sur tous les autres onglets ──
   const yamlPanel = document.getElementById('ptab-yaml');
   const yamlActive = yamlPanel && yamlPanel.style.display !== 'none';
@@ -1649,10 +1648,10 @@ window.saveProxy = async function(id) {
         await api('POST', '/proxies', payload);
         toast('Proxy créé', 'success');
       }
-      closeModal();
-      navigate(state.page);
+      if (!opts.keepOpen) { closeModal(); navigate(state.page); }
+      return true;
     } catch(e) { toast(e.message, 'error'); }
-    return;
+    return false;
   }
 
   const isHTTPS = document.getElementById('p-https')?.checked;
@@ -1955,7 +1954,7 @@ window.saveProxy = async function(id) {
   const aliases = domainVals.slice(1);
   const tags = (document.getElementById('p-tags')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
 
-  const config = {
+  let config = {
     type,
     backends,
     lb: document.getElementById('p-lb').value,
@@ -2007,6 +2006,17 @@ window.saveProxy = async function(id) {
     logging,
     ...(error_pages ? { error_pages } : {}),
   };
+  // Onglet Protection monté : il fait foi. Sinon on conserve ce que le formulaire ne gère pas.
+  if (document.getElementById('psec-tabs')) {
+    config = _psecBuildConfig(config);
+  } else {
+    const prev = window._openProxyCfg || {};
+    for (const k of ['rate_limit', 'ip_filter', 'geo_ip', 'snippet_ids', 'sentinel_whitelist']) {
+      if (prev[k] !== undefined) config[k] = prev[k];
+    }
+    const typed = ['hsts', 'hsts_max_age', 'hide_server', 'x_frame_options'].filter(k => prev.headers?.[k] !== undefined);
+    if (typed.length) config.headers = { ...(config.headers || {}), ...Object.fromEntries(typed.map(k => [k, prev.headers[k]])) };
+  }
   const payload = { config, enabled: document.getElementById('p-enabled').checked };
   try {
     if (id) {
@@ -2016,9 +2026,10 @@ window.saveProxy = async function(id) {
       await api('POST', '/proxies', payload);
       toast('Proxy créé', 'success');
     }
-    closeModal();
-    navigate(state.page);
+    if (!opts.keepOpen) { closeModal(); navigate(state.page); }
+    return true;
   } catch(e) { toast(e.message, 'error'); }
+  return false;
 };
 
 

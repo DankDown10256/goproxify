@@ -1440,3 +1440,110 @@ textarea.input { resize: vertical; min-height: 80px; }
   .arch-actionbar-btns { margin-left: 0; width: 100%; }
   .arch-actionbar-btns .btn { flex: 1; justify-content: center; }
 }
+
+/* ── Modale proxy unifiée (config + protection) ── */
+.dialog.pm-dialog { width: min(1000px, 96vw); }
+.pm-shell {
+  display: flex; flex-direction: column; height: min(660px, 74vh);
+  margin: -16px -24px; overflow: hidden;
+}
+.pm-summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 20px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+}
+.pm-summary-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); margin-right: 2px; }
+.pm-chip {
+  font: inherit; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 99px; cursor: pointer;
+  border: 0; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.pm-chip:hover { background: color-mix(in srgb, var(--c) 24%, transparent); }
+.pm-tabs {
+  display: flex; gap: 2px; padding: 0 14px; overflow-x: auto; overflow-y: hidden; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.pm-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 10px 13px; white-space: nowrap;
+  font: inherit; font-size: 12.5px; color: var(--text2); background: none; border: 0;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer;
+}
+.pm-tab:hover { color: var(--text); }
+.pm-tab.active { color: var(--accent); font-weight: 600; border-bottom-color: var(--accent); }
+.pm-cnt {
+  font-size: 10px; font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: 99px; text-align: center;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+}
+.pm-content { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── Page Trafic : vue « état » (C) et « maître / détail » (D) ── */
+.trafic-card { --stripe: var(--green); box-shadow: inset 4px 0 0 var(--stripe); padding-left: 18px; gap: 0; }
+.trafic-card.health-warn { --stripe: var(--yellow); }
+.trafic-card.health-down { --stripe: var(--red); }
+.trafic-card.health-off  { --stripe: var(--text3); }
+.trafic-health { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text2); margin-bottom: 8px; }
+.trafic-health-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--green); }
+.health-warn .trafic-health-dot, .trafic-health-dot.health-warn { background: var(--yellow); }
+.health-down .trafic-health-dot, .trafic-health-dot.health-down { background: var(--red); }
+.health-off  .trafic-health-dot, .trafic-health-dot.health-off  { background: var(--text3); }
+.trafic-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.trafic-kpi { background: var(--bg3); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+.trafic-kpi span { display: block; font-size: 10px; color: var(--text3); }
+.trafic-kpi b { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.trafic-spark { display: block; width: 100%; height: 28px; margin-top: 6px; }
+.trafic-spark.is-big { height: 44px; }
+.trafic-live { margin-bottom: 10px; min-width: 0; }
+.trafic-layers { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text2); margin-bottom: 10px; }
+.trafic-layers > div { display: flex; align-items: center; gap: 7px; }
+
+.trafic-md {
+  display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2);
+  min-height: 420px; max-height: 72vh; overflow: hidden;
+}
+.trafic-md-list { border-right: 1px solid var(--border); overflow-y: auto; }
+.trafic-md-group {
+  position: sticky; top: 0; z-index: 1; padding: 6px 12px; background: var(--bg);
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text3);
+  border-bottom: 1px solid var(--border);
+}
+.trafic-md-item {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.trafic-md-item:hover { background: var(--bg3); }
+.trafic-md-item.is-active { background: var(--accent-dim, rgba(99,102,241,.08)); box-shadow: inset 3px 0 0 var(--accent); }
+.trafic-md-item.is-off { opacity: .6; }
+.trafic-md-host { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trafic-md-sub { font-size: 11px; color: var(--text3); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trafic-md-detail { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.trafic-md-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.trafic-md-title { font-size: 17px; min-width: 0; }
+.trafic-md-title a { font-size: 17px !important; }
+.trafic-md-head .trafic-health { margin: 4px 0 0; }
+.trafic-md-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.trafic-md-quickrow { display: flex; gap: 6px; flex-wrap: wrap; }
+.trafic-md-quick { display: inline-flex; align-items: center; gap: 6px; }
+.trafic-md-alert {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; font-size: 12px;
+  color: var(--yellow, #f59e0b); background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3);
+}
+.trafic-md-alert span { flex: 1; color: var(--text); }
+.trafic-md-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.trafic-md-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.trafic-md-box h4 {
+  display: flex; justify-content: space-between; margin: 0 0 8px; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--text3);
+}
+.trafic-md-backends { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.trafic-md-layers { display: flex; flex-wrap: wrap; gap: 6px; }
+.trafic-md-layer {
+  display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 11.5px; font-weight: 500;
+  padding: 3px 10px; border-radius: 99px; border: 0; cursor: pointer;
+  color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.trafic-md-layer:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 24%, transparent); }
+.trafic-md-layer:disabled { cursor: default; }
+@media (max-width: 820px) {
+  .trafic-md { grid-template-columns: 1fr; max-height: none; }
+  .trafic-md-list { max-height: 260px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .trafic-md-cols { grid-template-columns: 1fr; }
+}

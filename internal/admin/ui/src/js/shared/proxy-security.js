@@ -1,9 +1,9 @@
-// ── Shared: modale Sécurité proxy + GeoIP + score headers ──────────────────
+// ── Shared: onglet Protection de la modale proxy + GeoIP + score headers ──────────────────
 // Chargé avant pages/* (trafic.js dépend de openProxySecModal, computeProxyHeaderScore).
 // Extrait de pages-all.js — phase 1 du plan split pages-all.
 
 // ── Modale Sécurité du proxy ──────────────────────────────────────────────────
-/** Types de snippets exposés dans la modale Sécurité. */
+/** Types de snippets exposés dans la onglet Protection. */
 const PSEC_SNIPPET_TYPES = [
   { type: 'ip_filter',  label: 'Filtrage IP (CIDR)' },
   { type: 'geo_ip',     label: 'GeoIP' },
@@ -281,7 +281,7 @@ window._psecMount = async function(id, initialTab, embedEl) {
   let allSnippets = [];
   try {
     const [ex, snips] = await Promise.all([
-      api('GET', `/proxies/${encodeURIComponent(id)}`).catch(() => null),
+      id ? api('GET', `/proxies/${encodeURIComponent(id)}`).catch(() => null) : Promise.resolve(null),
       api('GET', '/snippets').catch(() => []),
     ]);
     existing = ex;
@@ -1024,7 +1024,7 @@ window.switchSecTab = function(tab) {
 };
 
 // ── Sélecteur GeoIP (pays + regroupements + recherche) ─────────────────────
-// Racine DOM configurable (modale Sécurité = psec-geo-picker, page passerelle = edge-geo-picker)
+// Racine DOM configurable (onglet Protection = psec-geo-picker, page passerelle = edge-geo-picker)
 window.psecGeoRoot = function() {
   return document.getElementById(window._psecGeoRootId || 'psec-geo-picker');
 };

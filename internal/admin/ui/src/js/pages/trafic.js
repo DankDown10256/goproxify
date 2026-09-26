@@ -18,7 +18,8 @@ async function renderTraficPage(ctx) {
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
 
   // Persistent view state
-  if (!window._tv)              window._tv = 'tuiles'; // 'tuiles' | 'table'
+  if (window._traficLive) { clearInterval(window._traficLive); window._traficLive = null; }
+  if (!window._tv)              window._tv = 'tuiles'; // 'tuiles' | 'table' | 'etat' | 'detail'
   if (!window._tc)              window._tc = 3;
   if (window._tg === undefined) window._tg = '';
   if (!window._ts)              window._ts = 'name';
@@ -136,7 +137,7 @@ async function renderTraficPage(ctx) {
     const featureBadges = (cfg, iconOnly) => {
       const sec = cfg.security || {};
       const a = 'width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
-      const chip = (label, color, bg, svg) =>
+      const chip = (label, color, bg, svg) => iconOnly === 'list' ? { label, color, bg, svg } :
         `<span title="${label}" style="display:inline-flex;align-items:center;justify-content:center;gap:3px;${iconOnly?"width:22px;height:22px;border-radius:6px;":"padding:2px 6px 2px 5px;border-radius:99px;"}background:${bg};color:${color};font-size:10px;font-weight:500;white-space:nowrap;"><svg ${a}>${svg}</svg>${iconOnly?"":label}</span>`;
       const out = [];
       if (cfg.tls_enabled || cfg.tls_passthrough)
@@ -157,7 +158,7 @@ async function renderTraficPage(ctx) {
         out.push(chip('Prism','#818cf8','rgba(129,140,248,.12)','<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'));
       if (cfg.websocket)
         out.push(chip('WS','#22d3ee','rgba(34,211,238,.12)','<path d="M5 12h14M12 5l7 7-7 7"/>'));
-      return out.join('');
+      return iconOnly === 'list' ? out : out.join('');
     };
 
     // Host couvert par un motif domaine (wildcard DNS 1 label) — aligné backend.
@@ -538,6 +539,169 @@ async function renderTraficPage(ctx) {
       </tr>`;
     }
 
+    // ── Vues « état » (C) et « maître / détail » (D) ─────────────────────────
+    // Pas d'historique côté API : la courbe se construit ici, à chaque relevé (5 s) de
+    // /metrics/summary, et se conserve le temps de la session.
+    window._traficSeries = window._traficSeries || {};
+    const SERIES_MAX = 60;
+
+    function proxyHealth(m) {
+      if (!m.enabled) return { level: 'off', label: t('trafic.health_off'), up: 0, total: 0 };
+      const total = m.pm?.backends_total ?? m.allBackends.length;
+      const up = m.pm?.backends_up ?? m.allBackends.filter(b => backendStatus(backendURL(b)) !== 'down').length;
+      const err = m.pm?.error_rate || 0;
+      if (total > 0 && up === 0) return { level: 'down', label: t('trafic.health_down'), up, total };
+      if (up < total || err > 0.05) return { level: 'warn', label: t('trafic.health_warn'), up, total };
+      return { level: 'ok', label: t('trafic.health_ok'), up, total };
+    }
+
+    function sparkSvg(vals, big) {
+      const w = 120, h = big ? 44 : 28;
+      if (vals.length < 2) {
+        return `<svg class="trafic-spark${big ? ' is-big' : ''}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><title>${esc(t('trafic.collecting'))}</title><line x1="0" y1="${h - 3}" x2="${w}" y2="${h - 3}" stroke="var(--border)" stroke-width="1.5" stroke-dasharray="3 3"/></svg>`;
+      }
+      const max = Math.max(...vals, 0.0001);
+      const pts = vals.map((v, i) => `${(i * w / (vals.length - 1)).toFixed(1)},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`);
+      const x0 = w;
+      return `<svg class="trafic-spark${big ? ' is-big' : ''}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polygon points="0,${h} ${pts.join(' ')} ${x0},${h}" fill="var(--accent)" opacity=".12"/>
+        <polyline points="${pts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
+    }
+
+    function liveBlockHtml(host, big) {
+      const key = String(host).toLowerCase();
+      const pm = _metricsMap[key];
+      const dash = '—';
+      const rps = pm?.requests_per_second;
+      const err = pm?.error_rate;
+      const errColor = err > 0.05 ? 'var(--red)' : err > 0.01 ? 'var(--yellow)' : 'inherit';
+      return `<div class="trafic-kpis">
+          <div class="trafic-kpi"><span>${esc(t('trafic.kpi_rps'))}</span><b>${rps != null ? (rps < 1 ? rps.toFixed(2) : rps < 10 ? rps.toFixed(1) : Math.round(rps)) : dash}</b></div>
+          <div class="trafic-kpi"><span>${esc(t('trafic.kpi_errors'))}</span><b style="color:${errColor}">${err != null ? (err * 100).toFixed(1) + '%' : dash}</b></div>
+          <div class="trafic-kpi"><span>p95</span><b>${pm?.p95_ms != null ? Math.round(pm.p95_ms) + ' ms' : dash}</b></div>
+        </div>${sparkSvg(window._traficSeries[key] || [], big)}`;
+    }
+
+    function healthLine(h) {
+      return `<div class="trafic-health health-${h.level}"><span class="trafic-health-dot"></span>${esc(h.label)}${h.total ? ` · ${esc(t('trafic.backends_up', { up: h.up, total: h.total }))}` : ''}</div>`;
+    }
+
+    // ── Vue C : carte « état » ───────────────────────────────────────────────
+    function buildCard(p, selSet) {
+      const m = proxyModel(p, selSet);
+      const c = proxyControls(m);
+      const h = proxyHealth(m);
+      const [master, ...aliases] = m.allDomains;
+      const layers = featureBadges(m.cfg, 'list');
+
+      return `<div class="trafic-tile trafic-card health-${h.level}${m.isSel ? ' is-selected' : ''}${m.enabled ? '' : ' is-off'}">
+        <div class="trafic-tile-head">
+          <input type="checkbox" ${m.isSel ? 'checked' : ''} onchange="traficSelToggle('${esc(m.id)}','${m.stype}')" style="width:14px;height:14px;cursor:pointer;accent-color:var(--accent);flex-shrink:0">
+          ${c.toggle}
+          <div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>
+          ${typeBadge(m.type)}
+          <div class="trafic-tile-actions">${c.secWarn}${c.edit}${c.more}</div>
+        </div>
+        ${aliasesAndChips(m, aliases, '')}
+        ${healthLine(h)}
+        <div class="trafic-live" data-host="${esc(m.host)}">${liveBlockHtml(m.host, false)}</div>
+        <div class="trafic-layers">${layers.length
+          ? layers.map(l => `<div><span style="color:${l.color}">${ico(l.svg, 12)}</span>${esc(l.label)}</div>`).join('')
+          : `<div style="color:var(--text3)">${esc(t('trafic.no_layers'))}</div>`}</div>
+        ${backendsInline(m.allBackends, '.trafic-tile')}
+      </div>`;
+    }
+
+    // ── Vue D : maître / détail ──────────────────────────────────────────────
+    window._tdSel = window._tdSel || {};
+    window.traficPick = (stype, id) => { window._tdSel[stype] = id; renderPage(); };
+
+    function buildMasterItem(p, selSet, activeId) {
+      const m = proxyModel(p, selSet);
+      const h = proxyHealth(m);
+      const first = m.allBackends[0] ? backendURL(m.allBackends[0]) : '';
+      const more = m.allBackends.length > 1 ? ` +${m.allBackends.length - 1}` : '';
+      const warnColor = m.secAlert?.level === 'critical' ? 'var(--red)' : 'var(--yellow,#f59e0b)';
+      return `<div class="trafic-md-item${m.id === activeId ? ' is-active' : ''}${m.isSel ? ' is-selected' : ''}${m.enabled ? '' : ' is-off'}" onclick="traficPick('${m.stype}','${esc(m.id)}')">
+        <input type="checkbox" ${m.isSel ? 'checked' : ''} onclick="event.stopPropagation()" onchange="traficSelToggle('${esc(m.id)}','${m.stype}')" style="width:13px;height:13px;cursor:pointer;accent-color:var(--accent);flex-shrink:0">
+        <span class="trafic-health-dot health-${h.level}" title="${esc(h.label)}"></span>
+        <div style="min-width:0;flex:1">
+          <div class="trafic-md-host">${esc(m.host)}</div>
+          <div class="trafic-md-sub">${esc(first || '—')}${more}</div>
+        </div>
+        ${m.secAlert ? `<span title="${esc(t('trafic.security_prefix') + m.secAlert.label)}" style="color:${warnColor};display:flex">${ico(ICO.shieldAlert, 13)}</span>` : ''}
+        ${typeBadge(m.type)}
+      </div>`;
+    }
+
+    // Onglet de la modale d'édition correspondant à une fonction (clic sur une puce de couche).
+    const layerTab = (label) => {
+      if (label === 'Auth') return 'auth';
+      if (label === t('trafic.security')) return 'protection';
+      if (label === t('trafic.resilience')) return 'resilience';
+      if (label === 'Logs' || label === 'Prism') return 'avance';
+      return 'general';
+    };
+
+    function buildDetail(p, selSet) {
+      const m = proxyModel(p, selSet);
+      const c = proxyControls(m);
+      const h = proxyHealth(m);
+      const id = esc(m.id);
+      const host = esc(m.host);
+      const layers = featureBadges(m.cfg, 'list');
+      const editFn = m.isStr ? 'openStreamEditModal' : 'openProxyModal';
+      const canEdit = Role.canWrite() && !m.isAuto;
+      const quick = (icon, label, onclick) => `<button type="button" class="btn btn-secondary btn-sm trafic-md-quick" onclick="${onclick}">${ico(ICO[icon], 13)}<span>${label}</span></button>`;
+
+      return `<div class="trafic-md-head">
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div class="trafic-md-title">${domainLink(m.allDomains[0], true, m.hasTLS)}</div>${typeBadge(m.type)}
+            </div>
+            ${healthLine(h)}
+          </div>
+          <div class="trafic-md-actions">
+            ${c.toggle}
+            ${canEdit ? `<button type="button" class="btn btn-primary btn-sm" onclick="${editFn}('${id}')">${ico(ICO.edit, 13)}<span style="margin-left:5px">${esc(t('common.edit'))}</span></button>` : ''}
+            ${c.more}
+          </div>
+        </div>
+        <div class="trafic-md-quickrow">
+          ${quick('logs', esc(t('trafic.access_logs')), `logsFilters.domain='${host}';navigate('logs')`)}
+          ${quick('prism', 'Prism', `openPrismForProxy('${host}','${esc(m.p.node_id || m.p.edge_id || '')}')`)}
+          ${quick('flow', esc(t('trafic.flow_title')), `openTrafficFlowModal('proxy','${id}')`)}
+        </div>
+        ${m.secAlert ? `<div class="trafic-md-alert">${ico(ICO.shieldAlert, 14)}<span>${esc(t('trafic.security_prefix') + m.secAlert.label)}</span><button type="button" class="btn btn-secondary btn-sm" onclick="openProxySecModal('${id}')">${esc(t('trafic.security'))}</button></div>` : ''}
+        <div class="trafic-live is-big" data-host="${host}" data-big="1">${liveBlockHtml(m.host, true)}</div>
+        <div class="trafic-md-cols">
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.domain'))}</h4>
+            ${m.allDomains.map((d, i) => domainLink(d, i === 0, m.hasTLS)).join('')}
+            ${m.chips ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${m.chips}</div>` : ''}
+          </div>
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.backends'))} <span>${h.total ? esc(t('trafic.backends_up', { up: h.up, total: h.total })) : ''}</span></h4>
+            <div class="trafic-md-backends">${m.allBackends.length ? m.allBackends.map(b => backendChip(b, 0)).join('') : '—'}</div>
+          </div>
+        </div>
+        <div class="trafic-md-box">
+          <h4>${esc(t('trafic.layers'))}</h4>
+          <div class="trafic-md-layers">${layers.length
+            ? layers.map(l => `<button type="button" class="trafic-md-layer" style="--c:${l.color}" ${canEdit && !m.isStr ? `onclick="openProxyModal('${id}','${layerTab(l.label)}')"` : 'disabled'}>${ico(l.svg, 12)}${esc(l.label)}</button>`).join('')
+            : `<span style="color:var(--text3);font-size:12px">${esc(t('trafic.no_layers'))}</span>`}</div>
+        </div>`;
+    }
+
+    function buildMasterDetail(sorted, selSet, stype, groupHtml) {
+      const cur = sorted.find(p => p.id === window._tdSel[stype]) || sorted[0];
+      window._tdSel[stype] = cur.id;
+      return `<div class="trafic-md">
+        <div class="trafic-md-list">${groupHtml(p => buildMasterItem(p, selSet, cur.id))}</div>
+        <div class="trafic-md-detail">${buildDetail(cur, selSet)}</div>
+      </div>`;
+    }
+
     // ── Rendu section (tuiles ou tableau avec groupes) ────────────────────────
     function renderSectionContent(label, icon, items, newBtn, stype) {
       const filtered = applyFilters(items);
@@ -583,9 +747,20 @@ async function renderTraficPage(ctx) {
         return headerHtml + `<p style="color:var(--text2);font-size:13px;padding:8px 2px">${t('trafic.no_match')}</p>`;
       }
 
+      if (window._tv === 'detail') {
+        return headerHtml + bulkHtml + buildMasterDetail(sorted, selSet, stype, (fn) => {
+          if (!gb) return sorted.map(fn).join('');
+          const g = {};
+          sorted.forEach(p => { const k = getGroupKey(p) || '—'; (g[k] = g[k] || []).push(p); });
+          return Object.keys(g).sort((a, b) => a.localeCompare(b))
+            .map(k => `<div class="trafic-md-group">${esc(k)} <span>${g[k].length}</span></div>${g[k].map(fn).join('')}`).join('');
+        });
+      }
+      const renderItem = window._tv === 'etat' ? buildCard : buildTile;
+
       if (!gb) {
         return headerHtml + bulkHtml +
-          `<div class="trafic-grid" data-cols="${cols}">${sorted.map(p => buildTile(p, selSet)).join('')}</div>`;
+          `<div class="trafic-grid" data-cols="${cols}">${sorted.map(p => renderItem(p, selSet)).join('')}</div>`;
       }
 
       // Groupés
@@ -599,7 +774,7 @@ async function renderTraficPage(ctx) {
       const subHtml = gkeys.map(k =>
         `<div style="margin-bottom:18px">
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)">${esc(k)} <span style="font-weight:400">${gmap[k].length}</span></div>
-          <div class="trafic-grid" data-cols="${cols}">${gmap[k].map(p => buildTile(p, selSet)).join('')}</div>
+          <div class="trafic-grid" data-cols="${cols}">${gmap[k].map(p => renderItem(p, selSet)).join('')}</div>
         </div>`
       ).join('');
       return headerHtml + bulkHtml + subHtml;
@@ -650,6 +825,13 @@ async function renderTraficPage(ctx) {
 
     const isTile  = window._tv === 'tuiles';
     const isTable = window._tv === 'table';
+    const isEtat  = window._tv === 'etat';
+    const iconState  = `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+    const iconDetail = `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M10 3v18"/></svg>`;
+    const viewBtn = (v, title, icon) => {
+      const on = window._tv === v;
+      return `<button onclick="setTraficView('${v}')" title="${esc(title)}" style="padding:5px 7px;border:1px solid ${on?'var(--accent)':'var(--border)'};background:${on?'var(--bg3)':'transparent'};border-radius:var(--radius);cursor:pointer;color:var(--text);display:flex;align-items:center">${icon}</button>`;
+    };
 
     const importBtn = `<button class="btn btn-secondary btn-sm" onclick="openTraficImport()" title="${esc(t('trafic.import_hint'))}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>${t('trafic.import')}</button>`;
     const csvBtn   = `<button class="btn btn-secondary btn-sm" onclick="traficExportCSV()" title="${esc(t('trafic.export_csv'))}"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="margin-right:4px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>CSV</button>`;
@@ -678,8 +860,10 @@ async function renderTraficPage(ctx) {
           ${csvBtn}
           <span class="trafic-toolbar-sep"></span>
           <button onclick="setTraficView('tuiles')" title="${esc(t('trafic.view_tiles'))}" style="padding:5px 7px;border:1px solid ${isTile?'var(--accent)':'var(--border)'};background:${isTile?'var(--bg3)':'transparent'};border-radius:var(--radius);cursor:pointer;color:var(--text);display:flex;align-items:center">${iconGrid}</button>
-          ${isTile ? `<span class="trafic-toolbar-sep"></span><div class="trafic-cols-selector" title="${esc(t('trafic.cols', { n: window._tc || 3 }))}">${colsSelector()}</div><span class="trafic-toolbar-sep"></span>` : ''}
+          ${(isTile || isEtat) ? `<span class="trafic-toolbar-sep"></span><div class="trafic-cols-selector" title="${esc(t('trafic.cols', { n: window._tc || 3 }))}">${colsSelector()}</div><span class="trafic-toolbar-sep"></span>` : ''}
           <button onclick="setTraficView('table')" title="${esc(t('trafic.view_table'))}" style="padding:5px 7px;border:1px solid ${isTable?'var(--accent)':'var(--border)'};background:${isTable?'var(--bg3)':'transparent'};border-radius:var(--radius);cursor:pointer;color:var(--text);display:flex;align-items:center">${iconTable}</button>
+          ${viewBtn('etat', t('trafic.view_state'), iconState)}
+          ${viewBtn('detail', t('trafic.view_detail'), iconDetail)}
         </div>
       </div>`;
 
@@ -754,6 +938,37 @@ async function renderTraficPage(ctx) {
 
     // ── window.* handlers ────────────────────────────────────────────────────
     window.renderPage = renderPage;
+
+    // Relevé périodique des métriques (vues état / détail) : alimente les courbes, mise à jour en place.
+    const pushSample = (summary) => {
+      for (const mp of (summary?.proxies || [])) {
+        if (!mp.host) continue;
+        const k = mp.host.toLowerCase();
+        _metricsMap[k] = mp;
+        const s = window._traficSeries[k] || (window._traficSeries[k] = []);
+        s.push(mp.requests_per_second || 0);
+        if (s.length > SERIES_MAX) s.shift();
+      }
+    };
+    const paintLive = () => {
+      document.querySelectorAll('.trafic-live').forEach(el => {
+        el.innerHTML = liveBlockHtml(el.dataset.host, el.dataset.big === '1');
+      });
+    };
+    if (!window._traficSeriesAt || Date.now() - window._traficSeriesAt > 4000) {
+      pushSample(metricsSum);
+      window._traficSeriesAt = Date.now();
+    }
+    if (window._tv === 'etat' || window._tv === 'detail') {
+      window._traficLive = setInterval(async () => {
+        if (!document.getElementById('trafic-proxies-section')) { clearInterval(window._traficLive); return; }
+        const s = await api('GET', '/internal/v1/metrics/summary').catch(() => null);
+        if (!s) return;
+        pushSample(s);
+        window._traficSeriesAt = Date.now();
+        paintLive();
+      }, 5000);
+    }
 
     window.traficFilter = (key, val) => {
       window._tf[key] = val;

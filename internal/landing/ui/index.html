@@ -507,6 +507,12 @@
     .arch-panel { display: none; }
     .arch-panel.active { display: block; }
     .arch-svg text { font-family: var(--font); }
+    .arch-svg-m { display: none; }
+    @media (max-width: 600px) {
+      .arch-svg-d { display: none; }
+      .arch-svg-m { display: block; width: 100%; max-width: 420px; }
+      .arch-body { overflow-x: visible; }
+    }
 
     .inst-panel { display: none; }
     .inst-panel.active { display: block; }
@@ -787,10 +793,10 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      overflow: hidden;
+      overflow-x: auto;
       box-shadow: var(--shadow);
     }
-
+    .stack-table { min-width: 460px; }
     /* Docs / misc light surfaces */
     code {
       font-family: var(--mono);
@@ -1143,7 +1149,7 @@
           <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.home">goproxify — home lab · 1 Admin · 1 Edge · 1 Agent</span>
         </div>
         <div class="arch-body">
-          <svg class="arch-svg" style="min-width:560px" viewBox="0 0 700 590" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-h-title arch-h-desc">
+          <svg class="arch-svg arch-svg-d" viewBox="0 0 700 590" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-h-title arch-h-desc">
             <title id="arch-h-title">GoProxify home lab layout</title>
             <desc id="arch-h-desc">Top to bottom: Internet reaches one gateway (Edge). The Admin manages the Edge. From the Edge, HTTP sites go through an Agent to Docker containers, and TCP or UDP services go straight to another host.</desc>
             <defs>
@@ -1210,6 +1216,56 @@
             <path d="M235,552 H265" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="273" y="556" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Edge)</text>
             <text x="55" y="580" fill="#94a3b8" font-size="10" data-i18n="arch.legend.home">1 Admin · 1 Edge · 1 Agent</text>
           </svg>
+          <svg class="arch-svg arch-svg-m" viewBox="0 0 360 492" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-hm-title">
+            <title id="arch-hm-title">GoProxify home lab layout</title>
+            <defs>
+              <marker id="hm-ai" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#4f46e5"/></marker>
+              <marker id="hm-ac" markerWidth="6" markerHeight="6" refX="4.500" refY="3" orient="auto-start-reverse"><path d="M0,0 L0,6 L6,3 z" fill="#06b6d4"/></marker>
+            </defs>
+            <rect x="80" y="10" width="200" height="50" rx="12" fill="#f8fafc" stroke="rgba(15,23,42,0.14)" stroke-width="1.5"/>
+            <text x="180" y="32" text-anchor="middle" fill="#64748b" font-size="11" font-weight="800" letter-spacing="0.8" data-i18n="arch.internet">INTERNET</text>
+            <text x="180" y="49" text-anchor="middle" fill="#94a3b8" font-size="8.5" data-i18n="arch.internet.sub">Visitors · https://blog… · https://shop…</text>
+            <path d="M180,60 V96" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#hm-ai)"/>
+            <text x="192" y="84" fill="#4f46e5" font-size="9" font-weight="600" data-i18n="arch.flow.in">HTTPS · TCP · UDP</text>
+
+            <rect x="10" y="100" width="190" height="70" rx="12" fill="#ffffff" stroke="#4f46e5" stroke-width="2"/>
+            <rect x="10" y="100" width="8" height="70" rx="4" fill="#4f46e5"/>
+            <text x="30" y="126" fill="#4f46e5" font-size="11" font-weight="800" letter-spacing="0.5" data-i18n="arch.gw.name">GATEWAY</text>
+            <text x="30" y="148" fill="#334155" font-size="9.5" font-weight="600" data-i18n="arch.gw.sub">Core — routes and protects</text>
+
+            <rect x="232" y="100" width="118" height="70" rx="12" fill="#ffffff" stroke="#06b6d4" stroke-width="2"/>
+            <path d="M232,112 a12,12 0 0 1 12,-12 h94 a12,12 0 0 1 12,12 v12 h-118 z" fill="#06b6d4" opacity="0.14"/>
+            <text x="291" y="118" text-anchor="middle" fill="#0891b2" font-size="11" font-weight="800" letter-spacing="0.5">ADMIN</text>
+            <text x="291" y="152" text-anchor="middle" fill="#334155" font-size="9" font-weight="600" data-i18n="arch.admin.sub">One control panel</text>
+            <path d="M203,135 H229" stroke="#06b6d4" stroke-width="1.75" stroke-dasharray="4 3" fill="none" marker-start="url(#hm-ac)" marker-end="url(#hm-ac)"/>
+
+            <path d="M105,170 V202 H92 V232" stroke="#4f46e5" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#hm-ai)"/>
+            <path d="M105,202 H267 V232" stroke="#4f46e5" stroke-width="2" fill="none" stroke-linejoin="round" marker-end="url(#hm-ai)"/>
+
+            <rect x="10" y="236" width="165" height="164" rx="12" fill="#f8fafc" stroke="#10b981" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="92.500" y="260" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host.docker">Docker host</text>
+            <rect x="19" y="270" width="147" height="46" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+            <text x="29" y="288" fill="#059669" font-size="10.5" font-weight="800" letter-spacing="0.5">AGENT</text>
+            <text x="29" y="305" fill="#64748b" font-size="8.5" data-i18n="arch.agent.sub">watches containers</text>
+            <path d="M92.500,316 V330" stroke="#10b981" stroke-width="1.5" fill="none"/>
+            <rect x="19" y="330" width="45" height="26" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="41.500" y="347" text-anchor="middle" fill="#166534" font-size="9">blog</text>
+            <rect x="70" y="330" width="45" height="26" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="92.500" y="347" text-anchor="middle" fill="#166534" font-size="9">shop</text>
+            <rect x="121" y="330" width="45" height="26" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="143.500" y="347" text-anchor="middle" fill="#166534" font-size="9">app</text>
+            <text x="92.500" y="384" text-anchor="middle" fill="#059669" font-size="9" font-weight="600" data-i18n="arch.proto.http">HTTP(S) via labels</text>
+
+            <rect x="185" y="236" width="165" height="164" rx="12" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="267.500" y="260" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host.other">Other host (NAS, VM…)</text>
+            <rect x="194" y="270" width="147" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25" stroke-dasharray="4 3"/>
+            <text x="267.500" y="297" text-anchor="middle" fill="#94a3b8" font-size="9" data-i18n="arch.noagent">No Agent needed</text>
+            <path d="M267.500,316 V330" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+            <rect x="194" y="330" width="70" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25"/><text x="229" y="347" text-anchor="middle" fill="#475569" font-size="9">nas:5000</text>
+            <rect x="272" y="330" width="70" height="26" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25"/><text x="307" y="347" text-anchor="middle" fill="#475569" font-size="9">game:25565</text>
+            <text x="267.500" y="384" text-anchor="middle" fill="#475569" font-size="9" font-weight="600" data-i18n="arch.proto.l4">TCP · UDP via ports</text>
+
+            <path d="M10,430 H40" stroke="#4f46e5" stroke-width="2"/><text x="48" y="434" fill="#64748b" font-size="9" data-i18n="arch.leg.traffic">visitor traffic</text>
+            <path d="M10,452 H40" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="48" y="456" fill="#64748b" font-size="9" data-i18n="arch.leg.mgmt">management link (Admin ↔ Core)</text>
+            <text x="10" y="482" fill="#94a3b8" font-size="9" data-i18n="arch.legend.home">1 Admin · 1 Core (gateway) · 1 Agent</text>
+          </svg>
         </div>
       </div>
     </div>
@@ -1224,7 +1280,7 @@
           <span style="margin-left:8px;font-size:0.8rem;color:var(--text-muted);font-family:var(--mono)" data-i18n="arch.caption.ent">goproxify — enterprise · 1 Admin · 2 Edges · 4 hosts</span>
         </div>
         <div class="arch-body">
-          <svg class="arch-svg" style="min-width:720px" viewBox="0 0 940 690" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-e-title arch-e-desc">
+          <svg class="arch-svg arch-svg-d" viewBox="0 0 940 690" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-e-title arch-e-desc">
             <title id="arch-e-title">GoProxify redundant enterprise layout</title>
             <desc id="arch-e-desc">Top to bottom: Internet reaches two gateways (Edges) through DNS round-robin or a virtual IP. The Admin manages both Edges. Both Edges route over the internal network to four hosts, each running an Agent.</desc>
             <defs>
@@ -1339,6 +1395,92 @@
             <path d="M60,650 H90" stroke="#4f46e5" stroke-width="2"/><text x="98" y="654" fill="#64748b" font-size="9.5" data-i18n="arch.leg.traffic">visitor traffic</text>
             <path d="M260,650 H290" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="298" y="654" fill="#64748b" font-size="9.5" data-i18n="arch.leg.mgmt">management link (Admin ↔ Edge)</text>
             <text x="60" y="678" fill="#94a3b8" font-size="10" data-i18n="arch.legend.ent">1 Admin · 2 Edges · 4 hosts, each with an Agent</text>
+          </svg>
+          <svg class="arch-svg arch-svg-m" viewBox="0 0 360 722" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="arch-em-title">
+            <title id="arch-em-title">GoProxify redundant enterprise layout</title>
+            <defs>
+              <marker id="em-ai" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L0,8 L8,4 z" fill="#4f46e5"/></marker>
+              <marker id="em-ac" markerWidth="6" markerHeight="6" refX="4.500" refY="3" orient="auto-start-reverse"><path d="M0,0 L0,6 L6,3 z" fill="#06b6d4"/></marker>
+            </defs>
+            <rect x="80" y="10" width="200" height="50" rx="12" fill="#f8fafc" stroke="rgba(15,23,42,0.14)" stroke-width="1.5"/>
+            <text x="180" y="32" text-anchor="middle" fill="#64748b" font-size="11" font-weight="800" letter-spacing="0.8" data-i18n="arch.internet">INTERNET</text>
+            <text x="180" y="49" text-anchor="middle" fill="#94a3b8" font-size="8.5" data-i18n="arch.internet.sub">Visitors · https://blog… · https://shop…</text>
+            <path d="M180,60 V88" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+            <text x="192" y="79" fill="#4f46e5" font-size="9" font-weight="600" data-i18n="arch.flow.in">HTTPS · TCP · UDP</text>
+
+            <rect x="8" y="90" width="344" height="32" rx="9" fill="#eef2ff" stroke="#c7d2fe" stroke-width="1.25"/>
+            <text x="180" y="110" text-anchor="middle" fill="#4338ca" font-size="9.5" font-weight="600" data-i18n="arch.lb.short">DNS round-robin or virtual IP</text>
+            <path d="M58,122 V150" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+            <path d="M302,122 V150" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+
+            <rect x="8" y="152" width="100" height="70" rx="12" fill="#ffffff" stroke="#4f46e5" stroke-width="2"/>
+            <rect x="8" y="152" width="7" height="70" rx="3.500" fill="#4f46e5"/>
+            <text x="61" y="184" text-anchor="middle" fill="#4f46e5" font-size="10.5" font-weight="800" data-i18n="arch.gw1.name">GATEWAY 1</text>
+            <text x="61" y="203" text-anchor="middle" fill="#94a3b8" font-size="9">Core</text>
+
+            <rect x="252" y="152" width="100" height="70" rx="12" fill="#ffffff" stroke="#6366f1" stroke-width="2"/>
+            <rect x="252" y="152" width="7" height="70" rx="3.500" fill="#6366f1"/>
+            <text x="305" y="184" text-anchor="middle" fill="#4f46e5" font-size="10.5" font-weight="800" data-i18n="arch.gw2.name">GATEWAY 2</text>
+            <text x="305" y="203" text-anchor="middle" fill="#94a3b8" font-size="9">Core</text>
+
+            <rect x="124" y="152" width="112" height="70" rx="12" fill="#ffffff" stroke="#06b6d4" stroke-width="2"/>
+            <path d="M124,164 a12,12 0 0 1 12,-12 h88 a12,12 0 0 1 12,12 v12 h-112 z" fill="#06b6d4" opacity="0.14"/>
+            <text x="180" y="170" text-anchor="middle" fill="#0891b2" font-size="11" font-weight="800" letter-spacing="0.5">ADMIN</text>
+            <path d="M110,187 H122" stroke="#06b6d4" stroke-width="1.75" stroke-dasharray="3 2" fill="none" marker-start="url(#em-ac)" marker-end="url(#em-ac)"/>
+            <path d="M238,187 H250" stroke="#06b6d4" stroke-width="1.75" stroke-dasharray="3 2" fill="none" marker-start="url(#em-ac)" marker-end="url(#em-ac)"/>
+
+            <path d="M58,222 V250" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+            <path d="M302,222 V250" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+            <rect x="8" y="252" width="344" height="32" rx="9" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.25"/>
+            <text x="180" y="272" text-anchor="middle" fill="#475569" font-size="9.5" font-weight="600" data-i18n="arch.net">Internal network</text>
+            <path d="M92,284 V302" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+            <path d="M266,284 V302" stroke="#4f46e5" stroke-width="2" fill="none" marker-end="url(#em-ai)"/>
+
+            <rect x="8" y="304" width="344" height="336" rx="14" fill="none" stroke="#10b981" stroke-width="1.25" stroke-dasharray="5 4"/>
+
+            <rect x="16" y="318" width="156" height="150" rx="12" fill="#f8fafc" stroke="#10b981" stroke-width="1.25"/>
+            <text x="94" y="340" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host1">HOST 1</text>
+            <rect x="25" y="350" width="138" height="44" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+            <text x="35" y="368" fill="#059669" font-size="10.5" font-weight="800" letter-spacing="0.5">AGENT</text>
+            <text x="35" y="385" fill="#64748b" font-size="8.5" data-i18n="arch.agent.sub">watches containers</text>
+            <rect x="25" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="46" y="422" text-anchor="middle" fill="#166534" font-size="8.5">blog</text>
+            <rect x="73" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="94" y="422" text-anchor="middle" fill="#166534" font-size="8.5">shop</text>
+            <rect x="121" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="142" y="422" text-anchor="middle" fill="#166534" font-size="8.5">app</text>
+            <text x="94" y="454" text-anchor="middle" fill="#059669" font-size="9" font-weight="600" data-i18n="arch.proto.http">HTTP(S) via labels</text>
+
+            <rect x="188" y="318" width="156" height="150" rx="12" fill="#f8fafc" stroke="#10b981" stroke-width="1.25"/>
+            <text x="266" y="340" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host2">HOST 2</text>
+            <rect x="197" y="350" width="138" height="44" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+            <text x="207" y="368" fill="#059669" font-size="10.5" font-weight="800" letter-spacing="0.5">AGENT</text>
+            <text x="207" y="385" fill="#64748b" font-size="8.5" data-i18n="arch.agent.sub">watches containers</text>
+            <rect x="197" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="218" y="422" text-anchor="middle" fill="#166534" font-size="8.5">api</text>
+            <rect x="245" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="266" y="422" text-anchor="middle" fill="#166534" font-size="8.5">wiki</text>
+            <rect x="293" y="406" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="314" y="422" text-anchor="middle" fill="#166534" font-size="8.5">crm</text>
+            <text x="266" y="454" text-anchor="middle" fill="#059669" font-size="9" font-weight="600" data-i18n="arch.proto.http">HTTP(S) via labels</text>
+
+            <rect x="16" y="478" width="156" height="150" rx="12" fill="#f8fafc" stroke="#10b981" stroke-width="1.25"/>
+            <text x="94" y="500" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host3">HOST 3</text>
+            <rect x="25" y="510" width="138" height="44" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+            <text x="35" y="528" fill="#059669" font-size="10.5" font-weight="800" letter-spacing="0.5">AGENT</text>
+            <text x="35" y="545" fill="#64748b" font-size="8.5" data-i18n="arch.agent.sub">watches containers</text>
+            <rect x="25" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="46" y="582" text-anchor="middle" fill="#166534" font-size="8.5">shop</text>
+            <rect x="73" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="94" y="582" text-anchor="middle" fill="#166534" font-size="8.5">auth</text>
+            <rect x="121" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#86efac" stroke-width="1.25"/><text x="142" y="582" text-anchor="middle" fill="#166534" font-size="8.5">docs</text>
+            <text x="94" y="614" text-anchor="middle" fill="#059669" font-size="9" font-weight="600" data-i18n="arch.proto.http">HTTP(S) via labels</text>
+
+            <rect x="188" y="478" width="156" height="150" rx="12" fill="#f8fafc" stroke="#10b981" stroke-width="1.25"/>
+            <text x="266" y="500" text-anchor="middle" fill="#334155" font-size="10.5" font-weight="700" data-i18n="arch.host4">HOST 4</text>
+            <rect x="197" y="510" width="138" height="44" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>
+            <text x="207" y="528" fill="#059669" font-size="10.5" font-weight="800" letter-spacing="0.5">AGENT</text>
+            <text x="207" y="545" fill="#64748b" font-size="8.5" data-i18n="arch.agent.sub">watches containers</text>
+            <rect x="197" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25"/><text x="218" y="582" text-anchor="middle" fill="#475569" font-size="7.500">db:5432</text>
+            <rect x="245" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25"/><text x="266" y="582" text-anchor="middle" fill="#475569" font-size="7.500">dns:53</text>
+            <rect x="293" y="566" width="42" height="24" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.25"/><text x="314" y="582" text-anchor="middle" fill="#475569" font-size="7.500">vpn:51820</text>
+            <text x="266" y="614" text-anchor="middle" fill="#475569" font-size="9" font-weight="600" data-i18n="arch.proto.l4">TCP · UDP via ports</text>
+
+            <path d="M10,662 H40" stroke="#4f46e5" stroke-width="2"/><text x="48" y="666" fill="#64748b" font-size="9" data-i18n="arch.leg.traffic">visitor traffic</text>
+            <path d="M10,684 H40" stroke="#06b6d4" stroke-width="2" stroke-dasharray="5 4"/><text x="48" y="688" fill="#64748b" font-size="9" data-i18n="arch.leg.mgmt">management link (Admin ↔ Core)</text>
+            <text x="10" y="712" fill="#94a3b8" font-size="9" data-i18n="arch.legend.ent">1 Admin · 2 Cores (gateways) · 4 hosts, each with an Agent</text>
           </svg>
         </div>
       </div>
@@ -2358,6 +2500,7 @@ volumes:
       'arch.internet.sub': 'Visitors · https://blog… · https://shop…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
       'arch.lb': 'DNS round-robin or virtual IP — visitors reach either gateway',
+      'arch.lb.short': 'DNS round-robin or virtual IP',
       'arch.gw.name': 'GATEWAY',
       'arch.gw1.name': 'GATEWAY 1',
       'arch.gw2.name': 'GATEWAY 2',
@@ -2515,6 +2658,7 @@ volumes:
       'arch.internet.sub': 'Visiteurs · https://blog… · https://boutique…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
       'arch.lb': 'DNS round-robin ou IP virtuelle — les visiteurs atteignent l’une ou l’autre passerelle',
+      'arch.lb.short': 'DNS round-robin ou IP virtuelle',
       'arch.gw.name': 'PASSERELLE',
       'arch.gw1.name': 'PASSERELLE 1',
       'arch.gw2.name': 'PASSERELLE 2',
@@ -2672,6 +2816,7 @@ volumes:
       'arch.internet.sub': 'Visitantes · https://blog… · https://tienda…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
       'arch.lb': 'DNS round-robin o IP virtual — los visitantes llegan a cualquiera de las pasarelas',
+      'arch.lb.short': 'DNS round-robin o IP virtual',
       'arch.gw.name': 'PASARELA',
       'arch.gw1.name': 'PASARELA 1',
       'arch.gw2.name': 'PASARELA 2',
@@ -2829,6 +2974,7 @@ volumes:
       'arch.internet.sub': 'Besucher · https://blog… · https://shop…',
       'arch.flow.in': 'HTTPS · TCP · UDP',
       'arch.lb': 'DNS-Round-Robin oder virtuelle IP — Besucher erreichen eines der beiden Gateways',
+      'arch.lb.short': 'DNS-Round-Robin oder virtuelle IP',
       'arch.gw.name': 'GATEWAY',
       'arch.gw1.name': 'GATEWAY 1',
       'arch.gw2.name': 'GATEWAY 2',
