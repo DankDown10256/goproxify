@@ -57,6 +57,12 @@ goproxify security rules silence list   [-admin-url …] [-token …]
 goproxify security rules silence add    -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>] [-admin-url …] [-token …]
 goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
 
+goproxify security rules history list          [-admin-url …] [-token …]
+goproxify security rules history replay <id>   [-admin-url …] [-token …]
+
+goproxify security rules export [-out <fichier.yaml>] [-admin-url …] [-token …]
+goproxify security rules import -file <automation.yaml> [-admin-url …] [-token …]
+
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 `)
@@ -522,6 +528,60 @@ func runSecurityRules() {
 	case "silence":
 		runSecurityRulesSilence()
 
+	case "history":
+		runSecurityRulesHistory()
+
+	case "export":
+		args := parseFlags(os.Args[4:])
+		out := flagValue(args, "-out", "")
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		data, _, _, err := client.DoRaw("GET", "/api/v1/rules-engine/export", nil, "", 200)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rules export : %v\n", err)
+			os.Exit(1)
+		}
+		if out == "" {
+			fmt.Print(string(data))
+			return
+		}
+		if err := os.WriteFile(out, data, 0o600); err != nil {
+			fmt.Fprintf(os.Stderr, "écriture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Exporté vers %s\n", out)
+
+	case "import":
+		args := parseFlags(os.Args[4:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules import -file <automation.yaml>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		resData, _, _, err := client.DoRaw("POST", "/api/v1/rules-engine/import", data, "application/x-yaml", 200)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "rules import : %v\n", err)
+			os.Exit(1)
+		}
+		var summary map[string]int
+		_ = json.Unmarshal(resData, &summary)
+		fmt.Printf("Règles : %d créées, %d mises à jour\n", summary["rules_created"], summary["rules_updated"])
+		fmt.Printf("Canaux : %d créés, %d mis à jour\n", summary["channels_created"], summary["channels_updated"])
+		fmt.Printf("Silences : %d créés\n", summary["silences_created"])
+
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande rules inconnue : %q\n", sub)
 		os.Exit(1)
@@ -618,6 +678,72 @@ func runSecurityRulesSilence() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande silence inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Historique d'exécution (journal) ─────────────────────────────────────────
+
+func runSecurityRulesHistory() {
+	sub := subcommand(os.Args, 4)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var hist []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/history", nil, &hist); err != nil {
+			fmt.Fprintf(os.Stderr, "history list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(hist) == 0 {
+			fmt.Println("(aucune entrée)")
+			return
+		}
+		for _, h := range hist {
+			id := int64(h["id"].(float64))
+			ruleName, _ := h["rule_name"].(string)
+			condResult, _ := h["cond_result"].(bool)
+			actionTaken, _ := h["action_taken"].(bool)
+			errMsg, _ := h["error"].(string)
+			firedAt, _ := h["fired_at"].(string)
+			status := "non déclenchée"
+			if condResult {
+				status = "déclenchée, sans action"
+				if actionTaken {
+					status = "exécutée"
+				} else if errMsg == "silenced" {
+					status = "silencée"
+				} else if errMsg != "" {
+					status = "échec : " + errMsg
+				}
+			}
+			fmt.Printf("[%d] %-24s  %-36s  %s\n", id, firedAt, ruleName, status)
+		}
+
+	case "replay":
+		id := subcommand(os.Args, 5)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules history replay <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[6:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/rules-engine/history/"+id+"/replay", nil, nil, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "history replay : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Entrée %s rejouée.\n", id)
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande history inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

@@ -901,6 +901,10 @@ Déclenche une évaluation immédiate. Paramètre : `?dry_run=true` (défaut). R
 
 Historique des exécutions. Paramètre : `limit`.
 
+### `POST /api/v1/rules-engine/history/:id/replay`
+
+Rejoue l'action d'une entrée d'historique en échec, en réutilisant le `detail` capturé au déclenchement d'origine (la condition n'est pas réévaluée). `400` si l'entrée n'a jamais déclenché de tentative d'action ou si la règle a été supprimée depuis. Réponse : `{ ok: true }`.
+
 ### `GET /api/v1/rules-engine/condition-types`
 
 Liste les descripteurs de types de conditions disponibles (nom, paramètres, descriptions).
@@ -928,6 +932,14 @@ Crée un silence. Corps : `{ name, starts_at, ends_at, rule_ids }` (`starts_at`/
 ### `DELETE /api/v1/rules-engine/silences/:id`
 
 Supprime un silence (`204`).
+
+### `GET /api/v1/rules-engine/export`
+
+Exporte en YAML toute la configuration d'automatisation : `{ version, rules[], channels[], silences[] }` (`Content-Type: application/x-yaml`, pièce jointe `automation.yaml`). Les canaux exportent leur `config` en clair.
+
+### `POST /api/v1/rules-engine/import`
+
+Importe un document YAML au format de l'export ci-dessus. Corps : le document YAML brut. Règles et canaux upsertés par nom ; silences toujours créés. Réponse : `{ rules_created, rules_updated, channels_created, channels_updated, silences_created }`.
 
 ---
 
@@ -1119,6 +1131,10 @@ Tous les messages WS utilisent l'enveloppe suivante :
 
 | Méthode | Endpoint | Scope requis | Description |
 |---|---|---|---|
+| GET | `/api/v1/logs` | `logs:read` | Liste paginée (curseur `before_id`, `page_size`) : filtres `kind` (`access`/`system`), `level`, `component`, `node_name`/`node_id`, `domain`, `ip`, `method`, `status`, `path`, `search`, `date_from`, `date_to` → `{has_more, last_id, entries:[Entry]}`. Chaque `Entry` porte `country` (code ISO alpha-2, résolu au mieux depuis le cache géo-IP déjà alimenté par le tableau de bord/Prism/Bans ; absent si l'IP n'a pas encore été résolue — pas d'appel réseau synchrone sur cette route) |
+| GET | `/api/v1/logs/live` | `logs:read` | Flux SSE des nouvelles entrées, mêmes filtres que la liste (`?_auth=<token>` requis, `EventSource` ne pose pas d'en-tête `Authorization`) |
+| GET | `/api/v1/logs/export?format=json\|csv` | `logs:read` | Export des entrées filtrées (mêmes filtres que la liste) |
+| GET | `/api/v1/logs/correlate` | `logs:read` | Entrées voisines d'un événement : `request_id`, ou `domain`+`ts`+`window` (secondes, défaut 30) |
 | GET | `/api/v1/logs/settings` | `logs:read` | Paramètres de rétention et de pseudonymisation |
 | PUT | `/api/v1/logs/settings` | admin | Modifier rétention, `ip_anonymize`, `ip_pseudonymize` |
 | POST | `/api/v1/logs/reveal-ip` | `gdpr:reveal` | Révéler l'IP réelle d'une entrée pseudonymisée |

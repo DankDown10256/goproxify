@@ -84,8 +84,52 @@ pages.automation = async function() {
         <button class="btn btn-ghost btn-sm" onclick="navigate('rules-store')">${t('automation.install_template')}</button>
         <button class="btn btn-ghost btn-sm" onclick="navigate('alert-channels')">${t('automation.test_channels')}</button>
         <button class="btn btn-ghost btn-sm" onclick="navigate('alerts')">${t('automation.edit_routing')}</button>
+        <button class="btn btn-ghost btn-sm" onclick="_auExportYaml()">${t('automation.export_yaml')}</button>
+        <button class="btn btn-ghost btn-sm" onclick="_auImportYaml()">${t('automation.import_yaml')}</button>
       </div>
-    </div>`;
+    </div>
+    <input type="file" id="au-import-file" accept=".yaml,.yml" style="display:none">`;
+  document.getElementById('au-import-file').onchange = _auImportYamlFile;
+};
+
+// Export/Import GitOps : règles, canaux et silences en un document YAML.
+window._auExportYaml = async function() {
+  try {
+    const res = await fetch('/api/v1/rules-engine/export', { headers: { Authorization: 'Bearer ' + state.token } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const blob = new Blob([text], { type: 'application/x-yaml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'automation.yaml';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+window._auImportYaml = function() {
+  document.getElementById('au-import-file')?.click();
+};
+
+window._auImportYamlFile = async function(ev) {
+  const file = ev.target.files?.[0];
+  if (!file) return;
+  ev.target.value = '';
+  try {
+    const text = await file.text();
+    const res = await fetch('/api/v1/rules-engine/import', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + state.token, 'Content-Type': 'application/x-yaml' },
+      body: text,
+    });
+    if (!res.ok) throw new Error(await res.text().catch(() => 'HTTP ' + res.status));
+    const summary = await res.json();
+    toast(t('automation.import_summary', {
+      rc: summary.rules_created, ru: summary.rules_updated,
+      cc: summary.channels_created, cu: summary.channels_updated, sc: summary.silences_created,
+    }), 'success');
+    pages.automation();
+  } catch (e) { toast(e.message, 'error'); }
 };
 
 pages['automation-history'] = async function() {
@@ -114,14 +158,29 @@ function _auRenderJournal() {
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">${filters.map(([v, l]) =>
       `<button class="btn btn-sm${f === v ? ' btn-primary' : ' btn-ghost'}" onclick="_auSetFilter('${v}')">${l}</button>`).join('')}</div>
     ${rows.length ? `<div class="table-wrap"><table><thead><tr>
-      <th>${t('common.date')}</th><th>${t('security.rules.rule')}</th><th>${t('automation.col_result')}</th><th>${t('security.rules.col_detail')}</th>
+      <th>${t('common.date')}</th><th>${t('security.rules.rule')}</th><th>${t('automation.col_result')}</th><th>${t('security.rules.col_detail')}</th><th></th>
     </tr></thead><tbody>${rows.map(h => { const s = _auHistState(h); return `<tr>
       <td style="font-size:11px;white-space:nowrap">${fmtDate(h.fired_at)}</td>
       <td style="font-size:12px">${esc(h.rule_name || h.rule_id)}</td>
       <td><span class="tag ${tag[s]}" style="font-size:10px">${t(label[s])}</span></td>
-      <td style="font-size:11px;color:var(--text2)">${s === 'silenced' ? t('automation.silenced_hint') : esc(h.error || h.detail || '')}</td></tr>`; }).join('')}</tbody></table></div>`
+      <td style="font-size:11px;color:var(--text2)">${s === 'silenced' ? t('automation.silenced_hint') : esc(h.error || h.detail || '')}</td>
+      <td>${s === 'err' ? `<button class="btn btn-ghost btn-sm" onclick="_auReplay(${h.id},this)">${t('automation.replay')}</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`
       : `<div class="empty"><p>${t('security.rules.no_history')}</p></div>`}`;
 }
+
+window._auReplay = async function(id, btn) {
+  btn.disabled = true;
+  btn.textContent = t('common.loading');
+  try {
+    await api('POST', `/rules-engine/history/${id}/replay`);
+    toast(t('automation.replayed'), 'success');
+    pages['automation-history']();
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = t('automation.replay');
+  }
+};
 
 // ── PAGE: Silences & maintenance ─────────────────────────────────────────────
 // Suspend l'exécution des actions du moteur de règles sur une fenêtre de temps,

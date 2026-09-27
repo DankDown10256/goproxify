@@ -29,6 +29,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/mcpaccess"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/edge/proxystore"
+	"gopkg.in/yaml.v3"
 )
 
 const mcpVersion = "2025-03-26"
@@ -70,6 +71,7 @@ type Handler struct {
 // RulesEvaluator est implémenté par rulesengine.Engine (évite l'import direct).
 type RulesEvaluator interface {
 	EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error)
+	ReplayHistory(ctx context.Context, historyID int64) error
 }
 
 // CertDeployerIface est implémenté par certdeploy.Deployer (évite l'import direct).
@@ -476,6 +478,30 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "list_rule_history",
+		"description": "Liste le journal d'exécution du moteur de règles (chaque évaluation, y compris les non-déclenchements et les entrées silencées).",
+		"inputSchema": schema(),
+	},
+	{
+		"name":        "replay_rule_history",
+		"description": "Rejoue l'action d'une entrée d'historique du moteur de règles en échec, sans réévaluer la condition (réutilise le détail capturé au déclenchement d'origine).",
+		"inputSchema": schema(
+			req("history_id", "number", "ID de l'entrée d'historique (list_rule_history)"),
+		),
+	},
+	{
+		"name":        "export_automation",
+		"description": "Exporte en YAML toute la configuration d'automatisation (règles, canaux d'alerte, silences), réimportable telle quelle (GitOps). Les canaux exportent leur config en clair (identifiants inclus) : à traiter comme un secret.",
+		"inputSchema": schema(),
+	},
+	{
+		"name":        "import_automation",
+		"description": "Importe un document YAML au format d'export_automation. Règles et canaux sont upsertés par nom (créés ou mis à jour) ; les silences sont toujours créés.",
+		"inputSchema": schema(
+			req("yaml", "string", "Document YAML (voir export_automation)"),
+		),
+	},
+	{
 		"name":        "list_silences",
 		"description": "Liste les fenêtres de silence actives ou passées, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications).",
 		"inputSchema": schema(),
@@ -624,6 +650,14 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListRules(r, p.Arguments)
 	case "run_rule":
 		result, toolErr = h.toolRunRule(r, p.Arguments)
+	case "list_rule_history":
+		result, toolErr = h.toolListRuleHistory(r)
+	case "replay_rule_history":
+		result, toolErr = h.toolReplayRuleHistory(r, p.Arguments)
+	case "export_automation":
+		result, toolErr = h.toolExportAutomation(r)
+	case "import_automation":
+		result, toolErr = h.toolImportAutomation(r, p.Arguments)
 	case "list_silences":
 		result, toolErr = h.toolListSilences(r)
 	case "create_silence":
@@ -1945,6 +1979,224 @@ func (h *Handler) toolRunRule(r *http.Request, args map[string]any) (any, error)
 		return nil, err
 	}
 	return map[string]any{"matched": matched, "dry_run": dryRun, "detail": detail}, nil
+}
+
+func (h *Handler) toolListRuleHistory(r *http.Request) (any, error) {
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT h.id, h.rule_id, COALESCE(r.name,''), h.cond_result, h.action_taken, h.detail, h.error, h.fired_at
+		FROM rules_engine_history h
+		LEFT JOIN rules_engine_rules r ON r.id=h.rule_id
+		ORDER BY h.fired_at DESC LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id int64
+		var ruleID, ruleName, detail, errStr, firedAt string
+		var cond, action int
+		if err := rows.Scan(&id, &ruleID, &ruleName, &cond, &action, &detail, &errStr, &firedAt); err != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "rule_id": ruleID, "rule_name": ruleName,
+			"cond_result": cond == 1, "action_taken": action == 1,
+			"detail": json.RawMessage(detail), "error": errStr, "fired_at": firedAt,
+		})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolReplayRuleHistory(r *http.Request, args map[string]any) (any, error) {
+	idf, ok := args["history_id"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("history_id requis")
+	}
+	if h.RulesEngine == nil {
+		return nil, fmt.Errorf("moteur de règles non disponible")
+	}
+	if err := h.RulesEngine.ReplayHistory(r.Context(), int64(idf)); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+// mcpAutomationExport reflète le format d'export/import de l'API REST
+// (internal/admin/api/rulesengine_export.go) — dupliqué ici pour éviter un
+// import croisé api↔mcp.
+type mcpAutomationExport struct {
+	Version  int              `yaml:"version"`
+	Rules    []map[string]any `yaml:"rules,omitempty"`
+	Channels []map[string]any `yaml:"channels,omitempty"`
+	Silences []map[string]any `yaml:"silences,omitempty"`
+}
+
+func (h *Handler) toolExportAutomation(r *http.Request) (any, error) {
+	out := mcpAutomationExport{Version: 1}
+
+	ruleRows, err := h.DB.QueryContext(r.Context(),
+		`SELECT name, description, enabled, condition_json, action_json, cooldown_sec FROM rules_engine_rules ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	for ruleRows.Next() {
+		var name, desc, condJSON, actionJSON string
+		var enabled, cooldown int
+		if ruleRows.Scan(&name, &desc, &enabled, &condJSON, &actionJSON, &cooldown) != nil {
+			continue
+		}
+		var cond, action map[string]any
+		_ = json.Unmarshal([]byte(condJSON), &cond)
+		_ = json.Unmarshal([]byte(actionJSON), &action)
+		out.Rules = append(out.Rules, map[string]any{
+			"name": name, "description": desc, "enabled": enabled == 1,
+			"condition": cond, "action": action, "cooldown_sec": cooldown,
+		})
+	}
+	ruleRows.Close()
+
+	chanRows, err := h.DB.QueryContext(r.Context(), `SELECT name, type, config, enabled FROM alert_channels ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	for chanRows.Next() {
+		var name, typ, cfgJSON string
+		var enabled int
+		if chanRows.Scan(&name, &typ, &cfgJSON, &enabled) != nil {
+			continue
+		}
+		var cfg map[string]any
+		_ = json.Unmarshal([]byte(cfgJSON), &cfg)
+		out.Channels = append(out.Channels, map[string]any{"name": name, "type": typ, "config": cfg, "enabled": enabled == 1})
+	}
+	chanRows.Close()
+
+	silRows, err := h.DB.QueryContext(r.Context(), `SELECT name, rule_ids, starts_at, ends_at FROM automation_silences ORDER BY starts_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	for silRows.Next() {
+		var name, ruleIDsJSON, startsAt, endsAt string
+		if silRows.Scan(&name, &ruleIDsJSON, &startsAt, &endsAt) != nil {
+			continue
+		}
+		var ruleIDs []string
+		_ = json.Unmarshal([]byte(ruleIDsJSON), &ruleIDs)
+		out.Silences = append(out.Silences, map[string]any{"name": name, "rule_ids": ruleIDs, "starts_at": startsAt, "ends_at": endsAt})
+	}
+	silRows.Close()
+
+	data, err := yaml.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"yaml": string(data)}, nil
+}
+
+func (h *Handler) toolImportAutomation(r *http.Request, args map[string]any) (any, error) {
+	doc, _ := args["yaml"].(string)
+	if strings.TrimSpace(doc) == "" {
+		return nil, fmt.Errorf("yaml requis")
+	}
+	var parsed mcpAutomationExport
+	if err := yaml.Unmarshal([]byte(doc), &parsed); err != nil {
+		return nil, fmt.Errorf("YAML invalide : %w", err)
+	}
+	ctx := r.Context()
+	summary := map[string]int{"rules_created": 0, "rules_updated": 0, "channels_created": 0, "channels_updated": 0, "silences_created": 0}
+
+	for _, rm := range parsed.Rules {
+		name, _ := rm["name"].(string)
+		if name == "" {
+			continue
+		}
+		desc, _ := rm["description"].(string)
+		enabled, _ := rm["enabled"].(bool)
+		cooldown := 300
+		if c, ok := rm["cooldown_sec"].(int); ok {
+			cooldown = c
+		}
+		condJSON, _ := json.Marshal(rm["condition"])
+		actionJSON, _ := json.Marshal(rm["action"])
+		enabledInt := 0
+		if enabled {
+			enabledInt = 1
+		}
+		var existingID string
+		if h.DB.QueryRowContext(ctx, `SELECT id FROM rules_engine_rules WHERE name=?`, name).Scan(&existingID) == nil {
+			if _, err := h.DB.ExecContext(ctx,
+				`UPDATE rules_engine_rules SET description=?, enabled=?, condition_json=?, action_json=?, cooldown_sec=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+				desc, enabledInt, string(condJSON), string(actionJSON), cooldown, existingID); err == nil {
+				summary["rules_updated"]++
+			}
+			continue
+		}
+		if _, err := h.DB.ExecContext(ctx,
+			`INSERT INTO rules_engine_rules (id, name, description, enabled, condition_json, action_json, cooldown_sec) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			uuid.New().String(), name, desc, enabledInt, string(condJSON), string(actionJSON), cooldown); err == nil {
+			summary["rules_created"]++
+		}
+	}
+
+	for _, cm := range parsed.Channels {
+		name, _ := cm["name"].(string)
+		typ, _ := cm["type"].(string)
+		if name == "" || typ == "" {
+			continue
+		}
+		enabled, _ := cm["enabled"].(bool)
+		enabledInt := 0
+		if enabled {
+			enabledInt = 1
+		}
+		cfgJSON, _ := json.Marshal(cm["config"])
+		var existingID string
+		if h.DB.QueryRowContext(ctx, `SELECT id FROM alert_channels WHERE name=?`, name).Scan(&existingID) == nil {
+			if _, err := h.DB.ExecContext(ctx,
+				`UPDATE alert_channels SET type=?, config=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+				typ, string(cfgJSON), enabledInt, existingID); err == nil {
+				summary["channels_updated"]++
+			}
+			continue
+		}
+		if _, err := h.DB.ExecContext(ctx,
+			`INSERT INTO alert_channels (id, name, type, config, enabled) VALUES (?, ?, ?, ?, ?)`,
+			uuid.New().String(), name, typ, string(cfgJSON), enabledInt); err == nil {
+			summary["channels_created"]++
+		}
+	}
+
+	for _, sm := range parsed.Silences {
+		name, _ := sm["name"].(string)
+		startsAt, _ := sm["starts_at"].(string)
+		endsAt, _ := sm["ends_at"].(string)
+		if name == "" || startsAt == "" || endsAt == "" {
+			continue
+		}
+		var ruleIDs []string
+		if raw, ok := sm["rule_ids"].([]any); ok {
+			for _, v := range raw {
+				if s, ok := v.(string); ok {
+					ruleIDs = append(ruleIDs, s)
+				}
+			}
+		}
+		if ruleIDs == nil {
+			ruleIDs = []string{}
+		}
+		ruleIDsJSON, _ := json.Marshal(ruleIDs)
+		if _, err := h.DB.ExecContext(ctx,
+			`INSERT INTO automation_silences (id, name, rule_ids, starts_at, ends_at) VALUES (?, ?, ?, ?, ?)`,
+			uuid.New().String(), name, string(ruleIDsJSON), startsAt, endsAt); err == nil {
+			summary["silences_created"]++
+		}
+	}
+
+	return summary, nil
 }
 
 func (h *Handler) toolListSilences(r *http.Request) (any, error) {

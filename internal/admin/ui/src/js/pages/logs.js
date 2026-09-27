@@ -33,6 +33,23 @@ let livePaused = false;
 let logsCursorStack = [];   // before_id values pour revenir en arrière
 let logsCurrentLastID = 0;  // min id de la page courante (pour "suivant")
 
+// Couleur déterministe (hash du nom) pour repérer une passerelle d'un coup d'œil
+// dans les chips de sélection et la colonne "Passerelle" du tableau.
+function nodeColor(name) {
+  let h = 0;
+  const s = name || '';
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 62% 52%)`;
+}
+
+// Convertit un code pays ISO-3166 alpha-2 (ex. "FR") en emoji drapeau.
+function countryFlag(cc) {
+  if (!cc || cc.length !== 2) return '';
+  const up = cc.toUpperCase();
+  const A = 0x1F1E6;
+  return String.fromCodePoint(A + (up.charCodeAt(0) - 65), A + (up.charCodeAt(1) - 65));
+}
+
 function stopLogsSSE() {
   if (logsSSE) {
     logsSSE.close();
@@ -356,8 +373,25 @@ function componentFilterHTML(idPrefix) {
     </select>`;
 }
 
-// Sélecteur de passerelle, uniquement en portée Admin (en portée passerelle le nœud est
-// verrouillé et déjà annoncé par le bandeau de portée).
+// Chips de sélection des passerelles (onglet Statique, portée Admin uniquement) : une
+// pastille de couleur par nœud + "Toutes". En portée passerelle, le nœud est déjà
+// verrouillé et annoncé par le bandeau de portée — pas de chips.
+function nodeChipsHTML() {
+  if (logsScope.lockComp) return '';
+  const edges = logsAllEdges || [];
+  if (!edges.length) return '';
+  const cur = logsFilters.node_name;
+  const chip = (v, label) => `<button type="button" class="chip${cur === v ? ' active' : ''}" data-log-node="${esc(v)}">${v ? `<span class="logs-node-dot" style="background:${nodeColor(v)}"></span>` : ''}${esc(label)}</button>`;
+  return `<div class="logs-node-chips">
+    <span class="logs-node-chips-label">${esc(t('logs.node'))}</span>
+    ${edges.map(n => { const v = n.node_name || n.display_name || n.id; return chip(v, n.display_name || n.node_name || n.id); }).join('')}
+    ${chip('', t('logs.node_all'))}
+  </div>`;
+}
+
+// Sélecteur de passerelle (select), utilisé pour le flux Live et comme repli. Uniquement
+// en portée Admin (en portée passerelle le nœud est verrouillé et déjà annoncé par le
+// bandeau de portée).
 function nodeFilterHTML(idPrefix) {
   if (logsScope.lockComp) return '';
   const edges = logsAllEdges || [];
@@ -374,36 +408,39 @@ async function renderStaticLogs() {
   const isSystem = isSystemLogs();
   const head = isSystem
     ? `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.context')}</th><th>${t('logs.message')}</th>`
-    : `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.domain')}</th><th>${t('logs.method')}</th><th>${t('logs.path')}</th><th>${t('logs.status')}</th><th>${t('logs.ip')}</th><th>${t('logs.latency')}</th><th>${t('logs.msg')}</th><th></th>`;
-  const cols = isSystem ? 6 : 12;
+    : accessLogHead();
+  const cols = isSystem ? 6 : (logsScope.lockComp ? 8 : 9);
   c.innerHTML = `
-    <div id="logs-quick-wrap">${logsQuickHTML()}</div>
-    <div id="logs-hist"></div>
-    <div class="search-bar" style="gap:8px;margin-bottom:8px">
-      <input id="lf-search" class="input search-input" placeholder="${esc(t('logs.search_ph'))}" value="${esc(logsFilters.search)}" oninput="logsFilter()">
-      <select id="lf-level" class="input" onchange="logsFilter()">
-        <option value="">${t('logs.level_ph')}</option>
-        <option${logsFilters.level==='info'?' selected':''}>info</option>
-        <option${logsFilters.level==='warn'?' selected':''}>warn</option>
-        <option${logsFilters.level==='error'?' selected':''}>error</option>
-        <option${logsFilters.level==='debug'?' selected':''}>debug</option>
-      </select>
-      <input type="hidden" id="lf-kind" value="${esc(logsFilters.kind)}">
-      ${componentFilterHTML('lf-')}
-      ${nodeFilterHTML('lf-')}
-      ${isSystem ? '' : `
-      <input id="lf-domain" class="input" placeholder="${esc(t('logs.domain_ph'))}" value="${esc(logsFilters.domain)}" oninput="logsFilter()">
-      <input id="lf-ip" class="input" placeholder="${esc(t('logs.ip_ph'))}" value="${esc(logsFilters.ip)}" oninput="logsFilter()">
-      <input id="lf-path" class="input" placeholder="${esc(t('logs.path_ph'))}" value="${esc(logsFilters.path)}" oninput="logsFilter()">
-      <select id="lf-method" class="input" onchange="logsFilter()">
-        <option value="">${t('logs.method_ph')}</option>
-        ${['GET','POST','PUT','DELETE','PATCH','HEAD'].map(m=>`<option${logsFilters.method===m?' selected':''}>${m}</option>`).join('')}
-      </select>
-      <input id="lf-status" class="input" placeholder="${esc(t('logs.status_ph'))}" value="${esc(logsFilters.status)}" oninput="logsFilter()">
-      `}
+    <div class="card blueprint logs-filterbar">
+      <div id="logs-node-chips-wrap">${nodeChipsHTML()}</div>
+      <div id="logs-quick-wrap">${logsQuickHTML()}</div>
+      <div id="logs-hist"></div>
+      <div class="search-bar" style="gap:8px;margin:10px 0 0">
+        <input id="lf-search" class="input search-input" placeholder="${esc(t('logs.search_ph'))}" value="${esc(logsFilters.search)}" oninput="logsFilter()">
+        <select id="lf-level" class="input" onchange="logsFilter()">
+          <option value="">${t('logs.level_ph')}</option>
+          <option${logsFilters.level==='info'?' selected':''}>info</option>
+          <option${logsFilters.level==='warn'?' selected':''}>warn</option>
+          <option${logsFilters.level==='error'?' selected':''}>error</option>
+          <option${logsFilters.level==='debug'?' selected':''}>debug</option>
+        </select>
+        <input type="hidden" id="lf-kind" value="${esc(logsFilters.kind)}">
+        ${componentFilterHTML('lf-')}
+        <input type="hidden" id="lf-node" value="${esc(logsFilters.node_name)}">
+        ${isSystem ? '' : `
+        <input id="lf-domain" class="input" placeholder="${esc(t('logs.domain_ph'))}" value="${esc(logsFilters.domain)}" oninput="logsFilter()">
+        <input id="lf-ip" class="input" placeholder="${esc(t('logs.ip_ph'))}" value="${esc(logsFilters.ip)}" oninput="logsFilter()">
+        <input id="lf-path" class="input" placeholder="${esc(t('logs.path_ph'))}" value="${esc(logsFilters.path)}" oninput="logsFilter()">
+        <select id="lf-method" class="input" onchange="logsFilter()">
+          <option value="">${t('logs.method_ph')}</option>
+          ${['GET','POST','PUT','DELETE','PATCH','HEAD'].map(m=>`<option${logsFilters.method===m?' selected':''}>${m}</option>`).join('')}
+        </select>
+        <input id="lf-status" class="input" placeholder="${esc(t('logs.status_ph'))}" value="${esc(logsFilters.status)}" oninput="logsFilter()">
+        `}
+      </div>
+      <div id="logs-filter-chips" class="filter-chips" hidden></div>
+      <p style="font-size:11px;color:var(--text3);margin:8px 0 0">${t('logs.filter_hint')}</p>
     </div>
-    <div id="logs-filter-chips" class="filter-chips" hidden></div>
-    <p style="font-size:11px;color:var(--text3);margin:0 0 10px">${t('logs.filter_hint')}</p>
     <div class="card blueprint" style="padding:0;overflow:hidden">
       <div class="logs-desktop table-wrap">
         <table>
@@ -425,16 +462,14 @@ function logEntrySep() {
 
 function renderAccessLogEntry(e, i) {
   const parts = [];
-  if (e.domain) parts.push(`<span class="mono">${logCellFilter('domain', e.domain)}</span>`);
-  if (e.path) parts.push(`<span class="log-entry-path">${logCellFilter('path', e.path)}</span>`);
+  if (e.domain || e.path) parts.push(`<span class="mono">${e.domain ? logCellFilter('domain', e.domain) : ''}${e.path ? logCellFilter('path', e.path) : ''}</span>`);
   if (e.ip) parts.push(`<span class="mono">${logCellFilter('ip', e.ip)}</span>`);
-  if (e.node_name) parts.push(`<span class="mono">${esc(e.node_name)}</span>`);
+  if (e.country) parts.push(`<span>${countryFlag(e.country)} ${esc(e.country)}</span>`);
+  if (!logsScope.lockComp && e.node_name) parts.push(`<span class="mono"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${esc(e.node_name)}</span>`);
   if (e.latency_ms != null && e.latency_ms !== '') parts.push(`<span>${esc(String(e.latency_ms))}ms</span>`);
-  return `<article class="log-entry" data-log-i="${i}">
+  return `<article class="log-entry" data-log-i="${i}" style="border-left:3px solid ${e.level==='error'?'var(--red)':e.level==='warn'?'var(--yellow)':'transparent'}">
     <div class="log-entry-top">
       <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
-      ${logLvlBadge(e.level)}
-      <span class="chip" style="font-size:11px">${esc(e.component||'—')}</span>
       ${e.method ? `<b>${logCellFilter('method', e.method)}</b>` : ''}
       ${e.status ? logCellFilter('status', String(e.status), httpStatusBadge(e.status)) : ''}
       <span class="log-entry-actions">${corrIconBtn(e.domain, e.ts)}${prismIconBtn(e.domain, e.ip)}</span>
@@ -459,19 +494,39 @@ function renderSystemLogEntry(e, i) {
   </article>`;
 }
 
+// En-tête du tableau Logs d'accès (statique + Live) : colonne Passerelle masquée en
+// portée passerelle (déjà annoncée par le bandeau de portée) — un seul jeu de colonnes
+// pour les deux contextes, seule la portée change ce qui est affiché.
+function accessLogHead() {
+  const node = logsScope.lockComp ? '' : `<th>${t('logs.node')}</th>`;
+  return `<th>${t('logs.ts')}</th>${node}<th>${t('logs.status')}</th><th>${t('logs.method')}</th><th>${t('logs.host_path')}</th><th>${t('logs.ip')}</th><th>${t('logs.country')}</th><th>${t('logs.latency')}</th><th></th>`;
+}
+
+function nodeCellHTML(e) {
+  if (!e.node_name) return '<span style="color:var(--text3)">—</span>';
+  return `<span class="logs-node-badge"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${logCellFilter('node_name', e.node_name)}</span>`;
+}
+
+function countryCellHTML(e) {
+  if (!e.country) return '<span style="color:var(--text3)">—</span>';
+  return `<span title="${esc(e.country)}">${countryFlag(e.country)} <span style="color:var(--text3);font-size:11px">${esc(e.country)}</span></span>`;
+}
+
 function renderAccessLogRow(e, i) {
-  return `<tr data-log-i="${i}">
+  const lvlBorder = e.level === 'error' ? 'var(--red)' : e.level === 'warn' ? 'var(--yellow)' : 'transparent';
+  const nodeCell = logsScope.lockComp ? '' : `<td>${nodeCellHTML(e)}</td>`;
+  const domainPart = e.domain ? logCellFilter('domain', e.domain) : '';
+  const pathPart = e.path ? logCellFilter('path', e.path) : '';
+  const hostPath = (domainPart || pathPart) ? `${domainPart}${pathPart}` : '<span style="color:var(--text3)">—</span>';
+  return `<tr data-log-i="${i}" style="border-left:3px solid ${lvlBorder}" title="${esc(e.level||'info')}${e.message ? ' — ' + e.message : ''}">
     <td class="mono" style="font-size:11px;white-space:nowrap">${esc(fmtDate(e.ts))}</td>
-    <td>${logLvlBadge(e.level)}</td>
-    <td><span class="chip" style="font-size:11px">${esc(e.component||'—')}</span></td>
-    <td class="mono" style="font-size:11px">${esc(e.node_name||'—')}</td>
-    <td class="mono" style="font-size:11px">${logCellFilter('domain', e.domain)}</td>
-    <td><b>${logCellFilter('method', e.method)}</b></td>
-    <td class="mono logs-cell-clip" style="font-size:11px;max-width:180px">${logCellFilter('path', e.path)}</td>
+    ${nodeCell}
     <td>${e.status ? logCellFilter('status', String(e.status), httpStatusBadge(e.status)) : '<span style="color:var(--text3)">—</span>'}</td>
+    <td><b>${logCellFilter('method', e.method)}</b></td>
+    <td class="mono logs-cell-clip" style="font-size:11px;max-width:340px">${hostPath}</td>
     <td class="mono" style="font-size:11px">${logCellFilter('ip', e.ip)}</td>
+    <td style="font-size:11px">${countryCellHTML(e)}</td>
     <td style="color:var(--text2);font-size:11px">${e.latency_ms}ms</td>
-    <td class="logs-cell-clip" style="color:var(--text2);font-size:11px;max-width:200px" title="${esc(e.message)}">${esc(e.message||'—')}</td>
     <td style="white-space:nowrap">${corrIconBtn(e.domain, e.ts)}${prismIconBtn(e.domain, e.ip)}</td>
   </tr>`;
 }
@@ -661,7 +716,7 @@ async function renderLiveLogs() {
   const isSystem = isSystemLogs();
   const head = isSystem
     ? `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.message')}</th>`
-    : `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.domain')}</th><th>${t('logs.method')}</th><th>${t('logs.path')}</th><th>${t('logs.status')}</th><th>${t('logs.ip')}</th><th>${t('logs.latency')}</th><th>${t('logs.msg')}</th>`;
+    : accessLogHead();
   c.innerHTML = `
     <div class="search-bar" style="gap:8px;margin-bottom:12px">
       <input id="lf-live-search" class="input search-input" placeholder="${esc(t('logs.filter_text'))}" oninput="restartSSE()">
@@ -861,6 +916,15 @@ function refreshLogsView() {
 function onLogsQuickClick(e) {
   const content = document.getElementById('content');
   const within = el => el && content?.contains(el);
+  const nodeChip = e.target.closest('[data-log-node]');
+  if (within(nodeChip)) {
+    const v = nodeChip.getAttribute('data-log-node') || '';
+    logsFilters.node_name = logsFilters.node_name === v ? '' : v;
+    const w = document.getElementById('logs-node-chips-wrap');
+    if (w) w.innerHTML = nodeChipsHTML();
+    refreshLogsView();
+    return true;
+  }
   const q = e.target.closest('[data-log-quick]');
   if (within(q)) {
     logsQuickMs = parseInt(q.getAttribute('data-log-quick'), 10) || 0;

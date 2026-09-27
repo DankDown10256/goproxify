@@ -52,6 +52,9 @@ type Entry struct {
 	UserID        string     `json:"user_id,omitempty"`
 	RequestID     string     `json:"request_id,omitempty"`
 	RetainedUntil *time.Time `json:"retained_until,omitempty"`
+	// Country est le code pays ISO résolu depuis geoip_cache — renseigné à la volée
+	// par le handler API (LogsHandler.list), jamais persisté ici.
+	Country string `json:"country,omitempty"`
 	// RealIP est l'IP réelle fournie par la passerelle en mode pseudonymisation.
 	// Elle n'est JAMAIS renvoyée dans les réponses API — uniquement chiffrée en DB.
 	RealIP string `json:"-"`

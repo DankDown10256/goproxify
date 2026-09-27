@@ -81,7 +81,48 @@ func (h *LogsHandler) list(w http.ResponseWriter, r *http.Request) {
 	if len(entries) > 0 {
 		lastID = entries[len(entries)-1].ID
 	}
+	h.attachCountries(entries)
 	jsonOK(w, map[string]any{"has_more": hasMore, "last_id": lastID, "page": p.Page, "page_size": p.PageSize, "entries": entries})
+}
+
+// attachCountries renseigne Entry.Country depuis le cache geoip_cache déjà alimenté
+// par le GeoResolver (dashboard/Prism/bans) — même source, même limite : une IP non
+// encore résolue reste vide (pas d'appel réseau synchrone depuis cette route).
+func (h *LogsHandler) attachCountries(entries []logs.Entry) {
+	if h.DB == nil || len(entries) == 0 {
+		return
+	}
+	ips := make(map[string]struct{}, len(entries))
+	for _, e := range entries {
+		if e.IP != "" {
+			ips[e.IP] = struct{}{}
+		}
+	}
+	if len(ips) == 0 {
+		return
+	}
+	args := make([]any, 0, len(ips))
+	placeholders := make([]string, 0, len(ips))
+	for ip := range ips {
+		placeholders = append(placeholders, "?")
+		args = append(args, ip)
+	}
+	rows, err := h.DB.Query(
+		`SELECT ip, country_code FROM geoip_cache WHERE ip IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	cc := make(map[string]string, len(ips))
+	for rows.Next() {
+		var ip, code string
+		if rows.Scan(&ip, &code) == nil && code != "" && code != "XX" {
+			cc[ip] = code
+		}
+	}
+	for i := range entries {
+		entries[i].Country = cc[entries[i].IP]
+	}
 }
 
 func (h *LogsHandler) live(w http.ResponseWriter, r *http.Request) {

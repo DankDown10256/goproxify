@@ -12,6 +12,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Moteur de règles automatiques** : conditions pilotées (CVE critique, pic de bans, moteur silencieux, taux d’erreur, IP récidiviste) → actions (désactiver proxy, bannir IP, alerte, mode strict F2B) ; cooldown par règle, test dry-run, historique d’exécution
 - **Menu Automatisation restructuré** : 4 entrées (Vue d'ensemble, Automatisations, Alertes, Journal) avec onglets ; vue d'ensemble, éditeur de flux avec simulation dry-run et journal filtrable ; store de règles (15 templates) en onglet « Modèles »
 - **Silences & maintenance** : fenêtres de temps qui suspendent l'exécution des actions du moteur de règles *et* l'envoi des notifications du moteur d'alertes (toutes les règles ou une sélection mêlant les deux), sans interrompre l'évaluation ni le journal
+- **Rejeu depuis le Journal** : une entrée d'historique en échec se rejoue en un clic, sans réévaluer la condition
+- **Export/import YAML de l'automatisation** : règles, canaux et silences dans un seul document GitOps, réimportable (upsert par nom)
 - **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp` (réseaux privés par défaut), vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
 - **IP client fiable** : les en-têtes `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` ne sont crus que depuis un proxy de confiance (`GPX_TRUSTED_PROXIES`) — fin du contournement Fail2Ban/Sentinel par IP forgée
 - **MCP — allowlist de destinations backend** : `create_proxy` / `update_proxy` ne peuvent pointer que vers des destinations autorisées (réseaux privés par défaut), contre le détournement de trafic par prompt injection
@@ -26,6 +28,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Scanner CVE** : toggle UI pour autoriser les backends IP privées (opt-in, anti-SSRF par défaut) ; enrichissement KEV (catalogue CISA, exploitation active) et EPSS (probabilité d'exploitation, FIRST.org) en fin de scan ; SLA de correction réglable par gravité (page Vulnérabilités, fenêtre Moteurs de sécurité, CLI, MCP)
 - **Politiques d’accès centralisées** : vue unifiée IP/GeoIP/Bot par proxy dans l’Admin
 - **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
+- **Logs d'accès** : refonte de la vue, commune à l'Admin (chips de passerelle colorées) et au menu Edge (portée verrouillée) ; colonne Hôte et chemin fusionnée, colonne Pays (résolue depuis le cache géo-IP déjà utilisé par le tableau de bord/Prism/Bans)
 - **Prism** : taux d’erreurs et IPs bannies par pays ; bouton accès rapide depuis la table des bans
 - **Prism** : refonte « centre de commande » (carte zoomable, anomalies détectées, onglets) — livré
 - **Observabilité** : Synthèse commune à l’Admin et aux passerelles, Prism recentré (onglets Chemins / IP / Sources / Pays), carte Leaflet avec vues par ville et par région et connexions en direct, carte « Attaques en direct » dans la Synthèse sécurité, anomalies calculées côté serveur (API, MCP `get_prism_anomalies` / `get_prism_geo`, CLI `goproxify prism`) — livré

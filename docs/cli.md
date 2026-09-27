@@ -737,9 +737,15 @@ goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
 goproxify security rules silence list   [-admin-url …] [-token …]
 goproxify security rules silence add    -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>] [-admin-url …] [-token …]
 goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
+
+goproxify security rules history list          [-admin-url …] [-token …]
+goproxify security rules history replay <id>   [-admin-url …] [-token …]
+
+goproxify security rules export [-out <fichier.yaml>] [-admin-url …] [-token …]
+goproxify security rules import -file <automation.yaml> [-admin-url …] [-token …]
 ```
 
-**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action. `rules silence` gère les fenêtres de silence, communes au moteur de règles et au moteur d'alertes : `add` sans `-rules` s'applique à toutes les règles des deux moteurs ; avec `-rules id1,id2` (IDs `security rules list` et/ou `alert rules list`), seulement à celles-ci.
+**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action. `rules silence` gère les fenêtres de silence, communes au moteur de règles et au moteur d'alertes : `add` sans `-rules` s'applique à toutes les règles des deux moteurs ; avec `-rules id1,id2` (IDs `security rules list` et/ou `alert rules list`), seulement à celles-ci. `rules history` consulte le journal d'exécution ; `replay` rejoue l'action d'une entrée en échec sans réévaluer la condition. `rules export`/`import` échangent règles, canaux et silences en un document YAML (GitOps) ; `export` sans `-out` écrit sur la sortie standard ; `import` upserte par nom.
 
 Exemple de fichier règle (`rule.json`) :
 

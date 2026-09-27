@@ -276,7 +276,7 @@ Le bouton **Tester maintenant** lance un `dry_run` : la condition est évaluée 
 
 ### Historique
 
-Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis `Admin > Automatisation > Journal`.
+Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis `Admin > Automatisation > Journal`. Une entrée en échec (`error` non vide, hors `"silenced"`) peut être **rejouée** (`POST /rules-engine/history/{id}/replay`, bouton **Rejouer** du Journal, `goproxify security rules history replay <id>`, MCP `replay_rule_history`) : l'action est retentée avec le `detail` capturé au moment du déclenchement d'origine, sans réévaluer la condition, et le résultat crée une nouvelle entrée d'historique.
 
 ### Silences & maintenance
 
@@ -286,6 +286,14 @@ Un **silence** (`Admin > Automatisation > Alertes > Silences & maintenance`, tab
 - **Moteur d'alertes** (`alert_rules`) : quand un événement correspond à une règle silencée, aucun canal n'est notifié, mais l'événement est journalisé dans `alert_events` avec `silenced=1` (visible via `GET /alert-events`, `list_alert_events` et `goproxify alert events`). Le cooldown propre à la règle/passerelle/domaine n'est pas consommé, l'alerte réelle repart dès la fin du silence.
 
 Un même identifiant de règle n'existe que dans une seule des deux tables (`rules_engine_rules` ou `alert_rules`), donc `rule_ids` peut librement mélanger des règles des deux moteurs sans ambiguïté ; `rule_ids` vide couvre les deux à la fois.
+
+### Export / import YAML (GitOps)
+
+`GET /api/v1/rules-engine/export` renvoie en YAML l'intégralité de la configuration d'automatisation : règles (`rules`), canaux d'alerte (`channels`) et silences (`silences`). Les canaux exportent leur config en clair (identifiants, tokens inclus) : ce document doit être traité comme un secret, au même titre qu'une sauvegarde.
+
+`POST /api/v1/rules-engine/import` applique un document au même format : règles et canaux sont **upsertés par nom** (mis à jour si une règle/canal du même nom existe déjà, créés sinon) ; les silences sont toujours créés (une fenêtre de temps ne se met pas à jour, elle s'ajoute). La réponse résume les créations/mises à jour.
+
+Accessible depuis `Admin > Automatisation > Vue d'ensemble` (boutons **Exporter en YAML** / **Importer un YAML**), `goproxify security rules export|import`, ou les outils MCP `export_automation` / `import_automation`.
 
 ---
 

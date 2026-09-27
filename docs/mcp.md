@@ -566,6 +566,28 @@ Déclenche l'évaluation immédiate d'une règle. Par défaut en `dry_run` (aucu
 
 ---
 
+### `list_rule_history`
+
+Liste le journal d'exécution du moteur de règles (200 dernières entrées), y compris les non-déclenchements et les entrées silencées.
+
+**Scope :** `audit:read`  
+**Réponse :** tableau `{ id, rule_id, rule_name, cond_result, action_taken, detail, error, fired_at }`
+
+---
+
+### `replay_rule_history`
+
+Rejoue l'action d'une entrée d'historique en échec (`list_rule_history`), en réutilisant le `detail` capturé au déclenchement d'origine — la condition n'est pas réévaluée.
+
+| Paramètre    | Type   | Requis | Description                          |
+|--------------|--------|--------|----------------------------------------|
+| `history_id` | number | Oui    | ID de l'entrée d'historique            |
+
+**Scope :** `audit:write`  
+**Réponse :** `{ ok: true }`
+
+---
+
 ### `list_silences`
 
 Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).
@@ -588,6 +610,28 @@ Crée une fenêtre de silence, pour toutes les règles des deux moteurs (`rule_i
 
 **Scope :** `audit:write`  
 **Réponse :** `{ id }`
+
+---
+
+### `export_automation`
+
+Exporte en YAML toute la configuration d'automatisation (règles, canaux d'alerte, silences), réimportable telle quelle (GitOps). Les canaux exportent leur config en clair : à traiter comme un secret.
+
+**Scope :** `audit:read`  
+**Réponse :** `{ yaml: "<document>" }`
+
+---
+
+### `import_automation`
+
+Importe un document YAML au format de `export_automation`. Règles et canaux sont upsertés par nom (créés ou mis à jour) ; les silences sont toujours créés.
+
+| Paramètre | Type   | Requis | Description                          |
+|-----------|--------|--------|----------------------------------------|
+| `yaml`    | string | Oui    | Document YAML (voir `export_automation`) |
+
+**Scope :** `audit:write`  
+**Réponse :** `{ rules_created, rules_updated, channels_created, channels_updated, silences_created }`
 
 ---
 

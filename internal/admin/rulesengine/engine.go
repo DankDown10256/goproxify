@@ -226,6 +226,53 @@ func (e *Engine) EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool,
 	return false, nil, fmt.Errorf("règle %q introuvable", ruleID)
 }
 
+// ReplayHistory rejoue l'action d'une entrée d'historique en échec, sans
+// réévaluer la condition (le detail capturé au moment du déclenchement d'origine
+// est réutilisé tel quel). Retourne une erreur si l'entrée n'a pas déclenché de
+// tentative d'action ou si la règle a depuis été supprimée.
+func (e *Engine) ReplayHistory(ctx context.Context, historyID int64) error {
+	var ruleID, detailJSON string
+	var condResult, actionTaken int
+	err := e.db.QueryRowContext(ctx,
+		`SELECT rule_id, cond_result, action_taken, detail FROM rules_engine_history WHERE id=?`, historyID,
+	).Scan(&ruleID, &condResult, &actionTaken, &detailJSON)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("entrée d'historique %d introuvable", historyID)
+	}
+	if err != nil {
+		return err
+	}
+	if condResult == 0 {
+		return fmt.Errorf("cette entrée n'a jamais déclenché de tentative d'action")
+	}
+	rules, err := e.loadRules()
+	if err != nil {
+		return err
+	}
+	var rule *Rule
+	for i := range rules {
+		if rules[i].ID == ruleID {
+			rule = &rules[i]
+			break
+		}
+	}
+	if rule == nil {
+		return fmt.Errorf("la règle d'origine (%s) n'existe plus", ruleID)
+	}
+	var detail map[string]any
+	_ = json.Unmarshal([]byte(detailJSON), &detail)
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	actionErr := e.execAction(ctx, ActionContext{Rule: *rule, Detail: detail})
+	errStr := ""
+	if actionErr != nil {
+		errStr = actionErr.Error()
+	}
+	e.recordExec(*rule, true, actionErr == nil, detailJSON, errStr)
+	return actionErr
+}
+
 // isSilenced indique si un silence actif couvre actuellement ruleID.
 func (e *Engine) isSilenced(ruleID string) bool {
 	silences, err := e.loadActiveSilences()

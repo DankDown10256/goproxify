@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.runRule(w, r, ruleID)
 	case r.Method == http.MethodGet && sub == "history":
 		h.listHistory(w, r)
+	case r.Method == http.MethodPost && sub == "history" && strings.HasSuffix(id, "/replay"):
+		historyID := strings.TrimSuffix(id, "/replay")
+		h.replayHistory(w, r, historyID)
 	case r.Method == http.MethodGet && sub == "condition-types":
 		h.conditionTypes(w, r)
 	case r.Method == http.MethodGet && sub == "action-types":
@@ -61,6 +65,10 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.createSilence(w, r)
 	case r.Method == http.MethodDelete && sub == "silences" && id != "":
 		h.deleteSilence(w, r, id)
+	case r.Method == http.MethodGet && sub == "export":
+		h.exportAutomation(w, r)
+	case r.Method == http.MethodPost && sub == "import":
+		h.importAutomation(w, r)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
@@ -284,6 +292,23 @@ func (h *RulesEngineHandler) deleteSilence(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *RulesEngineHandler) replayHistory(w http.ResponseWriter, r *http.Request, id string) {
+	if h.Engine == nil {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
+		return
+	}
+	historyID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	if err := h.Engine.ReplayHistory(r.Context(), historyID); err != nil {
+		writeErr(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 func (h *RulesEngineHandler) listHistory(w http.ResponseWriter, r *http.Request) {
