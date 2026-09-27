@@ -18,6 +18,8 @@ func runAlert() {
 		runAlertChannels()
 	case "rules":
 		runAlertRules()
+	case "events":
+		runAlertEvents()
 	case "test":
 		args := parseFlags(os.Args[3:])
 		channel := flagValue(args, "-channel", "")
@@ -398,5 +400,33 @@ func runAlertRules() {
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande alert rules inconnue : %q\n", sub)
 		os.Exit(1)
+	}
+}
+
+// runAlertEvents : alertes déclenchées (30 jours), la plus récente d'abord.
+func runAlertEvents() {
+	args := parseFlags(os.Args[3:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	q := url.Values{}
+	for _, f := range []string{"-days", "-trigger", "-node", "-limit"} {
+		if v := flagValue(args, f, ""); v != "" {
+			q.Set(strings.TrimLeft(f, "-"), v)
+		}
+	}
+	var events []map[string]any
+	if _, err := client.DoJSON("GET", "/api/v1/alert-events?"+q.Encode(), nil, &events); err != nil {
+		fmt.Fprintf(os.Stderr, "alert events : %v\n", err)
+		os.Exit(1)
+	}
+	if len(events) == 0 {
+		fmt.Println("(aucune alerte)")
+		return
+	}
+	for _, e := range events {
+		fmt.Printf("%-20v %-20v %-28v %v\n", e["fired_at"], e["trigger"], e["rule_name"], e["title"])
 	}
 }

@@ -376,6 +376,7 @@ Canaux de notification, règles d'alerte, et tests.
 
 ```
 # Canaux
+goproxify alert events [-days <n>] [-trigger <id>] [-node <passerelle>] [-limit <n>] [-admin-url …] [-token …]   # alertes déclenchées (30 jours)
 goproxify alert channels list   [-admin-url …] [-token …]
 goproxify alert channels get    <id> [-admin-url …] [-token …]
 goproxify alert channels create -file <channel.json> [-admin-url …] [-token …]

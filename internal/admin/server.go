@@ -696,6 +696,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/audit/", protected(auditH))
 	mux.Handle("/api/v1/alert-channels", protected(channelsH))
 	mux.Handle("/api/v1/alert-channels/", protected(channelsH))
+	mux.Handle("/api/v1/alert-events", protected(&api.AlertEventsHandler{DB: s.db}))
 	mux.Handle("/api/v1/alert-rules", protected(rulesH))
 	mux.Handle("/api/v1/alert-rules/", protected(rulesH))
 	mux.Handle("/api/v1/logs", protected(logsH))

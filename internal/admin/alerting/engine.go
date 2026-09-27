@@ -84,7 +84,8 @@ func (e *Engine) eval(ev Event) {
 		if !matchesTrigger(rule, ev) || !matchesScope(rule.Scope, ev) {
 			continue
 		}
-		key := rule.ID + ":" + string(ev.Trigger)
+		// Le délai de rappel est propre à chaque passerelle et domaine : une alerte sur l'une ne doit pas masquer celle d'une autre.
+		key := rule.ID + ":" + string(ev.Trigger) + ":" + ev.NodeName + ":" + ev.Domain
 		e.mu.Lock()
 		last := e.cooldowns[key]
 		cooldown := time.Duration(rule.CooldownSec) * time.Second

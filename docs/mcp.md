@@ -204,6 +204,21 @@ Révoque un Agent (ferme la session WS et invalide le HMAC).
 
 ---
 
+### `list_alert_events`
+
+Alertes déclenchées (30 jours conservés), la plus récente d'abord. Scope : `alerts:read`.
+
+| Paramètre | Type   | Requis | Description                                                  |
+|-----------|--------|--------|--------------------------------------------------------------|
+| `days`    | number | —      | Fenêtre en jours (défaut 30, max 30)                         |
+| `trigger` | string | —      | Déclencheur, ex. `slo_burn`, `high_error_rate`, `node_offline` |
+| `node`    | string | —      | Nom de passerelle (lu dans le détail de l'événement)         |
+| `limit`   | number | —      | Événements max (défaut 100, max 500)                         |
+
+Chaque événement : `id`, `rule_id`, `rule_name`, `trigger`, `detail`, `channels`, `title`, `body`, `priority`, `fired_at`.
+
+---
+
 ### `list_alerts`
 
 Liste les règles d'alerting avec leurs déclencheurs et canaux de notification.

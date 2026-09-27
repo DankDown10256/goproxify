@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/admin/alerting"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
@@ -277,6 +278,16 @@ var tools = []map[string]any{
 		"name":        "list_alerts",
 		"description": "Liste les règles d'alerting configurées avec leurs déclencheurs et canaux.",
 		"inputSchema": schema(),
+	},
+	{
+		"name":        "list_alert_events",
+		"description": "Liste les alertes déclenchées (30 jours conservés), la plus récente d'abord : règle, déclencheur, détail, message.",
+		"inputSchema": schema(
+			opt("days", "number", "Fenêtre en jours (défaut 30, max 30)"),
+			opt("trigger", "string", "Filtrer par déclencheur, ex. slo_burn, high_error_rate, node_offline"),
+			opt("node", "string", "Filtrer par nom de passerelle"),
+			opt("limit", "number", "Nombre max d'événements (défaut 100, max 500)"),
+		),
 	},
 	// Métriques
 	{
@@ -541,6 +552,8 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolRevokeAgent(id)
 	case "list_alerts":
 		result, toolErr = h.toolListAlerts(r)
+	case "list_alert_events":
+		result, toolErr = h.toolListAlertEvents(r, p.Arguments)
 	case "get_metrics":
 		proxy, _ := p.Arguments["proxy"].(string)
 		result, toolErr = h.toolGetMetrics(r, proxy)
@@ -2062,4 +2075,12 @@ func (h *Handler) toolGetProxyMetrics(host string, points int) (any, error) {
 		entries = filtered
 	}
 	return map[string]any{"interval_s": 10, "sampled_at": sampledAt, "proxies": entries}, nil
+}
+
+func (h *Handler) toolListAlertEvents(r *http.Request, args map[string]any) (any, error) {
+	days, _ := args["days"].(float64)
+	limit, _ := args["limit"].(float64)
+	trigger, _ := args["trigger"].(string)
+	node, _ := args["node"].(string)
+	return alerting.RecentEvents(r.Context(), h.DB, int(days), int(limit), trigger, node)
 }

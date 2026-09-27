@@ -150,7 +150,7 @@ func (m *Monitor) sloEvents(ctx context.Context) []alerting.Event {
 		out = append(out, alerting.Event{
 			Trigger: alerting.TriggerSLOBurn, Severity: sev, NodeName: node, Component: "admin",
 			Detail: map[string]any{
-				"state": s.State, "target": s.Target, "availability": fmt.Sprintf("%.3f%%", s.Availability),
+				"node_name": node, "state": s.State, "target": s.Target, "availability": fmt.Sprintf("%.3f%%", s.Availability),
 				"budget_left": fmt.Sprintf("%.0f%%", s.BudgetLeft), "burn_1h": fmt.Sprintf("%.1fx", s.Burn1h), "burn_6h": fmt.Sprintf("%.1fx", s.Burn6h),
 			},
 		})

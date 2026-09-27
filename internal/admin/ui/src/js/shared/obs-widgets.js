@@ -236,3 +236,33 @@ function obsAnomaliesHtml(list, opts = {}) {
       ${i.act ? `<button type="button" class="btn btn-ghost btn-sm" ${i.act}>${i.actLabel}</button>` : ''}
     </div>`).join('');
 }
+
+const OBS_SLO_TARGETS = [99, 99.5, 99.9, 99.95, 99.99];
+
+// Carte SLO de disponibilité (GET /prism/slo) : disponibilité, budget d'erreur, consommation.
+// opts.targetAttr : attribut posé sur le sélecteur d'objectif (défaut data-obs="slo-target").
+function obsSloCardHTML(slo, opts = {}) {
+  if (!slo) return '';
+  const cls = { ok: 'var(--green)', warning: 'var(--yellow)', critical: 'var(--red)', exhausted: 'var(--red)' }[slo.state] || 'var(--text2)';
+  const left = Math.max(0, Math.min(100, slo.budget_left_pct));
+  const burn = v => `<b style="color:${v >= 6 ? 'var(--red)' : v >= 3 ? 'var(--yellow)' : 'inherit'}">${v.toFixed(1)}×</b>`;
+  const attr = opts.targetAttr || 'data-obs="slo-target"';
+  return `<div class="prism-panel" style="margin-bottom:14px">
+    <div class="prism-panel-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>${esc(t('obs.syn.slo', { days: slo.days }))}</span>
+      <select class="form-input" style="max-width:110px" ${attr} aria-label="${esc(t('obs.syn.slo_target'))}">
+        ${[...new Set([...OBS_SLO_TARGETS, slo.target])].sort((a, b) => a - b).map(v => `<option value="${v}" ${v === slo.target ? 'selected' : ''}>${v} %</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+      <div><div style="font-size:26px;font-weight:700;color:${cls}">${slo.availability.toFixed(slo.availability >= 99.9 ? 3 : 2)}%</div>
+        <div class="prism-muted">${esc(t('obs.syn.slo_avail'))} · ${esc(t('obs.syn.slo_state_' + slo.state))}</div></div>
+      <div style="flex:1;min-width:200px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text3)"><span>${esc(t('obs.syn.slo_budget'))}</span><b style="color:var(--text)">${left.toFixed(0)}%</b></div>
+        <span class="prism-bar-bg" style="display:block;height:8px"><span class="prism-bar-fill" style="width:${left}%;background:${left < 20 ? 'var(--red)' : left < 50 ? 'var(--yellow)' : 'var(--green)'}"></span></span>
+        <div class="prism-muted" style="margin-top:4px">${obsNum(slo.errors)} / ${obsNum(Math.round(slo.budget_total))} ${esc(t('obs.syn.slo_errors'))}</div>
+      </div>
+      <div style="font-size:13px"><div>${esc(t('obs.syn.slo_burn'))} 1 h ${burn(slo.burn_1h)}</div><div>${esc(t('obs.syn.slo_burn'))} 6 h ${burn(slo.burn_6h)}</div></div>
+    </div>
+  </div>`;
+}

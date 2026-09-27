@@ -83,6 +83,16 @@ const APP_CONFIG = {
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
         },
         {
+          page: 'obs-metrics',
+          label: 'Métriques',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
+        },
+        {
+          page: 'obs-alerts',
+          label: 'Alertes et SLO',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2a4 4 0 00-4 4v3l-1.5 2.5h11L12 9V6a4 4 0 00-4-4zM6.5 13a1.5 1.5 0 003 0"/></svg>',
+        },
+        {
           page: 'audit',
           label: 'Journal d\'audit',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 2h6l4 4v8a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v4h4M5 9h6M5 12h4"/></svg>',
@@ -235,6 +245,11 @@ const APP_CONFIG = {
           label: 'Métriques',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
         },
+        {
+          page: 'edge-obs-alerts',
+          label: 'Alertes et SLO',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2a4 4 0 00-4 4v3l-1.5 2.5h11L12 9V6a4 4 0 00-4-4zM6.5 13a1.5 1.5 0 003 0"/></svg>',
+        },
       ],
     },
     {
@@ -360,6 +375,9 @@ const APP_CONFIG = {
     'edge-observability': 'Observabilité',
     'obs-synthese':     'Synthèse',
     'edge-obs-synthese': 'Synthèse',
+    'obs-metrics':      'Métriques',
+    'obs-alerts':       'Alertes et SLO',
+    'edge-obs-alerts':  'Alertes et SLO',
     'edge-metrics':     'Métriques',
     'edge-tunnel':      'Tunnel L4 mTLS',
     'edge-security':           'Sécurité',

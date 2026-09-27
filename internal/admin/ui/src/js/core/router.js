@@ -26,7 +26,7 @@ const App = {
 const EDGE_PAGES = new Set([
   'edge-trafic','edge-proxies','edge-streams','edge-waf','edge-ipfilter',
   'edge-certs','edge-auth','edge-logs-access','edge-logs-system',
-  'edge-observability','edge-obs-synthese','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
+  'edge-observability','edge-obs-synthese','edge-obs-alerts','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
   'edge-tunnel',
   'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
@@ -222,6 +222,8 @@ const SPACE_EQUIV = {
   'admin-trafic': 'edge-trafic',
   'admin-observability': 'edge-observability',
   'obs-synthese': 'edge-obs-synthese',
+  'obs-metrics': 'edge-metrics',
+  'obs-alerts': 'edge-obs-alerts',
   'logs': 'edge-logs-access',
   'logs-system': 'edge-logs-system',
   'prism': 'edge-prism',
