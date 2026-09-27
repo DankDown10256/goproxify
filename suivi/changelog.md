@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Quickstart Docker — résidus après suppression de `docker-compose.yml`/`docker-compose.quickstart.yml`** : `scripts/quickstart.sh` téléchargeait un fichier compose qui n'existe plus à la racine du repo. Le script génère désormais `docker-compose.yml` en local (heredoc, même contenu que l'ancien `docker-compose.quickstart.yml`) au lieu de le télécharger. README (FR/EN), la page Landing (onglet Docker) et `docs/fonctionnalites.md` mis à jour en conséquence ; section Portainer basculée sur « Web editor » (compose collé, plus de chemin de fichier dans le repo). Cibles Makefile `up`/`up-build` génèrent `.env` via le script si absent.
+
 - **Admin 0.52.12 — Fail2Ban n'applique plus de durée devinée** : désactiver « Ban permanent » sans durée jamais réglée appliquait silencieusement 24h (même travers corrigé pour Sentinel en 0.52.6, généralisé ici aux deux moteurs). L'interrupteur ouvre désormais un champ obligatoire (en heures) et n'applique rien tant qu'une valeur n'est pas saisie, avec restauration immédiate de la dernière durée si on rebascule dans la même ouverture de fenêtre. (Admin `0.52.12`)
 
 - **Admin 0.52.11 — info-bulles du score de risque et du score de sécurité, clés manquantes** : les anneaux de score (page Vulnérabilités et Synthèse Sécurité) affichaient au survol la clé brute (`security.vs.risk_formula`, `sy.score_formula`) au lieu d'une explication, ces clés n'ayant jamais été ajoutées aux quatre packs de langue. Elles détaillent maintenant le calcul (pénalité par CVE ouverte selon sa gravité et son exploitation active pour le score de risque ; pondération risque/en-têtes/certificats pour le score de sécurité). (Admin `0.52.11`)

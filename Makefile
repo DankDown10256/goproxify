@@ -39,7 +39,7 @@ REGISTRY := ghcr.io/vincamok/goproxify
         test test-prebuild lint clean version sync-versions
 
 # -----------------------------------------------------------------------------
-# Stack Docker Compose
+# Stack Docker Compose (docker-compose.yml généré par scripts/quickstart.sh)
 # -----------------------------------------------------------------------------
 
 # Build local + démarrage (contourne le registry, pour le développement)
@@ -47,10 +47,12 @@ up-build:
 	docker build $(DOCKER_ARGS) -t $(REGISTRY)/admin:latest -f services/admin/Dockerfile .
 	docker build $(DOCKER_ARGS) -t $(REGISTRY)/edge:latest  -f services/edge/Dockerfile  .
 	docker build $(DOCKER_ARGS) -t $(REGISTRY)/agent:latest -f services/agent/Dockerfile .
+	@[ -f .env ] || bash scripts/quickstart.sh --env-only --skip-ports
 	docker compose up -d
 
 # Démarre la stack (images déjà présentes localement ou dans le registry)
 up:
+	@[ -f .env ] || bash scripts/quickstart.sh --env-only --skip-ports
 	docker compose up -d
 
 # Arrête la stack

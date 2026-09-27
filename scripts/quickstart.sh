@@ -11,7 +11,7 @@
 # =============================================================================
 set -euo pipefail
 
-COMPOSE_FILE="docker-compose.quickstart.yml"
+COMPOSE_FILE="docker-compose.yml"
 ENV_FILE=".env"
 ENV_EXAMPLE=".env.example"
 RAW_BASE="${GOPROXIFY_RAW_BASE:-https://github.com/Vincamok/goproxify/raw/public/main}"
@@ -116,6 +116,209 @@ fetch_if_missing() {
     error "curl ou wget requis"
   fi
   success "$file téléchargé"
+}
+
+write_compose_if_missing() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    success "$file déjà présent"
+    return 0
+  fi
+  info "Génération de $file…"
+  cat > "$file" <<'COMPOSE_EOF'
+# =============================================================================
+# GOPROXIFY — Quickstart (Admin + Passerelle + Agent)
+#
+# Préversion (0.x) — non production. Usage à vos risques : voir DISCLAIMER.md
+#
+# Démarrage rapide :
+#   1. cp .env.example .env   →   remplir les 4 variables OBLIGATOIRE
+#   2. docker compose up -d
+#   3. Ouvrir http://votre-ip:9443
+#
+# Architecture :
+#   Admin (9443) ──WS──▶ passerelle (8000 interne, 80/443 public)
+#                              ◀──WS── Agent
+#
+# Multi-machine (Admin et passerelle sur des serveurs séparés) :
+#   - Sur l'Admin : GPX_IDENTITY_EDGE_NODE_NAME=<ip-ou-hostname-du-edge>
+#   - Sur la passerelle : exposer le port 8000 et ouvrir le firewall
+#   - Sur l'Agent : GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://<ip-edge>:8000
+# =============================================================================
+
+networks:
+  goproxify_net:
+    driver: bridge
+    name: goproxify_net
+
+volumes:
+  goproxify_admin_data:
+    driver: local
+  goproxify_edge_data:
+    driver: local
+  goproxify_agent_data:
+    driver: local
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ADMIN — Interface de gestion (port 9443)
+  # Persiste sa configuration en SQLite.
+  # Se connecte à la passerelle via WebSocket (GPX_IDENTITY_EDGE_NODE_NAME).
+  # ---------------------------------------------------------------------------
+  goproxify-admin:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/admin:${GOPROXIFY_ADMIN_TAG:-preview}
+    container_name: goproxify-admin
+    restart: unless-stopped
+    command: ["admin"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+
+      # ── OBLIGATOIRE ────────────────────────────────────────────────────────
+      # openssl rand -hex 32
+      - GPX_SECURITY_JWT_SECRET=${GPX_JWT_SECRET}
+      # Partagé entre Admin, Passerelle et Agent — même valeur partout
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+      # Compte administrateur (créé au premier démarrage, ignoré ensuite)
+      - GPX_FIRST_ADMIN_EMAIL=${GPX_FIRST_ADMIN_EMAIL}
+      - GPX_FIRST_ADMIN_PASSWORD=${GPX_FIRST_ADMIN_PASSWORD}
+
+      # ── Connexion à la passerelle ──────────────────────────────────────────
+      # Hostname/IP joignable de la passerelle (Docker DNS ou IP multi-machine).
+      # Distinct de l'identité heartbeat de la passerelle : même valeur recommandée en mono-node.
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
+
+      # ── Optionnel ──────────────────────────────────────────────────────────
+      - GPX_SERVER_API_PORT=9443
+      - GPX_ENGINE_LOG_LEVEL=${LOG_LEVEL:-info}
+      # URL publique de l'Admin (liens pages d'erreur → Logs). Sinon auto-mémorisée à la 1re connexion UI.
+      - GPX_ADMIN_PUBLIC_URL=${GPX_ADMIN_PUBLIC_URL:-}
+
+      # Scanner CVE : true pour backends Docker/LAN privés (RFC1918). Défaut false (anti-SSRF).
+      - GPX_VULNSCAN_ALLOW_PRIVATE=${GPX_VULNSCAN_ALLOW_PRIVATE:-false}
+      - GPX_BACKUP_KEY=${GPX_BACKUP_KEY:-}
+      - GPX_NODE_TOKEN_KEY=${GPX_NODE_TOKEN_KEY:-}
+
+      # ── ACME / Let's Encrypt (certificats wildcard automatiques) ───────────
+      - GPX_ACME_ENABLED=${GPX_ACME_ENABLED:-false}
+      - GPX_ACME_EMAIL=${GPX_ACME_EMAIL:-}
+      - GPX_ACME_DNS_TYPE=${GPX_ACME_DNS_TYPE:-}
+      # Cloudflare
+      - CF_API_TOKEN=${CF_API_TOKEN:-}
+      # OVH
+      - OVH_ENDPOINT=${OVH_ENDPOINT:-ovh-eu}
+      - OVH_APPLICATION_KEY=${OVH_APPLICATION_KEY:-}
+      - OVH_APPLICATION_SECRET=${OVH_APPLICATION_SECRET:-}
+      - OVH_CONSUMER_KEY=${OVH_CONSUMER_KEY:-}
+      # Gandi
+      - GANDI_API_KEY=${GANDI_API_KEY:-}
+      # AWS Route53
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-eu-west-3}
+      # Hetzner
+      - HETZNER_API_KEY=${HETZNER_API_KEY:-}
+
+      # ── Alerting SMTP ──────────────────────────────────────────────────────
+      - GPX_ALERTING_SMTP_HOST=${SMTP_HOST:-}
+      - GPX_ALERTING_SMTP_PORT=${SMTP_PORT:-587}
+      - GPX_ALERTING_SMTP_USER=${SMTP_USER:-}
+      - GPX_ALERTING_SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - GPX_ALERTING_SMTP_FROM=${SMTP_FROM:-}
+
+    ports:
+      - "${ADMIN_PORT:-9443}:9443"
+    volumes:
+      - goproxify_admin_data:/etc/goproxify
+    networks:
+      - goproxify_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9443/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # EDGE — Reverse proxy HTTP/HTTPS (ports 80 et 443)
+  # Hub WebSocket : Admin et Agent s'y connectent (port interne 8000).
+  # Reçoit sa configuration depuis Admin via WebSocket au démarrage.
+  # ---------------------------------------------------------------------------
+  goproxify-edge:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/edge:${GOPROXIFY_EDGE_TAG:-preview}
+    container_name: goproxify-edge
+    restart: unless-stopped
+    command: ["edge"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+
+      # ── OBLIGATOIRE — même valeur que l'Admin ──────────────────────────────
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+
+      # ── Identité du nœud (heartbeat / tokens / certificats UI) ─────────────
+      # Sans cette variable, la passerelle génère un ID stable (edge-<hex>) distinct
+      # du token "goproxify-edge" → Certificats TLS vides pour ce nœud.
+      - GPX_IDENTITY_EDGE_NODE_NAME=${EDGE_NODE_NAME:-goproxify-edge}
+
+      # ── Optionnel ──────────────────────────────────────────────────────────
+      - GPX_ENGINE_LOG_LEVEL=${LOG_LEVEL:-info}
+      # GeoIP : voir geoip.* dans services/edge/config.json (surcharge env optionnelle)
+      # - GPX_GEOIP_AUTO_DOWNLOAD=false
+      # - GPX_GEOIP_DB_PATH=/etc/goproxify/geoip/GeoLite2-Country.mmdb
+      # - GPX_GEOIP_DB_URL=https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb
+
+    ports:
+      - "${EDGE_HTTP_PORT:-80}:80"
+      - "${EDGE_HTTPS_PORT:-443}:443"
+      - "${EDGE_HTTPS_PORT:-443}:443/udp"
+      # Port 8000 (hub WS) : non exposé en mono-machine (réseau interne suffit).
+      # Décommenter pour multi-machine (Admin ou Agent sur un autre serveur) :
+      # - "8000:8000"
+
+    volumes:
+      # Persistance passerelle : cache, tokens, GeoIP, proxies/*.json, proxies-revisions/
+      - goproxify_edge_data:/etc/goproxify
+    networks:
+      - goproxify_net
+    depends_on:
+      goproxify-admin:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # AGENT — Découverte automatique des conteneurs Docker (optionnel)
+  # Se connecte à la passerelle via WebSocket pour remonter les conteneurs détectés.
+  # L'Agent entre en état "pending" au premier démarrage et doit être
+  # approuvé dans l'interface Admin (menu Agents).
+  # ---------------------------------------------------------------------------
+  goproxify-agent:
+    image: ${GOPROXIFY_REGISTRY:-ghcr.io/vincamok/goproxify}/agent:${GOPROXIFY_AGENT_TAG:-preview}
+    container_name: goproxify-agent
+    restart: unless-stopped
+    command: ["agent"]
+    environment:
+      - TZ=${TZ:-Europe/Paris}
+
+      # ── OBLIGATOIRE — même valeur que l'Admin et la passerelle ─────────────
+      - GPX_PAIRING_SECRET=${GPX_PAIRING_SECRET}
+
+      # ── Connexion à la passerelle (mono-machine : réseau Docker suffit) ────
+      - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
+
+      # ── Optionnel ──────────────────────────────────────────────────────────
+      - GPX_ENGINE_LOG_LEVEL=${LOG_LEVEL:-info}
+      # Nom du nœud affiché dans l'Admin (défaut : auto-généré)
+      # - GPX_IDENTITY_AGENT_NODE_NAME=agent-1
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - goproxify_agent_data:/etc/goproxify
+    networks:
+      - goproxify_net
+    depends_on:
+      goproxify-edge:
+        condition: service_started
+COMPOSE_EOF
+  success "$file généré"
 }
 
 escape_sed() {
@@ -234,7 +437,7 @@ fi
 
 # ---------------------------------------------------------------------------
 step 2 "Fichiers compose"
-fetch_if_missing "$COMPOSE_FILE" "${RAW_BASE}/${COMPOSE_FILE}"
+write_compose_if_missing "$COMPOSE_FILE"
 fetch_if_missing "$ENV_EXAMPLE" "${RAW_BASE}/${ENV_EXAMPLE}"
 
 # ---------------------------------------------------------------------------

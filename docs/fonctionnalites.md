@@ -587,7 +587,7 @@ Common options: `-config <path>`, `-admin-url <url>`, `-token <token>` (or `GPX_
 
 | Mode | Details |
 |---|---|
-| **Docker Compose** | `docker compose up -d` — recommended, `docker-compose.yml` and `docker-compose-dev.yml` files provided |
+| **Docker Compose** | `bash scripts/quickstart.sh` generates `docker-compose.yml` + `.env`, then `docker compose up -d` — recommended |
 | **Bare-metal** | Interactive `setup.sh` script — module selection (Admin / Edge / Agent) |
 | **systemd** | Hardened service (systemd units with sandboxing) |
 | **setcap** | `setcap cap_net_bind_service` to listen on ports < 1024 without root |

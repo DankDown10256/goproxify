@@ -112,21 +112,14 @@ Step-by-step install for both: [docs/deployment.md](docs/deployment.md).
 ### Docker Compose (recommended)
 
 ```bash
-# 1. Download the all-in-one compose file
-curl -LO https://github.com/vincamok/goproxify/raw/main/docker-compose.quickstart.yml
-curl -LO https://github.com/vincamok/goproxify/raw/main/.env.example
-
-# 2. Generate required secrets
-cp .env.example .env
-# Edit .env — minimum required:
-#   GPX_JWT_SECRET=$(openssl rand -hex 32)
-#   GPX_PAIRING_SECRET=$(openssl rand -hex 32)
-#   GPX_FIRST_ADMIN_EMAIL=admin@example.com
-#   GPX_FIRST_ADMIN_PASSWORD=change-me
-
-# 3. Start — Admin + Edge + Agent (pulls GHCR images)
-docker compose -f docker-compose.quickstart.yml up -d
+# 1. Run the quickstart script — it generates docker-compose.yml and .env
+curl -fsSL https://github.com/vincamok/goproxify/raw/main/scripts/quickstart.sh -o quickstart.sh
+bash quickstart.sh
 ```
+
+The script generates hex-32 secrets, writes `.env` (chmod 600), checks Docker / ports,
+then starts Admin + Edge + Agent. Variants (run alone): `bash quickstart.sh --print-secrets`
+· `bash quickstart.sh --env-only`.
 
 Images are published on **GHCR** (`ghcr.io/vincamok/goproxify`). Default quickstart:
 floating tag **`preview`**. To pin a SemVer: `GOPROXIFY_ADMIN_TAG`,
@@ -138,11 +131,10 @@ The Edge and Agent pair automatically with the Admin via `GPX_PAIRING_SECRET` �
 
 ### Portainer
 
-1. **Stacks → Add stack → Repository**
-2. URL: `https://github.com/vincamok/goproxify`
-3. Compose path: `docker-compose.quickstart.yml`
-4. Environment variables: `GPX_JWT_SECRET`, `GPX_PAIRING_SECRET`, `GPX_FIRST_ADMIN_EMAIL`, `GPX_FIRST_ADMIN_PASSWORD` (generate secrets with `openssl rand -hex 32`)
-5. **Deploy the stack**
+1. **Stacks → Add stack → Web editor**
+2. Paste the compose from [docs/deployment.md](docs/deployment.md#33-créer-le-fichier-docker-composeyml) (or run `bash scripts/quickstart.sh --env-only` locally and copy the generated `docker-compose.yml`)
+3. Environment variables: `GPX_JWT_SECRET`, `GPX_PAIRING_SECRET`, `GPX_FIRST_ADMIN_EMAIL`, `GPX_FIRST_ADMIN_PASSWORD` (generate secrets with `openssl rand -hex 32`)
+4. **Deploy the stack**
 
 ### Binary
 
