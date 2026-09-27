@@ -195,6 +195,7 @@ function renderLogsPage() {
 }
 
 function onLogsClick(e) {
+  if (onLogsQuickClick(e)) return;
   const corr = e.target.closest('[data-log-corr]');
   if (corr && document.getElementById('content')?.contains(corr)) {
     e.preventDefault();
@@ -293,13 +294,13 @@ function logCellFilter(field, value, display) {
 
 function openPrismFromLogs(opts = {}) {
   const node = logsScope.node_name || edgeLogNodeName();
-  if (!node && !state.selectedEdge) {
-    toast(t('logs.prism_need_edge'), 'error');
-    return;
-  }
   window._prismProxyInit = opts.proxy || logsFilters.domain || '';
   window._prismIpInit = opts.ip || logsFilters.ip || '';
   window._prismPathInit = opts.path || logsFilters.path || '';
+  if (!node && !state.selectedEdge) {
+    navigate('prism');
+    return;
+  }
   if (state.selectedEdge) {
     navigate('edge-prism');
     return;
@@ -348,6 +349,8 @@ function renderStaticLogs() {
     : `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.domain')}</th><th>${t('logs.method')}</th><th>${t('logs.path')}</th><th>${t('logs.status')}</th><th>${t('logs.ip')}</th><th>${t('logs.latency')}</th><th>${t('logs.msg')}</th><th></th>`;
   const cols = isSystem ? 6 : 12;
   c.innerHTML = `
+    <div id="logs-quick-wrap">${logsQuickHTML()}</div>
+    <div id="logs-hist"></div>
     <div class="search-bar" style="gap:8px;margin-bottom:8px">
       <input id="lf-search" class="input search-input" placeholder="${esc(t('logs.search_ph'))}" value="${esc(logsFilters.search)}" oninput="logsFilter()">
       <select id="lf-level" class="input" onchange="logsFilter()">
@@ -384,20 +387,21 @@ function renderStaticLogs() {
     </div>`;
   renderFilterChips();
   loadStaticLogs(0);
+  loadLogsHist();
 }
 
 function logEntrySep() {
   return `<span class="log-entry-sep">·</span>`;
 }
 
-function renderAccessLogEntry(e) {
+function renderAccessLogEntry(e, i) {
   const parts = [];
   if (e.domain) parts.push(`<span class="mono">${logCellFilter('domain', e.domain)}</span>`);
   if (e.path) parts.push(`<span class="log-entry-path">${logCellFilter('path', e.path)}</span>`);
   if (e.ip) parts.push(`<span class="mono">${logCellFilter('ip', e.ip)}</span>`);
   if (e.node_name) parts.push(`<span class="mono">${esc(e.node_name)}</span>`);
   if (e.latency_ms != null && e.latency_ms !== '') parts.push(`<span>${esc(String(e.latency_ms))}ms</span>`);
-  return `<article class="log-entry">
+  return `<article class="log-entry" data-log-i="${i}">
     <div class="log-entry-top">
       <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
       ${logLvlBadge(e.level)}
@@ -426,8 +430,8 @@ function renderSystemLogEntry(e) {
   </article>`;
 }
 
-function renderAccessLogRow(e) {
-  return `<tr>
+function renderAccessLogRow(e, i) {
+  return `<tr data-log-i="${i}">
     <td class="mono" style="font-size:11px;white-space:nowrap">${esc(fmtDate(e.ts))}</td>
     <td>${logLvlBadge(e.level)}</td>
     <td><span class="chip" style="font-size:11px">${esc(e.component||'—')}</span></td>
@@ -532,8 +536,9 @@ async function loadStaticLogs(beforeID) {
       if (tbody) tbody.innerHTML = entries.map(renderSystemLogRow).join('');
       if (list) list.innerHTML = entries.map(renderSystemLogEntry).join('');
     } else {
-      if (tbody) tbody.innerHTML = entries.map(renderAccessLogRow).join('');
-      if (list) list.innerHTML = entries.map(renderAccessLogEntry).join('');
+      logsRows = entries;
+      if (tbody) tbody.innerHTML = entries.map((e, i) => renderAccessLogRow(e, i)).join('');
+      if (list) list.innerHTML = entries.map((e, i) => renderAccessLogEntry(e, i)).join('');
     }
     const hasPrev = logsCursorStack.length > 0;
     const pager = document.getElementById('logs-pager');
@@ -791,3 +796,169 @@ window.exportLogs = function(fmt) {
       a.click(); URL.revokeObjectURL(url);
     }).catch(e => toast('Export impossible : ' + e.message, 'error'));
 };
+
+// ── Logs d'accès : périodes rapides, classes de statut, histogramme, tiroir de détail ──
+
+const LOGS_PERIODS = [['15m', 900000], ['1h', 3600000], ['6h', 21600000], ['24h', 86400000], ['7d', 604800000]];
+let logsQuickMs = 0;
+let logsRows = [];
+
+function logsQuickHTML() {
+  if (isSystemLogs()) return '';
+  const per = LOGS_PERIODS.map(([k, ms]) => `<button type="button" class="chip${logsQuickMs === ms ? ' active' : ''}" data-log-quick="${ms}">${k}</button>`).join('')
+    + `<button type="button" class="chip${logsQuickMs ? '' : ' active'}" data-log-quick="0">${esc(t('lg.q_all'))}</button>`;
+  const cls = ['2xx', '3xx', '4xx', '5xx'].map(c => `<button type="button" class="chip${logsFilters.status === c ? ' active' : ''}" data-log-status="${c}">${c}</button>`).join('');
+  return `<div class="logs-quick"><div class="logs-quick-g">${per}</div><div class="logs-quick-g">${cls}</div></div>`;
+}
+
+function refreshLogsView() {
+  syncLogFilterInputs();
+  renderFilterChips();
+  const w = document.getElementById('logs-quick-wrap');
+  if (w) w.innerHTML = logsQuickHTML();
+  loadStaticLogs(0);
+  loadLogsHist();
+}
+
+// Retourne true si le clic a été traité (période, classe de statut, ligne → tiroir, actions du tiroir).
+function onLogsQuickClick(e) {
+  const content = document.getElementById('content');
+  const within = el => el && content?.contains(el);
+  const q = e.target.closest('[data-log-quick]');
+  if (within(q)) {
+    logsQuickMs = parseInt(q.getAttribute('data-log-quick'), 10) || 0;
+    logsFilters.date_from = logsQuickMs ? new Date(Date.now() - logsQuickMs).toISOString() : '';
+    logsFilters.date_to = '';
+    refreshLogsView();
+    return true;
+  }
+  const st = e.target.closest('[data-log-status]');
+  if (within(st)) {
+    const c = st.getAttribute('data-log-status');
+    logsFilters.status = logsFilters.status === c ? '' : c;
+    refreshLogsView();
+    return true;
+  }
+  const bar = e.target.closest('[data-log-bucket]');
+  if (within(bar)) {
+    const r = typeof obsBucketRange === 'function' ? obsBucketRange(bar.getAttribute('data-log-bucket'), bar.getAttribute('data-log-unit')) : {};
+    if (r.from) {
+      logsQuickMs = 0;
+      logsFilters.date_from = new Date(r.from).toISOString();
+      logsFilters.date_to = new Date(r.to).toISOString();
+      refreshLogsView();
+    }
+    return true;
+  }
+  const act = e.target.closest('[data-log-dact]');
+  if (within(act)) {
+    logDrawerAction(act.getAttribute('data-log-dact'), parseInt(act.getAttribute('data-log-di'), 10));
+    return true;
+  }
+  if (e.target.closest('#log-drawer')) return true;
+  const row = e.target.closest('[data-log-i]');
+  if (within(row) && !e.target.closest('button, a, input')) {
+    openLogDrawer(logsRows[parseInt(row.getAttribute('data-log-i'), 10)], parseInt(row.getAttribute('data-log-i'), 10));
+    return true;
+  }
+  return false;
+}
+
+async function loadLogsHist() {
+  const el = document.getElementById('logs-hist');
+  if (!el) return;
+  if (isSystemLogs()) { el.innerHTML = ''; return; }
+  const to = logsFilters.date_to ? new Date(logsFilters.date_to) : new Date();
+  const from = logsFilters.date_from ? new Date(logsFilters.date_from) : new Date(to - 86400000);
+  const unit = to - from <= 21600000 ? 'minute' : 'hour';
+  const p = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), bucket: unit });
+  if (logsFilters.domain) p.set('proxy', logsFilters.domain);
+  if (logsFilters.ip) p.set('ip', logsFilters.ip);
+  if (logsFilters.path) p.set('path', logsFilters.path);
+  if (logsScope.node_name) p.set('node_name', logsScope.node_name);
+  const pts = await api('GET', '/prism/timeline?' + p).catch(() => []);
+  if (!document.getElementById('logs-hist')) return;
+  if (!Array.isArray(pts) || !pts.length) { el.innerHTML = ''; return; }
+  const W = 900, H = 70, pad = 2, bw = W / pts.length;
+  const mx = Math.max(1, ...pts.map(x => x.requests));
+  const bars = pts.map((x, i) => {
+    const okH = Math.max(0, (x.requests - x.errors) / mx * (H - 4)), erH = x.errors / mx * (H - 4);
+    const xx = (i * bw + pad / 2).toFixed(1), w = Math.max(1, bw - pad).toFixed(1);
+    return `<g data-log-bucket="${esc(x.bucket)}" data-log-unit="${unit}" style="cursor:pointer"><title>${esc(x.bucket)} — ${x.requests} req, ${x.errors} err</title>
+      <rect x="${xx}" y="0" width="${w}" height="${H}" fill="transparent"/>
+      <rect x="${xx}" y="${(H - okH).toFixed(1)}" width="${w}" height="${okH.toFixed(1)}" fill="var(--accent)" opacity=".55"/>
+      <rect x="${xx}" y="${(H - okH - erH).toFixed(1)}" width="${w}" height="${erH.toFixed(1)}" fill="var(--red)"/></g>`;
+  }).join('');
+  el.innerHTML = `<div class="logs-hist-h"><span>${esc(t('lg.hist_title'))}</span><span>${esc(t('lg.hist_hint'))}</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(t('lg.hist_title'))}">${bars}</svg>`;
+}
+
+function closeLogDrawer() {
+  document.getElementById('log-drawer')?.remove();
+}
+
+function openLogDrawer(en, i) {
+  if (!en) return;
+  closeLogDrawer();
+  const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-all">${v}</b></div>`;
+  const btn = (act, label, extra = '') => `<button type="button" class="btn btn-secondary btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
+  const dr = document.createElement('aside');
+  dr.id = 'log-drawer';
+  dr.className = 'prism-drawer open';
+  dr.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span class="prism-panel-title" style="margin:0">${esc(t('lg.detail'))}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
+    </div>
+    <div style="margin-bottom:10px">${en.status ? httpStatusBadge(en.status) : ''} <b>${esc(en.method || '')}</b> <span class="mono" style="word-break:break-all">${esc((en.domain || '') + (en.path || ''))}</span></div>
+    <div class="prism-dstats" style="grid-template-columns:1fr">
+      ${row(t('logs.ts'), esc(fmtDate(en.ts)))}
+      ${row(t('logs.node'), esc(en.node_name || ''))}
+      ${row(t('logs.component'), esc(en.component || ''))}
+      ${row(t('logs.ip'), en.ip ? `<span class="mono">${esc(en.ip)}</span>` : '')}
+      ${row(t('lg.latency'), en.latency_ms != null ? esc(String(en.latency_ms)) + ' ms' : '')}
+      ${row(t('lg.bytes'), en.bytes ? esc(String(en.bytes)) + ' B' : '')}
+      ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
+      ${row(t('logs.message'), esc(en.message || ''))}
+    </div>
+    <div id="log-drawer-scan" style="margin:14px 0"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${btn('prism', t('lg.open_prism'))}
+      ${en.domain && en.ts ? btn('corr', t('logs.correlate')) : ''}
+      ${en.ip ? btn('fip', t('lg.filter_ip')) : ''}
+      ${en.path ? btn('fpath', t('lg.filter_path')) : ''}
+      ${en.domain ? btn('curl', t('lg.copy_curl')) : ''}
+      ${en.ip ? btn('ban', t('lg.ban_ip'), 'style="color:var(--red)"') : ''}
+    </div>`;
+  document.getElementById('content').appendChild(dr);
+  if (en.ip) {
+    api('GET', '/prism/ip-scan?ip=' + encodeURIComponent(en.ip)).then(d => {
+      const box = document.getElementById('log-drawer-scan');
+      if (!box || !d) return;
+      const v = { banned: [t('pz.v_banned'), 'var(--red)'], suspect: [t('pz.v_suspect'), '#f59e0b'], clean: [t('pz.v_clean'), 'var(--green)'] }[d.verdict] || ['—', 'var(--text3)'];
+      box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.scan'))}</div>
+        <span class="prism-verdict" style="--v:${v[1]}">${esc(v[0])}</span>
+        <span style="color:var(--text3);font-size:12px;margin-left:8px">${esc(t('pz.past_bans'))} ${d.ban_history || 0} · ${esc(t('pz.threat_decisions'))} ${(d.threats || []).length}</span>`;
+    }).catch(() => {});
+  }
+}
+
+async function logDrawerAction(act, i) {
+  const en = logsRows[i];
+  if (act === 'close') { closeLogDrawer(); return; }
+  if (!en) return;
+  if (act === 'prism') openPrismFromLogs({ proxy: en.domain, ip: en.ip, path: en.path });
+  else if (act === 'corr') showCorrelate(en.domain, en.ts);
+  else if (act === 'fip') { closeLogDrawer(); applyLogCellFilter('ip', en.ip, true); }
+  else if (act === 'fpath') { closeLogDrawer(); applyLogCellFilter('path', en.path, true); }
+  else if (act === 'curl') {
+    const cmd = `curl -i -X ${en.method || 'GET'} 'https://${en.domain}${en.path || '/'}'`;
+    try { await navigator.clipboard.writeText(cmd); toast(t('lg.copied'), 'success'); } catch { toast(cmd, 'info'); }
+  } else if (act === 'ban') {
+    if (!confirm(t('prism.ban_confirm', { ip: en.ip }))) return;
+    try {
+      await api('POST', '/security/bans', { ip: en.ip, reason: t('prism.ban_reason'), source: 'native' });
+      toast(t('security.ban_success'), 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  }
+}
