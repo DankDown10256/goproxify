@@ -9,6 +9,12 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.52.6 — Moteurs de sécurité : plus de valeur devinée pour les limites Sentinel** : réactiver « Débit par IP », « Erreurs 4xx répétées » ou « Limite globale » sans réglage préalable appliquait silencieusement une valeur arbitraire (10 req/s, 20 erreurs, 1000 req/s) — un admin pouvait ainsi activer une limite à un seuil qu'il n'avait pas choisi. L'interrupteur ouvre désormais un champ obligatoire (avec un rappel explicite) et n'applique rien tant qu'une valeur n'est pas saisie ; réactiver dans la même ouverture de fenêtre après une désactivation restaure toujours la valeur précédente sans redemander. (Admin `0.52.6`)
+
+
+- **Admin 0.52.5 — audit du parsing des colonnes `DATETIME` : `GetProxyVersion` sans date** : suite au correctif Vulnérabilités (KEV/EPSS), audit de tous les `time.Parse("2006-01-02 15:04:05", …)` du dépôt sur des colonnes SQLite déclarées `DATETIME`. Le pilote `modernc.org/sqlite` relit **toute** colonne ainsi déclarée normalisée en RFC3339, quel que soit son format d'écriture d'origine (y compris `DEFAULT CURRENT_TIMESTAMP`, confirmé par test direct) — la plupart des points de lecture du code (bans, sauvegardes, règles automatiques, certificats) essayaient déjà ce format en premier avec repli sur l'ancien, et n'étaient donc pas affectés. Seul `backup.Scheduler.GetProxyVersion` ne tentait qu'un seul format, laissant son `CreatedAt` à la date zéro ; repli sur RFC3339 ajouté, comme pour les autres points déjà résilients. Sans effet visible aujourd'hui (`CreatedAt` n'est pas encore renvoyé par les endpoints qui appellent cette fonction), corrigé avant qu'un futur usage n'en hérite silencieusement. (Admin `0.52.5`)
+
+
 - **Admin 0.52.4 — Posture : contrôles affichés en français quelle que soit la langue** : les 9 libellés de contrôle (« TLS activé », « WAF activé », « Filtrage IP »…) de l'onglet En-têtes & certificats venaient du backend en français uniquement (`security.ComputeHeaderScore`) et n'étaient jamais passés par `t()` côté UI — l'interface restait localisée autour d'eux mais ces libellés-là s'affichaient toujours en français, y compris en espagnol ou en allemand. Chaque contrôle porte désormais une clé stable (`key`, ex. `"waf"`) en plus de son nom français ; le frontend traduit depuis cette clé (`security.posture.check.*`, FR/EN/ES/DE) et ne retombe sur le nom brut que pour des données mises en cache avant cet ajout. (Admin `0.52.4`)
 
 

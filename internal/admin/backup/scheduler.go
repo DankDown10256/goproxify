@@ -768,6 +768,9 @@ func (s *Scheduler) GetProxyVersion(db *sql.DB, versionID string) (*ProxyVersion
 		return nil, fmt.Errorf("version introuvable")
 	}
 	v.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", ts)
+	if v.CreatedAt.IsZero() {
+		v.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+	}
 	return &v, err
 }
 

@@ -263,10 +263,18 @@ pages['edge-security'] = () => renderSecuritySynthese({ mode: 'edge' });
 // Fail2Ban, CrowdSec et le scanner sont des réglages globaux (Admin) ; Sentinel et le moteur IPS
 // actif sont propres à la passerelle (`?edge=`).
 
-const _sm = { open: false, tab: 'sentinel', mode: 'admin', q: '', f2b: {}, cs: {}, threat: {}, provider: 'native', rules: [], scan: {}, prev: {}, dirty: false };
+const _sm = { open: false, tab: 'sentinel', mode: 'admin', q: '', f2b: {}, cs: {}, threat: {}, provider: 'native', rules: [], scan: {}, prev: {}, pendingNum: null, dirty: false };
 
-// Valeur appliquée quand on réactive une limite chiffrée qui n'avait jamais été réglée.
-const SM_DEFAULTS = { rate: 10, errors: 20, global: 1000, f2bDuration: 86400 };
+const SM_DEFAULTS = { f2bDuration: 86400 };
+
+// Caps Sentinel dont la valeur est un nombre à saisir (pas un simple on/off) : le champ du réglage
+// (rate_limit, error_threshold, global_rps) tombe à 0 quand on désactive, donc sa valeur d'origine
+// est perdue — réactiver ne doit jamais deviner un chiffre à sa place (voir smSentinelCap).
+const SM_NUM_CAPS = {
+  rate:    { field: 'rate_limit',     unitKey: 'sm.unit_reqs',  min: 0.5, step: 0.5 },
+  errors:  { field: 'error_threshold', unitKey: 'sm.unit_errs', min: 1,   step: 1 },
+  global:  { field: 'global_rps',     unitKey: 'sm.unit_reqs',  min: 1,   step: 1 },
+};
 
 function smSentinelCaps() {
   const c = _sm.threat || {};
@@ -283,19 +291,21 @@ function smSentinelCaps() {
   ];
 }
 
-function smApplySentinelCap(cfg, key, on) {
+// value : uniquement pour un cap numérique (SM_NUM_CAPS) qu'on active avec une valeur saisie
+// explicitement (voir smSentinelCapValue) — jamais devinée.
+function smApplySentinelCap(cfg, key, on, value) {
   const next = { ...cfg, lists: { ...(cfg.lists || {}) }, tarpit: { ...(cfg.tarpit || {}) } };
-  const num = (field, def) => {
-    if (on) next[field] = _sm.prev[field] || def;
+  const num = field => {
+    if (on) next[field] = value;
     else { if (cfg[field] > 0) _sm.prev[field] = cfg[field]; next[field] = 0; }
   };
   if (key === 'block') next.mode = on ? 'block' : 'detect';
   else if (key === 'ip') next.lists.ip_enabled = on;
   else if (key === 'ua') next.lists.ua_enabled = on;
   else if (key === 'path') next.lists.path_enabled = on;
-  else if (key === 'rate') num('rate_limit', SM_DEFAULTS.rate);
-  else if (key === 'errors') num('error_threshold', SM_DEFAULTS.errors);
-  else if (key === 'global') num('global_rps', SM_DEFAULTS.global);
+  else if (key === 'rate') num('rate_limit');
+  else if (key === 'errors') num('error_threshold');
+  else if (key === 'global') num('global_rps');
   else if (key === 'tarpit') next.tarpit.enabled = on;
   return next;
 }
@@ -315,10 +325,27 @@ function smSwitch(on, handler, label, disabled) {
 }
 
 function smCapsHTML(caps, handler, enabled) {
-  return `<div class="sm-caps${enabled ? '' : ' off'}">${caps.map(c => `<div class="sm-cap">
+  return `<div class="sm-caps${enabled ? '' : ' off'}">${caps.map(c => {
+    const numCap = handler === 'smSentinelCap' ? SM_NUM_CAPS[c.key] : null;
+    if (numCap && _sm.pendingNum === c.key) {
+      return `<div class="sm-cap sm-cap-pending">
+        <div class="sm-cap-d"><b>${esc(c.label)}</b>${c.desc ? `<span>${esc(c.desc)}</span>` : ''}</div>
+        <div class="sm-cap-input-row">
+          <div class="sm-cap-r sm-cap-input">
+            <input type="number" class="input" id="sm-num-${c.key}" min="${numCap.min}" step="${numCap.step}" placeholder="${esc(t(numCap.unitKey))}" autofocus
+              onkeydown="if(event.key==='Enter'){event.preventDefault();smSentinelCapValue('${c.key}')}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="smSentinelCapValue('${c.key}')">${esc(t('sm.activate'))}</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="smSentinelCapCancel()">${esc(t('common.cancel'))}</button>
+          </div>
+          <p class="sm-cap-input-hint">${esc(t('sm.no_default_hint'))}</p>
+        </div>
+      </div>`;
+    }
+    return `<div class="sm-cap">
     <div class="sm-cap-d"><b>${esc(c.label)}</b>${c.desc ? `<span>${esc(c.desc)}</span>` : ''}</div>
     <div class="sm-cap-r">${c.val ? `<span class="sm-val">${esc(c.val)}</span>` : ''}${c.fixed ? '' : smSwitch(c.on, `${handler}('${c.key}',this.checked)`, c.label)}</div>
-  </div>`).join('')}</div>`;
+  </div>`;
+  }).join('')}</div>`;
 }
 
 function smMasterHTML(name, desc, on, handler, disabledNote) {
@@ -473,8 +500,33 @@ window.smMaster_sentinel = function(on) {
   return smSave(async () => { await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg); _sm.threat = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
 };
 window.smSentinelCap = function(key, on) {
-  const cfg = smApplySentinelCap(_sm.threat, key, on);
+  const numCap = SM_NUM_CAPS[key];
+  if (on && numCap) {
+    const remembered = _sm.prev[numCap.field];
+    if (!(remembered > 0)) {
+      // Jamais réglée (ou valeur perdue en désactivant hors de cette ouverture de fenêtre) :
+      // on ne devine rien, on demande la valeur avant tout appel API.
+      _sm.pendingNum = key;
+      smRender();
+      document.getElementById('sm-num-' + key)?.focus();
+      return;
+    }
+  }
+  const cfg = smApplySentinelCap(_sm.threat, key, on, on ? _sm.prev[numCap?.field] : undefined);
   return smSave(async () => { await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg); _sm.threat = cfg; });
+};
+window.smSentinelCapValue = function(key) {
+  const numCap = SM_NUM_CAPS[key];
+  const input = document.getElementById('sm-num-' + key);
+  const value = parseFloat(input?.value);
+  if (!(value > 0)) { input?.focus(); return; }
+  _sm.pendingNum = null;
+  const cfg = smApplySentinelCap(_sm.threat, key, true, value);
+  return smSave(async () => { await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg); _sm.threat = cfg; });
+};
+window.smSentinelCapCancel = function() {
+  _sm.pendingNum = null;
+  smRender();
 };
 window.smMaster_f2b = function(on) {
   const cfg = { ..._sm.f2b, enabled: on };

@@ -4,8 +4,11 @@
 package backup
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
+
+	admindb "github.com/vincamok/goproxify/internal/admin/db"
 )
 
 func TestCronExprFrequencies(t *testing.T) {
@@ -93,5 +96,31 @@ func TestSlugify(t *testing.T) {
 	}
 	if got := slugify("  Mensuelle ! "); got != "mensuelle" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGetProxyVersionParsesCreatedAt(t *testing.T) {
+	d, err := admindb.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+
+	// created_at rempli par DEFAULT CURRENT_TIMESTAMP (comme en production) : le pilote
+	// modernc/sqlite le relit normalisé en RFC3339, quel que soit le format d'écriture d'origine.
+	if _, err := d.Exec(`INSERT INTO proxy_history (id, proxy_id, config, note) VALUES ('v1','p1','{}','test')`); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &Scheduler{}
+	v, err := s.GetProxyVersion(d, "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.CreatedAt.IsZero() {
+		t.Fatal("CreatedAt non parsé (zero value) — colonne DATETIME relue en RFC3339 par le pilote, mais le parse ne le gère pas")
+	}
+	if time.Since(v.CreatedAt) > time.Minute {
+		t.Fatalf("CreatedAt = %v, attendu proche de maintenant", v.CreatedAt)
 	}
 }
