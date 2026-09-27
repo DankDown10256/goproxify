@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/admin/alerting"
+	"github.com/vincamok/goproxify/internal/admin/analytics"
 	"github.com/vincamok/goproxify/internal/admin/db"
 )
 
@@ -49,5 +50,45 @@ func TestSLOEvents(t *testing.T) {
 	off := New(d, slog.Default(), nil, Config{})
 	if len(off.sloEvents(context.Background())) != 0 {
 		t.Error("SLOTarget = 0 doit désactiver l'alerte")
+	}
+}
+
+func TestSLOEventsPerNodeOverride(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	at := time.Now().UTC().Add(-20 * time.Minute).Format(time.RFC3339)
+	for i := 0; i < 2000; i++ {
+		status := 200
+		if i == 0 {
+			status = 502
+		}
+		d.Exec(`INSERT INTO logs (ts, domain, node_name, ip, status) VALUES (?,?,?,?,?)`, at, "a.fr", "paris-01", "1.1.1.1", status)
+	}
+
+	m := New(d, slog.Default(), nil, DefaultConfig()) // objectif global 99,9 %
+	find := func(evs []alerting.Event) (alerting.Event, bool) {
+		for _, e := range evs {
+			if e.NodeName == "paris-01" {
+				return e, true
+			}
+		}
+		return alerting.Event{}, false
+	}
+	if _, ok := find(m.sloEvents(context.Background())); ok {
+		t.Fatal("au global 99,9 %, paris-01 doit rester sain (1 erreur sur 2000 tient dans le budget)")
+	}
+
+	if err := analytics.SaveSLOTarget(context.Background(), d, 99.99, "paris-01"); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := find(m.sloEvents(context.Background()))
+	if !ok || e.Severity != alerting.SevCritical {
+		t.Fatalf("avec un objectif propre à 99,99 %%, paris-01 doit alerter en critique : %+v", e)
+	}
+	if e.Detail["target"] != 99.99 {
+		t.Errorf("l'événement doit rapporter l'objectif résolu (99.99) : %+v", e.Detail)
 	}
 }

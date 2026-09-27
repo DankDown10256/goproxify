@@ -1927,8 +1927,7 @@ button.bn-rank:hover{background:var(--bg2)}
 .vs-title{margin:0;font-size:18px;font-weight:650}
 .vs-sub{font-size:12px;color:var(--text2);margin-top:2px}
 .vs-head-acts{display:flex;align-items:center;gap:10px}
-.vs-kpis{margin-bottom:16px;grid-template-columns:repeat(4,minmax(0,1fr))}
-@media (max-width:1000px){.vs-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.vs-kpis{margin-bottom:16px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
 .vs-kpi{padding:14px 16px}
 .vs-kpi .sec-tile-value{font-size:26px}
 .vs-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin-bottom:14px}
@@ -1976,7 +1975,14 @@ button.bn-rank:hover{background:var(--bg2)}
 .vs-row:hover{background:var(--bg3)}
 .vs-row.sel{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .vs-row > span{min-width:0;font-size:12.5px}
-.vs-c-cve{font-weight:500}
+.vs-c-cve{font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.vs-c-score{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.vs-c-st{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.vs-kev-badge{font-size:9.5px;padding:0 5px;line-height:1.5}
+.vs-epss{font-family:var(--font-mono,ui-monospace,monospace);font-size:10.5px;color:var(--text3)}
+.vs-sla-badge{font-size:10px;white-space:nowrap}
+.vs-kev-t{color:var(--red);font-weight:600}
+.vs-drawer-kev{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--red);font-weight:600}
 .vs-c-be,.vs-c-desc,.vs-c-gw{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vs-c-desc,.vs-c-gw{color:var(--text2)}
 .vs-drawer{position:sticky;top:0;display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg2);min-width:0}
@@ -2146,6 +2152,8 @@ button.bn-rank:hover{background:var(--bg2)}
 @keyframes gm-ping{from{transform:scale(1);opacity:.8}to{transform:scale(3.4);opacity:0}}
 @media (prefers-reduced-motion:reduce){.gm-pulse:after{animation:none}}
 .gm-hint{background:color-mix(in srgb,var(--bg2) 90%,transparent);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;color:var(--text3)}
+.gm-cluster{background:none;border:0}
+.gm-cluster span{display:flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-size:11px;font-weight:700;font-family:system-ui,sans-serif;text-shadow:0 1px 2px rgba(0,0,0,.5);cursor:pointer}
 .prism-tab-link{margin-left:auto;background:none;border:0;color:var(--text3);font-size:12px;cursor:pointer;padding:6px 10px}
 .prism-tab-link:hover{color:var(--accent)}
 

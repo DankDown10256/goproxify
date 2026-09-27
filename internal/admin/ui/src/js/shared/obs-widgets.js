@@ -123,6 +123,28 @@ function obsTimelineHtml(pts, opts = {}) {
     return `<circle cx="${x}" cy="${y}" r="3" fill="var(--bg2)" stroke="var(--accent)" stroke-width="1.5" pointer-events="none"/>`;
   }).join('') : '';
 
+  /* annotations de déploiement (changements de config de proxy sur la période) */
+  const deployMarks = (() => {
+    if (!Array.isArray(opts.deploys) || !opts.deploys.length) return '';
+    const byBucket = new Map();
+    for (const d of opts.deploys) {
+      const key = typeof gpxBucketKey === 'function' ? gpxBucketKey(d.at + 'Z', opts.bucketUnit || 'hour') : null;
+      const i = key ? pts.findIndex(p => p.bucket === key) : -1;
+      const idx = i >= 0 ? i : pts.length - 1;
+      if (!byBucket.has(idx)) byBucket.set(idx, []);
+      byBucket.get(idx).push(d);
+    }
+    const kindLabel = k => ({ domain: t('ex.deploy_kind_domain'), cert: t('ex.deploy_kind_cert') }[k] || t('ex.deploy_kind_proxy'));
+    return [...byBucket.entries()].map(([i, ds]) => {
+      const x = toX(i).toFixed(1);
+      const label = ds.map(d => `${esc(kindLabel(d.kind))} · ${esc(d.note)} · ${esc(d.proxy)}`).join('\n');
+      return `<g>
+        <line x1="${x}" y1="${padY}" x2="${x}" y2="${H - padB + 4}" stroke="var(--purple,#a855f7)" stroke-width="1" stroke-dasharray="2,2" opacity=".7" pointer-events="none"/>
+        <path d="M${x},${padY - 2} l-3,-5 h6 z" fill="var(--purple,#a855f7)" style="cursor:default"><title>${label}</title></path>
+      </g>`;
+    }).join('');
+  })();
+
   /* zones cliquables invisibles par-dessus */
   const hitTargets = pts.map((p, i) => {
     const x = toX(i).toFixed(1), y = toY(p.requests).toFixed(1);
@@ -150,12 +172,14 @@ function obsTimelineHtml(pts, opts = {}) {
         ${errLine ? `<path d="${errLine}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="5,4" stroke-linecap="round"/>` : ''}
       </g>
       ${markers}
+      ${deployMarks}
       ${hitTargets}
       ${xLabels.join('')}
     </svg>
     <div style="display:flex;gap:20px;font-size:11px;color:var(--text3);margin-top:6px">
       <span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:1.5px;background:var(--accent);border-radius:2px;display:inline-block"></span>Requêtes</span>
       ${errLine ? `<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:1.5px dashed var(--red);display:inline-block"></span>${t('prism.errors')}</span>` : ''}
+      ${deployMarks ? `<span style="display:flex;align-items:center;gap:6px"><span style="width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid var(--purple,#a855f7);display:inline-block"></span>${t('ex.deploys')}</span>` : ''}
     </div>`;
 }
 
@@ -241,18 +265,28 @@ const OBS_SLO_TARGETS = [99, 99.5, 99.9, 99.95, 99.99];
 
 // Carte SLO de disponibilité (GET /prism/slo) : disponibilité, budget d'erreur, consommation.
 // opts.targetAttr : attribut posé sur le sélecteur d'objectif (défaut data-obs="slo-target").
+// opts.node + opts.isOverride : affiche « propre à cette passerelle » et un bouton de retour au
+// global (opts.resetAttr, défaut data-obs="slo-reset") quand une passerelle a son propre objectif.
 function obsSloCardHTML(slo, opts = {}) {
   if (!slo) return '';
   const cls = { ok: 'var(--green)', warning: 'var(--yellow)', critical: 'var(--red)', exhausted: 'var(--red)' }[slo.state] || 'var(--text2)';
   const left = Math.max(0, Math.min(100, slo.budget_left_pct));
   const burn = v => `<b style="color:${v >= 6 ? 'var(--red)' : v >= 3 ? 'var(--yellow)' : 'inherit'}">${v.toFixed(1)}×</b>`;
   const attr = opts.targetAttr || 'data-obs="slo-target"';
+  const resetAttr = opts.resetAttr || 'data-obs="slo-reset"';
+  const overrideNote = opts.node && opts.isOverride
+    ? `<span class="prism-muted" style="display:flex;align-items:center;gap:6px">${esc(t('obs.syn.slo_override', { node: opts.node }))}
+        <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 8px" ${resetAttr}>${esc(t('obs.syn.slo_reset'))}</button></span>`
+    : opts.node ? `<span class="prism-muted">${esc(t('obs.syn.slo_global_for', { node: opts.node }))}</span>` : '';
   return `<div class="prism-panel" style="margin-bottom:14px">
-    <div class="prism-panel-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <div class="prism-panel-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <span>${esc(t('obs.syn.slo', { days: slo.days }))}</span>
-      <select class="form-input" style="max-width:110px" ${attr} aria-label="${esc(t('obs.syn.slo_target'))}">
-        ${[...new Set([...OBS_SLO_TARGETS, slo.target])].sort((a, b) => a - b).map(v => `<option value="${v}" ${v === slo.target ? 'selected' : ''}>${v} %</option>`).join('')}
-      </select>
+      <span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${overrideNote}
+        <select class="form-input" style="max-width:110px" ${attr} aria-label="${esc(t('obs.syn.slo_target'))}">
+          ${[...new Set([...OBS_SLO_TARGETS, slo.target])].sort((a, b) => a - b).map(v => `<option value="${v}" ${v === slo.target ? 'selected' : ''}>${v} %</option>`).join('')}
+        </select>
+      </span>
     </div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
       <div><div style="font-size:26px;font-weight:700;color:${cls}">${slo.availability.toFixed(slo.availability >= 99.9 ? 3 : 2)}%</div>

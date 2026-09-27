@@ -57,11 +57,15 @@ func (h *PrismHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && path == "slo":
 		h.slo(w, r)
 	case r.Method == http.MethodGet && path == "slo/config":
-		jsonOK(w, map[string]float64{"target": analytics.LoadSLOTarget(r.Context(), h.DB)})
+		h.getSLOConfig(w, r)
 	case r.Method == http.MethodPut && path == "slo/config":
 		rbac.RequireAdmin(h.DB)(http.HandlerFunc(h.putSLOConfig)).ServeHTTP(w, r)
+	case r.Method == http.MethodDelete && path == "slo/config":
+		rbac.RequireAdmin(h.DB)(http.HandlerFunc(h.deleteSLOConfig)).ServeHTTP(w, r)
 	case r.Method == http.MethodGet && path == "anomalies":
 		h.anomalies(w, r)
+	case r.Method == http.MethodGet && path == "deploys":
+		h.deploys(w, r)
 	case r.Method == http.MethodGet && path == "bans/timeline":
 		h.bansTimeline(w, r)
 	case r.Method == http.MethodGet && path == "bans/by-source":
@@ -311,7 +315,20 @@ func (h *PrismHandler) backendErrors(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, rows)
 }
 
-// putSLOConfig enregistre l'objectif SLO (%), partagé par l'écran, l'API, le MCP et l'alerte slo_burn.
+// getSLOConfig : objectif SLO résolu pour ?node_name= (repli sur le global), avec is_override et,
+// pour une passerelle, global_target (utile à l'écran pour proposer « revenir au global »).
+func (h *PrismHandler) getSLOConfig(w http.ResponseWriter, r *http.Request) {
+	node := r.URL.Query().Get("node_name")
+	out := map[string]any{"target": analytics.LoadSLOTarget(r.Context(), h.DB, node)}
+	if node != "" {
+		out["is_override"] = analytics.HasSLOTargetOverride(r.Context(), h.DB, node)
+		out["global_target"] = analytics.LoadSLOTarget(r.Context(), h.DB)
+	}
+	jsonOK(w, out)
+}
+
+// putSLOConfig enregistre l'objectif SLO (%) : global, ou propre à une passerelle avec ?node_name=.
+// Partagé par l'écran, l'API, le MCP et l'alerte slo_burn.
 func (h *PrismHandler) putSLOConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Target float64 `json:"target"`
@@ -320,11 +337,26 @@ func (h *PrismHandler) putSLOConfig(w http.ResponseWriter, r *http.Request) {
 		prismJSONErr(w, errors.New("target doit être compris entre 90 et 99.999"), http.StatusBadRequest)
 		return
 	}
-	if err := analytics.SaveSLOTarget(r.Context(), h.DB, body.Target); err != nil {
+	node := r.URL.Query().Get("node_name")
+	if err := analytics.SaveSLOTarget(r.Context(), h.DB, body.Target, node); err != nil {
 		prismJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	jsonOK(w, map[string]float64{"target": body.Target})
+}
+
+// deleteSLOConfig retire l'objectif propre à une passerelle (?node_name=, requis) : retour au global.
+func (h *PrismHandler) deleteSLOConfig(w http.ResponseWriter, r *http.Request) {
+	node := r.URL.Query().Get("node_name")
+	if node == "" {
+		prismJSONErr(w, errors.New("node_name requis"), http.StatusBadRequest)
+		return
+	}
+	if err := analytics.ClearSLOTarget(r.Context(), h.DB, node); err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]float64{"target": analytics.LoadSLOTarget(r.Context(), h.DB)})
 }
 
 // slo retourne l'SLO de disponibilité (5xx) sur une fenêtre glissante : target (%, défaut : objectif enregistré), days (défaut 30), proxy, node_name.
@@ -339,6 +371,16 @@ func (h *PrismHandler) slo(w http.ResponseWriter, r *http.Request) {
 // anomalies retourne les écarts détectés sur la fenêtre Prism (pic d'erreurs, IP dominante, pays, backends, bots).
 func (h *PrismHandler) anomalies(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, analytics.DetectAnomalies(r.Context(), h.DB, prismParams(r)))
+}
+
+// deploys : changements de configuration de proxy sur la fenêtre Prism (annotations de courbe).
+func (h *PrismHandler) deploys(w http.ResponseWriter, r *http.Request) {
+	out, err := analytics.GetDeployMarkers(r.Context(), h.DB, prismParams(r))
+	if err != nil {
+		prismJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, out)
 }
 
 func prismJSONErr(w http.ResponseWriter, err error, code int) {

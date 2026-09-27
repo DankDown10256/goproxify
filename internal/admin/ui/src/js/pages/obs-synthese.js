@@ -24,7 +24,7 @@ async function renderObsSynthese(scope) {
   main.innerHTML = `<div class="spinner" style="margin:60px auto"></div>`;
 
   const allEdges = scope.lock ? [] : ((await api('GET', '/nodes').catch(() => [])) || []).filter(n => n.role === 'edge');
-  const [kpis, uniq, timeline, status, geo, anoms, backends, domains, slo, edgeKpis] = await Promise.all([
+  const [kpis, uniq, timeline, status, geo, anoms, backends, domains, slo, sloCfg, deploys, edgeKpis] = await Promise.all([
     api('GET', '/prism/kpis?' + qs).catch(() => ({})),
     api('GET', '/prism/unique-ips?' + qs).catch(() => ({})),
     api('GET', `/prism/timeline?${qs}&bucket=${bucket}`).catch(() => []),
@@ -34,6 +34,8 @@ async function renderObsSynthese(scope) {
     api('GET', '/prism/backend-errors?' + qs).catch(() => []),
     api('GET', '/domains').catch(() => []),
     api('GET', '/prism/slo' + (node ? '?node_name=' + encodeURIComponent(node) : '')).catch(() => null),
+    node ? api('GET', '/prism/slo/config?node_name=' + encodeURIComponent(node)).catch(() => null) : Promise.resolve(null),
+    api('GET', '/prism/deploys?' + qs).catch(() => []),
     Promise.all((node ? [] : allEdges.slice(0, 12)).map(n => {
       const p = new URLSearchParams({ from: from.toISOString(), to: now.toISOString(), node_name: n.node_name || n.display_name || n.id });
       return api('GET', '/prism/kpis?' + p).catch(() => ({}));
@@ -112,7 +114,7 @@ async function renderObsSynthese(scope) {
         </div>`).join('') : `<p class="prism-muted">${esc(t('obs.syn.certs_none'))}</p>`}
     </div>`;
 
-  const sloCard = obsSloCardHTML(slo);
+  const sloCard = obsSloCardHTML(slo, { node, isOverride: !!sloCfg?.is_override });
 
   main.innerHTML = `<div id="obs-syn-root">
     <div class="prism-filters">
@@ -131,7 +133,7 @@ async function renderObsSynthese(scope) {
     ${sloCard}
     ${obsKpisHtml({ ...kpis, unique_ips: uniq?.unique_ips ?? kpis?.unique_ips }, timelinePts)}
     <div class="prism-two">
-      <div class="prism-panel">${obsTimelineHtml(timelinePts, { live: bucket === 'minute' })}</div>
+      <div class="prism-panel">${obsTimelineHtml(timelinePts, { live: bucket === 'minute', bucketUnit: bucket, deploys: Array.isArray(deploys) ? deploys : [] })}</div>
       <div class="prism-panel">${obsStatusHtml(Array.isArray(status) ? status : [])}</div>
     </div>
     <div class="prism-two">${fleet}${watchCard}</div>
@@ -171,7 +173,8 @@ async function renderObsSynthese(scope) {
   root.onchange = e => {
     const sl = e.target.closest('[data-obs="slo-target"]');
     if (sl) {
-      api('PUT', '/prism/slo/config', { target: parseFloat(sl.value) })
+      const nq = node ? '?node_name=' + encodeURIComponent(node) : '';
+      api('PUT', '/prism/slo/config' + nq, { target: parseFloat(sl.value) })
         .catch(err => toast(err.message, 'error'))
         .finally(() => renderObsSynthese(scope));
       return;
@@ -181,6 +184,14 @@ async function renderObsSynthese(scope) {
     _obsSynNode = el.value;
     renderObsSynthese(scope);
   };
+  root.addEventListener('click', e => {
+    const rst = e.target.closest('[data-obs="slo-reset"]');
+    if (!rst || !node) return;
+    e.preventDefault();
+    api('DELETE', '/prism/slo/config?node_name=' + encodeURIComponent(node))
+      .catch(err => toast(err.message, 'error'))
+      .finally(() => renderObsSynthese(scope));
+  });
 }
 
 // Tranche de la courbe (heure locale du serveur, « AAAA-MM-JJTHH:MM ») → période datetime-local pour Prism.

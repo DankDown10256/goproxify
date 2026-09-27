@@ -82,3 +82,49 @@ func TestSLOTargetSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestSLOTargetPerNode(t *testing.T) {
+	d, err := db.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	ctx := context.Background()
+
+	if err := SaveSLOTarget(ctx, d, 99, ""); err != nil { // objectif global
+		t.Fatal(err)
+	}
+	if got := LoadSLOTarget(ctx, d, "paris-01"); got != 99 {
+		t.Fatalf("sans override, la passerelle doit lire le global (99), got %v", got)
+	}
+	if HasSLOTargetOverride(ctx, d, "paris-01") {
+		t.Error("aucun override attendu avant SaveSLOTarget avec un nœud")
+	}
+
+	if err := SaveSLOTarget(ctx, d, 99.99, "paris-01"); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadSLOTarget(ctx, d, "paris-01"); got != 99.99 {
+		t.Fatalf("override attendu 99.99 pour paris-01, got %v", got)
+	}
+	if got := LoadSLOTarget(ctx, d, "lyon-03"); got != 99 {
+		t.Fatalf("lyon-03 sans override doit rester au global (99), got %v", got)
+	}
+	if got := LoadSLOTarget(ctx, d); got != 99 {
+		t.Fatalf("l'objectif global ne doit pas être affecté par l'override de paris-01, got %v", got)
+	}
+	if !HasSLOTargetOverride(ctx, d, "paris-01") {
+		t.Error("override attendu pour paris-01")
+	}
+
+	if s := GetSLO(ctx, d, Params{NodeName: "paris-01"}, 0, 30); s.Target != 99.99 {
+		t.Errorf("GetSLO doit résoudre l'objectif par passerelle : %+v", s)
+	}
+
+	if err := ClearSLOTarget(ctx, d, "paris-01"); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadSLOTarget(ctx, d, "paris-01"); got != 99 {
+		t.Fatalf("après ClearSLOTarget, retour au global (99) attendu, got %v", got)
+	}
+}

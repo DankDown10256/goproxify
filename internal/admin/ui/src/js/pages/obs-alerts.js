@@ -31,8 +31,9 @@ async function renderObsAlerts(scope) {
   if (node) evAll.set('node', node);
 
   const allEdges = scope.lock ? [] : ((await api('GET', '/nodes').catch(() => [])) || []).filter(n => n.role === 'edge');
-  const [slo, rules, channels, triggers, events, allEvents, perEdge] = await Promise.all([
+  const [slo, sloCfg, rules, channels, triggers, events, allEvents, perEdge] = await Promise.all([
     api('GET', '/prism/slo' + nq).catch(() => null),
+    node ? api('GET', '/prism/slo/config' + nq).catch(() => null) : Promise.resolve(null),
     api('GET', '/alert-rules').catch(() => []),
     api('GET', '/alert-channels').catch(() => []),
     api('GET', '/alert-rules/triggers').catch(() => []),
@@ -46,7 +47,12 @@ async function renderObsAlerts(scope) {
   const chans = (Array.isArray(channels) ? channels : []).filter(c => c.enabled);
   const list = Array.isArray(events) ? events : [];
   const forCounts = Array.isArray(allEvents) ? allEvents : list;
-  const covered = rulesList.some(r => r.enabled && (r.triggers || []).includes('slo_burn'));
+  // Reproduit alerting.matchesScope (engine.go) : une règle dont scope.nodes est vide couvre tous
+  // les nœuds ; sinon la passerelle affichée doit y figurer. Sans passerelle sélectionnée (vue flotte),
+  // l'événement flotte (node_name="") n'est jamais filtré par scope.nodes côté moteur : toute règle active
+  // portant slo_burn couvre alors la flotte, quel que soit son scope.
+  const ruleCoversNode = r => !node || !(r.scope?.nodes?.length) || r.scope.nodes.includes(node);
+  const covered = rulesList.some(r => r.enabled && (r.triggers || []).includes('slo_burn') && ruleCoversNode(r));
 
   const counts = {};
   forCounts.forEach(e => { counts[e.trigger] = (counts[e.trigger] || 0) + 1; });
@@ -135,7 +141,7 @@ async function renderObsAlerts(scope) {
       <div class="prism-fg" style="gap:4px">${OBS_AL_DAYS.map(([l, d]) => `<button type="button" class="btn btn-secondary btn-sm${d === _obsAlDays ? ' is-active' : ''}" data-oa="days" data-v="${d}">${l}</button>`).join('')}</div>
     </div>
     ${banner}
-    ${obsSloCardHTML(slo, { targetAttr: 'data-oa="slo-target"' })}
+    ${obsSloCardHTML(slo, { targetAttr: 'data-oa="slo-target"', resetAttr: 'data-oa="slo-reset"', node, isOverride: !!sloCfg?.is_override })}
     ${fleet}
     <div class="prism-panel">
       <div class="prism-panel-title">${esc(t('oa.recent'))}</div>
@@ -186,13 +192,20 @@ async function renderObsAlerts(scope) {
         renderObsAlerts(scope);
       } catch (e) { toast(e.message, 'error'); }
     }
+    else if (act === 'slo-reset') {
+      if (!node) return;
+      api('DELETE', '/prism/slo/config?node_name=' + encodeURIComponent(node))
+        .catch(err => toast(err.message, 'error'))
+        .finally(() => renderObsAlerts(scope));
+    }
   };
   root.onchange = e => {
     const nodeEl = e.target.closest('[data-oa="node"]');
     if (nodeEl) { _obsAlNode = nodeEl.value; renderObsAlerts(scope); return; }
     const sl = e.target.closest('[data-oa="slo-target"]');
     if (sl) {
-      api('PUT', '/prism/slo/config', { target: parseFloat(sl.value) })
+      const nqp = node ? '?node_name=' + encodeURIComponent(node) : '';
+      api('PUT', '/prism/slo/config' + nqp, { target: parseFloat(sl.value) })
         .catch(err => toast(err.message, 'error'))
         .finally(() => renderObsAlerts(scope));
     }

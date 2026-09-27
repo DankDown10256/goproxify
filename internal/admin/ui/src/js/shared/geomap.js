@@ -254,26 +254,62 @@ async function gpxGeoMap(el, opts = {}) {
     }).addTo(map);
   }
 
+  // Regroupe les villes trop proches à l'échelle courante (grille en pixels écran, ~48 px :
+  // l'écart minimal lisible entre deux bulles) pour que la carte reste lisible dézoomée.
+  function _clusterPoints(pts) {
+    const cell = 48;
+    const groups = new Map();
+    for (const p of pts) {
+      const px = map.latLngToContainerPoint([p.lat, p.lon]);
+      const key = Math.floor(px.x / cell) + '_' + Math.floor(px.y / cell);
+      (groups.get(key) || groups.set(key, []).get(key)).push(p);
+    }
+    return [...groups.values()];
+  }
+
   function drawPoints() {
     pointLayer.clearLayers();
     if (state.style !== 'cities') return;
     const [r, g, b] = colorOf();
     const val = p => _geoValue(p, state.mode);
     const pts = state.points.filter(p => val(p) > 0);
-    const pmax = Math.max(...pts.map(val), 0);
-    for (const p of pts) {
-      const m = L.circleMarker([p.lat, p.lon], {
-        radius: 4 + Math.sqrt(val(p) / pmax) * 16,
-        color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: 0.4,
-      }).addTo(pointLayer);
-      const place = [p.city, p.region].filter(Boolean).join(', ');
-      m.bindTooltip(`<b>${esc(place || p.country_name)}</b> <span style="opacity:.6">${esc(p.country_code)}</span><br>` +
-        `${t('pz.tip_city', { n: gmNum(p.requests), ips: gmNum(p.ips) })}<br>` +
-        `<span style="opacity:.7">${t('pz.tip_err', { rate: (p.error_rate || 0).toFixed(1), bans: p.banned_ips || 0 })}</span>`,
-        { className: 'gm-tip' });
-      m.on('click', () => { if (opts.onPoint) opts.onPoint(p); });
+    if (!pts.length) return;
+    const groups = _clusterPoints(pts);
+    const gval = g => g.reduce((s, p) => s + val(p), 0);
+    const gmax = Math.max(...groups.map(gval), 0);
+    for (const group of groups) {
+      if (group.length === 1) {
+        const p = group[0];
+        const m = L.circleMarker([p.lat, p.lon], {
+          radius: 4 + Math.sqrt(val(p) / gmax) * 16,
+          color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: 0.4,
+        }).addTo(pointLayer);
+        const place = [p.city, p.region].filter(Boolean).join(', ');
+        m.bindTooltip(`<b>${esc(place || p.country_name)}</b> <span style="opacity:.6">${esc(p.country_code)}</span><br>` +
+          `${t('pz.tip_city', { n: gmNum(p.requests), ips: gmNum(p.ips) })}<br>` +
+          `<span style="opacity:.7">${t('pz.tip_err', { rate: (p.error_rate || 0).toFixed(1), bans: p.banned_ips || 0 })}</span>`,
+          { className: 'gm-tip' });
+        m.on('click', () => { if (opts.onPoint) opts.onPoint(p); });
+        continue;
+      }
+      const lat = group.reduce((s, p) => s + p.lat, 0) / group.length;
+      const lon = group.reduce((s, p) => s + p.lon, 0) / group.length;
+      const total = gval(group);
+      const radius = 6 + Math.sqrt(total / gmax) * 18;
+      const icon = L.divIcon({
+        className: 'gm-cluster', iconSize: [radius * 2, radius * 2],
+        html: `<span style="width:${radius * 2}px;height:${radius * 2}px;background:rgba(${r},${g},${b},.55);border:1.5px solid rgb(${r},${g},${b})">${group.length}</span>`,
+      });
+      const m = L.marker([lat, lon], { icon }).addTo(pointLayer);
+      const names = group.slice().sort((a, b) => val(b) - val(a)).slice(0, 5)
+        .map(p => esc([p.city, p.region].filter(Boolean).join(', ') || p.country_name)).join('<br>');
+      m.bindTooltip(`<b>${t('pz.cluster_n', { n: group.length })}</b> — ${t(state.mode === 'error_rate' ? 'pz.err_rate_pct' : 'prism.requests')} ${gmNum(total)}<br>${names}${group.length > 5 ? '…' : ''}`, { className: 'gm-tip' });
+      m.on('click', () => map.setView([lat, lon], Math.min(map.getMaxZoom(), map.getZoom() + 2), { animate: true }));
     }
   }
+
+  // Le regroupement des villes dépend du zoom/de la position à l'écran : redessiner à chaque déplacement.
+  map.on('zoomend moveend', drawPoints);
 
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => map.invalidateSize()) : null;
   if (ro) ro.observe(el);

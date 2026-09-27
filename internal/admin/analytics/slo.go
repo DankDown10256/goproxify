@@ -15,26 +15,72 @@ const DefaultSLOTarget = 99.9
 
 const sloTargetKey = "slo.target"
 
-// LoadSLOTarget lit l'objectif SLO enregistré (table settings), 99,9 % par défaut.
-func LoadSLOTarget(ctx context.Context, db *sql.DB) float64 {
+// sloTargetKeyFor : clé du réglage settings pour une passerelle (override) ou globale (node vide).
+func sloTargetKeyFor(node string) string {
+	if node == "" {
+		return sloTargetKey
+	}
+	return sloTargetKey + "." + node
+}
+
+func loadSetting(ctx context.Context, db *sql.DB, key string) (float64, bool) {
 	var raw string
-	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, sloTargetKey).Scan(&raw) == nil {
-		if v, err := strconv.ParseFloat(raw, 64); err == nil && ValidSLOTarget(v) {
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&raw) != nil {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || !ValidSLOTarget(v) {
+		return 0, false
+	}
+	return v, true
+}
+
+// LoadSLOTarget lit l'objectif SLO enregistré (table settings), 99,9 % par défaut.
+// node, s'il est fourni, lit d'abord l'objectif propre à cette passerelle (slo.target.<node>),
+// avec repli sur l'objectif global si elle n'en a pas.
+func LoadSLOTarget(ctx context.Context, db *sql.DB, node ...string) float64 {
+	if len(node) > 0 && node[0] != "" {
+		if v, ok := loadSetting(ctx, db, sloTargetKeyFor(node[0])); ok {
 			return v
 		}
 	}
+	if v, ok := loadSetting(ctx, db, sloTargetKey); ok {
+		return v
+	}
 	return DefaultSLOTarget
+}
+
+// HasSLOTargetOverride indique si une passerelle a son propre objectif (distinct du global).
+func HasSLOTargetOverride(ctx context.Context, db *sql.DB, node string) bool {
+	if node == "" {
+		return false
+	}
+	_, ok := loadSetting(ctx, db, sloTargetKeyFor(node))
+	return ok
 }
 
 // ValidSLOTarget : entre 90 % et 99,999 % (exclus 100 : un objectif de 100 % n'a pas de budget).
 func ValidSLOTarget(v float64) bool { return v >= 90 && v <= 99.999 }
 
-// SaveSLOTarget enregistre l'objectif SLO.
-func SaveSLOTarget(ctx context.Context, db *sql.DB, v float64) error {
+// SaveSLOTarget enregistre l'objectif SLO, global ou propre à une passerelle (node non vide).
+func SaveSLOTarget(ctx context.Context, db *sql.DB, v float64, node ...string) error {
+	key := sloTargetKey
+	if len(node) > 0 && node[0] != "" {
+		key = sloTargetKeyFor(node[0])
+	}
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO settings (key, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
 		 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP`,
-		sloTargetKey, strconv.FormatFloat(v, 'f', -1, 64))
+		key, strconv.FormatFloat(v, 'f', -1, 64))
+	return err
+}
+
+// ClearSLOTarget supprime l'objectif propre à une passerelle (retour à l'objectif global).
+func ClearSLOTarget(ctx context.Context, db *sql.DB, node string) error {
+	if node == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, sloTargetKeyFor(node))
 	return err
 }
 
@@ -64,7 +110,7 @@ func countReqErr(ctx context.Context, db *sql.DB, p Params) (reqs, errs int64) {
 // warning à 3× sur 6 h, exhausted quand le budget est consommé.
 func GetSLO(ctx context.Context, db *sql.DB, p Params, target float64, days int) SLO {
 	if target <= 0 {
-		target = LoadSLOTarget(ctx, db)
+		target = LoadSLOTarget(ctx, db, p.NodeName)
 	} else if !ValidSLOTarget(target) {
 		target = DefaultSLOTarget
 	}

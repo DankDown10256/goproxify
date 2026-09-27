@@ -25,6 +25,17 @@ function gpxHistHTML(pts, unit, opt) {
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(opt.title)}">${bars}</svg>`;
 }
 
+// Position (iso) → clé de tranche, dans le même format que les buckets renvoyés par le serveur
+// (heure locale du navigateur, en supposant qu'elle coïncide avec celle du serveur).
+function gpxBucketKey(iso, unit) {
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  const p = n => String(n).padStart(2, '0');
+  if (unit === 'day') return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  if (unit === 'minute') return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`;
+}
+
 // Étendue [from, to] d'une tranche → ISO (pour les filtres date_from / date_to ou from / to).
 function gpxBucketISO(bucket, unit) {
   if (typeof obsBucketRange !== 'function') return null;

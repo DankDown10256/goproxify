@@ -117,6 +117,7 @@ async function renderPrismPage() {
   const prismRoot = document.getElementById('prism-root');
 
   let proxies = [], selProxy = initProxy, selIp = initIp, selPathFilter = initPath;
+  let deployMarkers = []; // annotations de la courbe : changements de config de proxy sur la période
   let selFrom = '', selTo = '', pathSearch = '', pathOffset = 0;
   // Filtre passerelle libre en vue Admin (verrouillé si menu passerelle)
   let selNode = prismScope.node_name || '';
@@ -406,15 +407,16 @@ async function renderPrismPage() {
     if (refreshBtn && !soft) { refreshBtn.disabled = true; refreshBtn.textContent = '…'; }
 
     // Passe 1 : données critiques (above-fold) — toutes en parallèle
-    let kpis, timeline, status, freshProxies;
+    let kpis, timeline, status, freshProxies, freshDeploys;
     try {
-      [[kpis, timeline, status], freshProxies] = await Promise.all([
+      [[kpis, timeline, status], freshProxies, freshDeploys] = await Promise.all([
         Promise.all([
           apiP('GET', '/prism/kpis?' + q, signal),
           apiP('GET', '/prism/timeline?' + q + '&bucket=' + (liveMode ? 'minute' : 'hour'), signal),
           apiP('GET', '/prism/status?' + q, signal),
         ]),
         apiP('GET', '/prism/proxies?' + (selNode ? 'node_name=' + encodeURIComponent(selNode) : ''), signal),
+        apiP('GET', '/prism/deploys?' + q, signal),
       ]);
     } catch(e) {
       if (e && e.name === 'AbortError') return;
@@ -424,6 +426,7 @@ async function renderPrismPage() {
     }
 
     if (freshProxies && Array.isArray(freshProxies)) proxies = freshProxies;
+    if (Array.isArray(freshDeploys)) deployMarkers = freshDeploys;
     anomData.timeline = Array.isArray(timeline) ? timeline : [];
 
     const root = document.getElementById('prism-root');
@@ -523,7 +526,7 @@ async function renderPrismPage() {
   }
 
   function kpisHtml(k) { return obsKpisHtml(k, anomData.timeline); }
-  function timelineHtml(pts) { return obsTimelineHtml(pts, { live: liveMode }); }
+  function timelineHtml(pts) { return obsTimelineHtml(pts, { live: liveMode, bucketUnit: liveMode ? 'minute' : 'hour', deploys: deployMarkers }); }
   function statusHtml(groups) { return obsStatusHtml(groups); }
 
   function agentsHtml(agents) {
