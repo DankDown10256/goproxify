@@ -17,6 +17,8 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Canaux Slack, Microsoft Teams, Telegram, SMS (Twilio)** : quatre types de canal d'alerte supplémentaires, au même titre qu'email/webhook/ntfy/gotify
 - **Regroupement anti-bruit** : une fenêtre de regroupement par règle d'alerte fusionne les événements similaires en une seule notification
 - **Versionnage des règles avec retour arrière** : un instantané par modification, 20 versions conservées par règle, restauration en un clic
+- **Escalades avec accusé de réception** : des paliers renotifient un événement non acquitté vers d'autres canaux, jusqu'à acquittement
+- **Planifications (cron)** : déclenche une action du moteur de règles à heure fixe (expression cron 5 champs), indépendamment de toute condition
 - **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp` (réseaux privés par défaut), vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
 - **IP client fiable** : les en-têtes `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` ne sont crus que depuis un proxy de confiance (`GPX_TRUSTED_PROXIES`) — fin du contournement Fail2Ban/Sentinel par IP forgée
 - **MCP — allowlist de destinations backend** : `create_proxy` / `update_proxy` ne peuvent pointer que vers des destinations autorisées (réseaux privés par défaut), contre le détournement de trafic par prompt injection

@@ -177,6 +177,13 @@ func (e *Engine) evalCondition(ctx context.Context, c Condition) (bool, map[stri
 	}
 }
 
+// RunAction exécute une action indépendamment de toute règle — utilisé par le
+// planificateur (cron) pour déclencher une action à heure fixe plutôt que sur
+// condition. name identifie l'appelant dans les logs (nom de la planification).
+func (e *Engine) RunAction(ctx context.Context, action Action, name string, detail map[string]any) error {
+	return e.execAction(ctx, ActionContext{Rule: Rule{Name: name, Action: action}, Detail: detail})
+}
+
 // execAction exécute l'action d'une règle déclenchée.
 func (e *Engine) execAction(ctx context.Context, ac ActionContext) error {
 	switch ac.Rule.Action.Type {

@@ -316,6 +316,20 @@ En plus d'email, webhook générique, ntfy et gotify, et des canaux de ticketing
 
 Une règle d'alerte peut définir `group_window_sec` (secondes, défaut 0 = désactivé) : tant qu'une fenêtre de regroupement est ouverte, les événements qui correspondent à la règle s'accumulent au lieu de notifier immédiatement ; à la fin de la fenêtre, une **notification unique** résume le nombre d'événements et liste les 5 premiers (les suivants sont comptés). Le cooldown habituel de la règle continue de s'appliquer par ailleurs (il détermine si un événement rejoint le tampon en cours, pas la fréquence des envois groupés). Réglable depuis `Automatisation > Alertes > Routage`, `goproxify alert rules create|update -file`, ou les outils MCP `create_alert_rule`/`list_alert_rules`.
 
+### Escalades avec accusé de réception
+
+Une règle d'alerte peut définir `escalation`, une liste de paliers `{ after_sec, channels }` : si l'événement déclenché n'a pas été **acquitté** avant `after_sec` secondes, il est renotifié vers `channels` (vide = les canaux de la règle), avec un titre préfixé `[ESCALADE]` et une sévérité forcée à `critical`. Chaque palier revérifie l'état d'acquittement au moment de se déclencher : un accusé de réception après la programmation d'un palier le rend simplement silencieux, sans avoir besoin de l'annuler.
+
+**Acquitter** un événement (`POST /api/v1/alert-events/{id}/ack`, bouton **Acquitter** dans le tiroir de détail de `Alertes et SLO`, `goproxify alert ack <event-id>`, MCP `ack_alert_event`) enregistre `acked=1`, `acked_by` (l'acteur authentifié) et `acked_at`. Il n'existe pas encore de lien d'accusé cliquable directement depuis l'e-mail ou Slack/Teams/Telegram (pas de webhook entrant) : le corps du message d'escalade renvoie vers `Admin > Automatisation > Alertes` pour acquitter depuis une session authentifiée.
+
+### Planifications (cron)
+
+`Admin > Automatisation > Automatisations > Planifications` déclenche une **action du moteur de règles** (mêmes types qu'une règle : `notify`, `ban_ip`, `disable_proxy`, `enable_strict`, `webhook_call`, `run_backup`) à heure fixe, sans condition à évaluer — utile pour une sauvegarde nocturne, un webhook de rapport périodique, etc.
+
+Table `scheduled_tasks` : `id, name, cron_expr, action_json, enabled, last_run_at`. `cron_expr` est une expression cron standard à **5 champs** (`minute heure jour-du-mois mois jour-de-semaine`), acceptant `*`, une valeur, une liste `a,b,c`, une plage `a-b` et un pas `*/n` ou `a-b/n` — jour-du-mois et jour-de-semaine se combinent en OR (comme cron standard) quand les deux sont restreints. Le planificateur (`internal/admin/scheduler`) évalue les planifications actives chaque minute (alignée sur le début de la minute) et journalise chaque exécution dans `scheduled_task_runs` (30 jours conservés, purge automatique).
+
+**Exécuter maintenant** (`POST /api/v1/scheduled-tasks/{id}/run`, bouton dans l'écran, `goproxify security schedule run <id>`, MCP `run_scheduled_task`) lance l'action indépendamment de l'expression cron. L'historique par planification est consultable via `GET /api/v1/scheduled-tasks/{id}/runs`, bouton **Historique**, `goproxify security schedule history <id>`, ou MCP `list_scheduled_task_runs`.
+
 ---
 
 ## Timeouts serveur HTTP/QUIC

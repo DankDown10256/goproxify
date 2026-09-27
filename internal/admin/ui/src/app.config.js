@@ -316,9 +316,10 @@ const APP_CONFIG = {
     {
       root: 'security-rules',
       tabs: [
-        { page: 'security-rules',  key: 'a_rules', label: 'Règles' },
-        { page: 'automation-flow', key: 'a_flow',  label: 'Éditeur de flux' },
-        { page: 'rules-store',     key: 'a_store', label: 'Modèles' },
+        { page: 'security-rules',      key: 'a_rules', label: 'Règles' },
+        { page: 'automation-flow',     key: 'a_flow',  label: 'Éditeur de flux' },
+        { page: 'automation-schedules', key: 'a_sched', label: 'Planifications' },
+        { page: 'rules-store',         key: 'a_store', label: 'Modèles' },
       ],
     },
     {
@@ -372,6 +373,7 @@ const APP_CONFIG = {
     'automation-flow':      'Éditeur de flux',
     'automation-history':   'Journal d\'automatisation',
     'automation-silences':  'Silences & maintenance',
+    'automation-schedules': 'Planifications',
     'rules-store':          'Store de règles',
     'mcp-access':           'Accès MCP',
     automation:             'Automatisation',

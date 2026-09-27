@@ -20,7 +20,7 @@ const App = {
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
-  'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','automation-silences','rules-store','mcp-access',
+  'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','automation-silences','automation-schedules','rules-store','mcp-access',
   'backups','import','docker-labels','prism','logs-explore',
 ]);
 const EDGE_PAGES = new Set([
@@ -32,7 +32,7 @@ const EDGE_PAGES = new Set([
   'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','automation-flow','automation-history','automation-silences','rules-store',
+  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','automation-flow','automation-history','automation-silences','automation-schedules','rules-store',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
 ]);
 

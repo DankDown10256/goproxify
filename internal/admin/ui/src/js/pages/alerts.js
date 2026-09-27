@@ -66,7 +66,7 @@ pages.alerts = async function() {
                   ${(r.channels||[]).length > 2 ? `<span style="font-size:11px;color:var(--text2)">+${(r.channels||[]).length-2}</span>` : ''}
                 </td>
                 <td>${priorityBadge(r.priority||0)}</td>
-                <td style="font-size:12px;color:var(--text2)">${r.cooldown_sec ? r.cooldown_sec+'s' : '—'}${r.group_window_sec ? ` <span class="tag tag-blue" style="font-size:10px" title="${esc(t('alerts.group_window_hint'))}">${t('alerts.grouped')} ${r.group_window_sec}s</span>` : ''}</td>
+                <td style="font-size:12px;color:var(--text2)">${r.cooldown_sec ? r.cooldown_sec+'s' : '—'}${r.group_window_sec ? ` <span class="tag tag-blue" style="font-size:10px" title="${esc(t('alerts.group_window_hint'))}">${t('alerts.grouped')} ${r.group_window_sec}s</span>` : ''}${(r.escalation||[]).length ? ` <span class="tag tag-yellow" style="font-size:10px" title="${esc(t('alerts.escalation_hint'))}">${t('alerts.escalation_short')} ${(r.escalation||[]).length}</span>` : ''}</td>
                 <td>${r.enabled ? `<span class="tag tag-green">${t('alerts.active')}</span>` : `<span class="tag tag-neutral">${t('alerts.inactive')}</span>`}</td>
                 <td>
                   <button class="btn btn-ghost btn-icon btn-sm" onclick="openAlertRuleModal('${esc(r.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -142,16 +142,51 @@ window.openAlertRuleModal = async function(id) {
         <input id="ar-group-window" class="input" type="number" min="0" value="${existing?.group_window_sec ?? 0}">
       </div>
       <div class="field">
+        <label class="field-label">${t('alerts.escalation')} <span style="font-size:10px;color:var(--text2)">${t('alerts.escalation_hint')}</span></label>
+        <div id="ar-esc-list" style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+          ${(existing?.escalation || []).map((s, i) => arEscStepHTML(i, s.after_sec, s.channels, channels)).join('')}
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="arAddEscStep()">+ ${t('alerts.escalation_add')}</button>
+      </div>
+      <div class="field">
         <label class="field-label" style="display:flex;align-items:center;gap:8px">
           ${t('common.enabled')}
           <label class="toggle"><input type="checkbox" id="ar-enabled" ${existing?.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
         </label>
       </div>
     </div>`;
+  window._arChannels = channels || [];
 
   modal(id ? t('alerts.edit_rule') : t('alerts.new_rule'), body,
     `<button class="btn btn-secondary" onclick="closeModal()">${t('common.cancel')}</button>
      <button class="btn btn-primary" id="ar-save-btn" onclick="saveAlertRule('${esc(id||'')}')">${t('common.save')}</button>`);
+};
+
+// Escalade : un palier = délai (minutes) + canaux propres (vide = ceux de la
+// règle). Rendu en petites lignes indépendantes, collectées au moment de
+// l'enregistrement — pas d'état JS à synchroniser.
+function arEscStepHTML(i, afterSec, stepChannels, allChannels) {
+  const selected = new Set(stepChannels || []);
+  const minutes = Math.round((afterSec || 900) / 60);
+  return `<div class="ar-esc-step card" style="padding:8px 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12.5px;white-space:nowrap">${t('alerts.escalation_after')}</span>
+    <input class="input ar-esc-min" type="number" min="1" value="${minutes}" style="width:70px">
+    <span style="font-size:12.5px">${t('alerts.escalation_min')}</span>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:140px">
+      ${(allChannels || []).map(c => `<label style="display:flex;align-items:center;gap:4px;font-size:11.5px;border:1px solid var(--border);border-radius:6px;padding:2px 6px">
+        <input type="checkbox" class="ar-esc-chan" value="${esc(c.id)}" ${selected.has(c.id) ? 'checked' : ''}>${esc(c.name)}</label>`).join('')
+        || `<span style="font-size:11px;color:var(--text3)">${t('alerts.escalation_no_channel_hint')}</span>`}
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="this.closest('.ar-esc-step').remove()" title="${esc(t('common.delete'))}">✕</button>
+  </div>`;
+}
+
+window.arAddEscStep = function() {
+  const list = document.getElementById('ar-esc-list');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.innerHTML = arEscStepHTML(list.children.length, 900, [], window._arChannels || []);
+  list.appendChild(div.firstElementChild);
 };
 
 window.saveAlertRule = async function(id) {
@@ -162,15 +197,19 @@ window.saveAlertRule = async function(id) {
   const priority = parseInt(document.getElementById('ar-priority')?.value || '50', 10);
   const cooldown_sec = parseInt(document.getElementById('ar-cooldown')?.value || '300', 10);
   const group_window_sec = parseInt(document.getElementById('ar-group-window')?.value || '0', 10);
+  const escalation = [...document.querySelectorAll('.ar-esc-step')].map(row => ({
+    after_sec: Math.max(60, (parseInt(row.querySelector('.ar-esc-min')?.value || '15', 10) || 15) * 60),
+    channels: [...row.querySelectorAll('.ar-esc-chan:checked')].map(c => c.value),
+  }));
   const enabled = document.getElementById('ar-enabled')?.checked ?? true;
   const btn = document.getElementById('ar-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
     if (id) {
-      await api('PUT', `/alert-rules/${id}`, { name, triggers, channels, priority, cooldown_sec, group_window_sec, enabled, scope: {} });
+      await api('PUT', `/alert-rules/${id}`, { name, triggers, channels, priority, cooldown_sec, group_window_sec, escalation, enabled, scope: {} });
       toast(t('alerts.updated'), 'success');
     } else {
-      await api('POST', '/alert-rules', { name, triggers, channels, priority, cooldown_sec, group_window_sec, enabled, scope: {} });
+      await api('POST', '/alert-rules', { name, triggers, channels, priority, cooldown_sec, group_window_sec, escalation, enabled, scope: {} });
       toast(t('alerts.created'), 'success');
     }
     closeModal();

@@ -23,6 +23,8 @@ func runSecurity() {
 		runSecurityWAF()
 	case "rules":
 		runSecurityRules()
+	case "schedule":
+		runSecuritySchedule()
 	case "cve":
 		runSecurityCVE()
 	case "help", "":
@@ -33,6 +35,7 @@ Sous-commandes :
   bans     Gestion des IPs bannies
   waf      Config WAF d'un proxy
   rules    Moteur de règles automatiques
+  schedule Planifications (cron) : exécute une action à heure fixe
   cve      SLA de correction des CVE (délai attendu selon la gravité)
 
 goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
@@ -65,6 +68,13 @@ goproxify security rules import -file <automation.yaml> [-admin-url …] [-token
 
 goproxify security rules versions list    <rule-id>            [-admin-url …] [-token …]
 goproxify security rules versions restore <rule-id> <version>  [-admin-url …] [-token …]
+
+goproxify security schedule list                       [-admin-url …] [-token …]
+goproxify security schedule create -file <task.json>   [-admin-url …] [-token …]
+goproxify security schedule update <id> -file <task.json> [-admin-url …] [-token …]
+goproxify security schedule delete <id> [-y]           [-admin-url …] [-token …]
+goproxify security schedule run    <id>                [-admin-url …] [-token …]
+goproxify security schedule history <id>               [-admin-url …] [-token …]
 
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
@@ -808,6 +818,181 @@ func runSecurityRulesVersions() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande versions inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Planifications (cron) ─────────────────────────────────────────────────────
+
+func runSecuritySchedule() {
+	sub := subcommand(os.Args, 3)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[4:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var tasks []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/scheduled-tasks", nil, &tasks); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(tasks) == 0 {
+			fmt.Println("(aucune planification)")
+			return
+		}
+		for _, tk := range tasks {
+			id, _ := tk["id"].(string)
+			name, _ := tk["name"].(string)
+			cronExpr, _ := tk["cron_expr"].(string)
+			enabled := "non"
+			if e, ok := tk["enabled"].(bool); ok && e {
+				enabled = "oui"
+			}
+			fmt.Printf("[%s] %-24s  %-18s  actif=%s\n", id, name, cronExpr, enabled)
+		}
+
+	case "create":
+		args := parseFlags(os.Args[4:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule create -file <task.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/scheduled-tasks", body, &result, 200, 201); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule create : %v\n", err)
+			os.Exit(1)
+		}
+		id, _ := result["id"].(string)
+		fmt.Printf("Planification créée : %s\n", id)
+
+	case "update":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule update <id> -file <task.json>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule update <id> -file <task.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/scheduled-tasks/"+id, body, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule update : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Planification %s mise à jour.\n", id)
+
+	case "delete":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule delete <id> [-y]")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		if flagValue(args, "-y", "") == "" {
+			fmt.Printf("Supprimer la planification %s ? [y/N] ", id)
+			var ans string
+			fmt.Scanln(&ans) //nolint:errcheck
+			if ans != "y" && ans != "Y" {
+				fmt.Println("Annulé.")
+				return
+			}
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("DELETE", "/api/v1/scheduled-tasks/"+id, nil, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule delete : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Planification %s supprimée.\n", id)
+
+	case "run":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule run <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/scheduled-tasks/"+id+"/run", nil, nil, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule run : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Planification %s exécutée.\n", id)
+
+	case "history":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security schedule history <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var runs []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/scheduled-tasks/"+id+"/runs", nil, &runs); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule history : %v\n", err)
+			os.Exit(1)
+		}
+		if len(runs) == 0 {
+			fmt.Println("(aucune exécution)")
+			return
+		}
+		for _, run := range runs {
+			status := "OK"
+			if s, ok := run["success"].(bool); ok && !s {
+				status = "ÉCHEC"
+			}
+			fmt.Printf("%-24v %-6s %v\n", run["ran_at"], status, run["error"])
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande schedule inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

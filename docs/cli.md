@@ -393,9 +393,13 @@ goproxify alert rules delete <id> [-y] [-admin-url …] [-token …]
 # Tests
 goproxify alert test -channel <id> [-admin-url …] [-token …]
 goproxify alert test -all          [-admin-url …] [-token …]
+
+# Événements et accusé de réception
+goproxify alert events [-days N] [-trigger <t>] [-node <n>] [-limit N] [-admin-url …] [-token …]
+goproxify alert ack <event-id> [-admin-url …] [-token …]
 ```
 
-Types de canal (`alert channels create -file`, champ `type`) : `email`, `webhook`, `slack`, `teams`, `telegram`, `sms` (Twilio), `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi`. `alert rules create`/`update` acceptent `group_window_sec` (secondes, défaut 0 = désactivé) : les événements qui correspondent à la règle dans cette fenêtre sont fusionnés en une seule notification au lieu d'une par événement.
+Types de canal (`alert channels create -file`, champ `type`) : `email`, `webhook`, `slack`, `teams`, `telegram`, `sms` (Twilio), `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi`. `alert rules create`/`update` acceptent `group_window_sec` (secondes, défaut 0 = désactivé) : les événements qui correspondent à la règle dans cette fenêtre sont fusionnés en une seule notification au lieu d'une par événement. Ils acceptent aussi `escalation` (tableau `{after_sec, channels}`) : si l'événement n'est pas acquitté (`alert ack <event-id>`) avant `after_sec` secondes, il est renotifié vers `channels` (vide = canaux de la règle) ; les paliers déjà programmés se désactivent d'eux-mêmes dès l'accusé de réception.
 
 Exemples :
 
@@ -758,6 +762,19 @@ Exemple de fichier règle (`rule.json`) :
   "condition": { "type": "cve_critical", "threshold": 9.0 },
   "action":    { "type": "disable_proxy" },
   "cooldown_sec": 600
+}
+```
+
+**`security schedule`** — planifications (cron) : exécutent une action du moteur de règles à heure fixe (`notify`, `ban_ip`, `disable_proxy`, `enable_strict`, `webhook_call`, `run_backup`), sans condition à évaluer. `cron_expr` est une expression standard à 5 champs (`minute heure jour-du-mois mois jour-de-semaine`, ex. `0 3 * * *` = tous les jours à 3h). `run` déclenche l'action immédiatement, indépendamment du cron. `history` liste les 100 dernières exécutions.
+
+Exemple de fichier planification (`task.json`) :
+
+```json
+{
+  "name": "Sauvegarde nocturne",
+  "cron_expr": "0 3 * * *",
+  "action": { "type": "run_backup", "backup_retention": 7 },
+  "enabled": true
 }
 ```
 

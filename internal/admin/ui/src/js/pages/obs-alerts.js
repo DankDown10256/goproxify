@@ -164,9 +164,11 @@ async function renderObsAlerts(scope) {
         <span class="prism-panel-title" style="margin:0">${esc(t('oa.drawer'))}</span>
         <button type="button" class="btn btn-ghost btn-sm" data-oa="close">✕</button>
       </div>
-      <div style="font-size:16px;font-weight:600;margin-bottom:4px">${esc(e.title || label(e.trigger))}${e.silenced ? ` <span class="tag tag-neutral" style="font-size:10px;vertical-align:middle">${esc(t('oa.silenced'))}</span>` : ''}</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:4px">${esc(e.title || label(e.trigger))}${e.silenced ? ` <span class="tag tag-neutral" style="font-size:10px;vertical-align:middle">${esc(t('oa.silenced'))}</span>` : ''}${e.acked ? ` <span class="tag tag-green" style="font-size:10px;vertical-align:middle">${esc(t('oa.acked'))}</span>` : ''}</div>
       <div class="prism-muted" style="margin-bottom:12px">${esc(label(e.trigger))} · ${esc(e.rule_name || '—')} · ${esc(fmtDate(oaTs(e.fired_at)))}</div>
       ${e.silenced ? `<p class="prism-muted" style="margin:0 0 12px">${esc(t('oa.silenced_hint'))}</p>` : ''}
+      ${e.acked ? `<p class="prism-muted" style="margin:0 0 12px">${esc(t('oa.acked_by', { who: e.acked_by || '—', when: e.acked_at ? fmtDate(oaTs(e.acked_at)) : '' }))}</p>`
+        : `<button type="button" class="btn btn-primary btn-sm" data-oa="ack" data-i="${list.indexOf(e)}" style="margin-bottom:12px">${esc(t('oa.ack'))}</button>`}
       ${e.body ? `<pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(e.body)}</pre>` : ''}
       ${detail ? `<div class="prism-panel-title" style="margin:0 0 6px">${esc(t('oa.detail'))}</div><pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(detail)}</pre>` : ''}
       <div class="prism-dstats" style="grid-template-columns:1fr"><div class="prism-dstat"><span>${esc(t('oa.col_channels'))}</span><b>${(e.channels || []).length}</b></div><div class="prism-dstat"><span>${esc(t('oa.priority'))}</span><b>${e.priority || 0}</b></div></div>`;
@@ -182,6 +184,16 @@ async function renderObsAlerts(scope) {
     else if (act === 'trigger') { _obsAlTrigger = el.dataset.v || ''; renderObsAlerts(scope); }
     else if (act === 'event') drawer(list[parseInt(el.dataset.i, 10)]);
     else if (act === 'close') root.querySelector('#oa-drawer')?.remove();
+    else if (act === 'ack') {
+      const e = list[parseInt(el.dataset.i, 10)];
+      if (!e) return;
+      el.disabled = true;
+      try {
+        await api('POST', `/alert-events/${e.id}/ack`);
+        toast(t('oa.acked_toast'), 'success');
+        renderObsAlerts(scope);
+      } catch (err) { toast(err.message, 'error'); el.disabled = false; }
+    }
     else if (act === 'manage') navigate('alerts');
     else if (act === 'channels') navigate('alert-channels');
     else if (act === 'edge') { const n = allEdges[parseInt(el.dataset.i, 10)]; if (n) selectEdge(n, 'edge-obs-alerts'); }

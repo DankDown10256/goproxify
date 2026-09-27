@@ -5,12 +5,14 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vincamok/goproxify/internal/admin/scheduler"
 )
 
 // extraTools retourne les définitions des outils supplémentaires.
@@ -54,6 +56,7 @@ func extraTools() []map[string]any {
 				opt("cooldown_sec", "number", "Délai minimal entre deux alertes en secondes (défaut: 300)"),
 				opt("priority", "number", "Priorité (0 = normale, plus élevé = plus urgent)"),
 				opt("group_window_sec", "number", "Fenêtre de regroupement en secondes (défaut 0 = désactivé) : les événements correspondants dans cette fenêtre sont fusionnés en une seule notification"),
+				opt("escalation", "array", "Paliers d'escalade [{\"after_sec\":900,\"channels\":[\"id\"]}] : si l'événement n'est pas acquitté (ack_alert_event) avant after_sec, il est renotifié (channels vide = ceux de la règle)"),
 				opt("enabled", "boolean", "Activer immédiatement (défaut: true)"),
 			),
 		},
@@ -61,6 +64,11 @@ func extraTools() []map[string]any {
 			"name":        "delete_alert_rule",
 			"description": "Supprime une règle d'alerte par son ID.",
 			"inputSchema": schema(req("id", "string", "ID de la règle à supprimer")),
+		},
+		{
+			"name":        "ack_alert_event",
+			"description": "Accuse réception d'un événement d'alerte : les paliers d'escalade déjà programmés le revérifient à leur échéance et ne renotifient plus.",
+			"inputSchema": schema(req("id", "string", "ID de l'événement (list_alert_events)")),
 		},
 		// Auth providers
 		{
@@ -279,18 +287,36 @@ func (h *Handler) toolCreateAlertRule(r *http.Request, args map[string]any) (any
 	if v, ok := args["group_window_sec"].(float64); ok && v > 0 {
 		groupWindow = int(v)
 	}
+	escalationJSON := "[]"
+	if esc := args["escalation"]; esc != nil {
+		b, _ := json.Marshal(esc)
+		escalationJSON = string(b)
+	}
 	enabled := 1
 	if e, ok := args["enabled"].(bool); ok && !e {
 		enabled = 0
 	}
 	id := uuid.New().String()
 	if _, err := h.DB.ExecContext(r.Context(),
-		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled, group_window_sec)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
-		id, name, scopeJSON, triggersJSON, channelsJSON, cooldown, priority, enabled, groupWindow); err != nil {
+		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled, group_window_sec, escalation_json)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		id, name, scopeJSON, triggersJSON, channelsJSON, cooldown, priority, enabled, groupWindow, escalationJSON); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": id, "name": name}, nil
+}
+
+func (h *Handler) toolAckAlertEvent(ctx context.Context, id string, actor string) (any, error) {
+	res, err := h.DB.ExecContext(ctx,
+		`UPDATE alert_events SET acked=1, acked_at=CURRENT_TIMESTAMP, acked_by=? WHERE id=?`, actor, id)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("événement introuvable : %s", id)
+	}
+	return map[string]any{"ok": true}, nil
 }
 
 func (h *Handler) toolDeleteAlertRule(ctx context.Context, id string) (any, error) {
@@ -546,4 +572,139 @@ func (h *Handler) toolObtainCert(r *http.Request, domain string) (any, error) {
 		h.Pusher.PushRoutes(r.Context())
 	}
 	return map[string]any{"domain": domain, "status": "cert_requested"}, nil
+}
+
+// ── Planifications (cron) ────────────────────────────────────────────────────
+
+func (h *Handler) toolListScheduledTasks(r *http.Request) (any, error) {
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, name, cron_expr, action_json, enabled, last_run_at, created_at FROM scheduled_tasks ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, name, cronExpr, actionJSON string
+		var enabled int
+		var lastRun sql.NullTime
+		var createdAt time.Time
+		if rows.Scan(&id, &name, &cronExpr, &actionJSON, &enabled, &lastRun, &createdAt) != nil {
+			continue
+		}
+		item := map[string]any{
+			"id": id, "name": name, "cron_expr": cronExpr, "action": json.RawMessage(actionJSON),
+			"enabled": enabled == 1, "created_at": createdAt,
+		}
+		if lastRun.Valid {
+			item["last_run_at"] = lastRun.Time
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolCreateScheduledTask(r *http.Request, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	cronExpr, _ := args["cron_expr"].(string)
+	if name == "" || cronExpr == "" {
+		return nil, fmt.Errorf("name et cron_expr requis")
+	}
+	if _, err := scheduler.ParseExpr(cronExpr); err != nil {
+		return nil, err
+	}
+	actionJSON, _ := json.Marshal(args["action"])
+	enabled := 1
+	if e, ok := args["enabled"].(bool); ok && !e {
+		enabled = 0
+	}
+	id := uuid.New().String()
+	if _, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO scheduled_tasks (id, name, cron_expr, action_json, enabled) VALUES (?,?,?,?,?)`,
+		id, name, cronExpr, string(actionJSON), enabled); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "name": name}, nil
+}
+
+func (h *Handler) toolUpdateScheduledTask(r *http.Request, args map[string]any) (any, error) {
+	id, _ := args["id"].(string)
+	name, _ := args["name"].(string)
+	cronExpr, _ := args["cron_expr"].(string)
+	if id == "" || name == "" || cronExpr == "" {
+		return nil, fmt.Errorf("id, name et cron_expr requis")
+	}
+	if _, err := scheduler.ParseExpr(cronExpr); err != nil {
+		return nil, err
+	}
+	actionJSON, _ := json.Marshal(args["action"])
+	enabled := 1
+	if e, ok := args["enabled"].(bool); ok && !e {
+		enabled = 0
+	}
+	res, err := h.DB.ExecContext(r.Context(),
+		`UPDATE scheduled_tasks SET name=?, cron_expr=?, action_json=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		name, cronExpr, string(actionJSON), enabled, id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("planification introuvable : %s", id)
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (h *Handler) toolDeleteScheduledTask(ctx context.Context, id string) (any, error) {
+	res, err := h.DB.ExecContext(ctx, `DELETE FROM scheduled_tasks WHERE id=?`, id)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("planification introuvable : %s", id)
+	}
+	return map[string]any{"deleted": id}, nil
+}
+
+func (h *Handler) toolRunScheduledTask(id string) (any, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	if h.Scheduler == nil {
+		return nil, fmt.Errorf("planificateur non disponible")
+	}
+	if err := h.Scheduler.RunNow(id); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (h *Handler) toolListScheduledTaskRuns(r *http.Request, id string) (any, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, success, error, ran_at FROM scheduled_task_runs WHERE task_id=? ORDER BY ran_at DESC LIMIT 100`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var runID int64
+		var success int
+		var errStr string
+		var ranAt time.Time
+		if rows.Scan(&runID, &success, &errStr, &ranAt) != nil {
+			continue
+		}
+		out = append(out, map[string]any{"id": runID, "success": success == 1, "error": errStr, "ran_at": ranAt})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
 }

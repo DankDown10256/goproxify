@@ -20,6 +20,8 @@ func runAlert() {
 		runAlertRules()
 	case "events":
 		runAlertEvents()
+	case "ack":
+		runAlertAck()
 	case "test":
 		args := parseFlags(os.Args[3:])
 		channel := flagValue(args, "-channel", "")
@@ -85,6 +87,8 @@ Sous-commandes :
   channels  Gestion des canaux de notification
   rules     Gestion des règles d'alerte
   test      Test d'un ou plusieurs canaux
+  events    Historique des alertes déclenchées
+  ack       Accuser réception d'un événement (stoppe l'escalade)
 
 goproxify alert channels list
 goproxify alert channels get    <id>
@@ -100,6 +104,9 @@ goproxify alert rules delete <id> [-y]
 
 goproxify alert test -channel <id> [-admin-url …] [-token …]
 goproxify alert test -all          [-admin-url …] [-token …]
+
+goproxify alert events [-days N] [-trigger <t>] [-node <n>] [-limit N] [-admin-url …] [-token …]
+goproxify alert ack <event-id> [-admin-url …] [-token …]
 `)
 
 	default:
@@ -427,6 +434,31 @@ func runAlertEvents() {
 		return
 	}
 	for _, e := range events {
-		fmt.Printf("%-20v %-20v %-28v %v\n", e["fired_at"], e["trigger"], e["rule_name"], e["title"])
+		acked := ""
+		if v, _ := e["acked"].(bool); v {
+			acked = " [acquittée]"
+		}
+		fmt.Printf("[%v] %-20v %-20v %-28v %v%s\n", e["id"], e["fired_at"], e["trigger"], e["rule_name"], e["title"], acked)
 	}
+}
+
+// runAlertAck accuse réception d'un événement d'alerte, stoppant les paliers
+// d'escalade restants (ceux déjà programmés revérifient l'état à leur échéance).
+func runAlertAck() {
+	id := subcommand(os.Args, 3)
+	if id == "" {
+		fmt.Fprintln(os.Stderr, "usage: goproxify alert ack <event-id> [-admin-url …] [-token …]")
+		os.Exit(1)
+	}
+	args := parseFlags(os.Args[4:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := client.DoJSON("POST", "/api/v1/alert-events/"+id+"/ack", nil, nil, 200); err != nil {
+		fmt.Fprintf(os.Stderr, "alert ack : %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Événement %s acquitté.\n", id)
 }

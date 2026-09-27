@@ -60,7 +60,9 @@ type Handler struct {
 	// ResolvePublicURL (optionnel) — base publique Admin pour les tickets bootstrap (QR / curl|bash).
 	ResolvePublicURL func(r *http.Request) string
 	// RulesEngine (optionnel) — moteur de règles automatiques pour l'outil run_rule.
-	RulesEngine  RulesEvaluator
+	RulesEngine RulesEvaluator
+	// Scheduler (optionnel) — planificateur cron pour l'outil run_scheduled_task.
+	Scheduler    ScheduleRunner
 	CertDeployer CertDeployerIface   // optionnel — déclenche les déploiements de certs
 	InternalCA   *internalca.Manager // optionnel — CA interne (émission de certs hors ACME)
 	ArchStore    *archstore.Store    // optionnel — architecture.json (outil get_architecture)
@@ -72,6 +74,11 @@ type Handler struct {
 type RulesEvaluator interface {
 	EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error)
 	ReplayHistory(ctx context.Context, historyID int64) error
+}
+
+// ScheduleRunner est implémenté par scheduler.Engine (évite l'import direct).
+type ScheduleRunner interface {
+	RunNow(id string) error
 }
 
 // CertDeployerIface est implémenté par certdeploy.Deployer (évite l'import direct).
@@ -503,6 +510,47 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "list_scheduled_tasks",
+		"description": "Liste les planifications (cron) : exécutent une action du moteur de règles à heure fixe, indépendamment de toute condition.",
+		"inputSchema": schema(),
+	},
+	{
+		"name":        "create_scheduled_task",
+		"description": "Crée une planification (cron). L'action est celle du moteur de règles (mêmes types que create_rule).",
+		"inputSchema": schema(
+			req("name", "string", "Nom de la planification"),
+			req("cron_expr", "string", "Expression cron 5 champs (minute heure jour-du-mois mois jour-de-semaine), ex: \"0 3 * * *\""),
+			req("action", "object", "Action à exécuter : { type, ...paramètres } (voir action-types du moteur de règles)"),
+			opt("enabled", "boolean", "Activer immédiatement (défaut: true)"),
+		),
+	},
+	{
+		"name":        "update_scheduled_task",
+		"description": "Met à jour une planification existante.",
+		"inputSchema": schema(
+			req("id", "string", "ID de la planification"),
+			req("name", "string", "Nom de la planification"),
+			req("cron_expr", "string", "Expression cron 5 champs"),
+			req("action", "object", "Action à exécuter"),
+			opt("enabled", "boolean", "Activée (défaut: true)"),
+		),
+	},
+	{
+		"name":        "delete_scheduled_task",
+		"description": "Supprime une planification par son ID.",
+		"inputSchema": schema(req("id", "string", "ID de la planification à supprimer")),
+	},
+	{
+		"name":        "run_scheduled_task",
+		"description": "Exécute immédiatement une planification, indépendamment de son expression cron.",
+		"inputSchema": schema(req("id", "string", "ID de la planification")),
+	},
+	{
+		"name":        "list_scheduled_task_runs",
+		"description": "Liste les 100 dernières exécutions d'une planification (succès/échec, erreur, date).",
+		"inputSchema": schema(req("id", "string", "ID de la planification")),
+	},
+	{
 		"name":        "export_automation",
 		"description": "Exporte en YAML toute la configuration d'automatisation (règles, canaux d'alerte, silences), réimportable telle quelle (GitOps). Les canaux exportent leur config en clair (identifiants inclus) : à traiter comme un secret.",
 		"inputSchema": schema(),
@@ -671,6 +719,21 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListRuleVersions(r, p.Arguments)
 	case "restore_rule_version":
 		result, toolErr = h.toolRestoreRuleVersion(r, p.Arguments)
+	case "list_scheduled_tasks":
+		result, toolErr = h.toolListScheduledTasks(r)
+	case "create_scheduled_task":
+		result, toolErr = h.toolCreateScheduledTask(r, p.Arguments)
+	case "update_scheduled_task":
+		result, toolErr = h.toolUpdateScheduledTask(r, p.Arguments)
+	case "delete_scheduled_task":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeleteScheduledTask(r.Context(), id)
+	case "run_scheduled_task":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolRunScheduledTask(id)
+	case "list_scheduled_task_runs":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolListScheduledTaskRuns(r, id)
 	case "export_automation":
 		result, toolErr = h.toolExportAutomation(r)
 	case "import_automation":
@@ -775,6 +838,9 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "delete_alert_rule":
 		id, _ := p.Arguments["id"].(string)
 		result, toolErr = h.toolDeleteAlertRule(r.Context(), id)
+	case "ack_alert_event":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolAckAlertEvent(r.Context(), id, adminauth.ActorFromContext(r.Context()))
 	case "list_auth_providers":
 		result, toolErr = h.toolListAuthProviders(r)
 	case "create_auth_provider":

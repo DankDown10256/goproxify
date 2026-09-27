@@ -137,8 +137,55 @@ func (e *Engine) eval(ev Event) {
 		}
 
 		e.dispatch(rule, msg)
-		e.recordFired(rule, ev, msg)
+		eventID := e.recordFired(rule, ev, msg)
+		e.scheduleEscalation(rule, eventID)
 	}
+}
+
+// scheduleEscalation programme les paliers d'escalade d'une règle pour un
+// événement donné : tant que l'événement n'est pas acquitté, chaque palier
+// renotifie (vers ses canaux propres, ou ceux de la règle si non précisés) au
+// bout de son délai. Un accusé de réception (POST /alert-events/{id}/ack)
+// n'annule pas les minuteurs déjà lancés : chacun revérifie l'état au moment
+// de se déclencher, donc un accusé après programmation les rend simplement
+// silencieux.
+func (e *Engine) scheduleEscalation(rule Rule, eventID int64) {
+	if eventID == 0 || len(rule.Escalation) == 0 {
+		return
+	}
+	for _, step := range rule.Escalation {
+		if step.AfterSec <= 0 {
+			continue
+		}
+		step := step
+		time.AfterFunc(time.Duration(step.AfterSec)*time.Second, func() {
+			e.fireEscalation(rule, eventID, step)
+		})
+	}
+}
+
+func (e *Engine) fireEscalation(rule Rule, eventID int64, step EscalationStep) {
+	var acked int
+	if err := e.db.QueryRow(`SELECT acked FROM alert_events WHERE id=?`, eventID).Scan(&acked); err != nil || acked == 1 {
+		return // acquitté, ou l'événement a été purgé
+	}
+	channelIDs := step.Channels
+	if len(channelIDs) == 0 {
+		channelIDs = rule.Channels
+	}
+	escRule := rule
+	escRule.Channels = channelIDs
+	var title, body string
+	_ = e.db.QueryRow(`SELECT message_title, message_body FROM alert_events WHERE id=?`, eventID).Scan(&title, &body)
+	msg := Message{
+		RuleName: rule.Name,
+		Severity: SevCritical, // une escalade est par nature plus urgente que l'alerte d'origine
+		Title:    "[ESCALADE] " + title,
+		Body:     body + fmt.Sprintf("\n\nToujours pas acquittée — accusez réception depuis Automatisation > Alertes > Journal (événement #%d).", eventID),
+		FiredAt:  time.Now(),
+	}
+	e.dispatch(escRule, msg)
+	e.log.Info("alerting: escalade relancée", "rule", rule.Name, "event_id", eventID, "after_sec", step.AfterSec)
 }
 
 // bufferGrouped ajoute l'événement au tampon de regroupement d'une règle et
@@ -199,7 +246,8 @@ func (e *Engine) flushGrouped(ruleID string) {
 		FiredAt:  time.Now(),
 	}
 	e.dispatch(*rule, combined)
-	e.recordFired(*rule, Event{Trigger: first.Trigger, Detail: combined.Detail, FiredAt: combined.FiredAt}, combined)
+	eventID := e.recordFired(*rule, Event{Trigger: first.Trigger, Detail: combined.Detail, FiredAt: combined.FiredAt}, combined)
+	e.scheduleEscalation(*rule, eventID)
 }
 
 // groupedBody énumère jusqu'à 5 événements regroupés, puis résume le reste.
@@ -285,15 +333,23 @@ func (e *Engine) dispatch(rule Rule, msg Message) {
 	}
 }
 
-func (e *Engine) recordFired(rule Rule, ev Event, msg Message) {
+// recordFired journalise une notification effectivement envoyée et retourne
+// l'ID de l'événement (0 si l'insertion a échoué), utilisé pour programmer
+// l'escalade et pour l'accusé de réception.
+func (e *Engine) recordFired(rule Rule, ev Event, msg Message) int64 {
 	detail, _ := json.Marshal(ev.Detail)
 	chansJSON, _ := json.Marshal(rule.Channels)
-	_, _ = e.db.Exec(
+	res, err := e.db.Exec(
 		`INSERT INTO alert_events (rule_id, trigger, detail, channels, message_title, message_body, priority, silenced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
 		rule.ID, string(ev.Trigger), string(detail), string(chansJSON), msg.Title, msg.Body, rule.Priority,
 	)
 	// Purge des événements > 30 jours
 	_, _ = e.db.Exec(`DELETE FROM alert_events WHERE fired_at < datetime('now', '-30 days')`)
+	if err != nil {
+		return 0
+	}
+	id, _ := res.LastInsertId()
+	return id
 }
 
 // recordSilenced journalise une correspondance bloquée par un silence actif :
@@ -314,7 +370,7 @@ func (e *Engine) loadRules() ([]Rule, error) {
 		return e.ruleCache, nil
 	}
 	rows, err := e.db.Query(
-		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled, COALESCE(group_window_sec,0)
+		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled, COALESCE(group_window_sec,0), COALESCE(escalation_json,'[]')
 		 FROM alert_rules ORDER BY priority DESC`)
 	if err != nil {
 		return nil, err
@@ -323,15 +379,16 @@ func (e *Engine) loadRules() ([]Rule, error) {
 	var rules []Rule
 	for rows.Next() {
 		var r Rule
-		var scopeJSON, triggersJSON, chansJSON string
+		var scopeJSON, triggersJSON, chansJSON, escalationJSON string
 		var enabled int
-		if err := rows.Scan(&r.ID, &r.Name, &scopeJSON, &triggersJSON, &chansJSON, &r.CooldownSec, &r.Priority, &enabled, &r.GroupWindowSec); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &scopeJSON, &triggersJSON, &chansJSON, &r.CooldownSec, &r.Priority, &enabled, &r.GroupWindowSec, &escalationJSON); err != nil {
 			continue
 		}
 		r.Enabled = enabled == 1
 		_ = json.Unmarshal([]byte(scopeJSON), &r.Scope)
 		_ = json.Unmarshal([]byte(triggersJSON), &r.Triggers)
 		_ = json.Unmarshal([]byte(chansJSON), &r.Channels)
+		_ = json.Unmarshal([]byte(escalationJSON), &r.Escalation)
 		rules = append(rules, r)
 	}
 	e.ruleCache = rules

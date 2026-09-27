@@ -92,15 +92,24 @@ type Scope struct {
 
 // Rule est une règle de routage d'alertes.
 type Rule struct {
-	ID             string        `json:"id"`
-	Name           string        `json:"name"`
-	Scope          Scope         `json:"scope"`
-	Triggers       []TriggerType `json:"triggers"`
-	Channels       []string      `json:"channels"` // IDs de alert_channels
-	CooldownSec    int           `json:"cooldown_sec"`
-	Priority       int           `json:"priority"`
-	Enabled        bool          `json:"enabled"`
-	GroupWindowSec int           `json:"group_window_sec,omitempty"` // 0 = pas de regroupement : chaque événement notifie immédiatement
+	ID             string           `json:"id"`
+	Name           string           `json:"name"`
+	Scope          Scope            `json:"scope"`
+	Triggers       []TriggerType    `json:"triggers"`
+	Channels       []string         `json:"channels"` // IDs de alert_channels
+	CooldownSec    int              `json:"cooldown_sec"`
+	Priority       int              `json:"priority"`
+	Enabled        bool             `json:"enabled"`
+	GroupWindowSec int              `json:"group_window_sec,omitempty"` // 0 = pas de regroupement : chaque événement notifie immédiatement
+	Escalation     []EscalationStep `json:"escalation,omitempty"`       // paliers relancés tant que l'événement n'est pas acquitté
+}
+
+// EscalationStep est un palier d'escalade : si l'événement n'est pas acquitté
+// AfterSec secondes après son déclenchement, il est renotifié vers Channels
+// (vide = mêmes canaux que la règle).
+type EscalationStep struct {
+	AfterSec int      `json:"after_sec"`
+	Channels []string `json:"channels,omitempty"`
 }
 
 // Channel est un canal de notification stocké en DB.

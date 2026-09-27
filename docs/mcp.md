@@ -215,7 +215,7 @@ Alertes déclenchées (30 jours conservés), la plus récente d'abord. Scope : `
 | `node`    | string | —      | Nom de passerelle (lu dans le détail de l'événement)         |
 | `limit`   | number | —      | Événements max (défaut 100, max 500)                         |
 
-Chaque événement : `id`, `rule_id`, `rule_name`, `trigger`, `detail`, `channels`, `title`, `body`, `priority`, `silenced`, `fired_at`. `silenced: true` : bloqué par un silence actif (`list_silences`), `channels` vide.
+Chaque événement : `id`, `rule_id`, `rule_name`, `trigger`, `detail`, `channels`, `title`, `body`, `priority`, `silenced`, `acked`, `acked_by`, `acked_at`, `fired_at`. `silenced: true` : bloqué par un silence actif (`list_silences`), `channels` vide. `acked: true` : accusé de réception (`ack_alert_event`), les paliers d'escalade restants ne renotifient plus.
 
 ---
 
@@ -615,6 +615,67 @@ Restaure une règle à une version antérieure (condition, action, cooldown, act
 
 ---
 
+### `list_scheduled_tasks`
+
+Liste les planifications (cron) : exécutent une action du moteur de règles à heure fixe, indépendamment de toute condition.
+
+**Réponse :** tableau `{ id, name, cron_expr, action, enabled, last_run_at, created_at }`
+
+---
+
+### `create_scheduled_task`
+
+Crée une planification.
+
+| Paramètre   | Type    | Requis | Description                                          |
+|-------------|---------|--------|--------------------------------------------------------|
+| `name`      | string  | Oui    | Nom de la planification                                |
+| `cron_expr` | string  | Oui    | Expression cron 5 champs (`minute heure jour-du-mois mois jour-de-semaine`), ex. `"0 3 * * *"` |
+| `action`    | object  | Oui    | Action à exécuter : `{ type, ...paramètres }` (mêmes types que `create_rule`) |
+| `enabled`   | boolean | —      | Activer immédiatement (défaut `true`)                  |
+
+**Réponse :** `{ id, name }`
+
+---
+
+### `update_scheduled_task`
+
+Met à jour une planification existante. Mêmes paramètres que `create_scheduled_task`, plus `id` (requis).
+
+---
+
+### `delete_scheduled_task`
+
+| Paramètre | Type   | Requis | Description                    |
+|-----------|--------|--------|----------------------------------|
+| `id`      | string | Oui    | ID de la planification à supprimer |
+
+---
+
+### `run_scheduled_task`
+
+Exécute immédiatement l'action d'une planification, indépendamment de son expression cron.
+
+| Paramètre | Type   | Requis | Description             |
+|-----------|--------|--------|----------------------------|
+| `id`      | string | Oui    | ID de la planification      |
+
+**Réponse :** `{ ok: true }`
+
+---
+
+### `list_scheduled_task_runs`
+
+Liste les 100 dernières exécutions d'une planification (30 jours conservés).
+
+| Paramètre | Type   | Requis | Description        |
+|-----------|--------|--------|------------------------|
+| `id`      | string | Oui    | ID de la planification |
+
+**Réponse :** tableau `{ id, success, error, ran_at }`
+
+---
+
 ### `list_silences`
 
 Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).
@@ -1004,9 +1065,22 @@ Crée une règle d'alerte.
 | `cooldown_sec`     | number  | —      | Délai anti-spam en secondes (défaut : 300)           |
 | `priority`         | number  | —      | Priorité (0 = normale, plus élevé = plus urgent)     |
 | `group_window_sec` | number  | —      | Fenêtre de regroupement en secondes (défaut 0 = désactivé) — fusionne les événements correspondants en une seule notification |
+| `escalation`       | array   | —      | Paliers `[{"after_sec":900,"channels":["id"]}]` : sans accusé de réception (`ack_alert_event`) avant `after_sec`, renotifie (`channels` vide = ceux de la règle) |
 | `scope`            | object  | —      | Scope : `nodes`, `domain_glob`, `components`, `min_severity`, etc. |
 
 **Réponse :** `{ "id": "ar_…", "name": "…", "enabled": true }`
+
+---
+
+### `ack_alert_event`
+
+Accuse réception d'un événement d'alerte : les paliers d'escalade déjà programmés le revérifient à leur échéance et ne renotifient plus.
+
+| Paramètre | Type   | Requis | Description                       |
+|-----------|--------|--------|--------------------------------------|
+| `id`      | string | Oui    | ID de l'événement (`list_alert_events`) |
+
+**Réponse :** `{ ok: true }`
 
 ---
 

@@ -39,6 +39,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/monitor"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/admin/rulesengine"
+	"github.com/vincamok/goproxify/internal/admin/scheduler"
 	"github.com/vincamok/goproxify/internal/admin/security"
 	"github.com/vincamok/goproxify/internal/admin/setup"
 	"github.com/vincamok/goproxify/internal/admin/ui"
@@ -59,6 +60,7 @@ type Server struct {
 	auditor        *audit.Logger
 	alertingEngine *alerting.Engine
 	rulesEngine    *rulesengine.Engine
+	schedEngine    *scheduler.Engine
 	logStore       *logs.Store
 	gdprKey        []byte          // clé AES-GCM pseudonymisation RGPD
 	wsManager      *edgews.Manager // manager WS Admin→Passerelle
@@ -477,6 +479,10 @@ func (s *Server) Start(ctx context.Context) error {
 	reEngine.Start()
 	s.rulesEngine = reEngine
 	reH := &api.RulesEngineHandler{DB: s.db, Log: s.log, Engine: reEngine}
+	schedEngine := scheduler.New(s.db, s.log, reEngine)
+	schedEngine.Start()
+	s.schedEngine = schedEngine
+	schedH := &api.SchedulerHandler{DB: s.db, Log: s.log, Engine: schedEngine}
 	importH := &api.ImportHandler{DB: s.db, Log: s.log, Scheduler: backupSched}
 	prismH := &api.PrismHandler{DB: s.db}
 	ipUpdater := ipprofile.New(s.db, s.log)
@@ -696,7 +702,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/audit/", protected(auditH))
 	mux.Handle("/api/v1/alert-channels", protected(channelsH))
 	mux.Handle("/api/v1/alert-channels/", protected(channelsH))
-	mux.Handle("/api/v1/alert-events", protected(&api.AlertEventsHandler{DB: s.db}))
+	alertEventsH := &api.AlertEventsHandler{DB: s.db}
+	mux.Handle("/api/v1/alert-events", protected(alertEventsH))
+	mux.Handle("/api/v1/alert-events/", protected(alertEventsH))
 	mux.Handle("/api/v1/alert-rules", protected(rulesH))
 	mux.Handle("/api/v1/alert-rules/", protected(rulesH))
 	mux.Handle("/api/v1/logs", protected(logsH))
@@ -705,6 +713,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/security/", adminOnly(securityH))
 	mux.Handle("/api/v1/rules-engine/", adminOnly(reH))
 	mux.Handle("/api/v1/rules-engine", adminOnly(reH))
+	mux.Handle("/api/v1/scheduled-tasks/", adminOnly(schedH))
+	mux.Handle("/api/v1/scheduled-tasks", adminOnly(schedH))
 	mux.Handle("GET /api/v1/edges/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.db.QueryContext(r.Context(),
 			`SELECT key, value FROM settings WHERE key LIKE 'waf_reloaded_at:%'`)
@@ -769,7 +779,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mcpH := &mcp.Handler{
 		ProxyMetrics: func(points int) (any, any) { return proxyMetricsH.Snapshot(points) },
 		ArchStore:    archStore,
-		DB: s.db, Log: s.log, Pusher: manager,
+		DB:           s.db, Log: s.log, Pusher: manager,
 		Access: manager, AccessTemplates: manager,
 		ResolvePublicURL: bootstrapH.ResolvePublicURL,
 		ListAgents: func() []mcp.AgentInfo {
@@ -793,6 +803,7 @@ func (s *Server) Start(ctx context.Context) error {
 		},
 		OnBansChange: pushBans,
 		RulesEngine:  s.rulesEngine,
+		Scheduler:    s.schedEngine,
 		CertDeployer: certDeployer,
 		InternalCA:   internalCAMgr,
 	}
@@ -874,6 +885,9 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.rulesEngine != nil {
 		s.rulesEngine.Stop()
+	}
+	if s.schedEngine != nil {
+		s.schedEngine.Stop()
 	}
 }
 

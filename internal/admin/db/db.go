@@ -735,6 +735,9 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE alert_events ADD COLUMN message_body  TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE alert_events ADD COLUMN priority      INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE alert_events ADD COLUMN silenced      INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE alert_events ADD COLUMN acked         INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE alert_events ADD COLUMN acked_at      DATETIME`,
+		`ALTER TABLE alert_events ADD COLUMN acked_by      TEXT NOT NULL DEFAULT ''`,
 	} {
 		_, _ = db.Exec(s) // sqlite ignore si la colonne existe déjà
 	}
@@ -742,6 +745,7 @@ func migrate(db *sql.DB) error {
 	// Colonnes additives alert_rules
 	for _, s := range []string{
 		`ALTER TABLE alert_rules ADD COLUMN group_window_sec INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE alert_rules ADD COLUMN escalation_json   TEXT NOT NULL DEFAULT '[]'`,
 	} {
 		_, _ = db.Exec(s)
 	}
@@ -776,6 +780,26 @@ func migrate(db *sql.DB) error {
 			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_re_versions_rule ON rules_engine_rule_versions (rule_id, version DESC)`,
+		// Planifications (cron) : déclenchent une action du moteur de règles à
+		// heure fixe, indépendamment de toute condition.
+		`CREATE TABLE IF NOT EXISTS scheduled_tasks (
+			id           TEXT PRIMARY KEY,
+			name         TEXT NOT NULL,
+			cron_expr    TEXT NOT NULL,
+			action_json  TEXT NOT NULL DEFAULT '{}',
+			enabled      INTEGER NOT NULL DEFAULT 1,
+			last_run_at  DATETIME,
+			created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+			id       INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id  TEXT NOT NULL,
+			success  INTEGER NOT NULL DEFAULT 1,
+			error    TEXT NOT NULL DEFAULT '',
+			ran_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sched_runs_task ON scheduled_task_runs (task_id, ran_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS rules_engine_history (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			rule_id      TEXT NOT NULL,

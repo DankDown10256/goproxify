@@ -951,6 +951,34 @@ Importe un document YAML au format de l'export ci-dessus. Corps : le document YA
 
 ---
 
+## Planifications (cron)
+
+### `GET /api/v1/scheduled-tasks`
+
+Liste les planifications. Réponse : tableau `{ id, name, cron_expr, action, enabled, last_run_at, created_at, updated_at }`.
+
+### `POST /api/v1/scheduled-tasks`
+
+Crée une planification. Corps : `{ name, cron_expr, action, enabled }` (`cron_expr` : expression cron 5 champs, `action` : mêmes types que le moteur de règles — `condition-types`/`action-types`). `400` si `cron_expr` est invalide. Réponse : `{ id }` (201).
+
+### `PUT /api/v1/scheduled-tasks/:id`
+
+Met à jour une planification existante. Même corps que la création.
+
+### `DELETE /api/v1/scheduled-tasks/:id`
+
+Supprime une planification (`204`).
+
+### `POST /api/v1/scheduled-tasks/:id/run`
+
+Exécute immédiatement l'action de la planification, indépendamment de son expression cron. Réponse : `{ ok: true }`.
+
+### `GET /api/v1/scheduled-tasks/:id/runs`
+
+Historique des 100 dernières exécutions (30 jours conservés). Réponse : tableau `{ id, success, error, ran_at }`.
+
+---
+
 ## Accès MCP (admin)
 
 Périmètre d'accès du serveur MCP, admin uniquement (`RequireAdmin`).
