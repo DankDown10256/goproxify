@@ -9,6 +9,13 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.52.12 — Fail2Ban n'applique plus de durée devinée** : désactiver « Ban permanent » sans durée jamais réglée appliquait silencieusement 24h (même travers corrigé pour Sentinel en 0.52.6, généralisé ici aux deux moteurs). L'interrupteur ouvre désormais un champ obligatoire (en heures) et n'applique rien tant qu'une valeur n'est pas saisie, avec restauration immédiate de la dernière durée si on rebascule dans la même ouverture de fenêtre. (Admin `0.52.12`)
+
+- **Admin 0.52.11 — info-bulles du score de risque et du score de sécurité, clés manquantes** : les anneaux de score (page Vulnérabilités et Synthèse Sécurité) affichaient au survol la clé brute (`security.vs.risk_formula`, `sy.score_formula`) au lieu d'une explication, ces clés n'ayant jamais été ajoutées aux quatre packs de langue. Elles détaillent maintenant le calcul (pénalité par CVE ouverte selon sa gravité et son exploitation active pour le score de risque ; pondération risque/en-têtes/certificats pour le score de sécurité). (Admin `0.52.11`)
+
+- **Admin 0.52.10 — tiroir de détail (logs, Prism, scan d'IP) masqué sous la barre supérieure** : `.prism-drawer` (utilisé pour le détail d'une requête de log, le détail Prism et le scan d'IP) était en `position:fixed;top:0`, sous la topbar fixe (`z-index` plus élevé) : son en-tête — titre et bouton fermer — restait masqué derrière les boutons Export/Actions de la topbar, visible seulement en scrollant le contenu du tiroir vers le bas. Repéré en comparant l'Admin en marche à la maquette d'observabilité. Le tiroir démarre désormais sous la topbar (`top:64px`). (Admin `0.52.10`)
+
+
 - **Admin 0.52.9 — chips de filtre : état sélectionné invisible** : la classe `.chip.active`, posée par de nombreuses pages (Logs d'accès/système — périodes et classes de statut —, Journal d'audit, Alertes, Métriques d'observabilité, Synthèse sécurité, Vulnérabilités) n'était stylée que sous `.vs-chips` ; partout ailleurs, cliquer une période, un niveau ou une sévérité filtrait bien les données mais ne le montrait pas (aucune différence visuelle avec les chips non sélectionnées). Règle générique ajoutée (bordure et fond teintés à la couleur d'accent), plus un état survol sur les chips cliquables. (Admin `0.52.9`)
 
 

@@ -80,7 +80,7 @@ function synScore(cves, headers, certs) {
 
 function synRingHTML(score) {
   const color = score >= 80 ? 'var(--green)' : score >= 55 ? 'var(--yellow)' : 'var(--red)';
-  return `<div class="vs-ring sy-ring" style="--p:${score};--c:${color}" role="img" aria-label="${esc(t('sy.score'))} ${score}/100"><div><span><b>${score}</b><small>/100</small></span></div></div>`;
+  return `<div class="vs-ring sy-ring" style="--p:${score};--c:${color}" role="img" aria-label="${esc(t('sy.score'))} ${score}/100" title="${esc(t('sy.score_formula'))}"><div><span><b>${score}</b><small>/100</small></span></div></div>`;
 }
 
 function synRankHTML(cves, isAdmin) {
@@ -265,15 +265,21 @@ pages['edge-security'] = () => renderSecuritySynthese({ mode: 'edge' });
 
 const _sm = { open: false, tab: 'sentinel', mode: 'admin', q: '', f2b: {}, cs: {}, threat: {}, provider: 'native', rules: [], scan: {}, prev: {}, pendingNum: null, dirty: false };
 
-const SM_DEFAULTS = { f2bDuration: 86400 };
-
-// Caps Sentinel dont la valeur est un nombre à saisir (pas un simple on/off) : le champ du réglage
-// (rate_limit, error_threshold, global_rps) tombe à 0 quand on désactive, donc sa valeur d'origine
-// est perdue — réactiver ne doit jamais deviner un chiffre à sa place (voir smSentinelCap).
+// Caps dont la valeur est un nombre à saisir (pas un simple on/off) : le champ du réglage tombe à
+// une valeur « désactivée » (0, ou permanent) quand on bascule, donc le chiffre d'origine est perdu —
+// réactiver la limite ne doit jamais deviner un chiffre à sa place (voir smSentinelCap / smF2BCap).
+// `promptOn` : état du switch (true/false) qui déclenche la demande de valeur.
 const SM_NUM_CAPS = {
-  rate:    { field: 'rate_limit',     unitKey: 'sm.unit_reqs',  min: 0.5, step: 0.5 },
-  errors:  { field: 'error_threshold', unitKey: 'sm.unit_errs', min: 1,   step: 1 },
-  global:  { field: 'global_rps',     unitKey: 'sm.unit_reqs',  min: 1,   step: 1 },
+  smSentinelCap: {
+    rate:    { field: 'rate_limit',      unitKey: 'sm.unit_reqs',   min: 0.5, step: 0.5, promptOn: true },
+    errors:  { field: 'error_threshold', unitKey: 'sm.unit_errs',   min: 1,   step: 1,   promptOn: true },
+    global:  { field: 'global_rps',      unitKey: 'sm.unit_reqs',   min: 1,   step: 1,   promptOn: true },
+  },
+  smF2BCap: {
+    // « Ban permanent » à false = ban temporaire : il faut alors une durée (en heures, converties en
+    // secondes). Désactiver l'interrupteur (permanent → false) est donc l'état qui demande une valeur.
+    permanent: { field: 'ban_duration_sec', unitKey: 'sm.unit_hours', min: 1, step: 1, promptOn: false, toSeconds: 3600 },
+  },
 };
 
 function smSentinelCaps() {
@@ -324,18 +330,26 @@ function smSwitch(on, handler, label, disabled) {
   return `<label class="sm-sw"><input type="checkbox" ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="${handler}" aria-label="${esc(label)}"><span></span></label>`;
 }
 
+// pendingKey : identifiant unique du cap en attente de saisie, tous moteurs confondus
+// (ex. "smF2BCap:permanent"), pour ne jamais confondre deux caps de moteurs différents.
+function smNumCapPendingKey(handler, key) { return handler + ':' + key; }
+function smNumCapValueHandler(handler) { return handler === 'smF2BCap' ? 'smF2BCapValue' : 'smSentinelCapValue'; }
+function smNumCapCancelHandler(handler) { return handler === 'smF2BCap' ? 'smF2BCapCancel' : 'smSentinelCapCancel'; }
+
 function smCapsHTML(caps, handler, enabled) {
+  const numCaps = SM_NUM_CAPS[handler];
   return `<div class="sm-caps${enabled ? '' : ' off'}">${caps.map(c => {
-    const numCap = handler === 'smSentinelCap' ? SM_NUM_CAPS[c.key] : null;
-    if (numCap && _sm.pendingNum === c.key) {
+    const numCap = numCaps ? numCaps[c.key] : null;
+    const pendingKey = smNumCapPendingKey(handler, c.key);
+    if (numCap && _sm.pendingNum === pendingKey) {
       return `<div class="sm-cap sm-cap-pending">
         <div class="sm-cap-d"><b>${esc(c.label)}</b>${c.desc ? `<span>${esc(c.desc)}</span>` : ''}</div>
         <div class="sm-cap-input-row">
           <div class="sm-cap-r sm-cap-input">
-            <input type="number" class="input" id="sm-num-${c.key}" min="${numCap.min}" step="${numCap.step}" placeholder="${esc(t(numCap.unitKey))}" autofocus
-              onkeydown="if(event.key==='Enter'){event.preventDefault();smSentinelCapValue('${c.key}')}">
-            <button type="button" class="btn btn-primary btn-sm" onclick="smSentinelCapValue('${c.key}')">${esc(t('sm.activate'))}</button>
-            <button type="button" class="btn btn-ghost btn-sm" onclick="smSentinelCapCancel()">${esc(t('common.cancel'))}</button>
+            <input type="number" class="input" id="sm-num-${pendingKey}" min="${numCap.min}" step="${numCap.step}" placeholder="${esc(t(numCap.unitKey))}" autofocus
+              onkeydown="if(event.key==='Enter'){event.preventDefault();${smNumCapValueHandler(handler)}('${c.key}')}">
+            <button type="button" class="btn btn-primary btn-sm" onclick="${smNumCapValueHandler(handler)}('${c.key}')">${esc(t('sm.activate'))}</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="${smNumCapCancelHandler(handler)}()">${esc(t('common.cancel'))}</button>
           </div>
           <p class="sm-cap-input-hint">${esc(t('sm.no_default_hint'))}</p>
         </div>
@@ -500,15 +514,15 @@ window.smMaster_sentinel = function(on) {
   return smSave(async () => { await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg); _sm.threat = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
 };
 window.smSentinelCap = function(key, on) {
-  const numCap = SM_NUM_CAPS[key];
-  if (on && numCap) {
+  const numCap = SM_NUM_CAPS.smSentinelCap[key];
+  if (numCap && on === numCap.promptOn) {
     const remembered = _sm.prev[numCap.field];
     if (!(remembered > 0)) {
       // Jamais réglée (ou valeur perdue en désactivant hors de cette ouverture de fenêtre) :
       // on ne devine rien, on demande la valeur avant tout appel API.
-      _sm.pendingNum = key;
+      _sm.pendingNum = smNumCapPendingKey('smSentinelCap', key);
       smRender();
-      document.getElementById('sm-num-' + key)?.focus();
+      document.getElementById('sm-num-' + _sm.pendingNum)?.focus();
       return;
     }
   }
@@ -516,8 +530,8 @@ window.smSentinelCap = function(key, on) {
   return smSave(async () => { await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg); _sm.threat = cfg; });
 };
 window.smSentinelCapValue = function(key) {
-  const numCap = SM_NUM_CAPS[key];
-  const input = document.getElementById('sm-num-' + key);
+  const pendingKey = smNumCapPendingKey('smSentinelCap', key);
+  const input = document.getElementById('sm-num-' + pendingKey);
   const value = parseFloat(input?.value);
   if (!(value > 0)) { input?.focus(); return; }
   _sm.pendingNum = null;
@@ -533,13 +547,37 @@ window.smMaster_f2b = function(on) {
   return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
 };
 window.smF2BCap = function(key, on) {
-  const cfg = { ..._sm.f2b };
-  if (key === 'xff') cfg.trust_forwarded_for = on;
-  else if (key === 'permanent') {
-    if (on) { if (cfg.ban_duration_sec > 0) _sm.prev.f2bDuration = cfg.ban_duration_sec; cfg.ban_duration_sec = 0; }
-    else cfg.ban_duration_sec = _sm.prev.f2bDuration || SM_DEFAULTS.f2bDuration;
+  if (key === 'xff') {
+    const cfg = { ..._sm.f2b, trust_forwarded_for: on };
+    return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
   }
+  if (key === 'permanent') {
+    const numCap = SM_NUM_CAPS.smF2BCap.permanent;
+    if (on === numCap.promptOn && !(_sm.prev.f2bDuration > 0)) {
+      // « Ban permanent » désactivé sans durée jamais réglée : on demande la durée, on ne devine rien.
+      _sm.pendingNum = smNumCapPendingKey('smF2BCap', key);
+      smRender();
+      document.getElementById('sm-num-' + _sm.pendingNum)?.focus();
+      return;
+    }
+    const cfg = { ..._sm.f2b };
+    if (on) { if (cfg.ban_duration_sec > 0) _sm.prev.f2bDuration = cfg.ban_duration_sec; cfg.ban_duration_sec = 0; }
+    else cfg.ban_duration_sec = _sm.prev.f2bDuration;
+    return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
+  }
+};
+window.smF2BCapValue = function(key) {
+  const pendingKey = smNumCapPendingKey('smF2BCap', key);
+  const input = document.getElementById('sm-num-' + pendingKey);
+  const hours = parseFloat(input?.value);
+  if (!(hours > 0)) { input?.focus(); return; }
+  _sm.pendingNum = null;
+  const cfg = { ..._sm.f2b, ban_duration_sec: Math.round(hours * SM_NUM_CAPS.smF2BCap.permanent.toSeconds) };
   return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
+};
+window.smF2BCapCancel = function() {
+  _sm.pendingNum = null;
+  smRender();
 };
 window.smMaster_cs = function(on) {
   const cfg = { ..._sm.cs, enabled: on };

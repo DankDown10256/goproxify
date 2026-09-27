@@ -1801,7 +1801,7 @@ textarea.input { resize: vertical; min-height: 80px; }
 .prism-tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
 .prism-pane{padding:16px 18px;overflow-x:auto}
 .prism-pane[hidden]{display:none}
-.prism-drawer{position:fixed;right:0;top:0;bottom:0;width:340px;max-width:100%;background:var(--bg2);border-left:1px solid var(--border);box-shadow:-8px 0 30px rgba(0,0,0,.12);z-index:60;transform:translateX(105%);transition:transform .22s;padding:18px;overflow:auto}
+.prism-drawer{position:fixed;right:0;top:64px;bottom:0;width:340px;max-width:100%;background:var(--bg2);border-left:1px solid var(--border);box-shadow:-8px 0 30px rgba(0,0,0,.12);z-index:60;transform:translateX(105%);transition:transform .22s;padding:18px;overflow:auto}
 .prism-drawer.open{transform:none}
 .prism-dstats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .prism-dstat{background:var(--bg3);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--text3)}

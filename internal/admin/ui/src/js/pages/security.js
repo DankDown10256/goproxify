@@ -371,7 +371,7 @@ function vsSevBar(list) {
 function vsRing(score, size) {
   const color = score >= 80 ? 'var(--green)' : score >= 55 ? 'var(--yellow)' : 'var(--red)';
   const inner = size - 12;
-  return `<div class="vs-ring" style="--p:${score};--c:${color};width:${size}px;height:${size}px" role="img" aria-label="${esc(t('security.vs.risk'))} ${score}/100"><div style="width:${inner}px;height:${inner}px"><b>${score}</b></div></div>`;
+  return `<div class="vs-ring" style="--p:${score};--c:${color};width:${size}px;height:${size}px" role="img" aria-label="${esc(t('security.vs.risk'))} ${score}/100" title="${esc(t('security.vs.risk_formula'))}"><div style="width:${inner}px;height:${inner}px"><b>${score}</b></div></div>`;
 }
 
 function vsStatusTag(status) {
