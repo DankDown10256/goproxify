@@ -27,7 +27,7 @@ func extraTools() []map[string]any {
 			"description": "Crée un canal de notification. Retourne l'ID créé.",
 			"inputSchema": schema(
 				req("name", "string", "Nom unique du canal"),
-				req("type", "string", "Type : email, webhook, slack, ntfy, gotify, jira, linear, github, gitlab, zammad, glpi"),
+				req("type", "string", "Type : email, webhook, slack, teams, telegram, sms, ntfy, gotify, jira, linear, github, gitlab, zammad, glpi"),
 				req("config", "object", "Configuration spécifique au type (url, token, destinataires…)"),
 				opt("enabled", "boolean", "Activer immédiatement (défaut: true)"),
 			),
@@ -53,6 +53,7 @@ func extraTools() []map[string]any {
 				opt("scope", "object", "Filtre de périmètre (proxy, domain…)"),
 				opt("cooldown_sec", "number", "Délai minimal entre deux alertes en secondes (défaut: 300)"),
 				opt("priority", "number", "Priorité (0 = normale, plus élevé = plus urgent)"),
+				opt("group_window_sec", "number", "Fenêtre de regroupement en secondes (défaut 0 = désactivé) : les événements correspondants dans cette fenêtre sont fusionnés en une seule notification"),
 				opt("enabled", "boolean", "Activer immédiatement (défaut: true)"),
 			),
 		},
@@ -216,7 +217,7 @@ func (h *Handler) toolDeleteAlertChannel(ctx context.Context, id string) (any, e
 
 func (h *Handler) toolListAlertRules(r *http.Request) (any, error) {
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, name, enabled, scope, triggers, channels, cooldown_sec, priority, created_at
+		`SELECT id, name, enabled, scope, triggers, channels, cooldown_sec, priority, created_at, COALESCE(group_window_sec,0)
 		 FROM alert_rules ORDER BY priority, name`)
 	if err != nil {
 		return nil, err
@@ -225,9 +226,9 @@ func (h *Handler) toolListAlertRules(r *http.Request) (any, error) {
 	var out []map[string]any
 	for rows.Next() {
 		var id, name, scope, triggers, channels string
-		var enabled, cooldown, priority int
+		var enabled, cooldown, priority, groupWindow int
 		var createdAt time.Time
-		if err := rows.Scan(&id, &name, &enabled, &scope, &triggers, &channels, &cooldown, &priority, &createdAt); err != nil {
+		if err := rows.Scan(&id, &name, &enabled, &scope, &triggers, &channels, &cooldown, &priority, &createdAt, &groupWindow); err != nil {
 			continue
 		}
 		var scopeObj, triggersObj, channelsObj any
@@ -237,7 +238,7 @@ func (h *Handler) toolListAlertRules(r *http.Request) (any, error) {
 		out = append(out, map[string]any{
 			"id": id, "name": name, "enabled": enabled == 1,
 			"scope": scopeObj, "triggers": triggersObj, "channels": channelsObj,
-			"cooldown_sec": cooldown, "priority": priority, "created_at": createdAt,
+			"cooldown_sec": cooldown, "priority": priority, "group_window_sec": groupWindow, "created_at": createdAt,
 		})
 	}
 	if out == nil {
@@ -274,15 +275,19 @@ func (h *Handler) toolCreateAlertRule(r *http.Request, args map[string]any) (any
 	if v, ok := args["priority"].(float64); ok {
 		priority = int(v)
 	}
+	groupWindow := 0
+	if v, ok := args["group_window_sec"].(float64); ok && v > 0 {
+		groupWindow = int(v)
+	}
 	enabled := 1
 	if e, ok := args["enabled"].(bool); ok && !e {
 		enabled = 0
 	}
 	id := uuid.New().String()
 	if _, err := h.DB.ExecContext(r.Context(),
-		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		id, name, scopeJSON, triggersJSON, channelsJSON, cooldown, priority, enabled); err != nil {
+		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled, group_window_sec)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		id, name, scopeJSON, triggersJSON, channelsJSON, cooldown, priority, enabled, groupWindow); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": id, "name": name}, nil

@@ -490,6 +490,19 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "list_rule_versions",
+		"description": "Liste l'historique des versions d'une règle du moteur de règles (un instantané par création/modification/restauration, 20 derniers conservés).",
+		"inputSchema": schema(req("rule_id", "string", "ID de la règle")),
+	},
+	{
+		"name":        "restore_rule_version",
+		"description": "Restaure une règle à une version antérieure (condition, action, cooldown, activation). La restauration devient elle-même une nouvelle version.",
+		"inputSchema": schema(
+			req("rule_id", "string", "ID de la règle"),
+			req("version", "number", "Numéro de version à restaurer (list_rule_versions)"),
+		),
+	},
+	{
 		"name":        "export_automation",
 		"description": "Exporte en YAML toute la configuration d'automatisation (règles, canaux d'alerte, silences), réimportable telle quelle (GitOps). Les canaux exportent leur config en clair (identifiants inclus) : à traiter comme un secret.",
 		"inputSchema": schema(),
@@ -654,6 +667,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListRuleHistory(r)
 	case "replay_rule_history":
 		result, toolErr = h.toolReplayRuleHistory(r, p.Arguments)
+	case "list_rule_versions":
+		result, toolErr = h.toolListRuleVersions(r, p.Arguments)
+	case "restore_rule_version":
+		result, toolErr = h.toolRestoreRuleVersion(r, p.Arguments)
 	case "export_automation":
 		result, toolErr = h.toolExportAutomation(r)
 	case "import_automation":
@@ -2022,6 +2039,72 @@ func (h *Handler) toolReplayRuleHistory(r *http.Request, args map[string]any) (a
 	if err := h.RulesEngine.ReplayHistory(r.Context(), int64(idf)); err != nil {
 		return nil, err
 	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (h *Handler) toolListRuleVersions(r *http.Request, args map[string]any) (any, error) {
+	ruleID, _ := args["rule_id"].(string)
+	if ruleID == "" {
+		return nil, fmt.Errorf("rule_id requis")
+	}
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT version, name, description, enabled, condition_json, action_json, cooldown_sec, created_at
+		FROM rules_engine_rule_versions WHERE rule_id=? ORDER BY version DESC`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var version, cooldown, enabled int
+		var name, desc, condJSON, actionJSON string
+		var createdAt time.Time
+		if rows.Scan(&version, &name, &desc, &enabled, &condJSON, &actionJSON, &cooldown, &createdAt) != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"version": version, "name": name, "description": desc, "enabled": enabled == 1,
+			"condition": json.RawMessage(condJSON), "action": json.RawMessage(actionJSON),
+			"cooldown_sec": cooldown, "created_at": createdAt,
+		})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolRestoreRuleVersion(r *http.Request, args map[string]any) (any, error) {
+	ruleID, _ := args["rule_id"].(string)
+	versionF, ok := args["version"].(float64)
+	if ruleID == "" || !ok {
+		return nil, fmt.Errorf("rule_id et version requis")
+	}
+	ctx := r.Context()
+	var name, desc, condJSON, actionJSON string
+	var enabled, cooldown int
+	err := h.DB.QueryRowContext(ctx, `
+		SELECT name, description, enabled, condition_json, action_json, cooldown_sec
+		FROM rules_engine_rule_versions WHERE rule_id=? AND version=?`, ruleID, int(versionF),
+	).Scan(&name, &desc, &enabled, &condJSON, &actionJSON, &cooldown)
+	if err != nil {
+		return nil, fmt.Errorf("version introuvable : %w", err)
+	}
+	res, err := h.DB.ExecContext(ctx, `
+		UPDATE rules_engine_rules SET name=?, description=?, enabled=?, condition_json=?, action_json=?, cooldown_sec=?, updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`, name, desc, enabled, condJSON, actionJSON, cooldown, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("règle introuvable : %s", ruleID)
+	}
+	var lastVersion int
+	_ = h.DB.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM rules_engine_rule_versions WHERE rule_id=?`, ruleID).Scan(&lastVersion)
+	_, _ = h.DB.ExecContext(ctx, `
+		INSERT INTO rules_engine_rule_versions (rule_id, version, name, description, enabled, condition_json, action_json, cooldown_sec)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ruleID, lastVersion+1, name, desc, enabled, condJSON, actionJSON, cooldown)
 	return map[string]any{"ok": true}, nil
 }
 

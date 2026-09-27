@@ -278,6 +278,12 @@ Le bouton **Tester maintenant** lance un `dry_run` : la condition est évaluée 
 
 Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis `Admin > Automatisation > Journal`. Une entrée en échec (`error` non vide, hors `"silenced"`) peut être **rejouée** (`POST /rules-engine/history/{id}/replay`, bouton **Rejouer** du Journal, `goproxify security rules history replay <id>`, MCP `replay_rule_history`) : l'action est retentée avec le `detail` capturé au moment du déclenchement d'origine, sans réévaluer la condition, et le résultat crée une nouvelle entrée d'historique.
 
+### Versionnage des règles
+
+Chaque création, modification ou restauration d'une règle ajoute un instantané dans `rules_engine_rule_versions` (nom, description, activation, condition, action, cooldown) — les 20 dernières versions par règle sont conservées, les plus anciennes purgées automatiquement. Consultable depuis l'**éditeur de flux** (bouton **Historique des versions**), `GET /rules-engine/rules/{id}/versions`, `goproxify security rules versions list <rule-id>`, ou MCP `list_rule_versions`.
+
+**Restaurer** une version (`POST /rules-engine/rules/{id}/versions/{version}/restore`, bouton **Restaurer**, `goproxify security rules versions restore <rule-id> <version>`, MCP `restore_rule_version`) remplace la condition, l'action, le cooldown et l'activation actuels par ceux de la version choisie — la restauration elle-même devient une nouvelle version, pour ne jamais perdre l'état remplacé.
+
 ### Silences & maintenance
 
 Un **silence** (`Admin > Automatisation > Alertes > Silences & maintenance`, table `automation_silences`) suspend l'exécution des actions sur une fenêtre de temps `[starts_at, ends_at)`, pour toutes les règles ou une liste choisie (`rule_ids`). La table est partagée par les deux moteurs :
@@ -294,6 +300,21 @@ Un même identifiant de règle n'existe que dans une seule des deux tables (`rul
 `POST /api/v1/rules-engine/import` applique un document au même format : règles et canaux sont **upsertés par nom** (mis à jour si une règle/canal du même nom existe déjà, créés sinon) ; les silences sont toujours créés (une fenêtre de temps ne se met pas à jour, elle s'ajoute). La réponse résume les créations/mises à jour.
 
 Accessible depuis `Admin > Automatisation > Vue d'ensemble` (boutons **Exporter en YAML** / **Importer un YAML**), `goproxify security rules export|import`, ou les outils MCP `export_automation` / `import_automation`.
+
+### Canaux d'alerte
+
+En plus d'email, webhook générique, ntfy et gotify, et des canaux de ticketing (Jira, Linear, GitHub, GitLab, Zammad, GLPI), le moteur d'alertes notifie :
+
+| Type | Configuration | Détails |
+|---|---|---|
+| `slack` | `webhook_url` | Webhook entrant Slack (Slack App > Incoming Webhooks) |
+| `teams` | `webhook_url` | Connecteur webhook entrant Microsoft Teams (ou flux Power Automate) |
+| `telegram` | `bot_token`, `chat_id` | API Bot Telegram (`sendMessage`) — créer un bot via [@BotFather](https://t.me/BotFather) |
+| `sms` | `account_sid`, `auth_token`, `from`, `to` | API Twilio (`Messages.json`), numéros au format E.164 |
+
+### Regroupement anti-bruit
+
+Une règle d'alerte peut définir `group_window_sec` (secondes, défaut 0 = désactivé) : tant qu'une fenêtre de regroupement est ouverte, les événements qui correspondent à la règle s'accumulent au lieu de notifier immédiatement ; à la fin de la fenêtre, une **notification unique** résume le nombre d'événements et liste les 5 premiers (les suivants sont comptés). Le cooldown habituel de la règle continue de s'appliquer par ailleurs (il détermine si un événement rejoint le tampon en cours, pas la fréquence des envois groupés). Réglable depuis `Automatisation > Alertes > Routage`, `goproxify alert rules create|update -file`, ou les outils MCP `create_alert_rule`/`list_alert_rules`.
 
 ---
 

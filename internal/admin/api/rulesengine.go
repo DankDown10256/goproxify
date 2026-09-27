@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
@@ -45,6 +46,17 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && sub == "rules" && strings.HasSuffix(id, "/run"):
 		ruleID := strings.TrimSuffix(id, "/run")
 		h.runRule(w, r, ruleID)
+	case r.Method == http.MethodGet && sub == "rules" && strings.HasSuffix(id, "/versions"):
+		ruleID := strings.TrimSuffix(id, "/versions")
+		h.listRuleVersions(w, r, ruleID)
+	case r.Method == http.MethodPost && sub == "rules" && strings.Contains(id, "/versions/") && strings.HasSuffix(id, "/restore"):
+		rest := strings.TrimSuffix(id, "/restore")
+		parts := strings.SplitN(rest, "/versions/", 2)
+		if len(parts) == 2 {
+			h.restoreRuleVersion(w, r, parts[0], parts[1])
+		} else {
+			writeErr(w, r, http.StatusNotFound, "api.err.not_found")
+		}
 	case r.Method == http.MethodGet && sub == "history":
 		h.listHistory(w, r)
 	case r.Method == http.MethodPost && sub == "history" && strings.HasSuffix(id, "/replay"):
@@ -152,8 +164,34 @@ func (h *RulesEngineHandler) createRule(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
 		return
 	}
+	h.snapshotRuleVersion(r.Context(), id, body.Name, body.Description, enabled == 1, string(condJSON), string(actionJSON), body.CooldownSec)
 	w.WriteHeader(http.StatusCreated)
 	jsonOK(w, map[string]string{"id": id})
+}
+
+// snapshotRuleVersion ajoute un instantané de la règle après une création,
+// modification ou restauration, et purge au-delà des 20 versions les plus
+// récentes. N'échoue jamais l'appelant : le versionnage est un journal, pas
+// une contrainte transactionnelle.
+func (h *RulesEngineHandler) snapshotRuleVersion(ctx context.Context, ruleID, name, description string, enabled bool, condJSON, actionJSON string, cooldownSec int) {
+	var lastVersion int
+	_ = h.DB.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM rules_engine_rule_versions WHERE rule_id=?`, ruleID).Scan(&lastVersion)
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	if _, err := h.DB.ExecContext(ctx, `
+		INSERT INTO rules_engine_rule_versions (rule_id, version, name, description, enabled, condition_json, action_json, cooldown_sec)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		ruleID, lastVersion+1, name, description, enabledInt, condJSON, actionJSON, cooldownSec,
+	); err != nil {
+		h.Log.Warn("rulesengine: snapshot version", "rule_id", ruleID, "err", err)
+		return
+	}
+	_, _ = h.DB.ExecContext(ctx, `
+		DELETE FROM rules_engine_rule_versions WHERE rule_id=? AND version <= (
+			SELECT COALESCE(MAX(version),0) - 20 FROM rules_engine_rule_versions WHERE rule_id=?
+		)`, ruleID, ruleID)
 }
 
 func (h *RulesEngineHandler) updateRule(w http.ResponseWriter, r *http.Request, id string) {
@@ -184,7 +222,74 @@ func (h *RulesEngineHandler) updateRule(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 		return
 	}
+	h.snapshotRuleVersion(r.Context(), id, body.Name, body.Description, enabled == 1, string(condJSON), string(actionJSON), body.CooldownSec)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *RulesEngineHandler) listRuleVersions(w http.ResponseWriter, r *http.Request, ruleID string) {
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT version, name, description, enabled, condition_json, action_json, cooldown_sec, created_at
+		FROM rules_engine_rule_versions WHERE rule_id=? ORDER BY version DESC`, ruleID)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	defer rows.Close()
+	versions := []map[string]any{}
+	for rows.Next() {
+		var version, cooldown, enabled int
+		var name, desc, condJSON, actionJSON string
+		var createdAt time.Time
+		if err := rows.Scan(&version, &name, &desc, &enabled, &condJSON, &actionJSON, &cooldown, &createdAt); err != nil {
+			continue
+		}
+		var cond, action map[string]any
+		_ = json.Unmarshal([]byte(condJSON), &cond)
+		_ = json.Unmarshal([]byte(actionJSON), &action)
+		versions = append(versions, map[string]any{
+			"version": version, "name": name, "description": desc, "enabled": enabled == 1,
+			"condition": cond, "action": action, "cooldown_sec": cooldown, "created_at": createdAt,
+		})
+	}
+	jsonOK(w, versions)
+}
+
+func (h *RulesEngineHandler) restoreRuleVersion(w http.ResponseWriter, r *http.Request, ruleID, versionStr string) {
+	version, err := strconv.Atoi(versionStr)
+	if err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	var name, desc, condJSON, actionJSON string
+	var enabled, cooldown int
+	err = h.DB.QueryRowContext(r.Context(), `
+		SELECT name, description, enabled, condition_json, action_json, cooldown_sec
+		FROM rules_engine_rule_versions WHERE rule_id=? AND version=?`, ruleID, version,
+	).Scan(&name, &desc, &enabled, &condJSON, &actionJSON, &cooldown)
+	if err == sql.ErrNoRows {
+		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
+		return
+	}
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	res, err := h.DB.ExecContext(r.Context(), `
+		UPDATE rules_engine_rules SET name=?, description=?, enabled=?, condition_json=?, action_json=?, cooldown_sec=?, updated_at=CURRENT_TIMESTAMP
+		WHERE id=?`,
+		name, desc, enabled, condJSON, actionJSON, cooldown, ruleID,
+	)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
+		return
+	}
+	// La restauration elle-même devient une nouvelle version, pour ne jamais perdre l'état remplacé.
+	h.snapshotRuleVersion(r.Context(), ruleID, name, desc, enabled == 1, condJSON, actionJSON, cooldown)
+	jsonOK(w, map[string]bool{"ok": true})
 }
 
 func (h *RulesEngineHandler) deleteRule(w http.ResponseWriter, r *http.Request, id string) {

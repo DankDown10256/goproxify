@@ -761,6 +761,21 @@ func migrate(db *sql.DB) error {
 			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		// Versionnage des règles : un instantané est ajouté après chaque
+		// création/modification/restauration, pour permettre un retour arrière.
+		`CREATE TABLE IF NOT EXISTS rules_engine_rule_versions (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			rule_id        TEXT NOT NULL,
+			version        INTEGER NOT NULL,
+			name           TEXT NOT NULL,
+			description    TEXT NOT NULL DEFAULT '',
+			enabled        INTEGER NOT NULL DEFAULT 1,
+			condition_json TEXT NOT NULL DEFAULT '{}',
+			action_json    TEXT NOT NULL DEFAULT '{}',
+			cooldown_sec   INTEGER NOT NULL DEFAULT 300,
+			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_re_versions_rule ON rules_engine_rule_versions (rule_id, version DESC)`,
 		`CREATE TABLE IF NOT EXISTS rules_engine_history (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			rule_id      TEXT NOT NULL,

@@ -395,6 +395,8 @@ goproxify alert test -channel <id> [-admin-url …] [-token …]
 goproxify alert test -all          [-admin-url …] [-token …]
 ```
 
+Types de canal (`alert channels create -file`, champ `type`) : `email`, `webhook`, `slack`, `teams`, `telegram`, `sms` (Twilio), `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi`. `alert rules create`/`update` acceptent `group_window_sec` (secondes, défaut 0 = désactivé) : les événements qui correspondent à la règle dans cette fenêtre sont fusionnés en une seule notification au lieu d'une par événement.
+
 Exemples :
 
 ```bash
@@ -745,7 +747,7 @@ goproxify security rules export [-out <fichier.yaml>] [-admin-url …] [-token �
 goproxify security rules import -file <automation.yaml> [-admin-url …] [-token …]
 ```
 
-**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action. `rules silence` gère les fenêtres de silence, communes au moteur de règles et au moteur d'alertes : `add` sans `-rules` s'applique à toutes les règles des deux moteurs ; avec `-rules id1,id2` (IDs `security rules list` et/ou `alert rules list`), seulement à celles-ci. `rules history` consulte le journal d'exécution ; `replay` rejoue l'action d'une entrée en échec sans réévaluer la condition. `rules export`/`import` échangent règles, canaux et silences en un document YAML (GitOps) ; `export` sans `-out` écrit sur la sortie standard ; `import` upserte par nom.
+**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action. `rules silence` gère les fenêtres de silence, communes au moteur de règles et au moteur d'alertes : `add` sans `-rules` s'applique à toutes les règles des deux moteurs ; avec `-rules id1,id2` (IDs `security rules list` et/ou `alert rules list`), seulement à celles-ci. `rules history` consulte le journal d'exécution ; `replay` rejoue l'action d'une entrée en échec sans réévaluer la condition. `rules export`/`import` échangent règles, canaux et silences en un document YAML (GitOps) ; `export` sans `-out` écrit sur la sortie standard ; `import` upserte par nom. `rules versions` consulte les instantanés d'une règle (un par création/modification/restauration, 20 derniers conservés) et permet un retour arrière (`restore`, qui devient lui-même une nouvelle version).
 
 Exemple de fichier règle (`rule.json`) :
 

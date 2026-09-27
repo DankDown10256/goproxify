@@ -588,6 +588,33 @@ Rejoue l'action d'une entrée d'historique en échec (`list_rule_history`), en r
 
 ---
 
+### `list_rule_versions`
+
+Liste l'historique des versions d'une règle (20 dernières, la plus récente en premier) — un instantané par création/modification/restauration.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|---------------------|
+| `rule_id` | string | Oui    | ID de la règle       |
+
+**Scope :** `audit:read`  
+**Réponse :** tableau `{ version, name, description, enabled, condition, action, cooldown_sec, created_at }`
+
+---
+
+### `restore_rule_version`
+
+Restaure une règle à une version antérieure (condition, action, cooldown, activation, nom, description). La restauration devient elle-même une nouvelle version.
+
+| Paramètre | Type   | Requis | Description                          |
+|-----------|--------|--------|----------------------------------------|
+| `rule_id` | string | Oui    | ID de la règle                         |
+| `version` | number | Oui    | Numéro de version (`list_rule_versions`) |
+
+**Scope :** `audit:write`  
+**Réponse :** `{ ok: true }`
+
+---
+
 ### `list_silences`
 
 Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).
@@ -968,14 +995,16 @@ Liste les règles d'alerte avec leurs déclencheurs, scopes et canaux associés.
 
 Crée une règle d'alerte.
 
-| Paramètre      | Type    | Requis | Description                                          |
-|----------------|---------|--------|------------------------------------------------------|
-| `name`         | string  | ✓      | Nom de la règle                                      |
-| `channel_id`   | string  | ✓      | ID du canal de notification                          |
-| `triggers`     | array   | ✓      | Déclencheurs (ex: `["cpu_pct > 90"]`)                |
-| `enabled`      | boolean | —      | Activée par défaut (`true`)                          |
-| `cooldown_sec` | number  | —      | Délai anti-spam en secondes (défaut : 300)           |
-| `scope`        | object  | —      | Scope : `nodes`, `domain_pattern`, `component`, etc. |
+| Paramètre          | Type    | Requis | Description                                          |
+|--------------------|---------|--------|------------------------------------------------------|
+| `name`             | string  | ✓      | Nom de la règle                                      |
+| `channels`         | array   | ✓      | IDs des canaux de notification                       |
+| `triggers`         | array   | ✓      | Déclencheurs (`list_alert_triggers`)                 |
+| `enabled`          | boolean | —      | Activée par défaut (`true`)                          |
+| `cooldown_sec`     | number  | —      | Délai anti-spam en secondes (défaut : 300)           |
+| `priority`         | number  | —      | Priorité (0 = normale, plus élevé = plus urgent)     |
+| `group_window_sec` | number  | —      | Fenêtre de regroupement en secondes (défaut 0 = désactivé) — fusionne les événements correspondants en une seule notification |
+| `scope`            | object  | —      | Scope : `nodes`, `domain_glob`, `components`, `min_severity`, etc. |
 
 **Réponse :** `{ "id": "ar_…", "name": "…", "enabled": true }`
 

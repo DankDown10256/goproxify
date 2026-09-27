@@ -63,6 +63,9 @@ goproxify security rules history replay <id>   [-admin-url …] [-token …]
 goproxify security rules export [-out <fichier.yaml>] [-admin-url …] [-token …]
 goproxify security rules import -file <automation.yaml> [-admin-url …] [-token …]
 
+goproxify security rules versions list    <rule-id>            [-admin-url …] [-token …]
+goproxify security rules versions restore <rule-id> <version>  [-admin-url …] [-token …]
+
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 `)
@@ -531,6 +534,9 @@ func runSecurityRules() {
 	case "history":
 		runSecurityRulesHistory()
 
+	case "versions":
+		runSecurityRulesVersions()
+
 	case "export":
 		args := parseFlags(os.Args[4:])
 		out := flagValue(args, "-out", "")
@@ -744,6 +750,64 @@ func runSecurityRulesHistory() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande history inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Versionnage des règles (instantanés + retour arrière) ────────────────────
+
+func runSecurityRulesVersions() {
+	sub := subcommand(os.Args, 4)
+	switch sub {
+	case "list", "":
+		ruleID := subcommand(os.Args, 5)
+		if ruleID == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules versions list <rule-id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[6:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var versions []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/rules/"+ruleID+"/versions", nil, &versions); err != nil {
+			fmt.Fprintf(os.Stderr, "versions list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(versions) == 0 {
+			fmt.Println("(aucune version)")
+			return
+		}
+		for _, v := range versions {
+			version := int(v["version"].(float64))
+			name, _ := v["name"].(string)
+			createdAt, _ := v["created_at"].(string)
+			fmt.Printf("v%-4d %-24s  %s\n", version, createdAt, name)
+		}
+
+	case "restore":
+		ruleID := subcommand(os.Args, 5)
+		versionStr := subcommand(os.Args, 6)
+		if ruleID == "" || versionStr == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules versions restore <rule-id> <version>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[7:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/rules-engine/rules/"+ruleID+"/versions/"+versionStr+"/restore", nil, nil, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "versions restore : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Règle %s restaurée à la version %s.\n", ruleID, versionStr)
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande versions inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

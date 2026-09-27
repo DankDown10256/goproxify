@@ -153,6 +153,7 @@ func (h *RulesEngineHandler) importAutomation(w http.ResponseWriter, r *http.Req
 			)
 			if execErr == nil {
 				summary["rules_updated"]++
+				h.snapshotRuleVersion(ctx, existingID, er.Name, er.Description, er.Enabled, string(condJSON), string(actionJSON), er.CooldownSec)
 			}
 			continue
 		}
@@ -162,6 +163,7 @@ func (h *RulesEngineHandler) importAutomation(w http.ResponseWriter, r *http.Req
 			id, er.Name, er.Description, enabled, string(condJSON), string(actionJSON), er.CooldownSec,
 		); execErr == nil {
 			summary["rules_created"]++
+			h.snapshotRuleVersion(ctx, id, er.Name, er.Description, er.Enabled, string(condJSON), string(actionJSON), er.CooldownSec)
 		}
 	}
 

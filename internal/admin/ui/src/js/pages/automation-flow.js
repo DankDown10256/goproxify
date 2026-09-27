@@ -37,6 +37,7 @@ function _flowRender() {
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="checkbox" id="re-enabled" ${r.enabled ? 'checked' : ''}>${t('security.rules.enabled')}</label>
       <button class="btn btn-ghost btn-sm" id="flow-sim" ${isNew ? `disabled title="${esc(t('automation.save_first'))}"` : ''} onclick="_flowSimulate()">▶ ${t('automation.simulate')}</button>
       <button class="btn btn-primary btn-sm" onclick="_flowSave()">${t('common.save')}</button>
+      ${isNew ? '' : `<button class="btn btn-ghost btn-sm" onclick="_flowVersions()">${t('automation.versions')}</button>`}
       ${isNew ? '' : `<button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="_flowDelete()">${t('common.delete')}</button>`}
     </div>
     <div class="fl-canvas" id="flow-canvas">
@@ -87,6 +88,37 @@ window._flowDelete = async function() {
     await api('DELETE', `/rules-engine/rules/${r.id}`);
     toast(t('security.rules.deleted'), 'success');
     window._flowSel = '';
+    pages['automation-flow']();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+// Historique des versions : un instantané par création/modification/restauration
+// (20 derniers conservés par règle), avec retour arrière en un clic.
+window._flowVersions = async function() {
+  const r = _flowCurrent();
+  if (!r) return;
+  let versions = [];
+  try { versions = await api('GET', `/rules-engine/rules/${r.id}/versions`) || []; }
+  catch (e) { toast(e.message, 'error'); return; }
+  const body = versions.length
+    ? `<div style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow:auto">${versions.map((v, i) => `
+        <div class="card" style="padding:10px 12px;display:flex;align-items:center;gap:10px">
+          <div style="flex:1;min-width:0">
+            <b>v${v.version}</b>${i === 0 ? ` <span class="tag tag-green" style="font-size:10px">${t('automation.version_current')}</span>` : ''}
+            <div style="font-size:11.5px;color:var(--text2)">${fmtDate(v.created_at)} · ${esc(v.condition?.type || '')} → ${esc(v.action?.type || '')}</div>
+          </div>
+          ${i === 0 ? '' : `<button class="btn btn-ghost btn-sm" onclick="_flowRestoreVersion('${esc(r.id)}',${v.version})">${t('automation.restore')}</button>`}
+        </div>`).join('')}</div>`
+    : `<p style="font-size:12.5px;color:var(--text3)">${t('automation.no_versions')}</p>`;
+  modal(t('automation.versions'), body, `<button class="btn btn-secondary" onclick="closeModal()">${t('common.close')}</button>`);
+};
+
+window._flowRestoreVersion = async function(ruleId, version) {
+  if (!confirm(t('automation.restore_confirm', { v: version }))) return;
+  try {
+    await api('POST', `/rules-engine/rules/${ruleId}/versions/${version}/restore`);
+    closeModal();
+    toast(t('automation.restored', { v: version }), 'success');
     pages['automation-flow']();
   } catch (e) { toast(e.message, 'error'); }
 };

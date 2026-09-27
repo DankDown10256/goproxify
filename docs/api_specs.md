@@ -905,6 +905,14 @@ Historique des exécutions. Paramètre : `limit`.
 
 Rejoue l'action d'une entrée d'historique en échec, en réutilisant le `detail` capturé au déclenchement d'origine (la condition n'est pas réévaluée). `400` si l'entrée n'a jamais déclenché de tentative d'action ou si la règle a été supprimée depuis. Réponse : `{ ok: true }`.
 
+### `GET /api/v1/rules-engine/rules/:id/versions`
+
+Liste l'historique des versions d'une règle (20 dernières), la plus récente en premier. Réponse : tableau `{ version, name, description, enabled, condition, action, cooldown_sec, created_at }`.
+
+### `POST /api/v1/rules-engine/rules/:id/versions/:version/restore`
+
+Restaure la règle à l'état de la version indiquée (condition, action, cooldown, activation, nom, description). La restauration ajoute elle-même une nouvelle version. `404` si la règle ou la version n'existe pas. Réponse : `{ ok: true }`.
+
 ### `GET /api/v1/rules-engine/condition-types`
 
 Liste les descripteurs de types de conditions disponibles (nom, paramètres, descriptions).
