@@ -605,6 +605,14 @@ func migrate(db *sql.DB) error {
 	// Vulnérabilités (CVE) — passerelle d'origine, pour affichage côté Admin (vue agrégée multi-passerelle).
 	db.Exec(`ALTER TABLE security_cves ADD COLUMN edge_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
 
+	// Vulnérabilités (CVE) — exploitation active (catalogue CISA KEV) et probabilité d'exploitation
+	// (score EPSS, FIRST.org), rafraîchis en fin de scan (internal/admin/vulnscan). Le SLA de correction
+	// (délai attendu selon la gravité) n'est pas stocké : il est recalculé à la lecture depuis le réglage
+	// `cve_sla_config` (table settings), pour refléter tout de suite un changement de seuils.
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN kev INTEGER NOT NULL DEFAULT 0`)     //nolint:errcheck
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN epss_score REAL NOT NULL DEFAULT 0`) //nolint:errcheck
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN epss_updated_at DATETIME`)           //nolint:errcheck
+
 	// Menaces CrowdSec — passerelle d'origine + dernière observation (une même menace ip+scenario
 	// était ré-émise régulièrement mais ignorée par l'unicité (ip, scenario), sans jamais
 	// rafraîchir la date affichée côté Admin/Passerelle).

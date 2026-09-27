@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -245,6 +246,10 @@ backendsLoop:
 	// CVEs par sévérité — on approxime la sévérité à partir du score CVSS stocké en DB
 	s.recordCVESeverityMetrics(ctx)
 
+	// Exploitation active (CISA KEV) et probabilité d'exploitation (EPSS) — meilleur effort,
+	// ne bloque jamais le scan (réseau externe indisponible = CVEs simplement pas enrichies).
+	s.enrichKEVEPSS(ctx)
+
 	s.log.Info("vulnscan: scan terminé",
 		"backends", len(backends),
 		"reachable", st.ReachableN,
@@ -429,6 +434,153 @@ func (s *Scanner) queryCVEs(ctx context.Context, keyword string) ([]cveResult, s
 		out = append(out, cveResult{id: c.ID, cvss: cvss, desc: desc})
 	}
 	return out, ""
+}
+
+// ── KEV (CISA) + EPSS (FIRST.org) ────────────────────────────────────────────
+// Enrichit les CVE déjà détectées avec deux signaux qui priment sur le seul score CVSS :
+// KEV = la vulnérabilité est activement exploitée (catalogue officiel CISA) ;
+// EPSS = probabilité (0-1) qu'elle soit exploitée dans les 30 jours (modèle FIRST.org).
+// Les deux sont interrogés sans clé d'API ; le catalogue KEV est mis en cache 24h en mémoire.
+
+const kevFeedURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+const epssAPIURL = "https://api.first.org/data/v1/epss?cve="
+
+var (
+	kevMu      sync.Mutex
+	kevSet     map[string]bool
+	kevFetched time.Time
+)
+
+func (s *Scanner) kevIDs(ctx context.Context) (map[string]bool, error) {
+	kevMu.Lock()
+	defer kevMu.Unlock()
+	if kevSet != nil && time.Since(kevFetched) < 24*time.Hour {
+		return kevSet, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, kevFeedURL, nil)
+	if err != nil {
+		return kevSet, err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return kevSet, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return kevSet, fmt.Errorf("CISA KEV HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Vulnerabilities []struct {
+			CveID string `json:"cveID"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return kevSet, fmt.Errorf("CISA KEV: réponse invalide: %w", err)
+	}
+	set := make(map[string]bool, len(payload.Vulnerabilities))
+	for _, v := range payload.Vulnerabilities {
+		if v.CveID != "" {
+			set[v.CveID] = true
+		}
+	}
+	kevSet = set
+	kevFetched = time.Now()
+	return kevSet, nil
+}
+
+// fetchEPSS interroge l'API FIRST.org par lots de 100 CVE (limite raisonnable d'URL).
+func (s *Scanner) fetchEPSS(ctx context.Context, ids []string) (map[string]float64, error) {
+	out := make(map[string]float64, len(ids))
+	var lastErr error
+	for i := 0; i < len(ids); i += 100 {
+		end := i + 100
+		if end > len(ids) {
+			end = len(ids)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, epssAPIURL+strings.Join(ids[i:end], ","), nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("EPSS HTTP %d", resp.StatusCode)
+			continue
+		}
+		var payload struct {
+			Data []struct {
+				CVE  string `json:"cve"`
+				EPSS string `json:"epss"`
+			} `json:"data"`
+		}
+		decErr := json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if decErr != nil {
+			lastErr = fmt.Errorf("EPSS: réponse invalide: %w", decErr)
+			continue
+		}
+		for _, d := range payload.Data {
+			if v, err := strconv.ParseFloat(d.EPSS, 64); err == nil {
+				out[d.CVE] = v
+			}
+		}
+	}
+	return out, lastErr
+}
+
+func (s *Scanner) enrichKEVEPSS(ctx context.Context) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT cve_id FROM security_cves`)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return
+	}
+
+	kev, kevErr := s.kevIDs(ctx)
+	if kevErr != nil {
+		s.log.Warn("vulnscan: catalogue CISA KEV indisponible", "err", kevErr)
+	}
+	epss, epssErr := s.fetchEPSS(ctx, ids)
+	if epssErr != nil {
+		s.log.Warn("vulnscan: score EPSS indisponible (partiel ou absent)", "err", epssErr)
+	}
+
+	now := time.Now().UTC()
+	for _, id := range ids {
+		isKEV := 0
+		if kev[id] {
+			isKEV = 1
+		}
+		score, hasScore := epss[id]
+		if !hasScore {
+			// Ni KEV ni EPSS n'ont répondu pour cette CVE : on ne touche à rien plutôt que d'écraser
+			// une valeur déjà connue par 0.
+			if kevErr != nil && epssErr != nil {
+				continue
+			}
+		}
+		if hasScore {
+			s.db.ExecContext(ctx, //nolint:errcheck
+				`UPDATE security_cves SET kev=?, epss_score=?, epss_updated_at=? WHERE cve_id=?`,
+				isKEV, score, now, id)
+		} else if kevErr == nil {
+			s.db.ExecContext(ctx, `UPDATE security_cves SET kev=? WHERE cve_id=?`, isKEV, id) //nolint:errcheck
+		}
+	}
 }
 
 func (s *Scanner) recordCVESeverityMetrics(ctx context.Context) {

@@ -23,7 +23,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Moteurs IPS** : page unifiée Fail2Ban / CrowdSec avec configuration in-place
 - **Timeouts serveur HTTP/QUIC** : ReadHeader, Read, Write, Idle configurables depuis l’Admin et propagés aux passerelles
 - **Vocabulaire unifié** : « Core » devient « passerelle » (FR) / « Edge » (EN) dans l'interface, la CLI, les variables d'environnement, l'image et le conteneur ; migration automatique des bases et fichiers existants (voir le changelog)
-- **Scanner CVE** : toggle UI pour autoriser les backends IP privées (opt-in, anti-SSRF par défaut)
+- **Scanner CVE** : toggle UI pour autoriser les backends IP privées (opt-in, anti-SSRF par défaut) ; enrichissement KEV (catalogue CISA, exploitation active) et EPSS (probabilité d'exploitation, FIRST.org) en fin de scan ; SLA de correction réglable par gravité (page Vulnérabilités, fenêtre Moteurs de sécurité, CLI, MCP)
 - **Politiques d’accès centralisées** : vue unifiée IP/GeoIP/Bot par proxy dans l’Admin
 - **Logs** : corrélation exacte par `request_id`, keyset pagination, vue live mobile
 - **Prism** : taux d’erreurs et IPs bannies par pays ; bouton accès rapide depuis la table des bans

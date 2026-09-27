@@ -25,13 +25,13 @@ import (
 
 // SecurityHandler expose le dashboard sécurité.
 type SecurityHandler struct {
-	DB         *sql.DB
-	Log        *slog.Logger
-	Store      *security.Store
-	Fail2Ban   *fail2ban.Engine
-	VulnScan   *vulnscan.Scanner
-	CrowdSec   *crowdsec.Bouncer
-	ScanCtx    context.Context
+	DB       *sql.DB
+	Log      *slog.Logger
+	Store    *security.Store
+	Fail2Ban *fail2ban.Engine
+	VulnScan *vulnscan.Scanner
+	CrowdSec *crowdsec.Bouncer
+	ScanCtx  context.Context
 	// Groups donne le groupe HA d'une passerelle : sa config de sécurité est alors celle du groupe.
 	Groups GroupResolver
 	// OnBansChange notifie un changement de bans (push vers les passerelles).
@@ -88,6 +88,11 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.listCVEs(w, r)
 	case r.Method == http.MethodPatch && sub == "cves" && id != "":
 		h.updateCVE(w, r, id)
+	// SLA de correction des CVE (délai attendu selon la gravité) — réglage global.
+	case r.Method == http.MethodGet && sub == "sla-config":
+		h.getSlaConfig(w, r)
+	case r.Method == http.MethodPut && sub == "sla-config":
+		h.putSlaConfig(w, r)
 	case r.Method == http.MethodGet && sub == "headers":
 		h.headers(w, r)
 	case r.Method == http.MethodGet && sub == "timeline":
@@ -548,27 +553,97 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score, epss_updated_at
+		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
 		args...)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
+	sla := h.slaConfig(r.Context())
 	var out []security.CVE
 	for rows.Next() {
 		var c security.CVE
 		var detectedAt string
-		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.EdgeName, &detectedAt); err != nil {
+		var kevInt int
+		var epssUpdated sql.NullString
+		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.EdgeName,
+			&detectedAt, &kevInt, &c.EPSSScore, &epssUpdated); err != nil {
 			continue
 		}
-		c.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)
+		c.KEV = kevInt != 0
+		// Le pilote modernc/sqlite relit toute colonne DATETIME normalisée en RFC3339 (quel que soit
+		// le format d'écriture d'origine, y compris DEFAULT CURRENT_TIMESTAMP) ; on retente l'ancien
+		// format par sécurité si jamais ce n'était pas le cas pour une ligne donnée.
+		if tm, err := time.Parse(time.RFC3339, detectedAt); err == nil {
+			c.DetectedAt = tm
+		} else {
+			c.DetectedAt, _ = time.Parse("2006-01-02 15:04:05", detectedAt)
+		}
+		if epssUpdated.Valid {
+			// epss_updated_at n'est jamais écrit par défaut SQL (contrairement à detected_at) : la valeur
+			// transite par un paramètre lié Go (time.Time), que le pilote modernc/sqlite normalise en
+			// RFC3339 — layout différent de celui de detected_at (rempli par DEFAULT CURRENT_TIMESTAMP).
+			if tm, err := time.Parse(time.RFC3339, epssUpdated.String); err == nil {
+				c.EPSSUpdatedAt = &tm
+			}
+		}
+		c.SLADays = sla.DaysFor(c.CVSSScore)
+		due := c.DetectedAt.AddDate(0, 0, c.SLADays)
+		c.SLADueAt = &due
 		out = append(out, c)
 	}
 	if out == nil {
 		out = []security.CVE{}
 	}
 	jsonOK(w, out)
+}
+
+// slaConfig lit le réglage global de délais de correction (settings, non scopé passerelle : la
+// politique de correction est la même pour tout le parc), ou les valeurs par défaut si absent/invalide.
+func (h *SecurityHandler) slaConfig(ctx context.Context) security.SLAConfig {
+	cfg := security.DefaultSLAConfig()
+	var v string
+	h.DB.QueryRowContext(ctx, `SELECT value FROM settings WHERE key='cve_sla_config'`).Scan(&v) //nolint:errcheck
+	if v != "" {
+		json.Unmarshal([]byte(v), &cfg) //nolint:errcheck
+	}
+	return cfg
+}
+
+func (h *SecurityHandler) getSlaConfig(w http.ResponseWriter, r *http.Request) {
+	jsonOK(w, h.slaConfig(r.Context()))
+}
+
+func (h *SecurityHandler) putSlaConfig(w http.ResponseWriter, r *http.Request) {
+	var cfg security.SLAConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.json")
+		return
+	}
+	def := security.DefaultSLAConfig()
+	if cfg.CriticalDays <= 0 {
+		cfg.CriticalDays = def.CriticalDays
+	}
+	if cfg.HighDays <= 0 {
+		cfg.HighDays = def.HighDays
+	}
+	if cfg.MediumDays <= 0 {
+		cfg.MediumDays = def.MediumDays
+	}
+	if cfg.LowDays <= 0 {
+		cfg.LowDays = def.LowDays
+	}
+	b, _ := json.Marshal(cfg)
+	_, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO settings (key, value) VALUES ('cve_sla_config', ?)
+		 ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(b))
+	if err != nil {
+		secJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *SecurityHandler) updateCVE(w http.ResponseWriter, r *http.Request, id string) {
@@ -1014,12 +1089,12 @@ func (h *SecurityHandler) intelKPIs(w http.ResponseWriter, r *http.Request) {
 	if bc != "" {
 		and, where = " AND "+bc, " WHERE "+bc
 	}
-	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_bans`+where, ba...).Scan(&active)                      //nolint:errcheck
-	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`+and, ba...).Scan(&histTotal) //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_bans`+where, ba...).Scan(&active)                                                                                  //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`+and, ba...).Scan(&histTotal)                                                    //nolint:errcheck
 	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT ip FROM security_ban_history WHERE action='banned'`+and+` GROUP BY ip HAVING COUNT(*)>=3)`, ba...).Scan(&recurring) //nolint:errcheck
 
 	var bannedCount, unbannedCount int
-	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`+and, ba...).Scan(&bannedCount)   //nolint:errcheck
+	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='banned'`+and, ba...).Scan(&bannedCount)     //nolint:errcheck
 	h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM security_ban_history WHERE action='unbanned'`+and, ba...).Scan(&unbannedCount) //nolint:errcheck
 
 	jsonOK(w, map[string]any{
@@ -1156,12 +1231,12 @@ func (h *SecurityHandler) intelTopIPs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type entry struct {
-		IP             string `json:"ip"`
-		TotalBans      int    `json:"total_bans"`
-		LastSeen       string `json:"last_seen"`
-		MainSource     string `json:"main_source"`
-		MainReason     string `json:"main_reason"`
-		CurrentlyBanned bool  `json:"currently_banned"`
+		IP              string `json:"ip"`
+		TotalBans       int    `json:"total_bans"`
+		LastSeen        string `json:"last_seen"`
+		MainSource      string `json:"main_source"`
+		MainReason      string `json:"main_reason"`
+		CurrentlyBanned bool   `json:"currently_banned"`
 	}
 	out := []entry{}
 	for rows.Next() {

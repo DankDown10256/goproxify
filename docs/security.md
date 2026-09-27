@@ -351,6 +351,17 @@ Analyse les backends HTTP configurés à la recherche de vulnérabilités connue
   - Configurable aussi via `GPX_VULNSCAN_ALLOW_PRIVATE=true` sur l'Admin
 - Déclenchable manuellement ; intégrable aux alertes (notification sur CVE détectée)
 
+### Exploitation active (KEV), probabilité d'exploitation (EPSS) et SLA de correction
+
+En fin de scan, chaque CVE déjà détectée est enrichie (meilleur effort — réseau externe indisponible = simplement pas enrichie, le scan n'échoue pas) :
+
+- **KEV** : la CVE figure au catalogue [CISA Known Exploited Vulnerabilities](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (exploitation activement observée). Catalogue entier mis en cache 24h en mémoire (`GET https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json`).
+- **EPSS** : probabilité (0-1) d'exploitation dans les 30 jours, modèle [FIRST.org EPSS](https://www.first.org/epss/) (`GET https://api.first.org/data/v1/epss`, par lots de 100 CVE).
+
+Une CVE exploitée (KEV) pèse davantage dans le **score de risque** (page Vulnérabilités et Synthèse Sécurité) que son seul CVSS, et peut être isolée via le filtre KEV.
+
+Le **SLA de correction** (délai attendu après détection, selon la gravité CVSS) est un réglage global, éditable dans la fenêtre **Moteurs de sécurité > Scanner CVE** (ou `GET/PUT /api/v1/security/sla-config`, `goproxify security cve sla get/set`). Défaut : 7 j (critique, CVSS ≥ 9), 14 j (élevée, ≥ 7), 30 j (moyenne, ≥ 4), 90 j (faible). L'échéance est recalculée à la lecture (jamais stockée), pour refléter immédiatement un changement de seuils.
+
 ---
 
 ## Headers de sécurité HTTP

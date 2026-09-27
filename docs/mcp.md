@@ -732,8 +732,9 @@ CVE détectées sur les backends.
 |-------------------|---------|--------|--------------------------------------|
 | `status`          | string  | —      | `open`, `ignored`, `resolved`        |
 | `critical_only`   | boolean | —      | CVSS ≥ 7 uniquement                  |
+| `kev_only`        | boolean | —      | Uniquement les CVE du catalogue CISA KEV (exploitation active) |
 
-Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne).
+Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne) — ainsi que `kev` (bool, exploitation activement observée, catalogue CISA) et `epss_score` (0-1, probabilité d'exploitation sous 30 jours, modèle EPSS de FIRST.org), rafraîchis en fin de scan (Admin `0.52.3`).
 
 ---
 

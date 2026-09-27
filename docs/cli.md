@@ -678,6 +678,10 @@ goproxify security bans delete -id <ban-id> [-admin-url …] [-token …]
 # WAF par proxy
 goproxify security waf get -proxy <proxy-id> [-admin-url …] [-token …]
 goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url …] [-token …]
+
+# SLA de correction des CVE (délai attendu selon la gravité)
+goproxify security cve sla get [-admin-url …] [-token …]
+goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 ```
 
 **`security threat`** — lit ou écrit la configuration du moteur Sentinel (fail2ban, seuils, whitelist globale…). Le paramètre `-edge` cible une passerelle spécifique dans un cluster multi-passerelle.
@@ -685,6 +689,12 @@ goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url
 **`security threat simulate`** — rejoue les access logs récents (`-hours`, défaut 1, max 24 ; `-domain` pour un seul domaine) contre la config candidate du fichier, surchargée sur la config actuelle, et affiche le résultat en JSON : requêtes bloquées, faux positifs probables (`legit_blocked`), IP et bans, actuel vs candidat. Ne modifie rien. Voir `POST /api/v1/security/threat-config/simulate`.
 
 **`security bans`** — liste, ajoute ou supprime des IPs bannies manuellement. `-ttl` accepte des durées Go (`1h`, `24h`, `7d`). `list` accepte `-edge` (nom du nœud ou id du token : les bans de cette passerelle et les bans globaux), `-source` et `-active true` (non expirés) ou `false` (expirés) ; la passerelle d’origine est affichée entre crochets.
+
+**`security cve sla`** — lit ou écrit le délai de correction attendu des CVE (en jours après détection), par tranche de gravité CVSS ; réglage global (Admin `0.52.3`). Fichier `sla.json` :
+
+```json
+{ "critical_days": 7, "high_days": 14, "medium_days": 30, "low_days": 90 }
+```
 
 **`security waf`** — lit (`get`) ou met à jour (`set`) les champs `waf` et `sentinel_whitelist` d'un proxy sans toucher au reste de sa configuration. Le fichier JSON peut contenir uniquement les clés à modifier :
 
@@ -712,6 +722,9 @@ goproxify security bans delete -id <ban-id>
 
 goproxify security waf get -proxy app.example.fr
 goproxify security waf set -proxy app.example.fr -file waf.json
+
+goproxify security cve sla get
+goproxify security cve sla set -file sla.json
 
 # Moteur de règles automatiques
 goproxify security rules list   [-admin-url …] [-token …]

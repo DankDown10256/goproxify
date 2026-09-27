@@ -62,6 +62,45 @@ type CVE struct {
 	Status      string    `json:"status"` // open | ignored | fixed
 	EdgeName    string    `json:"edge_name"`
 	DetectedAt  time.Time `json:"detected_at"`
+
+	// KEV : exploitation activement observée (catalogue CISA Known Exploited Vulnerabilities).
+	KEV bool `json:"kev"`
+	// EPSSScore : probabilité (0-1) d'exploitation dans les 30 jours (modèle FIRST.org).
+	// Zéro tant que le scanner n'a pas encore pu interroger l'API (pas d'échec pour autant).
+	EPSSScore     float64    `json:"epss_score"`
+	EPSSUpdatedAt *time.Time `json:"epss_updated_at,omitempty"`
+
+	// SLADays / SLADueAt : recalculés à la lecture depuis le réglage cve_sla_config (pas stockés),
+	// pour refléter immédiatement un changement de seuils. Non significatifs si Status != "open".
+	SLADays  int        `json:"sla_days,omitempty"`
+	SLADueAt *time.Time `json:"sla_due_at,omitempty"`
+}
+
+// SLAConfig fixe le délai de correction attendu (en jours après détection) par tranche de gravité CVSS.
+type SLAConfig struct {
+	CriticalDays int `json:"critical_days"` // CVSS >= 9
+	HighDays     int `json:"high_days"`     // CVSS >= 7
+	MediumDays   int `json:"medium_days"`   // CVSS >= 4
+	LowDays      int `json:"low_days"`      // CVSS < 4
+}
+
+// DefaultSLAConfig retourne les délais par défaut (7 / 14 / 30 / 90 jours).
+func DefaultSLAConfig() SLAConfig {
+	return SLAConfig{CriticalDays: 7, HighDays: 14, MediumDays: 30, LowDays: 90}
+}
+
+// DaysFor retourne le délai de correction (en jours) applicable à un score CVSS donné.
+func (c SLAConfig) DaysFor(cvss float64) int {
+	switch {
+	case cvss >= 9:
+		return c.CriticalDays
+	case cvss >= 7:
+		return c.HighDays
+	case cvss >= 4:
+		return c.MediumDays
+	default:
+		return c.LowDays
+	}
 }
 
 // HeaderCheck est le résultat de l'analyse des en-têtes de sécurité d'un proxy.
@@ -76,6 +115,10 @@ type HeaderCheck struct {
 
 // Check décrit un contrôle individuel.
 type Check struct {
+	// Key : identifiant stable et non traduit (ex. "tls", "hsts"), utilisé par le frontend pour
+	// afficher un libellé localisé (`security.posture.check.<key>`). Name reste en français pour la
+	// CLI et le rétro-compat (CSV, éventuels consommateurs externes de l'API) — jamais affiché par l'UI.
+	Key     string `json:"key"`
 	Name    string `json:"name"`
 	Present bool   `json:"present"`
 	Points  int    `json:"points"`
@@ -83,14 +126,14 @@ type Check struct {
 
 // Overview est le résumé du dashboard sécurité.
 type Overview struct {
-	ActiveBans    int           `json:"active_bans"`
-	ActiveThreats int           `json:"active_threats"`
-	OpenCVEs      int           `json:"open_cves"`
-	CriticalCVEs  int           `json:"critical_cves"`
-	CertsExpiring int           `json:"certs_expiring"`    // expirant dans 30 jours
-	CertsExpired  int           `json:"certs_expired"`
-	AvgHeaderScore float64      `json:"avg_header_score"`
-	Headers       []HeaderCheck `json:"headers"`
+	ActiveBans     int           `json:"active_bans"`
+	ActiveThreats  int           `json:"active_threats"`
+	OpenCVEs       int           `json:"open_cves"`
+	CriticalCVEs   int           `json:"critical_cves"`
+	CertsExpiring  int           `json:"certs_expiring"` // expirant dans 30 jours
+	CertsExpired   int           `json:"certs_expired"`
+	AvgHeaderScore float64       `json:"avg_header_score"`
+	Headers        []HeaderCheck `json:"headers"`
 }
 
 // Store centralise les requêtes de sécurité.
@@ -103,12 +146,12 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // GetOverview calcule le résumé complet.
 func (s *Store) GetOverview(proxies []proxyRow) Overview {
 	var ov Overview
-	s.db.QueryRow(`SELECT COUNT(*) FROM security_bans WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`).Scan(&ov.ActiveBans)                   //nolint:errcheck
-	s.db.QueryRow(`SELECT COUNT(*) FROM security_threats`).Scan(&ov.ActiveThreats)                                                                          //nolint:errcheck
-	s.db.QueryRow(`SELECT COUNT(*) FROM security_cves WHERE status='open'`).Scan(&ov.OpenCVEs)                                                              //nolint:errcheck
-	s.db.QueryRow(`SELECT COUNT(*) FROM security_cves WHERE status='open' AND cvss_score>=7`).Scan(&ov.CriticalCVEs)                                        //nolint:errcheck
-	s.db.QueryRow(`SELECT COUNT(*) FROM certs WHERE expires_at > CURRENT_TIMESTAMP AND expires_at <= datetime('now','+30 days')`).Scan(&ov.CertsExpiring)   //nolint:errcheck
-	s.db.QueryRow(`SELECT COUNT(*) FROM certs WHERE expires_at <= CURRENT_TIMESTAMP`).Scan(&ov.CertsExpired)                                                //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM security_bans WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`).Scan(&ov.ActiveBans)                 //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM security_threats`).Scan(&ov.ActiveThreats)                                                                        //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM security_cves WHERE status='open'`).Scan(&ov.OpenCVEs)                                                            //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM security_cves WHERE status='open' AND cvss_score>=7`).Scan(&ov.CriticalCVEs)                                      //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM certs WHERE expires_at > CURRENT_TIMESTAMP AND expires_at <= datetime('now','+30 days')`).Scan(&ov.CertsExpiring) //nolint:errcheck
+	s.db.QueryRow(`SELECT COUNT(*) FROM certs WHERE expires_at <= CURRENT_TIMESTAMP`).Scan(&ov.CertsExpired)                                              //nolint:errcheck
 
 	scores := make([]HeaderCheck, 0, len(proxies))
 	var total float64
@@ -169,15 +212,15 @@ func ComputeHeaderScore(id, name, host string, cfg router.Route) HeaderCheck {
 	h := cfg.Headers
 
 	checks := []Check{
-		{Name: "TLS activé",           Present: cfg.TLSEnabled,                                        Points: 20},
-		{Name: "HSTS",                 Present: h != nil && h.HSTS,                                    Points: 15},
-		{Name: "X-Frame-Options",      Present: h != nil && h.XFrameOptions != "",                     Points: 12},
-		{Name: "Masquer Server",       Present: h != nil && h.HideServer,                              Points: 8},
-		{Name: "Rate Limiting",        Present: cfg.RateLimit != nil,                                  Points: 10},
-		{Name: "WAF activé",           Present: cfg.WAF != nil && cfg.WAF.Enabled,                    Points: 15},
-		{Name: "Protection bot",       Present: cfg.Bot != nil && cfg.Bot.Enabled,                    Points: 10},
-		{Name: "Filtrage IP",          Present: hasIPFiltering(cfg),                                   Points: 5},
-		{Name: "Authentification",     Present: (cfg.JWT != nil && cfg.JWT.Enabled) || (cfg.SSO != nil && cfg.SSO.Enabled) || (cfg.MTLS != nil && cfg.MTLS.Enabled), Points: 5},
+		{Key: "tls", Name: "TLS activé", Present: cfg.TLSEnabled, Points: 20},
+		{Key: "hsts", Name: "HSTS", Present: h != nil && h.HSTS, Points: 15},
+		{Key: "xfo", Name: "X-Frame-Options", Present: h != nil && h.XFrameOptions != "", Points: 12},
+		{Key: "hide_server", Name: "Masquer Server", Present: h != nil && h.HideServer, Points: 8},
+		{Key: "rate_limit", Name: "Rate Limiting", Present: cfg.RateLimit != nil, Points: 10},
+		{Key: "waf", Name: "WAF activé", Present: cfg.WAF != nil && cfg.WAF.Enabled, Points: 15},
+		{Key: "bot", Name: "Protection bot", Present: cfg.Bot != nil && cfg.Bot.Enabled, Points: 10},
+		{Key: "ip_filter", Name: "Filtrage IP", Present: hasIPFiltering(cfg), Points: 5},
+		{Key: "auth", Name: "Authentification", Present: (cfg.JWT != nil && cfg.JWT.Enabled) || (cfg.SSO != nil && cfg.SSO.Enabled) || (cfg.MTLS != nil && cfg.MTLS.Enabled), Points: 5},
 	}
 
 	score := 0

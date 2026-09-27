@@ -375,9 +375,21 @@ function smPanelHTML() {
         <div><button type="button" class="btn btn-ghost btn-sm" onclick="smClose();navigate('security-rules')">${esc(t('sm.open_rules'))} →</button></div>`;
     }
     case 'scan': {
+      const s = _sm.sla || {};
+      const dis = admin ? '' : 'disabled';
       return `<div class="sm-master"><div><b>${esc(t('sm.tab.scan'))}</b><p>${esc(t('sm.scan_d'))}</p></div></div>
         <div class="sm-caps"><div class="sm-cap"><div class="sm-cap-d"><b>${esc(t('security.vulnscan.allow_private'))}</b><span>${esc(t('security.vulnscan.allow_private_help'))}</span></div><div class="sm-cap-r">${smSwitch(!!_sm.scan?.allow_private, 'smScanPrivate(this.checked)', t('security.vulnscan.allow_private'), !admin)}</div></div></div>
-        ${admin ? '' : `<p class="vs-hint">${esc(t('sm.scan_global'))}</p>`}`;
+        ${admin ? '' : `<p class="vs-hint">${esc(t('sm.scan_global'))}</p>`}
+        <div class="sm-master"><div><b>${esc(t('sm.sla_title'))}</b><p>${esc(t('sm.sla_hint'))}</p></div></div>
+        <form class="sm-sla-form" onsubmit="smSaveSla(event)">
+          <div class="sm-sla-grid">
+            <label>${esc(t('security.vulns.f_critical'))}<input type="number" class="input" min="1" id="sm-sla-crit" value="${s.critical_days || 7}" ${dis}></label>
+            <label>${esc(t('security.vulns.f_high'))}<input type="number" class="input" min="1" id="sm-sla-high" value="${s.high_days || 14}" ${dis}></label>
+            <label>${esc(t('security.vs.s_med_full'))}<input type="number" class="input" min="1" id="sm-sla-med" value="${s.medium_days || 30}" ${dis}></label>
+            <label>${esc(t('security.vs.s_low_full'))}<input type="number" class="input" min="1" id="sm-sla-low" value="${s.low_days || 90}" ${dis}></label>
+          </div>
+          ${admin ? `<button type="submit" class="btn btn-primary btn-sm">${esc(t('common.save'))}</button>` : `<p class="vs-hint">${esc(t('sm.sla_global'))}</p>`}
+        </form>`;
     }
   }
   return '';
@@ -413,13 +425,14 @@ window.secEnginesOpen = async function(tab) {
   let root = document.getElementById('sm-root');
   if (!root) { root = document.createElement('div'); root.id = 'sm-root'; document.body.appendChild(root); }
   root.innerHTML = `<div class="sm-scrim"><div class="sm-modal"><p style="padding:24px;color:var(--text2)">${esc(t('common.loading'))}</p></div></div>`;
-  const [threat, f2b, cs, provider, rules, scan] = await Promise.all([
+  const [threat, f2b, cs, provider, rules, scan, sla] = await Promise.all([
     api('GET', `/security/threat-config${edgeQ}`).catch(() => ({})),
     api('GET', '/security/fail2ban').catch(() => ({})),
     api('GET', '/security/crowdsec').catch(() => ({})),
     api('GET', `/security/ips-provider${edgeQ}`).catch(() => ({ provider: 'native' })),
     mode === 'admin' ? api('GET', '/rules-engine/rules').catch(() => []) : Promise.resolve([]),
     api('GET', '/security/vulnscan/config').catch(() => ({})),
+    api('GET', '/security/sla-config').catch(() => ({})),
   ]);
   _sm.threat = threat || {};
   _sm.f2b = f2b || {};
@@ -427,6 +440,7 @@ window.secEnginesOpen = async function(tab) {
   _sm.provider = provider?.provider || 'native';
   _sm.rules = Array.isArray(rules) ? rules : (rules?.rules || []);
   _sm.scan = scan || {};
+  _sm.sla = sla || {};
   window._f2bCfg = _sm.f2b;
   window._csCfg = _sm.cs;
   window._reRules = _sm.rules;
@@ -489,4 +503,15 @@ window.smRule = function(id, enabled) {
 };
 window.smScanPrivate = function(on) {
   return smSave(async () => { await api('PUT', '/security/vulnscan/config', { allow_private: on }); _sm.scan = { ..._sm.scan, allow_private: on }; window._vsConfig = _sm.scan; });
+};
+window.smSaveSla = function(e) {
+  e.preventDefault();
+  const num = (id, def) => { const v = parseInt(document.getElementById(id)?.value, 10); return Number.isFinite(v) && v > 0 ? v : def; };
+  const cfg = {
+    critical_days: num('sm-sla-crit', 7),
+    high_days: num('sm-sla-high', 14),
+    medium_days: num('sm-sla-med', 30),
+    low_days: num('sm-sla-low', 90),
+  };
+  return smSave(async () => { await api('PUT', '/security/sla-config', cfg); _sm.sla = cfg; }, t('sm.sla_saved'));
 };

@@ -327,7 +327,7 @@ See `.env.example` for the full list.
 | Configuration | `GPX_*` environment variables + optional JSON |
 | Discovery | Docker Engine API via Unix socket (read-only) |
 | Metrics | Prometheus `/metrics`, OpenTelemetry (OTLP) |
-| Security | OWASP CRS-4 WAF (13 rule sets, request + response inspection), behavioral Sentinel, native Fail2Ban, CrowdSec, **automatic rules engine**, rate limiting, Geo-IP, ECDSA P-256 JWT, HMAC-SHA256 WS |
+| Security | OWASP CRS-4 WAF (13 rule sets, request + response inspection), behavioral Sentinel, native Fail2Ban, CrowdSec, **automatic rules engine**, rate limiting, Geo-IP, ECDSA P-256 JWT, HMAC-SHA256 WS, CVE scanner with KEV/EPSS enrichment and configurable remediation SLA |
 | Deployment | Single binary · Docker Compose · systemd |
 
 ---

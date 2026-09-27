@@ -497,10 +497,11 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "list_security_cves",
-		"description": "Liste les CVE détectées sur les backends.",
+		"description": "Liste les CVE détectées sur les backends, avec exploitation active (kev) et probabilité d'exploitation (epss_score, 0-1, FIRST.org).",
 		"inputSchema": schema(
 			opt("status", "string", "Filtrer: open, ignored, resolved"),
 			opt("critical_only", "boolean", "Si true, CVSS >= 7 uniquement"),
+			opt("kev_only", "boolean", "Si true, uniquement les CVE du catalogue CISA KEV (exploitation active)"),
 		),
 	},
 }
@@ -1854,12 +1855,15 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 	if crit, _ := args["critical_only"].(bool); crit {
 		clauses = append(clauses, "cvss_score>=7")
 	}
+	if kevOnly, _ := args["kev_only"].(bool); kevOnly {
+		clauses = append(clauses, "kev=1")
+	}
 	where := ""
 	if len(clauses) > 0 {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score
 		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC LIMIT 200`, qargs...)
 	if err != nil {
 		return nil, err
@@ -1867,15 +1871,16 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id int
+		var id, kevInt int
 		var backend, cveID, desc, status, edgeName, detectedAt string
-		var cvss float64
-		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &edgeName, &detectedAt); err != nil {
+		var cvss, epssScore float64
+		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &edgeName, &detectedAt, &kevInt, &epssScore); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "backend_url": backend, "cve_id": cveID, "cvss_score": cvss,
 			"description": desc, "status": status, "edge_name": edgeName, "detected_at": detectedAt,
+			"kev": kevInt != 0, "epss_score": epssScore,
 		})
 	}
 	if out == nil {

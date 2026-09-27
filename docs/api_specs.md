@@ -720,7 +720,7 @@ Met à jour la liste des peers Tunnel L4 du nœud. Corps : `{"peers":[{"name":".
 
 ### `GET /api/v1/security/overview`
 
-Compteurs globaux : `active_bans`, `active_threats`, `open_cves`, `critical_cves`, `avg_header_score`, `certs_expired`, `certs_expiring`.
+Compteurs globaux : `active_bans`, `active_threats`, `open_cves`, `critical_cves`, `avg_header_score`, `certs_expired`, `certs_expiring`. `headers[].checks[]` (contrôles de posture par proxy) porte depuis Admin `0.52.4` un champ `key` (identifiant stable non traduit, ex. `"tls"`, `"waf"`) en plus de `name` (toujours en français) : le frontend traduit l'affichage depuis `key` et ne retombe sur `name` que pour des données mises en cache avant son ajout.
 
 ### `GET /api/v1/security/bans`
 
@@ -744,9 +744,20 @@ Liste les menaces CrowdSec (`security_threats`), triées par `last_seen_at` déc
 
 Liste les CVE détectées (`security_cves`). Paramètres : `status` (`open|ignored|fixed`), `critical=true` (CVSS ≥ 7). Chaque entrée inclut `edge_name` — la passerelle d'origine ayant remonté la CVE (résolu côté serveur depuis le token d'appairage à la réception, vide pour les données antérieures à cette colonne). Vue Admin : agrégat de toutes les passerelles, colonne passerelle affichée. Vue passerelle : déjà filtrée sur cette passerelle via les backends de ses proxies, colonne masquée (redondante).
 
+Depuis Admin `0.52.3`, chaque entrée inclut aussi :
+- `kev` (bool) — exploitation activement observée (catalogue CISA Known Exploited Vulnerabilities), rafraîchi en fin de scan (`internal/admin/vulnscan`), catalogue entier mis en cache 24h en mémoire.
+- `epss_score` (0-1) et `epss_updated_at` — probabilité d'exploitation sous 30 jours (modèle EPSS, FIRST.org), rafraîchi en fin de scan par lots de 100 CVE.
+- `sla_days` et `sla_due_at` — délai de correction attendu et échéance calculée (`detected_at` + `sla_days`), selon la gravité CVSS et le réglage `GET/PUT /api/v1/security/sla-config`. Recalculés à la lecture (jamais stockés), pour refléter immédiatement un changement de seuils. Non significatifs si `status != "open"`.
+
+Les deux enrichissements (KEV, EPSS) sont du meilleur effort : un réseau externe indisponible au moment du scan laisse simplement `kev=false` / `epss_score=0` sans faire échouer le scan.
+
 ### `PATCH /api/v1/security/cves/:id`
 
 Change le statut d'une CVE. Corps : `{ "status": "open|ignored|fixed" }`.
+
+### `GET /api/v1/security/sla-config` · `PUT /api/v1/security/sla-config`
+
+Délai de correction attendu (en jours après détection), par tranche de gravité CVSS — réglage global (pas de portée par passerelle : la politique de correction est la même pour tout le parc). Corps / réponse : `{ "critical_days": 7, "high_days": 14, "medium_days": 30, "low_days": 90 }` (CVSS ≥ 9 / ≥ 7 / ≥ 4 / < 4). Valeurs par défaut si le réglage n'a jamais été enregistré ; une valeur ≤ 0 envoyée au `PUT` retombe sur son défaut plutôt que d'être acceptée telle quelle.
 
 ### `GET /api/v1/security/fail2ban` · `PUT /api/v1/security/fail2ban`
 
@@ -1148,6 +1159,5 @@ Codes d'erreur :
 - `GET /api/v1/prism/anomalies?[from&to&proxy&node_name]` — écarts détectés sur la période, critiques d'abord : `[{kind, level, subject, label, value, baseline, count, banned?}]`. `kind` : `error_spike` (point de la courbe > moyenne + 2,5 écarts-types, au moins 10 erreurs ; `subject` = tranche horaire), `dominant_ip` (au moins 20 % des requêtes et 50 requêtes ; `banned` si déjà bannie), `country_errors` (au moins 20 % d'erreurs sur 50 requêtes, 2 max), `backend_errors` (plus de 10 % d'erreurs sur 20 requêtes, 2 max), `bot_share` (au moins 30 %). `level` : `critical` | `warning`.
 - `GET /api/v1/prism/slo?[target&days&proxy&node_name]` — SLO de disponibilité (réponses non-5xx) sur une fenêtre glissante (`target` en % : objectif enregistré, 99.9 par défaut ; `days` : 30 par défaut, 90 max ; `from`/`to` ignorés) : `{target, days, requests, errors, availability, budget_total, budget_left_pct, burn_1h, burn_6h, state}`. `burn_*` vaut 1 quand le budget est consommé exactement au rythme de l'objectif. `state` : `exhausted` (budget consommé), `critical` (burn ≥ 14,4 sur 1 h et ≥ 6 sur 6 h), `warning` (burn ≥ 3 sur 6 h), sinon `ok`.
 - `GET /api/v1/alert-events?[days&limit&trigger&node]` — alertes déclenchées (30 jours conservés, plus récente d'abord) : `[{id, rule_id, rule_name, trigger, detail, channels, title, body, priority, silenced, fired_at}]` ; `node` filtre sur le nom de passerelle du détail. `silenced=true` : la règle correspondait mais un silence actif (`Automatisation > Alertes > Silences & maintenance`) a bloqué l'envoi — `channels` est alors vide.
-- `GET /api/v1/prism/deploys?[from&to&proxy&node_name]` — changements de configuration sur la fenêtre (proxys via `proxy_history`, domaines via `domains.updated_at`, certificats via `cert_deploy_history`) : `[{at, kind, proxy, domain, note}]` (`kind` : `proxy` | `domain` | `cert`), triés du plus ancien au plus récent, 300 max ; `node_name` est ignoré (une configuration n'est pas propre à une passerelle). Sert les annotations de courbe de Prism et de la Synthèse.
-- `GET /api/v1/prism/slo/config?[node_name]` → `{target, is_override?, global_target?}` (`is_override`/`global_target` renvoyés seulement avec `node_name`) ; `PUT /api/v1/prism/slo/config?[node_name]` `{target}` (admin, entre 90 et 99.999) ; `DELETE /api/v1/prism/slo/config?node_name=` (admin, `node_name` requis) supprime l'override d'une passerelle. Sans `node_name`, l'objectif est global (réglage `slo.target`, 99.9 par défaut) ; avec, la passerelle lit d'abord son propre objectif (`slo.target.<node>`) puis, à défaut, le global. Utilisé par l'écran, `GET /prism/slo` sans `target`, l'outil MCP `get_prism_slo` et l'alerte `slo_burn` (résolus par passerelle).
+- `GET /api/v1/prism/slo/config` → `{target}` ; `PUT /api/v1/prism/slo/config` `{target}` (admin, entre 90 et 99.999) — objectif SLO enregistré (réglage `slo.target`, 99.9 par défaut), utilisé par l'écran, `GET /prism/slo` sans `target`, l'outil MCP `get_prism_slo` et l'alerte `slo_burn`.
 - `GET /api/v1/prism/live-ips` renvoie en plus `city`, `lat`, `lon` (0/0 tant que l'IP n'est pas localisée).

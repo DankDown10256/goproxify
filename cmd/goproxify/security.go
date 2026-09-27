@@ -23,6 +23,8 @@ func runSecurity() {
 		runSecurityWAF()
 	case "rules":
 		runSecurityRules()
+	case "cve":
+		runSecurityCVE()
 	case "help", "":
 		fmt.Print(`Usage: goproxify security <sous-commande> [options]
 
@@ -31,6 +33,7 @@ Sous-commandes :
   bans     Gestion des IPs bannies
   waf      Config WAF d'un proxy
   rules    Moteur de règles automatiques
+  cve      SLA de correction des CVE (délai attendu selon la gravité)
 
 goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
 goproxify security threat set  [-edge <id>] -file <config.json> [-admin-url …] [-token …]
@@ -53,6 +56,9 @@ goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
 goproxify security rules silence list   [-admin-url …] [-token …]
 goproxify security rules silence add    -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>] [-admin-url …] [-token …]
 goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
+
+goproxify security cve sla get [-admin-url …] [-token …]
+goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande security inconnue : %q\n", sub)
@@ -630,3 +636,67 @@ func proxyConfig(proxy map[string]any) map[string]any {
 	return map[string]any{}
 }
 
+// ── CVE : SLA de correction ───────────────────────────────────────────────────
+
+func runSecurityCVE() {
+	sub := subcommand(os.Args, 3)
+	switch sub {
+	case "sla":
+		runSecurityCVESLA()
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande cve inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+func runSecurityCVESLA() {
+	sub := subcommand(os.Args, 4)
+	switch sub {
+	case "get", "":
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var cfg json.RawMessage
+		if _, err := client.DoJSON("GET", "/api/v1/security/sla-config", nil, &cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "cve sla get : %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(cfg, "", "  ")
+		fmt.Println(string(out))
+
+	case "set":
+		args := parseFlags(os.Args[5:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security cve sla set -file <sla.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var cfg json.RawMessage
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/security/sla-config", cfg, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "cve sla set : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("SLA de correction des CVE mis à jour.")
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande cve sla inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}

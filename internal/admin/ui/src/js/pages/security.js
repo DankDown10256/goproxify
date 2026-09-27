@@ -300,7 +300,7 @@ function secTopThreatsHTML(events, navBans) {
 // l'unité de regroupement et la colonne « Passerelle » changent.
 
 const VS_VIEW_KEY = 'gpx_vulns_view';
-const _vs = { view: 'parc', sev: '', st: 'open', q: '', gw: '', open: null, sel: null, cves: [], mode: 'admin' };
+const _vs = { view: 'parc', sev: '', st: 'open', q: '', gw: '', kevOnly: false, open: null, sel: null, cves: [], mode: 'admin' };
 try { _vs.view = localStorage.getItem(VS_VIEW_KEY) === 'list' ? 'list' : 'parc'; } catch (_) {}
 
 function vsSev(score) {
@@ -310,11 +310,37 @@ function vsSev(score) {
 
 function vsIsOpen(c) { return c.status === 'open'; }
 
-// 100 = rien d'ouvert ; chaque CVE ouverte retire des points selon sa gravité.
+// 100 = rien d'ouvert ; chaque CVE ouverte retire des points selon sa gravité, +8 si exploitée
+// activement (KEV) : une CVE exploitée pèse plus que son seul CVSS, quelle que soit sa gravité.
 function vsRiskScore(list) {
   let penalty = 0;
-  for (const c of list) if (vsIsOpen(c)) penalty += vsSev(c.cvss_score) === 'crit' ? 14 : vsSev(c.cvss_score) === 'high' ? 7 : 3;
+  for (const c of list) if (vsIsOpen(c)) {
+    const sev = vsSev(c.cvss_score);
+    penalty += sev === 'crit' ? 14 : sev === 'high' ? 7 : 3;
+    if (c.kev) penalty += 8;
+  }
   return Math.max(0, 100 - penalty);
+}
+
+// SLA de correction : jours restants (positif) ou de retard (négatif) sur la CVE.
+// null si pas de date (ex. CVE fermée sans sla_due_at renvoyé) ou statut non pertinent.
+function vsSlaDays(c) {
+  if (!c.sla_due_at) return null;
+  return Math.ceil((new Date(c.sla_due_at).getTime() - Date.now()) / 86400000);
+}
+function vsSlaBadge(c) {
+  if (c.status !== 'open') return '';
+  const days = vsSlaDays(c);
+  if (days == null) return '';
+  return days < 0
+    ? `<span class="tag tag-red vs-sla-badge">${esc(t('security.vs.sla_overdue', { n: -days }))}</span>`
+    : `<span class="tag tag-neutral vs-sla-badge">${esc(t('security.vs.sla_due', { n: days }))}</span>`;
+}
+function vsKevBadge(c) {
+  return c.kev ? `<span class="tag tag-red vs-kev-badge" title="${esc(t('security.vs.kev_full'))}">KEV</span>` : '';
+}
+function vsEpssHTML(c) {
+  return c.epss_score > 0 ? `<span class="vs-epss" title="${esc(t('security.vs.epss_full'))}">${Math.round(c.epss_score * 100)}% EPSS</span>` : '';
 }
 
 function vsUnitKey(c) { return _vs.mode === 'admin' ? (c.edge_name || '—') : (c.backend_url || '—'); }
@@ -326,9 +352,10 @@ function vsFiltered() {
     if (_vs.st && c.status !== _vs.st) return false;
     if (_vs.sev && vsSev(c.cvss_score) !== _vs.sev) return false;
     if (_vs.gw && (c.edge_name || '—') !== _vs.gw) return false;
+    if (_vs.kevOnly && !c.kev) return false;
     if (q && !(`${c.cve_id} ${c.backend_url} ${c.description} ${c.edge_name || ''}`.toLowerCase().includes(q))) return false;
     return true;
-  }).sort((a, b) => (b.cvss_score || 0) - (a.cvss_score || 0));
+  }).sort((a, b) => (b.kev ? 1 : 0) - (a.kev ? 1 : 0) || (b.cvss_score || 0) - (a.cvss_score || 0));
 }
 
 function vsSevBar(list) {
@@ -356,12 +383,12 @@ function vsStatusTag(status) {
 function vsRowHTML(c, showGw) {
   const sev = vsSev(c.cvss_score);
   return `<button type="button" class="vs-row${_vs.sel === vsCveKey(c) ? ' sel' : ''}" onclick="vsSelect('${esc(vsCveKey(c))}')" aria-label="${esc(c.cve_id)}">
-    <span class="vs-c-cve mono">${esc(c.cve_id)}</span>
-    <span class="vs-c-score"><span class="vs-score vs-${sev}">${(Number(c.cvss_score) || 0).toFixed(1)}</span></span>
+    <span class="vs-c-cve mono">${esc(c.cve_id)}${vsKevBadge(c)}</span>
+    <span class="vs-c-score"><span class="vs-score vs-${sev}">${(Number(c.cvss_score) || 0).toFixed(1)}</span>${vsEpssHTML(c)}</span>
     <span class="vs-c-be mono" title="${esc(c.backend_url)}">${esc(c.backend_url)}</span>
     ${showGw ? `<span class="vs-c-gw">${esc(c.edge_name || '—')}</span>` : ''}
     <span class="vs-c-desc" title="${esc(c.description)}">${esc(c.description)}</span>
-    <span class="vs-c-st">${vsStatusTag(c.status)}</span>
+    <span class="vs-c-st">${vsStatusTag(c.status)}${vsSlaBadge(c)}</span>
   </button>`;
 }
 
@@ -386,6 +413,7 @@ function vsUnits(list) {
 function vsUnitCardHTML(u) {
   const open = u.l.filter(vsIsOpen);
   const n = s => open.filter(c => vsSev(c.cvss_score) === s).length;
+  const kevN = open.filter(c => c.kev).length;
   const expanded = _vs.open === u.k;
   const meta = _vs.mode === 'admin'
     ? t('security.vs.backends_n', { n: new Set(u.l.map(c => c.backend_url)).size })
@@ -396,7 +424,7 @@ function vsUnitCardHTML(u) {
       ${vsRing(u.score, 52)}
     </span>
     ${vsSevBar(u.l)}
-    <span class="vs-counts"><span class="vs-crit-t">${n('crit')} ${esc(t('security.vs.s_crit'))}</span><span class="vs-high-t">${n('high')} ${esc(t('security.vs.s_high'))}</span><span class="vs-med-t">${n('med')} ${esc(t('security.vs.s_med'))}</span><span class="vs-low-t">${n('low')} ${esc(t('security.vs.s_low'))}</span></span>
+    <span class="vs-counts"><span class="vs-crit-t">${n('crit')} ${esc(t('security.vs.s_crit'))}</span><span class="vs-high-t">${n('high')} ${esc(t('security.vs.s_high'))}</span><span class="vs-med-t">${n('med')} ${esc(t('security.vs.s_med'))}</span><span class="vs-low-t">${n('low')} ${esc(t('security.vs.s_low'))}</span>${kevN ? `<span class="vs-kev-t">${kevN} KEV</span>` : ''}</span>
   </button>`;
 }
 
@@ -404,9 +432,12 @@ function vsDrawerHTML() {
   const c = _vs.cves.find(x => vsCveKey(x) === _vs.sel);
   if (!c) return `<aside class="vs-drawer" id="vs-drawer" aria-live="polite"><div class="vs-drawer-empty">${esc(t('security.vs.detail_empty'))}</div></aside>`;
   const sev = vsSev(c.cvss_score);
+  const slaDays = vsSlaDays(c);
   const rows = [
     [t('security.col.backend'), c.backend_url],
     _vs.mode === 'admin' ? [t('security.col.edge'), c.edge_name || '—'] : null,
+    c.epss_score > 0 ? [t('security.vs.epss'), `${(c.epss_score * 100).toFixed(1)} %`] : null,
+    c.status === 'open' && slaDays != null ? [t('security.vs.sla_due_label'), slaDays < 0 ? t('security.vs.sla_overdue', { n: -slaDays }) : t('security.vs.sla_due', { n: slaDays })] : null,
     c.published_at ? [t('security.vulns.published'), fmtDate(c.published_at)] : null,
     c.updated_at ? [t('security.vulns.updated'), fmtDate(c.updated_at)] : null,
   ].filter(Boolean);
@@ -416,7 +447,7 @@ function vsDrawerHTML() {
       <span class="vs-score vs-${sev}">${(Number(c.cvss_score) || 0).toFixed(1)}</span>
       <button type="button" class="btn btn-ghost btn-icon btn-sm vs-drawer-close" onclick="vsSelect(null)" aria-label="${esc(t('common.close'))}">✕</button>
     </div>
-    <div>${vsStatusTag(c.status)}</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${vsStatusTag(c.status)}${c.kev ? `<span class="vs-drawer-kev">⚠ ${esc(t('security.vs.kev_full'))}</span>` : ''}</div>
     <p class="vs-drawer-desc">${esc(c.description)}</p>
     <dl class="vs-dl">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(v)}</dd>`).join('')}</dl>
     <div class="vs-acts">
@@ -448,10 +479,13 @@ function vsBodyHTML() {
 function vsChipsHTML() {
   const open = _vs.cves.filter(vsIsOpen);
   const chips = [['', t('security.vs.f_all'), null], ['crit', t('security.vulns.f_critical'), 'crit'], ['high', t('security.vulns.f_high'), 'high'], ['med', t('security.vs.s_med_full'), 'med'], ['low', t('security.vs.s_low_full'), 'low']];
-  return chips.map(([k, label, sev]) => {
+  const sevChips = chips.map(([k, label, sev]) => {
     const n = sev ? open.filter(c => vsSev(c.cvss_score) === sev).length : null;
     return `<button type="button" class="chip${_vs.sev === k ? ' active' : ''}" aria-pressed="${_vs.sev === k}" onclick="vsSetSev('${k}')">${esc(label)}${n != null ? `<span class="chip-n">${n}</span>` : ''}</button>`;
   }).join('');
+  const kevN = open.filter(c => c.kev).length;
+  const kevChip = `<button type="button" class="chip${_vs.kevOnly ? ' active' : ''}" aria-pressed="${_vs.kevOnly}" onclick="vsToggleKev()" title="${esc(t('security.vs.kev_full'))}">${esc(t('security.vs.kev'))}<span class="chip-n">${kevN}</span></button>`;
+  return sevChips + kevChip;
 }
 
 function vsPaint() {
@@ -474,6 +508,7 @@ window.vsSetView = function(v) {
   vsPaint();
 };
 window.vsSetSev = function(v) { _vs.sev = v; vsPaint(); };
+window.vsToggleKev = function() { _vs.kevOnly = !_vs.kevOnly; vsPaint(); };
 window.vsSetStatusFilter = function(v) { _vs.st = v; vsPaint(); };
 window.vsSetGw = function(v) { _vs.gw = v; vsPaint(); };
 window.vsSetQuery = function(v) { _vs.q = v; vsPaint(); };
@@ -503,13 +538,16 @@ function vsKpisHTML() {
   const open = cves.filter(vsIsOpen);
   const crit = open.filter(c => vsSev(c.cvss_score) === 'crit').length;
   const high = open.filter(c => vsSev(c.cvss_score) === 'high').length;
+  const kevN = open.filter(c => c.kev).length;
+  const overdue = open.filter(c => (vsSlaDays(c) ?? 0) < 0).length;
   const units = new Set(open.map(vsUnitKey)).size;
   const score = vsRiskScore(cves);
   const scoreColor = score >= 80 ? 'var(--green)' : score >= 55 ? 'var(--yellow)' : 'var(--red)';
   return `
     <div class="sec-tile vs-kpi" style="border-left:3px solid var(--red)"><div class="sec-tile-label">${esc(t('security.vulns.kpi_critical'))}</div><div class="sec-tile-value" style="color:${crit ? 'var(--red)' : 'var(--green)'}">${crit}</div><div class="sec-tile-sub">CVSS ≥ 9.0</div></div>
+    <div class="sec-tile vs-kpi" style="border-left:3px solid var(--red)" title="${esc(t('security.vs.kev_full'))}"><div class="sec-tile-label">${esc(t('security.vs.kpi_kev'))}</div><div class="sec-tile-value" style="color:${kevN ? 'var(--red)' : 'var(--green)'}">${kevN}</div><div class="sec-tile-sub">${esc(t('security.vs.kpi_kev_sub'))}</div></div>
     <div class="sec-tile vs-kpi" style="border-left:3px solid var(--yellow)"><div class="sec-tile-label">${esc(t('security.vulns.kpi_high'))}</div><div class="sec-tile-value" style="color:${high ? 'var(--yellow)' : 'var(--green)'}">${high}</div><div class="sec-tile-sub">CVSS 7.0 – 8.9</div></div>
-    <div class="sec-tile vs-kpi" style="border-left:3px solid var(--accent)"><div class="sec-tile-label">${esc(t('security.vulns.kpi_open'))}</div><div class="sec-tile-value" style="color:${open.length ? 'var(--accent)' : 'var(--green)'}">${open.length}</div><div class="sec-tile-sub">${esc(t('security.vulns.kpi_open_sub'))}</div></div>
+    <div class="sec-tile vs-kpi" style="border-left:3px solid var(--accent)"><div class="sec-tile-label">${esc(t('security.vulns.kpi_open'))}</div><div class="sec-tile-value" style="color:${open.length ? 'var(--accent)' : 'var(--green)'}">${open.length}</div><div class="sec-tile-sub">${esc(overdue ? t('security.vs.kpi_open_overdue', { n: overdue }) : t('security.vulns.kpi_open_sub'))}</div></div>
     <div class="sec-tile vs-kpi"><div class="sec-tile-label">${esc(t(_vs.mode === 'admin' ? 'security.vs.kpi_gw' : 'security.vulns.kpi_backends'))}</div><div class="sec-tile-value" style="color:${units ? 'var(--yellow)' : 'var(--green)'}">${units}</div><div class="sec-tile-sub">${esc(t('security.vs.risk'))} <b style="color:${scoreColor}">${score}/100</b></div></div>`;
 }
 
@@ -544,7 +582,7 @@ async function renderSecurityVulns(ctx) {
     window._vsConfig = vsConfigRaw || {};
 
     const scope = mode + ':' + (edgeCtx?.edgeRef || '');
-    if (_vs.scope !== scope) Object.assign(_vs, { scope, sev: '', st: 'open', q: '', gw: '', open: null, sel: null });
+    if (_vs.scope !== scope) Object.assign(_vs, { scope, sev: '', st: 'open', q: '', gw: '', kevOnly: false, open: null, sel: null });
     _vs.mode = mode;
     _vs.cves = filterSecCVEs(cvesRaw || [], edgeCtx);
     if (_vs.sel && !_vs.cves.some(c => vsCveKey(c) === _vs.sel)) _vs.sel = null;
@@ -1342,6 +1380,15 @@ function headersGrid(headers) {
   return `${secPostureToolbar(all.length, filtered.length)}<div id="sec-posture-cards">${secPostureCardsHTML(filtered)}</div>`;
 }
 
+// secCheckLabel : libellé localisé d'un contrôle de posture. `key` est un identifiant stable
+// (ex. "tls") ajouté par le backend (Admin 0.52.3+) ; les données mises en cache avant cet ajout
+// (aucun `key`) retombent sur le nom brut, envoyé en français par le backend.
+function secCheckLabel(c) {
+  if (!c.key) return c.name;
+  const label = t('security.posture.check.' + c.key);
+  return label === 'security.posture.check.' + c.key ? c.name : label;
+}
+
 function secPostureChecksLabel(presentN, total, missing) {
   if (missing <= 0) return t('security.posture_complete');
   const key = missing === 1 ? 'security.checks_ok' : 'security.checks_ok_n';
@@ -1360,7 +1407,7 @@ function secPostureCardsHTML(filtered) {
       const color     = scoreColor(h.score);
       const pid       = esc(h.proxy_id || '');
       const missList  = missing.length
-        ? `<ul style="margin:0;padding-left:14px;font-size:10px;color:var(--text2);line-height:1.45;">${missing.map(c => `<li>${esc(c.name)}</li>`).join('')}</ul>`
+        ? `<ul style="margin:0;padding-left:14px;font-size:10px;color:var(--text2);line-height:1.45;">${missing.map(c => `<li>${esc(secCheckLabel(c))}</li>`).join('')}</ul>`
         : '';
       return `<div style="border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;">
