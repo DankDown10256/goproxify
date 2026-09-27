@@ -43,6 +43,8 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && path == "":
 		h.list(w, r)
+	case r.Method == http.MethodGet && path == "histogram":
+		h.histogram(w, r)
 	case r.Method == http.MethodGet && path == "live":
 		h.live(w, r)
 	case r.Method == http.MethodGet && path == "export":
@@ -104,6 +106,34 @@ func (h *LogsHandler) export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", "attachment; filename=logs-"+ts+"."+ext)
 	w.Write(data) //nolint:errcheck
+}
+
+// histogram : mêmes filtres que la liste, plus bucket=minute|hour|day (défaut selon l'étendue ; 24 h si aucune date).
+func (h *LogsHandler) histogram(w http.ResponseWriter, r *http.Request) {
+	p := parseLogsParams(r)
+	now := time.Now()
+	from, to := now.Add(-24*time.Hour), now
+	if t, err := time.Parse(time.RFC3339, p.DateFrom); err == nil {
+		from = t
+	} else {
+		p.DateFrom = from.UTC().Format(time.RFC3339)
+	}
+	if t, err := time.Parse(time.RFC3339, p.DateTo); err == nil {
+		to = t
+	}
+	bucket := r.URL.Query().Get("bucket")
+	if bucket == "" {
+		bucket = "hour"
+		if to.Sub(from) <= 6*time.Hour {
+			bucket = "minute"
+		}
+	}
+	pts, err := h.Store.Histogram(p, bucket)
+	if err != nil {
+		logsJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, map[string]any{"bucket": bucket, "points": pts})
 }
 
 func parseLogsParams(r *http.Request) logs.SearchParams {

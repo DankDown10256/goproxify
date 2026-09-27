@@ -23,11 +23,45 @@ type AuditHandler struct {
 }
 
 func (h *AuditHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/histogram") {
+		h.handleHistogram(w, r)
+		return
+	}
 	if strings.HasSuffix(r.URL.Path, "/export") {
 		h.handleExport(w, r)
 		return
 	}
 	h.handleSearch(w, r)
+}
+
+// handleHistogram : mêmes filtres que la recherche, plus bucket=minute|hour|day (défaut : selon l'étendue, 24 h sans date).
+func (h *AuditHandler) handleHistogram(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	p := audit.SearchParams{Component: q.Get("component"), Action: q.Get("action"), Actor: q.Get("actor"), Severity: q.Get("severity")}
+	p.From, _ = time.Parse(time.RFC3339, q.Get("from"))
+	p.To, _ = time.Parse(time.RFC3339, q.Get("to"))
+	now := time.Now()
+	if p.From.IsZero() {
+		p.From = now.Add(-24 * time.Hour)
+	}
+	end := p.To
+	if end.IsZero() {
+		end = now
+	}
+	bucket := q.Get("bucket")
+	if bucket == "" {
+		bucket = "hour"
+		if end.Sub(p.From) <= 6*time.Hour {
+			bucket = "minute"
+		}
+	}
+	pts, err := h.Auditor.Histogram(p, bucket)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"bucket": bucket, "points": pts}) //nolint:errcheck
 }
 
 func (h *AuditHandler) handleSearch(w http.ResponseWriter, r *http.Request) {

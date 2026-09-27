@@ -105,11 +105,8 @@ type SearchParams struct {
 	Offset    int
 }
 
-// Search retourne les entrées filtrées et le total correspondant.
-func (l *Logger) Search(p SearchParams) ([]Entry, int, error) {
-	if p.Limit == 0 {
-		p.Limit = 50
-	}
+// where construit la clause WHERE (sans le mot-clé) et ses arguments.
+func (p SearchParams) where() (string, []any) {
 	conds, args := []string{"1=1"}, []any{}
 	if p.Component != "" {
 		conds = append(conds, "component=?")
@@ -135,7 +132,52 @@ func (l *Logger) Search(p SearchParams) ([]Entry, int, error) {
 		conds = append(conds, "created_at <= ?")
 		args = append(args, p.To.Format(time.RFC3339))
 	}
-	where := strings.Join(conds, " AND ")
+	return strings.Join(conds, " AND "), args
+}
+
+// HistPoint compte les actions d'une tranche de temps, par gravité.
+type HistPoint struct {
+	Bucket   string `json:"bucket"`
+	Total    int64  `json:"total"`
+	Warn     int64  `json:"warn"`
+	Critical int64  `json:"critical"`
+}
+
+// Histogram répartit les entrées filtrées par tranche de temps (« minute », « day » ou heure) et gravité.
+func (l *Logger) Histogram(p SearchParams, bucket string) ([]HistPoint, error) {
+	tfmt := "%Y-%m-%dT%H:00"
+	switch bucket {
+	case "minute":
+		tfmt = "%Y-%m-%dT%H:%M"
+	case "day":
+		tfmt = "%Y-%m-%d"
+	}
+	where, args := p.where()
+	rows, err := l.db.Query(
+		"SELECT strftime('"+tfmt+"', created_at, 'localtime') AS b, COUNT(*), "+
+			"SUM(CASE WHEN severity='warning' THEN 1 ELSE 0 END), "+
+			"SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) "+
+			"FROM audit_log WHERE "+where+" GROUP BY b ORDER BY b", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HistPoint{}
+	for rows.Next() {
+		var h HistPoint
+		if rows.Scan(&h.Bucket, &h.Total, &h.Warn, &h.Critical) == nil && h.Bucket != "" {
+			out = append(out, h)
+		}
+	}
+	return out, nil
+}
+
+// Search retourne les entrées filtrées et le total correspondant.
+func (l *Logger) Search(p SearchParams) ([]Entry, int, error) {
+	if p.Limit == 0 {
+		p.Limit = 50
+	}
+	where, args := p.where()
 
 	var total int
 	_ = l.db.QueryRow("SELECT COUNT(*) FROM audit_log WHERE "+where, args...).Scan(&total)

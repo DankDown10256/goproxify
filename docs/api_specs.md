@@ -1101,6 +1101,8 @@ Tous les messages WS utilisent l'enveloppe suivante :
 | POST | `/api/v1/logs/reveal-ip` | `gdpr:reveal` | Révéler l'IP réelle d'une entrée pseudonymisée |
 | DELETE | `/api/v1/logs/by-ip/{ip}` | admin | Effacement RGPD Art.17 par IP |
 | DELETE | `/api/v1/logs/by-user/{user_id}` | admin | Effacement RGPD Art.17 par utilisateur |
+| GET | `/api/v1/logs/histogram` | `logs:read` | Entrées par tranche de temps et par niveau : mêmes filtres que la liste plus `bucket` (`minute`, `hour`, `day` ; défaut selon l'étendue, 24 h sans `date_from`) → `{bucket, points:[{bucket, total, warn, error}]}` |
+| GET | `/api/v1/audit/histogram` | authentifié | Actions du journal d'audit par tranche et par gravité : filtres `component`, `action`, `actor`, `severity`, `from`, `to` (RFC 3339) plus `bucket` → `{bucket, points:[{bucket, total, warn, critical}]}` |
 
 ### POST `/api/v1/logs/reveal-ip`
 

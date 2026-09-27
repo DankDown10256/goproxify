@@ -415,12 +415,12 @@ function renderAccessLogEntry(e, i) {
   </article>`;
 }
 
-function renderSystemLogEntry(e) {
+function renderSystemLogEntry(e, i) {
   const parts = [];
   if (e.component) parts.push(`<span class="chip" style="font-size:11px">${esc(e.component)}</span>`);
   if (e.node_name) parts.push(`<span class="mono">${esc(e.node_name)}</span>`);
   if (e.domain) parts.push(`<span class="mono">${logCellFilter('domain', e.domain)}</span>`);
-  return `<article class="log-entry">
+  return `<article class="log-entry" data-log-i="${i}">
     <div class="log-entry-top">
       <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
       ${logLvlBadge(e.level)}
@@ -447,8 +447,8 @@ function renderAccessLogRow(e, i) {
   </tr>`;
 }
 
-function renderSystemLogRow(e) {
-  return `<tr>
+function renderSystemLogRow(e, i) {
+  return `<tr data-log-i="${i}">
     <td class="mono" style="font-size:11px;white-space:nowrap">${esc(fmtDate(e.ts))}</td>
     <td>${logLvlBadge(e.level)}</td>
     <td><span class="chip" style="font-size:11px">${esc(e.component||'—')}</span></td>
@@ -533,8 +533,9 @@ async function loadStaticLogs(beforeID) {
       if (tbody) tbody.innerHTML = `<tr><td colspan="${cols}" class="empty"><p>${t('logs.none')}</p></td></tr>`;
       if (list) list.innerHTML = `<div class="logs-empty">${t('logs.none')}</div>`;
     } else if (isSystem) {
-      if (tbody) tbody.innerHTML = entries.map(renderSystemLogRow).join('');
-      if (list) list.innerHTML = entries.map(renderSystemLogEntry).join('');
+      logsRows = entries;
+      if (tbody) tbody.innerHTML = entries.map((e, i) => renderSystemLogRow(e, i)).join('');
+      if (list) list.innerHTML = entries.map((e, i) => renderSystemLogEntry(e, i)).join('');
     } else {
       logsRows = entries;
       if (tbody) tbody.innerHTML = entries.map((e, i) => renderAccessLogRow(e, i)).join('');
@@ -804,10 +805,11 @@ let logsQuickMs = 0;
 let logsRows = [];
 
 function logsQuickHTML() {
-  if (isSystemLogs()) return '';
   const per = LOGS_PERIODS.map(([k, ms]) => `<button type="button" class="chip${logsQuickMs === ms ? ' active' : ''}" data-log-quick="${ms}">${k}</button>`).join('')
     + `<button type="button" class="chip${logsQuickMs ? '' : ' active'}" data-log-quick="0">${esc(t('lg.q_all'))}</button>`;
-  const cls = ['2xx', '3xx', '4xx', '5xx'].map(c => `<button type="button" class="chip${logsFilters.status === c ? ' active' : ''}" data-log-status="${c}">${c}</button>`).join('');
+  const set = isSystemLogs() ? ['warn', 'error'] : ['2xx', '3xx', '4xx', '5xx'];
+  const key = isSystemLogs() ? 'level' : 'status';
+  const cls = set.map(c => `<button type="button" class="chip${logsFilters[key] === c ? ' active' : ''}" data-log-cls="${c}">${c}</button>`).join('');
   return `<div class="logs-quick"><div class="logs-quick-g">${per}</div><div class="logs-quick-g">${cls}</div></div>`;
 }
 
@@ -832,20 +834,20 @@ function onLogsQuickClick(e) {
     refreshLogsView();
     return true;
   }
-  const st = e.target.closest('[data-log-status]');
+  const st = e.target.closest('[data-log-cls]');
   if (within(st)) {
-    const c = st.getAttribute('data-log-status');
-    logsFilters.status = logsFilters.status === c ? '' : c;
+    const c = st.getAttribute('data-log-cls'), key = isSystemLogs() ? 'level' : 'status';
+    logsFilters[key] = logsFilters[key] === c ? '' : c;
     refreshLogsView();
     return true;
   }
   const bar = e.target.closest('[data-log-bucket]');
   if (within(bar)) {
-    const r = typeof obsBucketRange === 'function' ? obsBucketRange(bar.getAttribute('data-log-bucket'), bar.getAttribute('data-log-unit')) : {};
-    if (r.from) {
+    const r = gpxBucketISO(bar.getAttribute('data-log-bucket'), bar.getAttribute('data-unit'));
+    if (r) {
       logsQuickMs = 0;
-      logsFilters.date_from = new Date(r.from).toISOString();
-      logsFilters.date_to = new Date(r.to).toISOString();
+      logsFilters.date_from = r.from;
+      logsFilters.date_to = r.to;
       refreshLogsView();
     }
     return true;
@@ -867,30 +869,29 @@ function onLogsQuickClick(e) {
 async function loadLogsHist() {
   const el = document.getElementById('logs-hist');
   if (!el) return;
-  if (isSystemLogs()) { el.innerHTML = ''; return; }
   const to = logsFilters.date_to ? new Date(logsFilters.date_to) : new Date();
   const from = logsFilters.date_from ? new Date(logsFilters.date_from) : new Date(to - 86400000);
   const unit = to - from <= 21600000 ? 'minute' : 'hour';
-  const p = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), bucket: unit });
-  if (logsFilters.domain) p.set('proxy', logsFilters.domain);
-  if (logsFilters.ip) p.set('ip', logsFilters.ip);
-  if (logsFilters.path) p.set('path', logsFilters.path);
-  if (logsScope.node_name) p.set('node_name', logsScope.node_name);
-  const pts = await api('GET', '/prism/timeline?' + p).catch(() => []);
+  let pts = [];
+  if (isSystemLogs()) {
+    const p = new URLSearchParams({ kind: 'system', bucket: unit, date_from: from.toISOString(), date_to: to.toISOString() });
+    if (logsScope.node_id) { p.set('node_id', logsScope.node_id); if (logsScope.node_name) p.set('node_name', logsScope.node_name); }
+    else if (logsScope.node_name) p.set('node_name', logsScope.node_name);
+    if (logsScope.lockComp && logsScope.component) p.set('component', logsScope.component);
+    else if (logsFilters.component) p.set('component', logsFilters.component);
+    for (const k of ['level', 'domain', 'search']) if (logsFilters[k]) p.set(k, logsFilters[k]);
+    pts = (await api('GET', '/logs/histogram?' + p).catch(() => null))?.points || [];
+  } else {
+    const p = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), bucket: unit });
+    if (logsFilters.domain) p.set('proxy', logsFilters.domain);
+    if (logsFilters.ip) p.set('ip', logsFilters.ip);
+    if (logsFilters.path) p.set('path', logsFilters.path);
+    if (logsScope.node_name) p.set('node_name', logsScope.node_name);
+    const raw = await api('GET', '/prism/timeline?' + p).catch(() => []);
+    pts = (Array.isArray(raw) ? raw : []).map(x => ({ bucket: x.bucket, total: x.requests, warn: 0, error: x.errors }));
+  }
   if (!document.getElementById('logs-hist')) return;
-  if (!Array.isArray(pts) || !pts.length) { el.innerHTML = ''; return; }
-  const W = 900, H = 70, pad = 2, bw = W / pts.length;
-  const mx = Math.max(1, ...pts.map(x => x.requests));
-  const bars = pts.map((x, i) => {
-    const okH = Math.max(0, (x.requests - x.errors) / mx * (H - 4)), erH = x.errors / mx * (H - 4);
-    const xx = (i * bw + pad / 2).toFixed(1), w = Math.max(1, bw - pad).toFixed(1);
-    return `<g data-log-bucket="${esc(x.bucket)}" data-log-unit="${unit}" style="cursor:pointer"><title>${esc(x.bucket)} — ${x.requests} req, ${x.errors} err</title>
-      <rect x="${xx}" y="0" width="${w}" height="${H}" fill="transparent"/>
-      <rect x="${xx}" y="${(H - okH).toFixed(1)}" width="${w}" height="${okH.toFixed(1)}" fill="var(--accent)" opacity=".55"/>
-      <rect x="${xx}" y="${(H - okH - erH).toFixed(1)}" width="${w}" height="${erH.toFixed(1)}" fill="var(--red)"/></g>`;
-  }).join('');
-  el.innerHTML = `<div class="logs-hist-h"><span>${esc(t('lg.hist_title'))}</span><span>${esc(t('lg.hist_hint'))}</span></div>
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(t('lg.hist_title'))}">${bars}</svg>`;
+  el.innerHTML = gpxHistHTML(pts, unit, { attr: 'data-log-bucket', title: t('lg.hist_title'), hint: t('lg.hist_hint') });
 }
 
 function closeLogDrawer() {
@@ -900,6 +901,7 @@ function closeLogDrawer() {
 function openLogDrawer(en, i) {
   if (!en) return;
   closeLogDrawer();
+  if (isSystemLogs()) { openSysLogDrawer(en, i); return; }
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-all">${v}</b></div>`;
   const btn = (act, label, extra = '') => `<button type="button" class="btn btn-secondary btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
   const dr = document.createElement('aside');
@@ -947,7 +949,13 @@ async function logDrawerAction(act, i) {
   const en = logsRows[i];
   if (act === 'close') { closeLogDrawer(); return; }
   if (!en) return;
-  if (act === 'prism') openPrismFromLogs({ proxy: en.domain, ip: en.ip, path: en.path });
+  if (act === 'fcomp') { closeLogDrawer(); logsFilters.component = en.component; const c = document.getElementById('lf-comp'); if (c) c.value = en.component; refreshLogsView(); }
+  else if (act === 'fdomain') { closeLogDrawer(); applyLogCellFilter('domain', en.domain, true); }
+  else if (act === 'copymsg' || act === 'copyjson') {
+    const txt = act === 'copymsg' ? (en.message || '') : JSON.stringify(en, null, 2);
+    try { await navigator.clipboard.writeText(txt); toast(t('lg.copied'), 'success'); } catch { toast(txt.slice(0, 200), 'info'); }
+  }
+  else if (act === 'prism') openPrismFromLogs({ proxy: en.domain, ip: en.ip, path: en.path });
   else if (act === 'corr') showCorrelate(en.domain, en.ts);
   else if (act === 'fip') { closeLogDrawer(); applyLogCellFilter('ip', en.ip, true); }
   else if (act === 'fpath') { closeLogDrawer(); applyLogCellFilter('path', en.path, true); }
@@ -961,4 +969,34 @@ async function logDrawerAction(act, i) {
       toast(t('security.ban_success'), 'success');
     } catch (err) { toast(err.message, 'error'); }
   }
+}
+
+// Tiroir d'un log système : message complet, contexte et actions de filtrage.
+function openSysLogDrawer(en, i) {
+  const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-word">${v}</b></div>`;
+  const btn = (act, label) => `<button type="button" class="btn btn-secondary btn-sm" data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
+  const dr = document.createElement('aside');
+  dr.id = 'log-drawer';
+  dr.className = 'prism-drawer open';
+  dr.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span class="prism-panel-title" style="margin:0">${esc(t('lg.sys_detail'))}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
+    </div>
+    <div style="margin-bottom:10px">${logLvlBadge(en.level)} <span class="chip" style="font-size:11px">${esc(en.component || '—')}</span></div>
+    <pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(en.message || '—')}</pre>
+    <div class="prism-dstats" style="grid-template-columns:1fr">
+      ${row(t('logs.ts'), esc(fmtDate(en.ts)))}
+      ${row(t('logs.node'), esc(en.node_name || ''))}
+      ${row(t('logs.domain'), en.domain ? `<span class="mono">${esc(en.domain)}</span>` : '')}
+      ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      ${en.component ? btn('fcomp', t('lg.filter_component')) : ''}
+      ${en.domain ? btn('fdomain', t('lg.filter_domain')) : ''}
+      ${en.domain && en.ts ? btn('corr', t('logs.correlate')) : ''}
+      ${btn('copymsg', t('lg.copy_message'))}
+      ${btn('copyjson', t('lg.copy_json'))}
+    </div>`;
+  document.getElementById('content').appendChild(dr);
 }
