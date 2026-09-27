@@ -2360,9 +2360,9 @@ window._reUpdateActFields = function(type) {
   if (el) el.innerHTML = _reActFieldsHTML(type, {});
 };
 
-window._reSaveRule = async function(existingId) {
+window._reCollectRule = function() {
   const name = document.getElementById('re-name')?.value?.trim();
-  if (!name) { toast(t('security.rules.name_required'), 'error'); return; }
+  if (!name) { toast(t('security.rules.name_required'), 'error'); return null; }
 
   const condType = document.getElementById('re-cond-type')?.value;
   const actType  = document.getElementById('re-act-type')?.value;
@@ -2416,7 +2416,12 @@ window._reSaveRule = async function(existingId) {
     action,
     cooldown_sec: parseInt(document.getElementById('re-cooldown')?.value||'300'),
   };
+  return payload;
+};
 
+window._reSaveRule = async function(existingId) {
+  const payload = _reCollectRule();
+  if (!payload) return;
   try {
     if (existingId) {
       await api('PUT', `/rules-engine/rules/${existingId}`, payload);

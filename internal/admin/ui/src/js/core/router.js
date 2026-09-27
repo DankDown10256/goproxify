@@ -20,7 +20,7 @@ const App = {
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
-  'security','security-bans','security-vulns','security-rules','automation','rules-store','mcp-access',
+  'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','rules-store','mcp-access',
   'backups','import','docker-labels','prism',
 ]);
 const EDGE_PAGES = new Set([
@@ -32,7 +32,7 @@ const EDGE_PAGES = new Set([
   'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','rules-store',
+  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','automation-flow','automation-history','rules-store',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
 ]);
 
@@ -203,7 +203,7 @@ function renderNavItem(item) {
           ${children.map(c => `
             <div class="nav-item" data-page="${esc(c.page)}" onclick="navigate('${esc(c.page)}')">
               ${c.icon || ''}
-              ${esc(typeof gpxPageLabel === 'function' ? gpxPageLabel(c.page, c.label) : c.label)}
+              ${esc(c.navKey ? t(c.navKey) : typeof gpxPageLabel === 'function' ? gpxPageLabel(c.page, c.label) : c.label)}
             </div>
           `).join('')}
         </div>

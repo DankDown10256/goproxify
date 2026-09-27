@@ -110,21 +110,31 @@ const APP_CONFIG = {
       guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
       children: [
         {
+          page: 'automation',
+          navKey: 'nav.auto.overview',
+          label: 'Vue d\'ensemble',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>',
+          guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
+        },
+        {
           page: 'security-rules',
-          label: 'Règles automatiques',
+          navKey: 'nav.auto.rules',
+          label: 'Automatisations',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2v-4M9 21H5a2 2 0 01-2-2v-4m0 0h18"/></svg>',
           guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
         },
         {
           page: 'alert-channels',
-          label: 'Canaux d\'alerte',
+          navKey: 'nav.auto.alerts',
+          label: 'Alertes',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>',
           guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
         },
         {
-          page: 'rules-store',
-          label: 'Store de règles',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3h18v4H3z"/><path d="M5 7v12a1 1 0 001 1h12a1 1 0 001-1V7"/><path d="M10 12h4"/></svg>',
+          page: 'automation-history',
+          navKey: 'nav.auto.journal',
+          label: 'Journal',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
           guard: (u) => u?.role === 'superadmin' || u?.role === 'admin',
         },
       ],
@@ -279,6 +289,21 @@ const APP_CONFIG = {
       ],
     },
     {
+      root: 'security-rules',
+      tabs: [
+        { page: 'security-rules',  key: 'a_rules', label: 'Règles' },
+        { page: 'automation-flow', key: 'a_flow',  label: 'Éditeur de flux' },
+        { page: 'rules-store',     key: 'a_store', label: 'Modèles' },
+      ],
+    },
+    {
+      root: 'alert-channels',
+      tabs: [
+        { page: 'alert-channels', key: 'a_channels', label: 'Canaux' },
+        { page: 'alerts',         key: 'a_routing',  label: 'Routage des alertes' },
+      ],
+    },
+    {
       root: 'edge-security',
       tabs: [
         { page: 'edge-security',          key: 'overview', label: 'Synthèse' },
@@ -318,6 +343,8 @@ const APP_CONFIG = {
     'security-bans':        'Bans — toutes les passerelles',
     'security-vulns':       'Vulnérabilités — toutes les passerelles',
     'security-rules':       'Règles automatiques',
+    'automation-flow':      'Éditeur de flux',
+    'automation-history':   'Journal d\'automatisation',
     'rules-store':          'Store de règles',
     'mcp-access':           'Accès MCP',
     automation:             'Automatisation',

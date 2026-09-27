@@ -188,13 +188,14 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 
 ### Automation menu
 
-`Automatisation` groups three sub-pages, all admin-only:
+`Automatisation` has four admin-only entries; the rest are tabs:
 
-| Page | Route | Content |
-|------|-------|---------|
-| Automatic rules | `security-rules` | Rules engine CRUD, dry-run, execution history (see [docs/security.md](security.md#automatic-rules-engine)) |
-| Alert channels | `alert-channels` | Notification channels (email, webhook, ntfy, gotify) |
-| Rule store | `rules-store` | 15 preconfigured rule templates (`GET /api/v1/rules-engine/templates`), one-click install via `POST /api/v1/rules-engine/templates/{id}/install` |
+| Entry | Route | Content |
+|-------|-------|---------|
+| Overview | `automation` | KPIs, 24 h activity, latest executions, failure banner, shortcuts |
+| Automations | `security-rules` | Tabs: **Rules** (`security-rules`, engine CRUD, dry-run — see [docs/security.md](security.md#automatic-rules-engine)), **Flow editor** (`automation-flow`, a rule as Trigger → Safeguard → Action → Notification, inline edit, real dry-run simulation), **Templates** (`rules-store`, 15 templates via `GET /api/v1/rules-engine/templates`, install via `POST /api/v1/rules-engine/templates/{id}/install`) |
+| Alerts | `alert-channels` | Tabs: **Channels** (email, webhook, ntfy, gotify), **Alert routing** (`alerts`) |
+| Journal | `automation-history` | Every rule evaluation (`GET /api/v1/rules-engine/history`), filterable: executed / failed / condition met without action / not met |
 
 ### Architecture wizard
 
