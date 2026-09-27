@@ -20,19 +20,19 @@ const App = {
 // ── Ensembles de pages par catégorie ──────────────────────────────────────
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
-  'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','rules-store','mcp-access',
-  'backups','import','docker-labels','prism',
+  'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','automation-silences','rules-store','mcp-access',
+  'backups','import','docker-labels','prism','logs-explore',
 ]);
 const EDGE_PAGES = new Set([
   'edge-trafic','edge-proxies','edge-streams','edge-waf','edge-ipfilter',
   'edge-certs','edge-auth','edge-logs-access','edge-logs-system',
-  'edge-observability','edge-obs-synthese','edge-obs-alerts','edge-prism','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
+  'edge-observability','edge-obs-synthese','edge-obs-alerts','edge-prism','edge-logs-explore','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
   'edge-tunnel',
   'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
 ]);
 const SECURITY_PAGES = new Set([
-  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','automation-flow','automation-history','rules-store',
+  'security','security-bans','security-vulns','security-sentinel','security-posture','security-rules','automation','automation-flow','automation-history','automation-silences','rules-store',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
 ]);
 
@@ -227,6 +227,7 @@ const SPACE_EQUIV = {
   'logs': 'edge-logs-access',
   'logs-system': 'edge-logs-system',
   'prism': 'edge-prism',
+  'logs-explore': 'edge-logs-explore',
   'security': 'edge-security',
   'security-bans': 'edge-security-bans',
   'security-vulns': 'edge-security-vulns',

@@ -726,6 +726,7 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE alert_events ADD COLUMN message_title TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE alert_events ADD COLUMN message_body  TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE alert_events ADD COLUMN priority      INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE alert_events ADD COLUMN silenced      INTEGER NOT NULL DEFAULT 0`,
 	} {
 		_, _ = db.Exec(s) // sqlite ignore si la colonne existe déjà
 	}
@@ -753,6 +754,17 @@ func migrate(db *sql.DB) error {
 			detail       TEXT NOT NULL DEFAULT '{}',
 			error        TEXT NOT NULL DEFAULT '',
 			fired_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// Silences : suspendent temporairement l'exécution des actions du moteur de
+		// règles (la condition est toujours évaluée et journalisée, seule l'action
+		// déclenchée est retenue), sur toutes les règles ou une liste choisie.
+		`CREATE TABLE IF NOT EXISTS automation_silences (
+			id         TEXT PRIMARY KEY,
+			name       TEXT NOT NULL,
+			rule_ids   TEXT NOT NULL DEFAULT '[]',
+			starts_at  DATETIME NOT NULL,
+			ends_at    DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS workspaces (
 			id          TEXT PRIMARY KEY,

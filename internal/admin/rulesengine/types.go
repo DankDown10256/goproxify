@@ -119,6 +119,33 @@ type ExecLog struct {
 	FiredAt     time.Time  `json:"fired_at"`
 }
 
+// Silence suspend l'exécution des actions sur une fenêtre de temps, pour
+// toutes les règles (RuleIDs vide) ou une liste choisie.
+type Silence struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	RuleIDs   []string  `json:"rule_ids"`
+	StartsAt  time.Time `json:"starts_at"`
+	EndsAt    time.Time `json:"ends_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Active indique si le silence couvre l'instant t pour la règle ruleID.
+func (s Silence) Active(t time.Time, ruleID string) bool {
+	if t.Before(s.StartsAt) || t.After(s.EndsAt) {
+		return false
+	}
+	if len(s.RuleIDs) == 0 {
+		return true
+	}
+	for _, id := range s.RuleIDs {
+		if id == ruleID {
+			return true
+		}
+	}
+	return false
+}
+
 // ActionContext est passé aux exécuteurs d'actions.
 type ActionContext struct {
 	Rule    Rule

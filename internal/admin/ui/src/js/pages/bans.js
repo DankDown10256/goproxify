@@ -431,6 +431,8 @@ async function renderBans({ mode }) {
     // Les filtres survivent à un rechargement de la même vue, pas à un changement de passerelle ou de mode.
     const scope = mode + ':' + (d.edgeCtx?.edgeRef || '');
     if (_bn.scope !== scope) Object.assign(_bn, { scope, q: '', src: '', exp: '', edge: '', shown: BN_PAGE, tab: 'actifs' });
+    // Ouverture directe sur un onglet précis (ex. raccourci « Menaces actives » de la Synthèse).
+    if (window._bnOpenTab) { if (BN_TABS.includes(window._bnOpenTab)) _bn.tab = window._bnOpenTab; window._bnOpenTab = null; }
     const ids = new Set(d.bans.map(b => b.id));
     _bn.sel = new Set([..._bn.sel].filter(id => ids.has(id)));
     Object.assign(_bn, d, { mode });
@@ -441,3 +443,9 @@ async function renderBans({ mode }) {
 
 pages['security-bans'] = () => renderBans({ mode: 'admin' });
 pages['edge-security-bans'] = () => renderBans({ mode: 'edge' });
+
+// Ouvre la page Bans directement sur un onglet (ex. onclick="navigateBansTab('${navBans}','crowdsec')").
+window.navigateBansTab = function(page, tab) {
+  window._bnOpenTab = tab;
+  navigate(page);
+};

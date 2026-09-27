@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 func runSecurity() {
@@ -48,6 +49,10 @@ goproxify security rules create -file <rule.json> [-admin-url …] [-token …]
 goproxify security rules update <id> -file <rule.json> [-admin-url …] [-token …]
 goproxify security rules delete <id> [-y] [-admin-url …] [-token …]
 goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
+
+goproxify security rules silence list   [-admin-url …] [-token …]
+goproxify security rules silence add    -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>] [-admin-url …] [-token …]
+goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
 `)
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande security inconnue : %q\n", sub)
@@ -508,8 +513,105 @@ func runSecurityRules() {
 		out, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(out))
 
+	case "silence":
+		runSecurityRulesSilence()
+
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande rules inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Silences (fenêtres de suspension des actions du moteur de règles) ───────
+
+func runSecurityRulesSilence() {
+	sub := subcommand(os.Args, 4)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var silences []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/silences", nil, &silences); err != nil {
+			fmt.Fprintf(os.Stderr, "silence list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(silences) == 0 {
+			fmt.Println("(aucun silence)")
+			return
+		}
+		for _, s := range silences {
+			id, _ := s["id"].(string)
+			name, _ := s["name"].(string)
+			starts, _ := s["starts_at"].(string)
+			ends, _ := s["ends_at"].(string)
+			ruleIDs, _ := s["rule_ids"].([]any)
+			scope := "toutes les règles"
+			if len(ruleIDs) > 0 {
+				scope = fmt.Sprintf("%d règle(s)", len(ruleIDs))
+			}
+			fmt.Printf("[%s] %-24s  %s → %s  (%s)\n", id, name, starts, ends, scope)
+		}
+
+	case "add":
+		args := parseFlags(os.Args[5:])
+		name := flagValue(args, "-name", "")
+		starts := flagValue(args, "-starts", "")
+		ends := flagValue(args, "-ends", "")
+		if name == "" || starts == "" || ends == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules silence add -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>]")
+			os.Exit(1)
+		}
+		var ruleIDs []string
+		if raw := flagValue(args, "-rules", ""); raw != "" {
+			ruleIDs = strings.Split(raw, ",")
+		}
+		body := map[string]any{"name": name, "starts_at": starts, "ends_at": ends, "rule_ids": ruleIDs}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/rules-engine/silences", body, &result, 200, 201); err != nil {
+			fmt.Fprintf(os.Stderr, "silence add : %v\n", err)
+			os.Exit(1)
+		}
+		id, _ := result["id"].(string)
+		fmt.Printf("Silence créé : %s\n", id)
+
+	case "delete":
+		id := subcommand(os.Args, 5)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security rules silence delete <id> [-y]")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[6:])
+		if flagValue(args, "-y", "") == "" {
+			fmt.Printf("Supprimer le silence %s ? [y/N] ", id)
+			var ans string
+			fmt.Scanln(&ans) //nolint:errcheck
+			if ans != "y" && ans != "Y" {
+				fmt.Println("Annulé.")
+				return
+			}
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("DELETE", "/api/v1/rules-engine/silences/"+id, nil, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "silence delete : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Silence %s supprimé.\n", id)
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande silence inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

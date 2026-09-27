@@ -43,6 +43,8 @@ func (h *LogsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && path == "":
 		h.list(w, r)
+	case r.Method == http.MethodGet && path == "facets":
+		h.facets(w, r)
 	case r.Method == http.MethodGet && path == "histogram":
 		h.histogram(w, r)
 	case r.Method == http.MethodGet && path == "live":
@@ -106,6 +108,21 @@ func (h *LogsHandler) export(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", "attachment; filename=logs-"+ts+"."+ext)
 	w.Write(data) //nolint:errcheck
+}
+
+// facets : mêmes filtres que la liste, plus fields=level,component,node_name,domain,method (défaut : tous).
+func (h *LogsHandler) facets(w http.ResponseWriter, r *http.Request) {
+	p := parseLogsParams(r)
+	fields := []string{"level", "component", "node_name", "domain", "method"}
+	if v := r.URL.Query().Get("fields"); v != "" {
+		fields = strings.Split(v, ",")
+	}
+	out, err := h.Store.Facets(p, fields)
+	if err != nil {
+		logsJSONErr(w, err, http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w, out)
 }
 
 // histogram : mêmes filtres que la liste, plus bucket=minute|hour|day (défaut selon l'étendue ; 24 h si aucune date).

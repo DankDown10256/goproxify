@@ -33,7 +33,8 @@ func RecentEvents(ctx context.Context, db *sql.DB, days, limit int, trigger, nod
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT e.id, e.rule_id, COALESCE(r.name,''), e.trigger, e.detail, e.channels,
-		        COALESCE(e.message_title,''), COALESCE(e.message_body,''), COALESCE(e.priority,0), e.fired_at
+		        COALESCE(e.message_title,''), COALESCE(e.message_body,''), COALESCE(e.priority,0),
+		        COALESCE(e.silenced,0), e.fired_at
 		 FROM alert_events e LEFT JOIN alert_rules r ON r.id = e.rule_id
 		 WHERE `+strings.Join(conds, " AND ")+` ORDER BY e.fired_at DESC, e.id DESC LIMIT ?`,
 		append(args, limit)...)
@@ -43,9 +44,9 @@ func RecentEvents(ctx context.Context, db *sql.DB, days, limit int, trigger, nod
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, priority int
+		var id, priority, silenced int
 		var ruleID, ruleName, trig, detailJSON, chansJSON, title, body, firedAt string
-		if rows.Scan(&id, &ruleID, &ruleName, &trig, &detailJSON, &chansJSON, &title, &body, &priority, &firedAt) != nil {
+		if rows.Scan(&id, &ruleID, &ruleName, &trig, &detailJSON, &chansJSON, &title, &body, &priority, &silenced, &firedAt) != nil {
 			continue
 		}
 		var detail, chans any
@@ -53,7 +54,8 @@ func RecentEvents(ctx context.Context, db *sql.DB, days, limit int, trigger, nod
 		_ = json.Unmarshal([]byte(chansJSON), &chans)
 		out = append(out, map[string]any{
 			"id": id, "rule_id": ruleID, "rule_name": ruleName, "trigger": trig, "detail": detail,
-			"channels": chans, "title": title, "body": body, "priority": priority, "fired_at": firedAt,
+			"channels": chans, "title": title, "body": body, "priority": priority,
+			"silenced": silenced == 1, "fired_at": firedAt,
 		})
 	}
 	return out, nil

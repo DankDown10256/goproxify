@@ -129,6 +129,14 @@ func (e *Engine) evalRule(ctx context.Context, rule Rule) {
 		e.mu.Unlock()
 		return
 	}
+	e.mu.Unlock()
+
+	if e.isSilenced(rule.ID) {
+		e.recordExec(rule, true, false, "", "silenced")
+		return
+	}
+
+	e.mu.Lock()
 	e.cooldowns[rule.ID] = time.Now()
 	e.mu.Unlock()
 
@@ -191,6 +199,7 @@ func (e *Engine) execAction(ctx context.Context, ac ActionContext) error {
 }
 
 // EvalNow force une évaluation immédiate d'une règle (dry-run si dryRun=true).
+// detail["silenced"]=true si un silence actif aurait empêché l'action.
 func (e *Engine) EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error) {
 	rules, err := e.loadRules()
 	if err != nil {
@@ -202,13 +211,59 @@ func (e *Engine) EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool,
 			if err != nil {
 				return false, nil, err
 			}
-			if matched && !dryRun {
+			if matched && detail == nil {
+				detail = map[string]any{}
+			}
+			silenced := matched && e.isSilenced(r.ID)
+			if silenced {
+				detail["silenced"] = true
+			} else if matched && !dryRun {
 				_ = e.execAction(ctx, ActionContext{Rule: r, Detail: detail})
 			}
 			return matched, detail, nil
 		}
 	}
 	return false, nil, fmt.Errorf("règle %q introuvable", ruleID)
+}
+
+// isSilenced indique si un silence actif couvre actuellement ruleID.
+func (e *Engine) isSilenced(ruleID string) bool {
+	silences, err := e.loadActiveSilences()
+	if err != nil {
+		e.log.Warn("rulesengine: chargement silences", "err", err)
+		return false
+	}
+	now := time.Now()
+	for _, s := range silences {
+		if s.Active(now, ruleID) {
+			return true
+		}
+	}
+	return false
+}
+
+// loadActiveSilences charge les silences dont la fenêtre couvre l'instant présent
+// (avec une marge passée pour couvrir les silences tout juste expirés en cache).
+func (e *Engine) loadActiveSilences() ([]Silence, error) {
+	rows, err := e.db.Query(
+		`SELECT id, name, rule_ids, starts_at, ends_at, created_at
+		 FROM automation_silences WHERE ends_at >= datetime('now','-1 minute') ORDER BY starts_at`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Silence
+	for rows.Next() {
+		var s Silence
+		var ruleIDs string
+		if err := rows.Scan(&s.ID, &s.Name, &ruleIDs, &s.StartsAt, &s.EndsAt, &s.CreatedAt); err != nil {
+			continue
+		}
+		_ = json.Unmarshal([]byte(ruleIDs), &s.RuleIDs)
+		out = append(out, s)
+	}
+	return out, nil
 }
 
 func (e *Engine) recordExec(rule Rule, matched, actionTaken bool, detail, errStr string) {

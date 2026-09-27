@@ -476,6 +476,21 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "list_silences",
+		"description": "Liste les fenêtres de silence actives ou passées, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications).",
+		"inputSchema": schema(),
+	},
+	{
+		"name":        "create_silence",
+		"description": "Crée une fenêtre de silence : suspend, sur une période, l'exécution des actions du moteur de règles et/ou l'envoi des notifications d'alerte (condition ou événement toujours évalué et journalisé).",
+		"inputSchema": schema(
+			req("name", "string", "Nom de la fenêtre de silence"),
+			req("starts_at", "string", "Début (RFC3339)"),
+			req("ends_at", "string", "Fin (RFC3339)"),
+			opt("rule_ids", "array", "IDs de règles (moteur de règles via list_rules et/ou moteur d'alertes via list_alerts) concernées, vide = toutes"),
+		),
+	},
+	{
 		"name":        "list_security_threats",
 		"description": "Liste les décisions CrowdSec synchronisées (security_threats).",
 		"inputSchema": schema(opt("limit", "number", "Nombre d'entrées (défaut: 100, max: 500)")),
@@ -608,6 +623,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListRules(r, p.Arguments)
 	case "run_rule":
 		result, toolErr = h.toolRunRule(r, p.Arguments)
+	case "list_silences":
+		result, toolErr = h.toolListSilences(r)
+	case "create_silence":
+		result, toolErr = h.toolCreateSilence(r, p.Arguments)
 	case "list_security_threats":
 		result, toolErr = h.toolListSecurityThreats(r, p.Arguments)
 	case "list_security_cves":
@@ -1921,6 +1940,72 @@ func (h *Handler) toolRunRule(r *http.Request, args map[string]any) (any, error)
 		return nil, err
 	}
 	return map[string]any{"matched": matched, "dry_run": dryRun, "detail": detail}, nil
+}
+
+func (h *Handler) toolListSilences(r *http.Request) (any, error) {
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, name, rule_ids, starts_at, ends_at, created_at FROM automation_silences ORDER BY starts_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, name, ruleIDs string
+		var startsAt, endsAt, createdAt time.Time
+		if err := rows.Scan(&id, &name, &ruleIDs, &startsAt, &endsAt, &createdAt); err != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "name": name, "rule_ids": json.RawMessage(ruleIDs),
+			"starts_at": startsAt, "ends_at": endsAt, "created_at": createdAt,
+			"active": time.Now().After(startsAt) && time.Now().Before(endsAt),
+		})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolCreateSilence(r *http.Request, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	startsRaw, _ := args["starts_at"].(string)
+	endsRaw, _ := args["ends_at"].(string)
+	if name == "" || startsRaw == "" || endsRaw == "" {
+		return nil, fmt.Errorf("name, starts_at et ends_at requis")
+	}
+	startsAt, err := time.Parse(time.RFC3339, startsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("starts_at invalide : %w", err)
+	}
+	endsAt, err := time.Parse(time.RFC3339, endsRaw)
+	if err != nil {
+		return nil, fmt.Errorf("ends_at invalide : %w", err)
+	}
+	if endsAt.Before(startsAt) {
+		return nil, fmt.Errorf("ends_at doit être après starts_at")
+	}
+	var ruleIDs []string
+	if raw, ok := args["rule_ids"].([]any); ok {
+		for _, v := range raw {
+			if s, ok := v.(string); ok {
+				ruleIDs = append(ruleIDs, s)
+			}
+		}
+	}
+	if ruleIDs == nil {
+		ruleIDs = []string{}
+	}
+	ruleIDsJSON, _ := json.Marshal(ruleIDs)
+	id := uuid.New().String()
+	if _, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO automation_silences (id, name, rule_ids, starts_at, ends_at) VALUES (?, ?, ?, ?, ?)`,
+		id, name, string(ruleIDsJSON), startsAt, endsAt,
+	); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id}, nil
 }
 
 // --- resources/list + resources/read -------------------------------------

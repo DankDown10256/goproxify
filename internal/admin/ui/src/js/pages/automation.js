@@ -3,6 +3,7 @@
 // Onglets « Alertes » : alert-channels, alerts.
 
 function _auHistState(h) {
+  if (h.error === 'silenced') return 'silenced';
   if (h.error) return 'err';
   if (h.action_taken) return 'ok';
   if (h.cond_result) return 'warn';
@@ -105,9 +106,9 @@ window._auSetFilter = function(f) {
 function _auRenderJournal() {
   const f = window._auJournalFilter;
   const rows = (window._auHistory || []).filter(h => f === 'all' || _auHistState(h) === f);
-  const filters = [['all', t('automation.f_all')], ['ok', t('automation.f_ok')], ['err', t('automation.f_err')], ['warn', t('automation.f_warn')], ['idle', t('automation.f_idle')]];
-  const label = { ok: 'automation.s_ok', err: 'automation.s_err', warn: 'automation.s_warn', idle: 'automation.s_idle' };
-  const tag = { ok: 'tag-green', err: 'tag-red', warn: 'tag-yellow', idle: 'tag-neutral' };
+  const filters = [['all', t('automation.f_all')], ['ok', t('automation.f_ok')], ['err', t('automation.f_err')], ['warn', t('automation.f_warn')], ['silenced', t('automation.f_silenced')], ['idle', t('automation.f_idle')]];
+  const label = { ok: 'automation.s_ok', err: 'automation.s_err', warn: 'automation.s_warn', idle: 'automation.s_idle', silenced: 'automation.s_silenced' };
+  const tag = { ok: 'tag-green', err: 'tag-red', warn: 'tag-yellow', idle: 'tag-neutral', silenced: 'tag-neutral' };
   document.getElementById('content').innerHTML = `
     <p style="margin:0 0 14px;font-size:13px;color:var(--text2)">${t('automation.journal_hint')}</p>
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">${filters.map(([v, l]) =>
@@ -118,6 +119,141 @@ function _auRenderJournal() {
       <td style="font-size:11px;white-space:nowrap">${fmtDate(h.fired_at)}</td>
       <td style="font-size:12px">${esc(h.rule_name || h.rule_id)}</td>
       <td><span class="tag ${tag[s]}" style="font-size:10px">${t(label[s])}</span></td>
-      <td style="font-size:11px;color:var(--text2)">${esc(h.error || h.detail || '')}</td></tr>`; }).join('')}</tbody></table></div>`
+      <td style="font-size:11px;color:var(--text2)">${s === 'silenced' ? t('automation.silenced_hint') : esc(h.error || h.detail || '')}</td></tr>`; }).join('')}</tbody></table></div>`
       : `<div class="empty"><p>${t('security.rules.no_history')}</p></div>`}`;
 }
+
+// ── PAGE: Silences & maintenance ─────────────────────────────────────────────
+// Suspend l'exécution des actions du moteur de règles sur une fenêtre de temps,
+// pour toutes les règles ou une liste choisie (POST/DELETE /rules-engine/silences).
+
+function _asFmt(iso) {
+  try { return fmtDate(iso); } catch { return iso; }
+}
+
+pages['automation-silences'] = async function() {
+  const content = document.getElementById('content');
+  document.getElementById('topbar-actions').innerHTML =
+    `<button class="btn btn-primary btn-sm" onclick="_asOpenModal()">${t('automation.new_silence')}</button>`;
+  content.innerHTML = `<p style="color:var(--text2)">${t('common.loading')}</p>`;
+  try {
+    const [silences, rules, alertRules] = await Promise.all([
+      api('GET', '/rules-engine/silences'),
+      api('GET', '/rules-engine/rules').catch(() => []),
+      api('GET', '/alert-rules').catch(() => []),
+    ]);
+    window._asSilences = silences || [];
+    window._asRules = rules || [];
+    window._asAlertRules = alertRules || [];
+  } catch (e) { toast(e.message, 'error'); window._asSilences = []; window._asRules = []; window._asAlertRules = []; }
+  _asRender();
+};
+
+function _asRender() {
+  const now = new Date();
+  const rows = (window._asSilences || []).slice().sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+  const ruleName = id => (window._asRules || []).find(r => r.id === id)?.name
+    || (window._asAlertRules || []).find(r => r.id === id)?.name || id;
+  document.getElementById('content').innerHTML = `
+    <p style="margin:0 0 14px;font-size:13px;color:var(--text2)">${t('automation.silences_hint')}</p>
+    ${rows.length ? `<div style="display:flex;flex-direction:column;gap:10px">${rows.map(s => {
+      const starts = new Date(s.starts_at), ends = new Date(s.ends_at);
+      const state = now < starts ? 'pending' : (now > ends ? 'past' : 'active');
+      const tag = { active: 'tag-green', pending: 'tag-accent', past: 'tag-neutral' }[state];
+      const label = { active: t('automation.silence_active'), pending: t('automation.silence_pending'), past: t('automation.silence_past') }[state];
+      const scope = (s.rule_ids && s.rule_ids.length) ? s.rule_ids.map(ruleName).join(', ') : t('automation.silence_all_rules');
+      return `<div class="card blueprint" style="padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:13.5px">${esc(s.name)}</span>
+            <span class="tag ${tag}" style="font-size:10px">${label}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--text2);margin-top:6px">${_asFmt(s.starts_at)} → ${_asFmt(s.ends_at)}</div>
+          <div style="font-size:11.5px;color:var(--text3);margin-top:2px">${t('automation.silence_scope')}: ${esc(scope)}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="_asDelete('${esc(s.id)}','${esc(s.name)}')" title="${t('common.delete')}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>`;
+    }).join('')}</div>` : `<div class="empty"><p>${t('automation.no_silences')}</p></div>`}`;
+}
+
+window._asOpenModal = function() {
+  const rules = window._asRules || [];
+  const alertRules = window._asAlertRules || [];
+  const pad = n => String(n).padStart(2, '0');
+  const toLocal = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  const in1h = new Date(now.getTime() + 3600e3);
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:480px;width:100%">
+      <div class="modal-header">
+        <span class="modal-title">${t('automation.new_silence')}</span>
+        <button class="btn-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div class="field" style="margin:0">
+          <label class="field-label">${t('common.name')}</label>
+          <input id="as-name" class="input" placeholder="${t('automation.silence_name_ph')}">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="field" style="margin:0"><label class="field-label">${t('automation.starts_at')}</label>
+            <input id="as-starts" type="datetime-local" class="input" value="${toLocal(now)}"></div>
+          <div class="field" style="margin:0"><label class="field-label">${t('automation.ends_at')}</label>
+            <input id="as-ends" type="datetime-local" class="input" value="${toLocal(in1h)}"></div>
+        </div>
+        <div class="field" style="margin:0">
+          <label class="field-label">${t('automation.silence_scope')}</label>
+          <select id="as-scope" class="input" style="height:32px" onchange="document.getElementById('as-rules-wrap').style.display=this.value==='rules'?'block':'none'">
+            <option value="all">${t('automation.silence_all_rules')}</option>
+            <option value="rules">${t('automation.silence_pick_rules')}</option>
+          </select>
+        </div>
+        <div id="as-rules-wrap" style="display:none;max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px">
+          ${(rules.length ? `<div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:2px 0 4px">${t('automation.silence_group_rules')}</div>
+          ${rules.map(r => `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
+            <input type="checkbox" class="as-rule" value="${esc(r.id)}"> ${esc(r.name)}</label>`).join('')}` : '')}
+          ${(alertRules.length ? `<div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:8px 0 4px">${t('automation.silence_group_alert_rules')}</div>
+          ${alertRules.map(r => `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
+            <input type="checkbox" class="as-rule" value="${esc(r.id)}"> ${esc(r.name)}</label>`).join('')}` : '')}
+          ${(!rules.length && !alertRules.length) ? `<span style="font-size:12px;color:var(--text3)">${t('security.rules.no_rules')}</span>` : ''}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">${t('common.cancel')}</button>
+        <button class="btn btn-primary" onclick="_asSave()">${t('common.save')}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+};
+
+window._asSave = async function() {
+  const name = document.getElementById('as-name')?.value?.trim();
+  const starts = document.getElementById('as-starts')?.value;
+  const ends = document.getElementById('as-ends')?.value;
+  if (!name || !starts || !ends) { toast(t('automation.silence_fields_required'), 'error'); return; }
+  if (new Date(ends) <= new Date(starts)) { toast(t('automation.silence_bad_range'), 'error'); return; }
+  const scope = document.getElementById('as-scope')?.value;
+  const ruleIds = scope === 'rules'
+    ? [...document.querySelectorAll('.as-rule:checked')].map(c => c.value)
+    : [];
+  try {
+    await api('POST', '/rules-engine/silences', {
+      name, starts_at: new Date(starts).toISOString(), ends_at: new Date(ends).toISOString(), rule_ids: ruleIds,
+    });
+    document.querySelector('.modal-overlay')?.remove();
+    toast(t('common.saved'), 'success');
+    pages['automation-silences']();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+window._asDelete = async function(id, name) {
+  if (!confirm(t('security.rules.delete_confirm', { name }))) return;
+  try {
+    await api('DELETE', `/rules-engine/silences/${id}`);
+    toast(t('security.rules.deleted'), 'success');
+    pages['automation-silences']();
+  } catch (e) { toast(e.message, 'error'); }
+};

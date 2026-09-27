@@ -2185,3 +2185,16 @@ tr[data-log-i]:hover td{background:var(--bg3)}
 .fl-k{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--text2);margin-bottom:8px}
 .fl-wire{width:2px;height:22px;background:var(--border)}
 .fl-console{width:min(560px,100%);margin-top:14px;background:#0d0f14;color:#b7f5c9;font:12px/1.6 ui-monospace,Consolas,monospace;border-radius:8px;padding:10px 12px;min-height:52px;white-space:pre-wrap}
+
+/* Explorateur de logs : facettes, grille, vues enregistrées */
+.explore-grid{display:grid;grid-template-columns:200px minmax(0,1fr);gap:14px;align-items:start}
+.expl-facets{display:flex;flex-direction:column;gap:12px}
+.expl-facet h4{margin:0 0 4px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);font-weight:600}
+.expl-fv{display:flex;justify-content:space-between;gap:6px;border:0;background:none;padding:3px 6px;border-radius:6px;width:100%;text-align:left;color:var(--text2);font-size:12px;cursor:pointer}
+.expl-fv:hover{background:var(--bg3)}
+.expl-fv.active{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);font-weight:600}
+.expl-fv span:last-child{color:var(--text3)}
+.expl-fv.active span:last-child{color:var(--accent)}
+.chip-x{border:0;background:none;padding:0 0 0 6px;color:inherit;opacity:.6;cursor:pointer}
+.chip-x:hover{opacity:1}
+@media(max-width:860px){.explore-grid{grid-template-columns:1fr}.expl-facets{flex-direction:row;flex-wrap:wrap;gap:14px 20px}.expl-facet{min-width:140px;flex:1}}

@@ -110,7 +110,7 @@ async function renderObsAlerts(scope) {
     return `<tr style="cursor:pointer" data-oa="event" data-i="${i}">
       <td class="mono">${esc(fmtDate(oaTs(e.fired_at)))}</td>
       <td><b>${esc(label(e.trigger))}</b></td>
-      <td>${esc(e.rule_name || '—')}</td>
+      <td>${esc(e.rule_name || '—')}${e.silenced ? ` <span class="tag tag-neutral" style="font-size:10px">${esc(t('oa.silenced'))}</span>` : ''}</td>
       <td class="mono">${esc(where || '—')}</td>
       <td style="color:var(--text2);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.title || e.message_title || '')}</td></tr>`;
   }).join('');
@@ -158,8 +158,9 @@ async function renderObsAlerts(scope) {
         <span class="prism-panel-title" style="margin:0">${esc(t('oa.drawer'))}</span>
         <button type="button" class="btn btn-ghost btn-sm" data-oa="close">✕</button>
       </div>
-      <div style="font-size:16px;font-weight:600;margin-bottom:4px">${esc(e.title || label(e.trigger))}</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:4px">${esc(e.title || label(e.trigger))}${e.silenced ? ` <span class="tag tag-neutral" style="font-size:10px;vertical-align:middle">${esc(t('oa.silenced'))}</span>` : ''}</div>
       <div class="prism-muted" style="margin-bottom:12px">${esc(label(e.trigger))} · ${esc(e.rule_name || '—')} · ${esc(fmtDate(oaTs(e.fired_at)))}</div>
+      ${e.silenced ? `<p class="prism-muted" style="margin:0 0 12px">${esc(t('oa.silenced_hint'))}</p>` : ''}
       ${e.body ? `<pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(e.body)}</pre>` : ''}
       ${detail ? `<div class="prism-panel-title" style="margin:0 0 6px">${esc(t('oa.detail'))}</div><pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(detail)}</pre>` : ''}
       <div class="prism-dstats" style="grid-template-columns:1fr"><div class="prism-dstat"><span>${esc(t('oa.col_channels'))}</span><b>${(e.channels || []).length}</b></div><div class="prism-dstat"><span>${esc(t('oa.priority'))}</span><b>${e.priority || 0}</b></div></div>`;

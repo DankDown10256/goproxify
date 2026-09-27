@@ -55,6 +55,12 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && sub == "templates" && strings.HasSuffix(id, "/install"):
 		tplID := strings.TrimSuffix(id, "/install")
 		h.installTemplate(w, r, tplID)
+	case r.Method == http.MethodGet && sub == "silences" && id == "":
+		h.listSilences(w, r)
+	case r.Method == http.MethodPost && sub == "silences" && id == "":
+		h.createSilence(w, r)
+	case r.Method == http.MethodDelete && sub == "silences" && id != "":
+		h.deleteSilence(w, r, id)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
@@ -202,6 +208,82 @@ func (h *RulesEngineHandler) runRule(w http.ResponseWriter, r *http.Request, rul
 		"dry_run":  dryRun,
 		"detail":   detail,
 	})
+}
+
+// ── Silences ──────────────────────────────────────────────────────────────
+
+func (h *RulesEngineHandler) listSilences(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.DB.QueryContext(r.Context(), `
+		SELECT id, name, rule_ids, starts_at, ends_at, created_at
+		FROM automation_silences ORDER BY starts_at DESC`)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	defer rows.Close()
+	silences := []rulesengine.Silence{}
+	for rows.Next() {
+		var s rulesengine.Silence
+		var ruleIDs string
+		if err := rows.Scan(&s.ID, &s.Name, &ruleIDs, &s.StartsAt, &s.EndsAt, &s.CreatedAt); err != nil {
+			continue
+		}
+		_ = json.Unmarshal([]byte(ruleIDs), &s.RuleIDs)
+		if s.RuleIDs == nil {
+			s.RuleIDs = []string{}
+		}
+		silences = append(silences, s)
+	}
+	jsonOK(w, silences)
+}
+
+type silenceBody struct {
+	Name     string    `json:"name"`
+	RuleIDs  []string  `json:"rule_ids"`
+	StartsAt time.Time `json:"starts_at"`
+	EndsAt   time.Time `json:"ends_at"`
+}
+
+func (h *RulesEngineHandler) createSilence(w http.ResponseWriter, r *http.Request) {
+	var body silenceBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	if strings.TrimSpace(body.Name) == "" || body.EndsAt.Before(body.StartsAt) || body.EndsAt.IsZero() {
+		writeErr(w, r, http.StatusBadRequest, "api.err.bad_request")
+		return
+	}
+	if body.RuleIDs == nil {
+		body.RuleIDs = []string{}
+	}
+	ruleIDs, _ := json.Marshal(body.RuleIDs)
+	id := uuid.New().String()
+	_, err := h.DB.ExecContext(r.Context(), `
+		INSERT INTO automation_silences (id, name, rule_ids, starts_at, ends_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		id, body.Name, string(ruleIDs), body.StartsAt, body.EndsAt,
+	)
+	if err != nil {
+		h.Log.Error("rulesengine: create silence", "err", err)
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	jsonOK(w, map[string]string{"id": id})
+}
+
+func (h *RulesEngineHandler) deleteSilence(w http.ResponseWriter, r *http.Request, id string) {
+	res, err := h.DB.ExecContext(r.Context(), `DELETE FROM automation_silences WHERE id=?`, id)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *RulesEngineHandler) listHistory(w http.ResponseWriter, r *http.Request) {

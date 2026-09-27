@@ -190,6 +190,7 @@ async function renderSecuritySynthese(ctx) {
     const gwCount = new Set(cves.map(c => c.edge_name).filter(Boolean)).size;
     const sub = isAdmin ? t('security.vs.sub_admin', { n: gwCount || (edgeCtx ? 1 : '—') }) : t('security.vs.sub_edge', { name: esc(edgeCtx.edgeLabel) });
     const tileClick = p => `onclick="navigate('${p}')"`;
+    const tileClickTab = (p, tab) => `onclick="navigateBansTab('${p}','${tab}')"`;
 
     content.innerHTML = `
       ${securityEdgeBanner(edgeCtx)}
@@ -209,7 +210,7 @@ async function renderSecuritySynthese(ctx) {
             <li>${esc(t('sy.score_certs'))} <b>${certsExpired + certsExpiring}</b></li></ul></div></div>
         <div class="sy-kpis">
           <button type="button" class="sec-tile sy-kpi" ${tileClick(navBans)}><span class="sec-tile-label">${esc(t('sy.k_bans'))}</span><span class="sec-tile-value" style="color:${bans.length ? 'var(--red)' : 'var(--green)'}">${bans.length}</span><span class="sec-tile-sub">${esc(t('sy.k_bans_s'))}</span></button>
-          <button type="button" class="sec-tile sy-kpi" ${tileClick(navBans)}><span class="sec-tile-label">${esc(t('sy.k_threats'))}</span><span class="sec-tile-value" style="color:${threats ? 'var(--red)' : 'var(--green)'}">${threats}</span><span class="sec-tile-sub">${esc(t('sy.k_threats_s'))}</span></button>
+          <button type="button" class="sec-tile sy-kpi" ${tileClickTab(navBans, 'crowdsec')}><span class="sec-tile-label">${esc(t('sy.k_threats'))}</span><span class="sec-tile-value" style="color:${threats ? 'var(--red)' : 'var(--green)'}">${threats}</span><span class="sec-tile-sub">${esc(t('sy.k_threats_s'))}</span></button>
           <button type="button" class="sec-tile sy-kpi" ${tileClick(navVulns)}><span class="sec-tile-label">${esc(t('sy.k_cves'))}</span><span class="sec-tile-value" style="color:${critical ? 'var(--orange,#d97706)' : 'var(--green)'}">${critical}</span><span class="sec-tile-sub">${esc(t('sy.k_cves_open', { n: openCves.length }))}</span></button>
           <button type="button" class="sec-tile sy-kpi" ${tileClick(navPosture)}><span class="sec-tile-label">${esc(t('sy.k_certs'))}</span><span class="sec-tile-value" style="color:${certsExpired ? 'var(--red)' : certsExpiring ? 'var(--yellow)' : 'var(--green)'}">${certs.length}</span><span class="sec-tile-sub">${esc(t('sy.k_certs_s', { a: certsExpiring, b: certsExpired }))}</span></button>
         </div>

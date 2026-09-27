@@ -83,6 +83,11 @@ const APP_CONFIG = {
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
         },
         {
+          page: 'logs-explore',
+          label: 'Explorer',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+        },
+        {
           page: 'obs-metrics',
           label: 'Métriques',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
@@ -241,6 +246,11 @@ const APP_CONFIG = {
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
         },
         {
+          page: 'edge-logs-explore',
+          label: 'Explorer',
+          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+        },
+        {
           page: 'edge-metrics',
           label: 'Métriques',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="2,12 6,7 10,9 14,3"/><circle cx="6" cy="7" r="1" fill="currentColor"/><circle cx="10" cy="9" r="1" fill="currentColor"/><circle cx="14" cy="3" r="1" fill="currentColor"/></svg>',
@@ -314,8 +324,9 @@ const APP_CONFIG = {
     {
       root: 'alert-channels',
       tabs: [
-        { page: 'alert-channels', key: 'a_channels', label: 'Canaux' },
-        { page: 'alerts',         key: 'a_routing',  label: 'Routage des alertes' },
+        { page: 'alert-channels',     key: 'a_channels', label: 'Canaux' },
+        { page: 'alerts',             key: 'a_routing',  label: 'Routage des alertes' },
+        { page: 'automation-silences', key: 'a_silences', label: 'Silences & maintenance' },
       ],
     },
     {
@@ -360,6 +371,7 @@ const APP_CONFIG = {
     'security-rules':       'Règles automatiques',
     'automation-flow':      'Éditeur de flux',
     'automation-history':   'Journal d\'automatisation',
+    'automation-silences':  'Silences & maintenance',
     'rules-store':          'Store de règles',
     'mcp-access':           'Accès MCP',
     automation:             'Automatisation',
@@ -375,6 +387,8 @@ const APP_CONFIG = {
     'edge-observability': 'Observabilité',
     'obs-synthese':     'Synthèse',
     'edge-obs-synthese': 'Synthèse',
+    'logs-explore':     'Explorer',
+    'edge-logs-explore': 'Explorer',
     'obs-metrics':      'Métriques',
     'obs-alerts':       'Alertes et SLO',
     'edge-obs-alerts':  'Alertes et SLO',

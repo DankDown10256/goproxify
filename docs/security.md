@@ -276,7 +276,16 @@ Le bouton **Tester maintenant** lance un `dry_run` : la condition est évaluée 
 
 ### Historique
 
-Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis l'onglet **Historique** de la page.
+Chaque évaluation (condition satisfaite ou non, action effectuée, erreur éventuelle) est stockée dans `rules_engine_history` et consultable depuis `Admin > Automatisation > Journal`.
+
+### Silences & maintenance
+
+Un **silence** (`Admin > Automatisation > Alertes > Silences & maintenance`, table `automation_silences`) suspend l'exécution des actions sur une fenêtre de temps `[starts_at, ends_at)`, pour toutes les règles ou une liste choisie (`rule_ids`). La table est partagée par les deux moteurs :
+
+- **Moteur de règles** (`rules_engine_rules`) : la condition continue d'être évaluée à chaque cycle et journalisée normalement, seule l'action déclenchée est retenue : l'entrée d'historique correspondante a `action_taken=false` et `error="silenced"`. Le cooldown de la règle n'est pas consommé pendant un silence, afin qu'elle puisse se redéclencher normalement dès la fin de la fenêtre. `EvalNow` (bouton **Tester maintenant**, `POST /rules-engine/rules/{id}/run`) reflète le même état via `detail.silenced=true`.
+- **Moteur d'alertes** (`alert_rules`) : quand un événement correspond à une règle silencée, aucun canal n'est notifié, mais l'événement est journalisé dans `alert_events` avec `silenced=1` (visible via `GET /alert-events`, `list_alert_events` et `goproxify alert events`). Le cooldown propre à la règle/passerelle/domaine n'est pas consommé, l'alerte réelle repart dès la fin du silence.
+
+Un même identifiant de règle n'existe que dans une seule des deux tables (`rules_engine_rules` ou `alert_rules`), donc `rule_ids` peut librement mélanger des règles des deux moteurs sans ambiguïté ; `rule_ids` vide couvre les deux à la fois.
 
 ---
 

@@ -96,13 +96,55 @@ func (e *Engine) eval(ev Event) {
 			e.mu.Unlock()
 			continue
 		}
-		e.cooldowns[key] = time.Now()
 		e.mu.Unlock()
 
 		msg := buildMessage(rule, ev)
+		if e.isSilenced(rule.ID) {
+			// Le silence bloque l'envoi mais ne consomme pas le cooldown : la
+			// première alerte réelle après sa fin part immédiatement.
+			e.recordSilenced(rule, ev, msg)
+			continue
+		}
+
+		e.mu.Lock()
+		e.cooldowns[key] = time.Now()
+		e.mu.Unlock()
+
 		e.dispatch(rule, msg)
 		e.recordFired(rule, ev, msg)
 	}
+}
+
+// isSilenced indique si un silence actif (créé depuis Automatisation > Alertes
+// > Silences & maintenance, table partagée avec le moteur de règles) couvre
+// actuellement ruleID.
+func (e *Engine) isSilenced(ruleID string) bool {
+	rows, err := e.db.Query(
+		`SELECT rule_ids FROM automation_silences
+		 WHERE starts_at <= CURRENT_TIMESTAMP AND ends_at >= CURRENT_TIMESTAMP`,
+	)
+	if err != nil {
+		e.log.Warn("alerting: chargement silences", "err", err)
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ruleIDsJSON string
+		if err := rows.Scan(&ruleIDsJSON); err != nil {
+			continue
+		}
+		var ids []string
+		_ = json.Unmarshal([]byte(ruleIDsJSON), &ids)
+		if len(ids) == 0 {
+			return true // silence sans portée = toutes les règles
+		}
+		for _, id := range ids {
+			if id == ruleID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *Engine) dispatch(rule Rule, msg Message) {
@@ -144,11 +186,21 @@ func (e *Engine) recordFired(rule Rule, ev Event, msg Message) {
 	detail, _ := json.Marshal(ev.Detail)
 	chansJSON, _ := json.Marshal(rule.Channels)
 	_, _ = e.db.Exec(
-		`INSERT INTO alert_events (rule_id, trigger, detail, channels, message_title, message_body, priority) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO alert_events (rule_id, trigger, detail, channels, message_title, message_body, priority, silenced) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
 		rule.ID, string(ev.Trigger), string(detail), string(chansJSON), msg.Title, msg.Body, rule.Priority,
 	)
 	// Purge des événements > 30 jours
 	_, _ = e.db.Exec(`DELETE FROM alert_events WHERE fired_at < datetime('now', '-30 days')`)
+}
+
+// recordSilenced journalise une correspondance bloquée par un silence actif :
+// aucun canal n'est notifié, mais l'événement reste visible (journal, MCP, CLI).
+func (e *Engine) recordSilenced(rule Rule, ev Event, msg Message) {
+	detail, _ := json.Marshal(ev.Detail)
+	_, _ = e.db.Exec(
+		`INSERT INTO alert_events (rule_id, trigger, detail, channels, message_title, message_body, priority, silenced) VALUES (?, ?, ?, '[]', ?, ?, ?, 1)`,
+		rule.ID, string(ev.Trigger), string(detail), msg.Title, msg.Body, rule.Priority,
+	)
 }
 
 // loadRules charge et cache les règles actives (TTL 30 s).

@@ -720,9 +720,13 @@ goproxify security rules create -file <rule.json> [-admin-url …] [-token …]
 goproxify security rules update <id> -file <rule.json> [-admin-url …] [-token …]
 goproxify security rules delete <id> [-y] [-admin-url …] [-token …]
 goproxify security rules run    <id> [-dry-run] [-admin-url …] [-token …]
+
+goproxify security rules silence list   [-admin-url …] [-token …]
+goproxify security rules silence add    -name <nom> -starts <RFC3339> -ends <RFC3339> [-rules <id1,id2>] [-admin-url …] [-token …]
+goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
 ```
 
-**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action.
+**`security rules`** — CRUD sur les règles du moteur de règles automatiques. `rules run` déclenche une évaluation immédiate ; `-dry-run` (défaut) affiche le résultat de la condition sans exécuter l'action. `rules silence` gère les fenêtres de silence, communes au moteur de règles et au moteur d'alertes : `add` sans `-rules` s'applique à toutes les règles des deux moteurs ; avec `-rules id1,id2` (IDs `security rules list` et/ou `alert rules list`), seulement à celles-ci.
 
 Exemple de fichier règle (`rule.json`) :
 

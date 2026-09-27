@@ -215,7 +215,7 @@ Alertes déclenchées (30 jours conservés), la plus récente d'abord. Scope : `
 | `node`    | string | —      | Nom de passerelle (lu dans le détail de l'événement)         |
 | `limit`   | number | —      | Événements max (défaut 100, max 500)                         |
 
-Chaque événement : `id`, `rule_id`, `rule_name`, `trigger`, `detail`, `channels`, `title`, `body`, `priority`, `fired_at`.
+Chaque événement : `id`, `rule_id`, `rule_name`, `trigger`, `detail`, `channels`, `title`, `body`, `priority`, `silenced`, `fired_at`. `silenced: true` : bloqué par un silence actif (`list_silences`), `channels` vide.
 
 ---
 
@@ -549,6 +549,45 @@ Liste les règles automatiques configurées dans le moteur de règles.
 
 **Scope :** `audit:read`  
 **Réponse :** tableau de règles `{ id, name, enabled, condition, action, cooldown_sec, fire_count, last_fired_at }`
+
+---
+
+### `run_rule`
+
+Déclenche l'évaluation immédiate d'une règle. Par défaut en `dry_run` (aucune action exécutée). Si un silence actif couvre la règle, `detail.silenced` vaut `true` et l'action n'est pas exécutée même hors dry-run.
+
+| Paramètre | Type    | Requis | Description                                  |
+|-----------|---------|--------|-----------------------------------------------|
+| `id`      | string  | Oui    | ID de la règle                                |
+| `dry_run` | boolean | Non    | `false` pour exécuter réellement l'action (défaut `true`) |
+
+**Scope :** `audit:read`  
+**Réponse :** `{ matched, dry_run, detail }`
+
+---
+
+### `list_silences`
+
+Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).
+
+**Scope :** `audit:read`  
+**Réponse :** tableau `{ id, name, rule_ids, starts_at, ends_at, created_at, active }`
+
+---
+
+### `create_silence`
+
+Crée une fenêtre de silence, pour toutes les règles des deux moteurs (`rule_ids` omis) ou une liste choisie (IDs issus de `list_rules` et/ou `list_alerts`).
+
+| Paramètre   | Type   | Requis | Description                              |
+|-------------|--------|--------|-------------------------------------------|
+| `name`      | string | Oui    | Nom de la fenêtre de silence               |
+| `starts_at` | string | Oui    | Début, RFC3339                             |
+| `ends_at`   | string | Oui    | Fin, RFC3339 (doit être après `starts_at`) |
+| `rule_ids`  | array  | Non    | IDs de règles (moteur de règles et/ou d'alertes) concernées, vide = toutes |
+
+**Scope :** `audit:write`  
+**Réponse :** `{ id }`
 
 ---
 
