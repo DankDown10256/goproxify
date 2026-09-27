@@ -10,23 +10,23 @@ import "time"
 type TriggerType string
 
 const (
-	TriggerNodeOffline       TriggerType = "node_offline"
-	TriggerCertExpiringSoon  TriggerType = "cert_expiring_soon"
-	TriggerCVEDetected       TriggerType = "cve_detected"
-	TriggerFail2BanBan       TriggerType = "fail2ban_ban"
-	TriggerCrowdSecCritical  TriggerType = "crowdsec_critical"
-	TriggerConfigChanged     TriggerType = "config_changed"
-	TriggerBackupFailed      TriggerType = "backup_failed"
-	TriggerHighErrorRate     TriggerType = "high_error_rate"
-	TriggerHighLatency       TriggerType = "high_latency"
-	TriggerAdminAuthFailures TriggerType = "admin_auth_failures"
-	TriggerScaleEvent        TriggerType = "scale_event"
-	TriggerHealthEscalation  TriggerType = "health_escalation"
-	TriggerSentinelBan       TriggerType = "sentinel_ban"       // IP bannie par Sentinel/WAF
-	TriggerBackendDown       TriggerType = "backend_down"       // backend déclaré indisponible par health-check
-	TriggerCertDeployFailed  TriggerType = "cert_deploy_failed" // échec de déploiement d'un certificat
+	TriggerNodeOffline            TriggerType = "node_offline"
+	TriggerCertExpiringSoon       TriggerType = "cert_expiring_soon"
+	TriggerCVEDetected            TriggerType = "cve_detected"
+	TriggerFail2BanBan            TriggerType = "fail2ban_ban"
+	TriggerCrowdSecCritical       TriggerType = "crowdsec_critical"
+	TriggerConfigChanged          TriggerType = "config_changed"
+	TriggerBackupFailed           TriggerType = "backup_failed"
+	TriggerHighErrorRate          TriggerType = "high_error_rate"
+	TriggerHighLatency            TriggerType = "high_latency"
+	TriggerAdminAuthFailures      TriggerType = "admin_auth_failures"
+	TriggerScaleEvent             TriggerType = "scale_event"
+	TriggerHealthEscalation       TriggerType = "health_escalation"
+	TriggerSentinelBan            TriggerType = "sentinel_ban"              // IP bannie par Sentinel/WAF
+	TriggerBackendDown            TriggerType = "backend_down"              // backend déclaré indisponible par health-check
+	TriggerCertDeployFailed       TriggerType = "cert_deploy_failed"        // échec de déploiement d'un certificat
 	TriggerIPProfileRefreshFailed TriggerType = "ip_profile_refresh_failed" // feed d'un profil IP en échec de façon répétée
-	TriggerSLOBurn           TriggerType = "slo_burn"           // budget d'erreur SLO consommé trop vite ou épuisé
+	TriggerSLOBurn                TriggerType = "slo_burn"                  // budget d'erreur SLO consommé trop vite ou épuisé
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -41,23 +41,23 @@ var AllTriggers = []TriggerType{
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
 var TriggerLabels = map[TriggerType]string{
-	TriggerNodeOffline:       "Nœud passerelle/Agent hors ligne",
-	TriggerCertExpiringSoon:  "Certificat expirant prochainement",
-	TriggerCVEDetected:       "CVE détectée sur un backend",
-	TriggerFail2BanBan:       "Nouveau ban Fail2Ban",
-	TriggerCrowdSecCritical:  "Décision CrowdSec critique",
-	TriggerConfigChanged:     "Modification de configuration sensible",
-	TriggerBackupFailed:      "Échec de sauvegarde planifiée",
-	TriggerHighErrorRate:     "Taux d'erreurs HTTP > seuil",
-	TriggerHighLatency:       "Latence P95 > seuil",
-	TriggerAdminAuthFailures: "Tentatives de connexion admin échouées",
-	TriggerScaleEvent:        "Événement d'auto-scaling (montée/descente)",
-	TriggerHealthEscalation:  "Escalade de santé conteneur (restart→recreate→rollback)",
-	TriggerSentinelBan:      "IP bannie par Sentinel / WAF",
-	TriggerBackendDown:      "Backend déclaré indisponible par health-check",
-	TriggerCertDeployFailed: "Échec de déploiement d'un certificat",
+	TriggerNodeOffline:            "Nœud passerelle/Agent hors ligne",
+	TriggerCertExpiringSoon:       "Certificat expirant prochainement",
+	TriggerCVEDetected:            "CVE détectée sur un backend",
+	TriggerFail2BanBan:            "Nouveau ban Fail2Ban",
+	TriggerCrowdSecCritical:       "Décision CrowdSec critique",
+	TriggerConfigChanged:          "Modification de configuration sensible",
+	TriggerBackupFailed:           "Échec de sauvegarde planifiée",
+	TriggerHighErrorRate:          "Taux d'erreurs HTTP > seuil",
+	TriggerHighLatency:            "Latence P95 > seuil",
+	TriggerAdminAuthFailures:      "Tentatives de connexion admin échouées",
+	TriggerScaleEvent:             "Événement d'auto-scaling (montée/descente)",
+	TriggerHealthEscalation:       "Escalade de santé conteneur (restart→recreate→rollback)",
+	TriggerSentinelBan:            "IP bannie par Sentinel / WAF",
+	TriggerBackendDown:            "Backend déclaré indisponible par health-check",
+	TriggerCertDeployFailed:       "Échec de déploiement d'un certificat",
 	TriggerIPProfileRefreshFailed: "Mise à jour d'un profil IP en échec répété",
-	TriggerSLOBurn:          "Budget d'erreur SLO consommé trop vite",
+	TriggerSLOBurn:                "Budget d'erreur SLO consommé trop vite",
 }
 
 // Severity classe la sévérité d'une alerte.
@@ -92,14 +92,15 @@ type Scope struct {
 
 // Rule est une règle de routage d'alertes.
 type Rule struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Scope       Scope       `json:"scope"`
-	Triggers    []TriggerType `json:"triggers"`
-	Channels    []string    `json:"channels"` // IDs de alert_channels
-	CooldownSec int         `json:"cooldown_sec"`
-	Priority    int         `json:"priority"`
-	Enabled     bool        `json:"enabled"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Scope          Scope         `json:"scope"`
+	Triggers       []TriggerType `json:"triggers"`
+	Channels       []string      `json:"channels"` // IDs de alert_channels
+	CooldownSec    int           `json:"cooldown_sec"`
+	Priority       int           `json:"priority"`
+	Enabled        bool          `json:"enabled"`
+	GroupWindowSec int           `json:"group_window_sec,omitempty"` // 0 = pas de regroupement : chaque événement notifie immédiatement
 }
 
 // Channel est un canal de notification stocké en DB.

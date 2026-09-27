@@ -14,6 +14,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Silences & maintenance** : fenêtres de temps qui suspendent l'exécution des actions du moteur de règles *et* l'envoi des notifications du moteur d'alertes (toutes les règles ou une sélection mêlant les deux), sans interrompre l'évaluation ni le journal
 - **Rejeu depuis le Journal** : une entrée d'historique en échec se rejoue en un clic, sans réévaluer la condition
 - **Export/import YAML de l'automatisation** : règles, canaux et silences dans un seul document GitOps, réimportable (upsert par nom)
+- **Canaux Slack, Microsoft Teams, Telegram, SMS (Twilio)** : quatre types de canal d'alerte supplémentaires, au même titre qu'email/webhook/ntfy/gotify
 - **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp` (réseaux privés par défaut), vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
 - **IP client fiable** : les en-têtes `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` ne sont crus que depuis un proxy de confiance (`GPX_TRUSTED_PROXIES`) — fin du contournement Fail2Ban/Sentinel par IP forgée
 - **MCP — allowlist de destinations backend** : `create_proxy` / `update_proxy` ne peuvent pointer que vers des destinations autorisées (réseaux privés par défaut), contre le détournement de trafic par prompt injection

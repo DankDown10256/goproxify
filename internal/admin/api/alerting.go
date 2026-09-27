@@ -233,7 +233,7 @@ func (h *RulesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *RulesHandler) list(w http.ResponseWriter, _ *http.Request) {
 	rows, err := h.DB.Query(
-		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled, created_at, updated_at
+		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled, created_at, updated_at, COALESCE(group_window_sec,0)
 		 FROM alert_rules ORDER BY priority DESC, name`)
 	if err != nil {
 		alertJSONErr(w, err, http.StatusInternalServerError)
@@ -243,9 +243,9 @@ func (h *RulesHandler) list(w http.ResponseWriter, _ *http.Request) {
 	var out []map[string]any
 	for rows.Next() {
 		var id, name, scopeJSON, triggersJSON, chansJSON string
-		var cooldown, priority, enabled int
+		var cooldown, priority, enabled, groupWindow int
 		var createdAt, updatedAt string
-		if err := rows.Scan(&id, &name, &scopeJSON, &triggersJSON, &chansJSON, &cooldown, &priority, &enabled, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &name, &scopeJSON, &triggersJSON, &chansJSON, &cooldown, &priority, &enabled, &createdAt, &updatedAt, &groupWindow); err != nil {
 			continue
 		}
 		var scope, triggers, chans any
@@ -255,7 +255,8 @@ func (h *RulesHandler) list(w http.ResponseWriter, _ *http.Request) {
 		out = append(out, map[string]any{
 			"id": id, "name": name, "scope": scope, "triggers": triggers, "channels": chans,
 			"cooldown_sec": cooldown, "priority": priority, "enabled": enabled == 1,
-			"created_at": createdAt, "updated_at": updatedAt,
+			"group_window_sec": groupWindow,
+			"created_at":       createdAt, "updated_at": updatedAt,
 		})
 	}
 	if out == nil {
@@ -294,10 +295,10 @@ func (h *RulesHandler) create(w http.ResponseWriter, r *http.Request) {
 		enabled = 0
 	}
 	_, err := h.DB.Exec(
-		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO alert_rules (id, name, scope, triggers, channels, cooldown_sec, priority, enabled, group_window_sec)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, body.Name, string(scopeJSON), string(triggersJSON), string(chansJSON),
-		body.CooldownSec, body.Priority, enabled,
+		body.CooldownSec, body.Priority, enabled, body.GroupWindowSec,
 	)
 	if err != nil {
 		alertJSONErr(w, err, http.StatusInternalServerError)
@@ -325,10 +326,10 @@ func (h *RulesHandler) update(w http.ResponseWriter, r *http.Request, id string)
 		enabled = 0
 	}
 	_, err := h.DB.Exec(
-		`UPDATE alert_rules SET name=?, scope=?, triggers=?, channels=?, cooldown_sec=?, priority=?, enabled=?, updated_at=CURRENT_TIMESTAMP
+		`UPDATE alert_rules SET name=?, scope=?, triggers=?, channels=?, cooldown_sec=?, priority=?, enabled=?, group_window_sec=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=?`,
 		body.Name, string(scopeJSON), string(triggersJSON), string(chansJSON),
-		body.CooldownSec, body.Priority, enabled, id,
+		body.CooldownSec, body.Priority, enabled, body.GroupWindowSec, id,
 	)
 	if err != nil {
 		alertJSONErr(w, err, http.StatusInternalServerError)

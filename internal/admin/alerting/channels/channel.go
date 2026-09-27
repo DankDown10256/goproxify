@@ -71,6 +71,14 @@ func Build(ch Channel) (Sender, error) {
 		return &ZammadSender{URL: str(cfg, "url"), Token: str(cfg, "token"), GroupID: str(cfg, "group_id")}, nil
 	case "glpi":
 		return &GLPISender{URL: str(cfg, "url"), AppToken: str(cfg, "app_token"), UserToken: str(cfg, "user_token")}, nil
+	case "slack":
+		return &SlackSender{WebhookURL: str(cfg, "webhook_url")}, nil
+	case "teams":
+		return &TeamsSender{WebhookURL: str(cfg, "webhook_url")}, nil
+	case "telegram":
+		return &TelegramSender{BotToken: str(cfg, "bot_token"), ChatID: str(cfg, "chat_id")}, nil
+	case "sms":
+		return &SMSSender{AccountSID: str(cfg, "account_sid"), AuthToken: str(cfg, "auth_token"), From: str(cfg, "from"), To: str(cfg, "to")}, nil
 	default:
 		return nil, fmt.Errorf("type de canal inconnu : %q", ch.Type)
 	}

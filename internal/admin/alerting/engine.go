@@ -28,6 +28,16 @@ type Engine struct {
 	cooldowns   map[string]time.Time // clé : ruleID + trigger
 	ruleCache   []Rule
 	rulesCached time.Time
+
+	groupMu  sync.Mutex
+	groupBuf map[string][]groupedEvent // clé : ruleID, en attente de regroupement
+	groupTmr map[string]*time.Timer
+}
+
+// groupedEvent est un événement en attente dans le tampon de regroupement d'une règle.
+type groupedEvent struct {
+	ev  Event
+	msg Message
 }
 
 // New crée un Engine et démarre la goroutine de traitement.
@@ -38,6 +48,8 @@ func New(db *sql.DB, log *slog.Logger) *Engine {
 		events:    make(chan Event, 256),
 		stop:      make(chan struct{}),
 		cooldowns: map[string]time.Time{},
+		groupBuf:  map[string][]groupedEvent{},
+		groupTmr:  map[string]*time.Timer{},
 	}
 	go e.loop()
 	return e
@@ -55,9 +67,18 @@ func (e *Engine) Emit(ev Event) {
 	}
 }
 
-// Stop arrête l'Engine proprement.
+// Stop arrête l'Engine proprement et annule les regroupements en attente
+// (les événements déjà tamponnés ne partent pas — ils resteront visibles dans
+// leurs événements d'origine s'ils sont réémis après redémarrage).
 func (e *Engine) Stop() {
 	close(e.stop)
+	e.groupMu.Lock()
+	for _, tmr := range e.groupTmr {
+		tmr.Stop()
+	}
+	e.groupTmr = map[string]*time.Timer{}
+	e.groupBuf = map[string][]groupedEvent{}
+	e.groupMu.Unlock()
 }
 
 func (e *Engine) loop() {
@@ -110,9 +131,91 @@ func (e *Engine) eval(ev Event) {
 		e.cooldowns[key] = time.Now()
 		e.mu.Unlock()
 
+		if rule.GroupWindowSec > 0 {
+			e.bufferGrouped(rule, ev, msg)
+			continue
+		}
+
 		e.dispatch(rule, msg)
 		e.recordFired(rule, ev, msg)
 	}
+}
+
+// bufferGrouped ajoute l'événement au tampon de regroupement d'une règle et
+// programme (ou reprogramme) l'envoi groupé à la fin de la fenêtre. Le premier
+// événement d'une fenêtre démarre le minuteur ; les suivants s'y ajoutent sans
+// le repousser, pour garantir un délai maximal borné même sous flot continu.
+func (e *Engine) bufferGrouped(rule Rule, ev Event, msg Message) {
+	e.groupMu.Lock()
+	defer e.groupMu.Unlock()
+	e.groupBuf[rule.ID] = append(e.groupBuf[rule.ID], groupedEvent{ev: ev, msg: msg})
+	if e.groupTmr[rule.ID] != nil {
+		return // minuteur déjà en cours pour cette règle
+	}
+	window := time.Duration(rule.GroupWindowSec) * time.Second
+	e.groupTmr[rule.ID] = time.AfterFunc(window, func() { e.flushGrouped(rule.ID) })
+}
+
+// flushGrouped envoie une notification unique résumant tous les événements
+// accumulés pendant la fenêtre de regroupement d'une règle, puis les journalise.
+func (e *Engine) flushGrouped(ruleID string) {
+	e.groupMu.Lock()
+	events := e.groupBuf[ruleID]
+	delete(e.groupBuf, ruleID)
+	delete(e.groupTmr, ruleID)
+	e.groupMu.Unlock()
+	if len(events) == 0 {
+		return
+	}
+
+	rules, err := e.loadRules()
+	if err != nil {
+		e.log.Error("alerting: chargement règles (flush groupé)", "err", err)
+		return
+	}
+	var rule *Rule
+	for i := range rules {
+		if rules[i].ID == ruleID {
+			rule = &rules[i]
+			break
+		}
+	}
+	if rule == nil {
+		return // règle supprimée entre-temps
+	}
+
+	first := events[0].msg
+	label := TriggerLabels[first.Trigger]
+	if label == "" {
+		label = string(first.Trigger)
+	}
+	combined := Message{
+		RuleName: rule.Name,
+		Trigger:  first.Trigger,
+		Severity: first.Severity,
+		Title:    fmt.Sprintf("[%s] %d× %s", first.Severity, len(events), label),
+		Body:     groupedBody(events, label),
+		Detail:   map[string]any{"grouped_count": len(events)},
+		FiredAt:  time.Now(),
+	}
+	e.dispatch(*rule, combined)
+	e.recordFired(*rule, Event{Trigger: first.Trigger, Detail: combined.Detail, FiredAt: combined.FiredAt}, combined)
+}
+
+// groupedBody énumère jusqu'à 5 événements regroupés, puis résume le reste.
+func groupedBody(events []groupedEvent, label string) string {
+	body := fmt.Sprintf("%d événements « %s » regroupés :\n", len(events), label)
+	max := len(events)
+	if max > 5 {
+		max = 5
+	}
+	for i := 0; i < max; i++ {
+		body += "· " + events[i].msg.Body + "\n"
+	}
+	if len(events) > max {
+		body += fmt.Sprintf("… et %d de plus", len(events)-max)
+	}
+	return body
 }
 
 // isSilenced indique si un silence actif (créé depuis Automatisation > Alertes
@@ -211,7 +314,7 @@ func (e *Engine) loadRules() ([]Rule, error) {
 		return e.ruleCache, nil
 	}
 	rows, err := e.db.Query(
-		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled
+		`SELECT id, name, scope, triggers, channels, cooldown_sec, priority, enabled, COALESCE(group_window_sec,0)
 		 FROM alert_rules ORDER BY priority DESC`)
 	if err != nil {
 		return nil, err
@@ -222,7 +325,7 @@ func (e *Engine) loadRules() ([]Rule, error) {
 		var r Rule
 		var scopeJSON, triggersJSON, chansJSON string
 		var enabled int
-		if err := rows.Scan(&r.ID, &r.Name, &scopeJSON, &triggersJSON, &chansJSON, &r.CooldownSec, &r.Priority, &enabled); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &scopeJSON, &triggersJSON, &chansJSON, &r.CooldownSec, &r.Priority, &enabled, &r.GroupWindowSec); err != nil {
 			continue
 		}
 		r.Enabled = enabled == 1

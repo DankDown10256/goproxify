@@ -739,6 +739,13 @@ func migrate(db *sql.DB) error {
 		_, _ = db.Exec(s) // sqlite ignore si la colonne existe déjà
 	}
 
+	// Colonnes additives alert_rules
+	for _, s := range []string{
+		`ALTER TABLE alert_rules ADD COLUMN group_window_sec INTEGER NOT NULL DEFAULT 0`,
+	} {
+		_, _ = db.Exec(s)
+	}
+
 	// Moteur de règles (condition→action périodique)
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS rules_engine_rules (

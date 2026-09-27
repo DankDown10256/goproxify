@@ -941,7 +941,7 @@ Crée un canal de notification.
 | Paramètre | Type   | Requis | Description                                    |
 |-----------|--------|--------|------------------------------------------------|
 | `name`    | string | ✓      | Nom du canal                                   |
-| `type`    | string | ✓      | `email`, `webhook`, `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi` |
+| `type`    | string | ✓      | `email`, `webhook`, `ntfy`, `gotify`, `jira`, `linear`, `github`, `gitlab`, `zammad`, `glpi`, `slack`, `teams`, `telegram`, `sms` |
 | `config`  | object | ✓      | Configuration dépendant du type                |
 
 **Réponse :** `{ "id": "ac_…", "name": "…", "type": "…" }`

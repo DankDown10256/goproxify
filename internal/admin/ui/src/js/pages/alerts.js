@@ -66,7 +66,7 @@ pages.alerts = async function() {
                   ${(r.channels||[]).length > 2 ? `<span style="font-size:11px;color:var(--text2)">+${(r.channels||[]).length-2}</span>` : ''}
                 </td>
                 <td>${priorityBadge(r.priority||0)}</td>
-                <td style="font-size:12px;color:var(--text2)">${r.cooldown_sec ? r.cooldown_sec+'s' : '—'}</td>
+                <td style="font-size:12px;color:var(--text2)">${r.cooldown_sec ? r.cooldown_sec+'s' : '—'}${r.group_window_sec ? ` <span class="tag tag-blue" style="font-size:10px" title="${esc(t('alerts.group_window_hint'))}">${t('alerts.grouped')} ${r.group_window_sec}s</span>` : ''}</td>
                 <td>${r.enabled ? `<span class="tag tag-green">${t('alerts.active')}</span>` : `<span class="tag tag-neutral">${t('alerts.inactive')}</span>`}</td>
                 <td>
                   <button class="btn btn-ghost btn-icon btn-sm" onclick="openAlertRuleModal('${esc(r.id)}')" title="${esc(t('common.edit'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -138,6 +138,10 @@ window.openAlertRuleModal = async function(id) {
         </div>
       </div>
       <div class="field">
+        <label class="field-label">${t('alerts.group_window')} <span style="font-size:10px;color:var(--text2)">${t('alerts.group_window_hint')}</span></label>
+        <input id="ar-group-window" class="input" type="number" min="0" value="${existing?.group_window_sec ?? 0}">
+      </div>
+      <div class="field">
         <label class="field-label" style="display:flex;align-items:center;gap:8px">
           ${t('common.enabled')}
           <label class="toggle"><input type="checkbox" id="ar-enabled" ${existing?.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
@@ -157,15 +161,16 @@ window.saveAlertRule = async function(id) {
   const channels = [...document.querySelectorAll('[data-ar-chan].tag-blue')].map(el => el.dataset.arChan);
   const priority = parseInt(document.getElementById('ar-priority')?.value || '50', 10);
   const cooldown_sec = parseInt(document.getElementById('ar-cooldown')?.value || '300', 10);
+  const group_window_sec = parseInt(document.getElementById('ar-group-window')?.value || '0', 10);
   const enabled = document.getElementById('ar-enabled')?.checked ?? true;
   const btn = document.getElementById('ar-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
   try {
     if (id) {
-      await api('PUT', `/alert-rules/${id}`, { name, triggers, channels, priority, cooldown_sec, enabled, scope: {} });
+      await api('PUT', `/alert-rules/${id}`, { name, triggers, channels, priority, cooldown_sec, group_window_sec, enabled, scope: {} });
       toast(t('alerts.updated'), 'success');
     } else {
-      await api('POST', '/alert-rules', { name, triggers, channels, priority, cooldown_sec, enabled, scope: {} });
+      await api('POST', '/alert-rules', { name, triggers, channels, priority, cooldown_sec, group_window_sec, enabled, scope: {} });
       toast(t('alerts.created'), 'success');
     }
     closeModal();
@@ -200,6 +205,10 @@ const CHANNEL_TYPE_ICONS = {
   gitlab:  _chSvg('<path d="M12 21 18.8 12.5 16.4 3.8 13.9 10.2h-3.8L7.6 3.8 5.2 12.5 12 21z"/>'),
   zammad:  _chSvg('<path d="M4 7h12l4 4v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><path d="M16 7v4h4"/><path d="M8 13h5"/><path d="M8 16h8"/>'),
   glpi:    _chSvg('<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8"/><path d="M12 16v4"/><path d="M7 8h4"/><path d="M7 11h6"/>'),
+  slack:    _chSvg('<rect x="3" y="9" width="6" height="12" rx="2"/><rect x="9" y="3" width="12" height="6" rx="2"/><rect x="15" y="9" width="6" height="12" rx="2"/><rect x="3" y="15" width="12" height="6" rx="2"/>'),
+  teams:    _chSvg('<circle cx="9" cy="7" r="4"/><circle cx="18" cy="8" r="3"/><path d="M2 21v-2a6 6 0 0 1 12 0v2"/><path d="M15 21v-1a5 5 0 0 1 8-4"/>'),
+  telegram: _chSvg('<path d="m22 2-11 11"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/>'),
+  sms:      _chSvg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'),
 };
 
 const CHANNEL_TYPES = [
@@ -213,6 +222,10 @@ const CHANNEL_TYPES = [
   { id: 'gitlab',  labelKey: 'alerts.type.gitlab',  shortKey: 'alerts.type.gitlab_short',  color: '#fc6d26' },
   { id: 'zammad',  labelKey: 'alerts.type.zammad',  shortKey: 'alerts.type.zammad',        color: '#eab308' },
   { id: 'glpi',    labelKey: 'alerts.type.glpi',    shortKey: 'alerts.type.glpi',          color: '#22c55e' },
+  { id: 'slack',    labelKey: 'alerts.type.slack',    shortKey: 'alerts.type.slack',    color: '#4a154b' },
+  { id: 'teams',    labelKey: 'alerts.type.teams',    shortKey: 'alerts.type.teams',    color: '#5b5fc7' },
+  { id: 'telegram', labelKey: 'alerts.type.telegram', shortKey: 'alerts.type.telegram', color: '#26a5e4' },
+  { id: 'sms',      labelKey: 'alerts.type.sms',      shortKey: 'alerts.type.sms',      color: '#f43f5e' },
 ];
 
 function channelTypeMeta(id) {
@@ -240,6 +253,10 @@ const CHANNEL_FIELDS = {
   gitlab:  [['url','alerts.field.url','https://gitlab.com'],['token','alerts.field.access_token','','password'],['project_id','alerts.field.project_id','']],
   zammad:  [['url','alerts.field.url','https://zammad.example.fr'],['token','alerts.field.token','','password'],['group_id','alerts.field.group_id','1']],
   glpi:    [['url','alerts.field.url','https://glpi.example.fr'],['app_token','alerts.field.app_token','','password'],['user_token','alerts.field.user_token','','password']],
+  slack:    [['webhook_url','alerts.field.slack_webhook_url','https://hooks.slack.com/services/…','password']],
+  teams:    [['webhook_url','alerts.field.teams_webhook_url','https://…webhook.office.com/…','password']],
+  telegram: [['bot_token','alerts.field.bot_token','','password'],['chat_id','alerts.field.chat_id','-1001234567890']],
+  sms:      [['account_sid','alerts.field.account_sid',''],['auth_token','alerts.field.auth_token','','password'],['from','alerts.field.sms_from','+15551234567'],['to','alerts.field.sms_to','+15557654321']],
 };
 
 pages['alert-channels'] = async function() {
@@ -300,7 +317,7 @@ window.openChannelModal = async function(id) {
       <div class="field">
         <label class="field-label">${t(labelKey)}</label>
         <input id="ch-${k}" class="input" type="${inputType||'text'}" placeholder="${ph||''}"
-          value="${esc(existing?.config?.[k] && !['password','token','api_key','secret','user_token','app_token'].includes(k) ? existing.config[k] : '')}">
+          value="${esc(existing?.config?.[k] && !['password','token','api_key','secret','user_token','app_token','webhook_url','bot_token','auth_token'].includes(k) ? existing.config[k] : '')}">
       </div>`).join('');
   }
 
