@@ -675,11 +675,13 @@ async function renderPrismPage() {
     const topEl = document.getElementById('px-topc');
     if (topEl) {
       const flagOf = cc => (!cc || cc.length !== 2 || cc === 'XX' || cc === 'LO') ? '🌐' : String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
-      const top = [...geo].sort((a, b) => _geoValue(b, mode) - _geoValue(a, mode)).filter(e => _geoValue(e, mode) > 0).slice(0, 8);
-      topEl.innerHTML = top.length ? top.map(e => {
+      const top = geoSortLocalLast(geo.filter(e => _geoValue(e, mode) > 0), e => _geoValue(e, mode)).slice(0, 8);
+      topEl.innerHTML = top.length ? top.map((e, i) => {
         const v = _geoValue(e, mode);
         const label = mode === 'error_rate' ? v.toFixed(1) + '%' : fmtNum(v);
-        return `<button type="button" class="prism-toprow${e.country_code === selCountry ? ' sel' : ''}" data-prism="country" data-cc="${esc(e.country_code)}">
+        const sep = isLocalGeo(e.country_code) && i > 0 && !isLocalGeo(top[i - 1].country_code)
+          ? `<div class="prism-toprow-sep">${esc(t('pz.local_sep'))}</div>` : '';
+        return `${sep}<button type="button" class="prism-toprow${e.country_code === selCountry ? ' sel' : ''}" data-prism="country" data-cc="${esc(e.country_code)}">
           <span class="prism-toprow-flag">${flagOf(e.country_code)}</span>
           <span class="prism-toprow-main"><span class="prism-toprow-head"><span>${esc(e.country_name)}</span><b>${label}</b></span>
           <span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(v / maxVal * 100).toFixed(1)}%;background:rgb(${r},${g},${b})"></span></span></span>
@@ -694,6 +696,7 @@ async function renderPrismPage() {
     const maxR = Math.max(...geo.map(g => g.requests), 1);
     const pane = document.getElementById('px-countries');
     if (!pane) return;
+    const sorted = geoSortLocalLast(geo, e => e.requests || 0).slice(0, 15);
     pane.innerHTML = `<div class="prism-panel-title">${esc(t('pz.by_country'))}</div>
       <div class="geo-stats-table" style="overflow-x:auto;border-top:1px solid var(--border)">
       <table class="prism-table">
@@ -701,10 +704,12 @@ async function renderPrismPage() {
           <th>${esc(t('pz.tab_countries'))}</th><th>${esc(t('prism.req_short'))}</th><th>${esc(t('prism.share'))}</th>
           <th>${esc(t('prism.errors'))}</th><th>${esc(t('pz.err_rate_abbr'))}</th><th>${esc(t('pz.banned_ips'))}</th>
         </tr></thead>
-        <tbody>${geo.slice(0, 15).map(entry => {
+        <tbody>${sorted.map((entry, i) => {
           const errRateHigh = (entry.error_rate || 0) >= 5;
           const hasBans = (entry.banned_ips || 0) > 0;
-          return `<tr>
+          const sep = isLocalGeo(entry.country_code) && i > 0 && !isLocalGeo(sorted[i - 1].country_code)
+            ? `<tr class="prism-geo-sep-row"><td colspan="6">${esc(t('pz.local_sep'))}</td></tr>` : '';
+          return `${sep}<tr>
             <td><span style="font-size:15px">${flag(entry.country_code)}</span><span style="color:var(--text3);font-size:10px;margin-right:4px">${esc(entry.country_code)}</span>${esc(entry.country_name)}</td>
             <td>${fmtNum(entry.requests)}</td>
             <td><span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(entry.requests/maxR*100).toFixed(1)}%"></span></span> <span style="font-size:11px;color:var(--text3)">${(entry.pct||0).toFixed(1)}%</span></td>

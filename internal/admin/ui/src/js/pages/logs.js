@@ -13,6 +13,14 @@ const logsFilters = {
   search: '', date_from: '', date_to: '',
 };
 
+// Passerelles disponibles pour le sélecteur de nœud en portée Admin (non verrouillée).
+let logsAllEdges = null;
+async function ensureLogsEdges() {
+  if (logsAllEdges) return logsAllEdges;
+  logsAllEdges = ((await api('GET', '/nodes').catch(() => [])) || []).filter(n => n.role === 'edge');
+  return logsAllEdges;
+}
+
 /** Portée posée par le menu (conservée pendant toute la visite de la page). */
 let logsScope = { kind: 'access', component: '', node_name: '', node_id: '', lockComp: false };
 
@@ -33,11 +41,13 @@ function stopLogsSSE() {
 }
 
 function logFilterLabels() {
-  return {
+  const labels = {
     domain: t('logs.domain'), ip: t('logs.ip'), method: t('logs.method'), status: t('logs.status'),
     path: t('logs.path'), level: t('logs.level'), search: t('logs.search'),
     date_from: t('logs.from'), date_to: t('logs.to'),
   };
+  if (!logsScope.lockComp) labels.node_name = t('logs.node');
+  return labels;
 }
 
 function edgeLogNodeName() {
@@ -56,7 +66,8 @@ function edgeLogNodeID() {
 function hasActiveLogFilters() {
   return !!(logsFilters.domain || logsFilters.ip || logsFilters.method ||
     logsFilters.status || logsFilters.path || logsFilters.search ||
-    logsFilters.date_from || logsFilters.date_to || logsFilters.level);
+    logsFilters.date_from || logsFilters.date_to || logsFilters.level ||
+    (!logsScope.lockComp && logsFilters.node_name));
 }
 
 /**
@@ -77,7 +88,9 @@ function openLogs(preset = {}) {
   };
   logsFilters.kind = logsScope.kind;
   logsFilters.component = logsScope.component;
-  logsFilters.node_name = logsScope.node_name;
+  // Portée passerelle : nœud verrouillé. Portée Admin : le sélecteur de nœud garde la main,
+  // on ne l'écrase donc pas ici (sinon toute sélection d'un nœud serait perdue au rendu).
+  if (logsScope.lockComp) logsFilters.node_name = logsScope.node_name;
   const keep = preset.keepFilters === true || preset.keepDomain === true || hasActiveLogFilters();
   if (!keep) {
     logsFilters.level = '';
@@ -89,6 +102,7 @@ function openLogs(preset = {}) {
     logsFilters.search = '';
     logsFilters.date_from = '';
     logsFilters.date_to = '';
+    if (!logsScope.lockComp) logsFilters.node_name = '';
   }
   renderLogsPage();
 }
@@ -256,6 +270,7 @@ function syncLogFilterInputs() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
   set('lf-search', logsFilters.search);
   set('lf-level', logsFilters.level);
+  set('lf-node', logsFilters.node_name);
   set('lf-domain', logsFilters.domain);
   set('lf-ip', logsFilters.ip);
   set('lf-method', logsFilters.method);
@@ -341,8 +356,21 @@ function componentFilterHTML(idPrefix) {
     </select>`;
 }
 
-function renderStaticLogs() {
+// Sélecteur de passerelle, uniquement en portée Admin (en portée passerelle le nœud est
+// verrouillé et déjà annoncé par le bandeau de portée).
+function nodeFilterHTML(idPrefix) {
+  if (logsScope.lockComp) return '';
+  const edges = logsAllEdges || [];
+  return `<select id="${idPrefix}node" class="input" onchange="${idPrefix === 'lf-live-' ? 'restartSSE()' : 'logsFilter()'}">
+      <option value="">${t('logs.node_ph')}</option>
+      ${edges.map(n => { const v = n.node_name || n.display_name || n.id; return `<option value="${esc(v)}"${v === logsFilters.node_name ? ' selected' : ''}>${esc(n.display_name || n.node_name || n.id)}</option>`; }).join('')}
+    </select>`;
+}
+
+async function renderStaticLogs() {
+  if (!logsScope.lockComp) await ensureLogsEdges();
   const c = document.getElementById('logs-tab-content');
+  if (!c) return; // navigation entre-temps
   const isSystem = isSystemLogs();
   const head = isSystem
     ? `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.context')}</th><th>${t('logs.message')}</th>`
@@ -362,6 +390,7 @@ function renderStaticLogs() {
       </select>
       <input type="hidden" id="lf-kind" value="${esc(logsFilters.kind)}">
       ${componentFilterHTML('lf-')}
+      ${nodeFilterHTML('lf-')}
       ${isSystem ? '' : `
       <input id="lf-domain" class="input" placeholder="${esc(t('logs.domain_ph'))}" value="${esc(logsFilters.domain)}" oninput="logsFilter()">
       <input id="lf-ip" class="input" placeholder="${esc(t('logs.ip_ph'))}" value="${esc(logsFilters.ip)}" oninput="logsFilter()">
@@ -468,7 +497,7 @@ window.logsFilter = function() {
   } else {
     logsFilters.component = logsScope.component;
   }
-  logsFilters.node_name = logsScope.node_name;
+  logsFilters.node_name = logsScope.lockComp ? logsScope.node_name : (document.getElementById('lf-node')?.value || '');
   logsFilters.domain = document.getElementById('lf-domain')?.value || '';
   logsFilters.ip     = document.getElementById('lf-ip')?.value || '';
   logsFilters.path   = document.getElementById('lf-path')?.value || '';
@@ -512,6 +541,7 @@ async function loadStaticLogs(beforeID) {
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
   if (logsScope.node_id) { params.set('node_id', logsScope.node_id); if (logsScope.node_name) params.set('node_name', logsScope.node_name); }
   else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  else if (!logsScope.lockComp && logsFilters.node_name) params.set('node_name', logsFilters.node_name);
   if (logsScope.lockComp && logsScope.component) params.set('component', logsScope.component);
   else if (logsFilters.component) params.set('component', logsFilters.component);
   for (const [k, v] of Object.entries(logsFilters)) {
@@ -624,8 +654,10 @@ window.saveLogsSettings = async function() {
   } catch(e) { toast(e.message, 'error'); }
 };
 
-function renderLiveLogs() {
+async function renderLiveLogs() {
+  if (!logsScope.lockComp) await ensureLogsEdges();
   const c = document.getElementById('logs-tab-content');
+  if (!c || logsActiveTab !== 'live') return; // navigation entre-temps
   const isSystem = isSystemLogs();
   const head = isSystem
     ? `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.message')}</th>`
@@ -638,6 +670,7 @@ function renderLiveLogs() {
         <option>info</option><option>warn</option><option>error</option><option>debug</option>
       </select>
       ${componentFilterHTML('lf-live-')}
+      ${nodeFilterHTML('lf-live-')}
       ${isSystem ? '' : `<input id="lf-live-domain" class="input" placeholder="${esc(t('logs.domain_ph'))}" value="${esc(logsFilters.domain)}" oninput="restartSSE()">`}
       <button id="btn-pause-live" class="btn btn-secondary btn-sm" onclick="toggleLivePause()">${t('logs.pause_btn')}</button>
       <button class="btn btn-secondary btn-sm" onclick="clearLiveStream()">🗑 ${t('logs.clear')}</button>
@@ -669,6 +702,7 @@ function startSSE() {
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
   if (logsScope.node_id) { params.set('node_id', logsScope.node_id); if (logsScope.node_name) params.set('node_name', logsScope.node_name); }
   else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  else if (!logsScope.lockComp && logsFilters.node_name) params.set('node_name', logsFilters.node_name);
 
   const lvl    = document.getElementById('lf-live-level')?.value;
   const search = document.getElementById('lf-live-search')?.value;
@@ -783,6 +817,7 @@ window.exportLogs = function(fmt) {
   params.set('kind', logsScope.kind || logsFilters.kind || 'access');
   if (logsScope.node_id) { params.set('node_id', logsScope.node_id); if (logsScope.node_name) params.set('node_name', logsScope.node_name); }
   else if (logsScope.node_name) params.set('node_name', logsScope.node_name);
+  else if (!logsScope.lockComp && logsFilters.node_name) params.set('node_name', logsFilters.node_name);
   if (logsScope.lockComp && logsScope.component) params.set('component', logsScope.component);
   else if (logsFilters.component) params.set('component', logsFilters.component);
   for (const [k, v] of Object.entries(logsFilters)) {
@@ -877,6 +912,7 @@ async function loadLogsHist() {
     const p = new URLSearchParams({ kind: 'system', bucket: unit, date_from: from.toISOString(), date_to: to.toISOString() });
     if (logsScope.node_id) { p.set('node_id', logsScope.node_id); if (logsScope.node_name) p.set('node_name', logsScope.node_name); }
     else if (logsScope.node_name) p.set('node_name', logsScope.node_name);
+    else if (!logsScope.lockComp && logsFilters.node_name) p.set('node_name', logsFilters.node_name);
     if (logsScope.lockComp && logsScope.component) p.set('component', logsScope.component);
     else if (logsFilters.component) p.set('component', logsFilters.component);
     for (const k of ['level', 'domain', 'search']) if (logsFilters[k]) p.set(k, logsFilters[k]);
@@ -887,6 +923,7 @@ async function loadLogsHist() {
     if (logsFilters.ip) p.set('ip', logsFilters.ip);
     if (logsFilters.path) p.set('path', logsFilters.path);
     if (logsScope.node_name) p.set('node_name', logsScope.node_name);
+    else if (!logsScope.lockComp && logsFilters.node_name) p.set('node_name', logsFilters.node_name);
     const raw = await api('GET', '/prism/timeline?' + p).catch(() => []);
     pts = (Array.isArray(raw) ? raw : []).map(x => ({ bucket: x.bucket, total: x.requests, warn: 0, error: x.errors }));
   }

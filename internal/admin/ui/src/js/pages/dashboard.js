@@ -323,7 +323,7 @@ function dashViewMap(d, mode) {
     `<button type="button" class="btn btn-xs dash-geo-mode ${k === mode ? 'active' : ''}" data-mode="${k}">${t(m.label)}</button>`).join('');
   const lat = d.edgeMetrics.filter(e => e.p95_ms > 0);
   const latMax = Math.max(1, ...lat.map(e => e.p95_ms));
-  const top = [...d.geo].sort((a, b) => (b.requests || 0) - (a.requests || 0)).slice(0, 6);
+  const top = geoSortLocalLast(d.geo, c => c.requests || 0).slice(0, 6);
   const topMax = Math.max(1, ...top.map(c => c.requests || 0));
 
   return `

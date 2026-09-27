@@ -9,6 +9,15 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.52.9 — chips de filtre : état sélectionné invisible** : la classe `.chip.active`, posée par de nombreuses pages (Logs d'accès/système — périodes et classes de statut —, Journal d'audit, Alertes, Métriques d'observabilité, Synthèse sécurité, Vulnérabilités) n'était stylée que sous `.vs-chips` ; partout ailleurs, cliquer une période, un niveau ou une sévérité filtrait bien les données mais ne le montrait pas (aucune différence visuelle avec les chips non sélectionnées). Règle générique ajoutée (bordure et fond teintés à la couleur d'accent), plus un état survol sur les chips cliquables. (Admin `0.52.9`)
+
+
+- **Admin 0.52.8 — Logs d'accès et Logs système : filtre par passerelle manquant en portée Admin** : les deux pages (issues de la maquette d'observabilité) n'exposaient aucun moyen de restreindre l'affichage à une passerelle précise depuis le menu Admin — seul le composant (`admin`/`agent`/`edge`) était filtrable, alors que `node_name` était déjà un filtre backend disponible (`GET /logs`, `/logs/histogram`, `/logs/live`, `/logs/export`, `/prism/timeline`). Un sélecteur de passerelle apparaît désormais dans la barre de filtres (vues statique et Live) des deux pages, absent quand la portée est déjà verrouillée sur une passerelle (menu Edge). (Admin `0.52.8`)
+
+
+- **Admin 0.52.7 — Prism, tableau de bord et Bans : réseau local toujours en bas des classements pays** : les IPs privées/loopback (déjà distinguées côté backend par un code pays `LO`, sans country réel possible) apparaissaient mêlées aux vrais pays dans le classement Prism, la carte « Traffic par pays » du tableau de bord et « Origine géographique » de la page Bans — parfois même en tête, si le volume local dépassait celui des vrais pays (box domestique bavarde, santé/health-check interne...). Elles restent dans la même liste (aucune carte séparée) mais toujours après les vrais pays désormais, avec un séparateur discret « Réseau local / privé ». La carte du monde n'était pas concernée (aucune position géographique n'est associée à ces IPs). (Admin `0.52.7`)
+
+
 - **Admin 0.52.6 — Moteurs de sécurité : plus de valeur devinée pour les limites Sentinel** : réactiver « Débit par IP », « Erreurs 4xx répétées » ou « Limite globale » sans réglage préalable appliquait silencieusement une valeur arbitraire (10 req/s, 20 erreurs, 1000 req/s) — un admin pouvait ainsi activer une limite à un seuil qu'il n'avait pas choisi. L'interrupteur ouvre désormais un champ obligatoire (avec un rappel explicite) et n'applique rien tant qu'une valeur n'est pas saisie ; réactiver dans la même ouverture de fenêtre après une désactivation restaure toujours la valeur précédente sans redemander. (Admin `0.52.6`)
 
 

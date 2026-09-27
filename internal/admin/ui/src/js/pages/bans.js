@@ -168,8 +168,9 @@ function bnTimelineHTML() {
 // rows : [{ label, n, color, onclick? }] ; barres proportionnelles au maximum.
 function bnRankHTML(rows, empty) {
   if (!rows.length) return `<span style="font-size:12px;color:var(--text3)">${empty}</span>`;
-  const max = Math.max(...rows.map(r => r.n), 1);
+  const max = Math.max(...rows.filter(r => !r.sep).map(r => r.n), 1);
   return rows.map(r => {
+    if (r.sep) return `<div class="prism-toprow-sep" style="margin:6px 2px 2px">${esc(r.label)}</div>`;
     const inner = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)" title="${esc(r.label)}">${esc(r.label)}</span>
       <span class="bn-bar"><i style="width:${Math.round(r.n / max * 100)}%;background:${r.color}"></i></span><b style="text-align:right">${r.n}</b>`;
     return r.onclick
@@ -190,10 +191,16 @@ function bnCard(title, body, extra = '') {
 
 function bnAnalysisHTML() {
   const admin = _bn.mode === 'admin';
-  const geo = bnRankHTML(_bn.countries.slice(0, 6).map(c => ({
-    label: c.country_code === 'XX' ? 'Inconnu' : `${c.country_name || c.country_code} (${c.country_code})`,
-    n: c.count, color: 'var(--accent)',
-  })), 'Aucune géolocalisation disponible.');
+  const geoSorted = geoSortLocalLast(_bn.countries, c => c.count || 0).slice(0, 6);
+  const geoRows = geoSorted.map((c, i) => {
+    const row = {
+      label: c.country_code === 'XX' ? 'Inconnu' : `${c.country_name || c.country_code} (${c.country_code})`,
+      n: c.count, color: 'var(--accent)',
+    };
+    return isLocalGeo(c.country_code) && i > 0 && !isLocalGeo(geoSorted[i - 1].country_code)
+      ? [{ sep: true, label: t('pz.local_sep') }, row] : [row];
+  }).flat();
+  const geo = bnRankHTML(geoRows, 'Aucune géolocalisation disponible.');
   const sources = bnRankHTML(bnCountBy(_bn.bans, bnSrc).map(([k, n]) => ({
     label: _secSourceLabel(k), n, color: BN_SRC_COLORS[k] || 'var(--text3)', onclick: `bnSetSource('${esc(k)}')`,
   })), 'Aucun ban actif.');

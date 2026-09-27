@@ -264,6 +264,9 @@ td.mono{font-family:monospace;font-size:12px}
 .empty p{font-size:14px}
 /* ── Chip ── */
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:12px;background:var(--bg3);border:1px solid var(--border);color:var(--text2)}
+button.chip{cursor:pointer;transition:border-color .12s,color .12s,background .12s}
+button.chip:hover{color:var(--text);border-color:var(--text3)}
+.chip.active{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
 /* ── Filter chips + cellules cliquables (Logs / Prism) ── */
 .filter-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
 .filter-chip{
@@ -2215,3 +2218,7 @@ tr[data-log-i]:hover td{background:var(--bg3)}
 .chip-x{border:0;background:none;padding:0 0 0 6px;color:inherit;opacity:.6;cursor:pointer}
 .chip-x:hover{opacity:1}
 @media(max-width:860px){.explore-grid{grid-template-columns:1fr}.expl-facets{flex-direction:row;flex-wrap:wrap;gap:14px 20px}.expl-facet{min-width:140px;flex:1}}
+
+/* ── Géo : séparateur avant le réseau local (IPs privées, code pays LO) ── */
+.prism-toprow-sep{margin:8px 4px 4px;padding-top:8px;border-top:1px dashed var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3)}
+.prism-geo-sep-row td{padding:6px 8px 4px !important;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);border-top:1px dashed var(--border) !important;background:none !important}
