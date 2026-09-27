@@ -47,7 +47,10 @@ function _flowRender() {
       <div class="fl-wire"></div>
       <div class="fl-node g"><div class="fl-k">${t('automation.node_guard')}</div>
         <label class="field-label">${t('security.rules.cooldown')} <span style="font-weight:400;color:var(--text3)">(${t('automation.seconds')})</span></label>
-        <input id="re-cooldown" type="number" class="input" min="60" value="${r.cooldown_sec || 300}"></div>
+        <input id="re-cooldown" type="number" class="input" min="60" value="${r.cooldown_sec || 300}">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-top:8px">
+          <input type="checkbox" id="re-require-approval" ${r.require_approval ? 'checked' : ''}>${t('automation.require_approval')}
+        </label></div>
       <div class="fl-wire"></div>
       <div class="fl-node a"><div class="fl-k">${t('automation.node_action')}</div>
         ${sel(_ACTION_TYPES, r.action?.type, 're-act-type', '_reUpdateActFields')}

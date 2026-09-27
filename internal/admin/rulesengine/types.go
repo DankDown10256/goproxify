@@ -13,12 +13,12 @@ type ConditionType string
 
 const (
 	CondCVECritical    ConditionType = "cve_critical"     // CVE avec CVSS ≥ seuil sur proxy actif
-	CondBanSpike       ConditionType = "ban_spike"         // > N bans dans une fenêtre de temps
-	CondEngineSilent   ConditionType = "engine_silent"     // moteur IPS sans activité depuis > X min
-	CondProxyErrorRate ConditionType = "proxy_error_rate"  // taux d'erreurs HTTP > seuil
-	CondBanRepeat      ConditionType = "ban_repeat"        // même IP bannie ≥ N fois
-	CondNodeOffline    ConditionType = "node_offline"      // Passerelle/Agent sans heartbeat depuis > X min
-	CondCertExpiring   ConditionType = "cert_expiring"      // certificat TLS expirant sous N jours
+	CondBanSpike       ConditionType = "ban_spike"        // > N bans dans une fenêtre de temps
+	CondEngineSilent   ConditionType = "engine_silent"    // moteur IPS sans activité depuis > X min
+	CondProxyErrorRate ConditionType = "proxy_error_rate" // taux d'erreurs HTTP > seuil
+	CondBanRepeat      ConditionType = "ban_repeat"       // même IP bannie ≥ N fois
+	CondNodeOffline    ConditionType = "node_offline"     // Passerelle/Agent sans heartbeat depuis > X min
+	CondCertExpiring   ConditionType = "cert_expiring"    // certificat TLS expirant sous N jours
 )
 
 // ActionType identifie l'action à exécuter.
@@ -26,11 +26,11 @@ type ActionType string
 
 const (
 	ActionDisableProxy ActionType = "disable_proxy" // désactiver le proxy lié au backend CVE
-	ActionBanIP        ActionType = "ban_ip"         // bannir l'IP déclenchante
-	ActionNotify       ActionType = "notify"          // émettre vers le moteur d'alertes
-	ActionEnableStrict ActionType = "enable_strict"   // réduire max_errors F2B (mode strict temporaire)
-	ActionWebhookCall  ActionType = "webhook_call"    // POST JSON vers une URL externe
-	ActionRunBackup    ActionType = "run_backup"      // déclencher un snapshot de sauvegarde immédiat
+	ActionBanIP        ActionType = "ban_ip"        // bannir l'IP déclenchante
+	ActionNotify       ActionType = "notify"        // émettre vers le moteur d'alertes
+	ActionEnableStrict ActionType = "enable_strict" // réduire max_errors F2B (mode strict temporaire)
+	ActionWebhookCall  ActionType = "webhook_call"  // POST JSON vers une URL externe
+	ActionRunBackup    ActionType = "run_backup"    // déclencher un snapshot de sauvegarde immédiat
 )
 
 // Condition décrit le prédicat évalué périodiquement.
@@ -39,7 +39,7 @@ type Condition struct {
 
 	// CondCVECritical / CondCVEOnProxy
 	CVSSThreshold float64 `json:"cvss_threshold,omitempty"` // défaut : 9.0
-	ProxyID       string  `json:"proxy_id,omitempty"`        // "" = tous les proxies
+	ProxyID       string  `json:"proxy_id,omitempty"`       // "" = tous les proxies
 
 	// CondBanSpike
 	BanCount  int    `json:"ban_count,omitempty"`  // nombre de bans déclenchant l'alerte
@@ -94,29 +94,45 @@ type Action struct {
 
 // Rule est une règle du moteur : une condition + une action + métadonnées.
 type Rule struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Enabled     bool      `json:"enabled"`
-	Condition   Condition `json:"condition"`
-	Action      Action    `json:"action"`
-	CooldownSec int       `json:"cooldown_sec"` // min secondes entre deux déclenchements
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	LastFiredAt *time.Time `json:"last_fired_at,omitempty"`
-	FireCount   int       `json:"fire_count"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Description     string     `json:"description,omitempty"`
+	Enabled         bool       `json:"enabled"`
+	Condition       Condition  `json:"condition"`
+	Action          Action     `json:"action"`
+	CooldownSec     int        `json:"cooldown_sec"` // min secondes entre deux déclenchements
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	LastFiredAt     *time.Time `json:"last_fired_at,omitempty"`
+	FireCount       int        `json:"fire_count"`
+	RequireApproval bool       `json:"require_approval,omitempty"` // si vrai, l'action attend une décision humaine au lieu de s'exécuter
+}
+
+// PendingAction est une action mise en attente par une règle avec
+// RequireApproval=true : la condition a matché, l'action attend une décision
+// humaine (Approuver/Refuser) avant de s'exécuter, ou pas.
+type PendingAction struct {
+	ID        string         `json:"id"`
+	RuleID    string         `json:"rule_id"`
+	RuleName  string         `json:"rule_name"`
+	Action    Action         `json:"action"`
+	Detail    map[string]any `json:"detail,omitempty"`
+	Status    string         `json:"status"` // pending | approved | rejected
+	CreatedAt time.Time      `json:"created_at"`
+	DecidedAt *time.Time     `json:"decided_at,omitempty"`
+	DecidedBy string         `json:"decided_by,omitempty"`
 }
 
 // ExecLog est un enregistrement d'exécution d'une règle.
 type ExecLog struct {
-	ID          int64      `json:"id"`
-	RuleID      string     `json:"rule_id"`
-	RuleName    string     `json:"rule_name,omitempty"`
-	CondResult  bool       `json:"cond_result"`
-	ActionTaken bool       `json:"action_taken"`
-	Detail      string     `json:"detail"`
-	Error       string     `json:"error,omitempty"`
-	FiredAt     time.Time  `json:"fired_at"`
+	ID          int64     `json:"id"`
+	RuleID      string    `json:"rule_id"`
+	RuleName    string    `json:"rule_name,omitempty"`
+	CondResult  bool      `json:"cond_result"`
+	ActionTaken bool      `json:"action_taken"`
+	Detail      string    `json:"detail"`
+	Error       string    `json:"error,omitempty"`
+	FiredAt     time.Time `json:"fired_at"`
 }
 
 // Silence suspend l'exécution des actions sur une fenêtre de temps, pour
@@ -148,6 +164,6 @@ func (s Silence) Active(t time.Time, ruleID string) bool {
 
 // ActionContext est passé aux exécuteurs d'actions.
 type ActionContext struct {
-	Rule    Rule
-	Detail  map[string]any // données issues de l'évaluateur de condition
+	Rule   Rule
+	Detail map[string]any // données issues de l'évaluateur de condition
 }

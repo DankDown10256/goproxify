@@ -676,6 +676,42 @@ Liste les 100 dernières exécutions d'une planification (30 jours conservés).
 
 ---
 
+### `list_pending_actions`
+
+Liste les actions du moteur de règles mises en attente d'approbation humaine (règles avec `require_approval`).
+
+| Paramètre | Type   | Requis | Description                                              |
+|-----------|--------|--------|-------------------------------------------------------------|
+| `status`  | string | —      | `pending` (défaut), `approved`, `rejected`, ou `all`         |
+
+**Réponse :** tableau `{ id, rule_id, rule_name, action, detail, status, created_at, decided_at, decided_by }`
+
+---
+
+### `approve_pending_action`
+
+Approuve une action en attente : elle est exécutée immédiatement (détail capturé au déclenchement, condition non réévaluée).
+
+| Paramètre | Type   | Requis | Description                                |
+|-----------|--------|--------|-----------------------------------------------|
+| `id`      | string | Oui    | ID de l'action en attente (`list_pending_actions`) |
+
+**Réponse :** `{ ok: true }`
+
+---
+
+### `reject_pending_action`
+
+Refuse une action en attente : elle ne sera jamais exécutée.
+
+| Paramètre | Type   | Requis | Description                                |
+|-----------|--------|--------|-----------------------------------------------|
+| `id`      | string | Oui    | ID de l'action en attente (`list_pending_actions`) |
+
+**Réponse :** `{ ok: true }`
+
+---
+
 ### `list_silences`
 
 Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).

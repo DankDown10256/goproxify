@@ -63,6 +63,10 @@ goproxify security rules silence delete <id> [-y] [-admin-url …] [-token …]
 goproxify security rules history list          [-admin-url …] [-token …]
 goproxify security rules history replay <id>   [-admin-url …] [-token …]
 
+goproxify security rules pending list            [-admin-url …] [-token …]
+goproxify security rules pending approve <id>    [-admin-url …] [-token …]
+goproxify security rules pending reject  <id>    [-admin-url …] [-token …]
+
 goproxify security rules export [-out <fichier.yaml>] [-admin-url …] [-token …]
 goproxify security rules import -file <automation.yaml> [-admin-url …] [-token …]
 
@@ -544,6 +548,9 @@ func runSecurityRules() {
 	case "history":
 		runSecurityRulesHistory()
 
+	case "pending":
+		runSecurityRulesPending()
+
 	case "versions":
 		runSecurityRulesVersions()
 
@@ -760,6 +767,64 @@ func runSecurityRulesHistory() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande history inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Approbation avant action ──────────────────────────────────────────────────
+
+func runSecurityRulesPending() {
+	sub := subcommand(os.Args, 4)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var pending []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/rules-engine/pending?status=pending", nil, &pending); err != nil {
+			fmt.Fprintf(os.Stderr, "pending list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(pending) == 0 {
+			fmt.Println("(aucune action en attente)")
+			return
+		}
+		for _, p := range pending {
+			id, _ := p["id"].(string)
+			ruleName, _ := p["rule_name"].(string)
+			createdAt, _ := p["created_at"].(string)
+			action, _ := p["action"].(map[string]any)
+			actionType, _ := action["type"].(string)
+			fmt.Printf("[%s] %-24s  %-18s  %s\n", id, createdAt, ruleName, actionType)
+		}
+
+	case "approve", "reject":
+		id := subcommand(os.Args, 5)
+		if id == "" {
+			fmt.Fprintf(os.Stderr, "usage: goproxify security rules pending %s <id>\n", sub)
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[6:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/rules-engine/pending/"+id+"/"+sub, nil, nil, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "pending %s : %v\n", sub, err)
+			os.Exit(1)
+		}
+		verb := "approuvée"
+		if sub == "reject" {
+			verb = "refusée"
+		}
+		fmt.Printf("Action %s %s.\n", id, verb)
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande pending inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

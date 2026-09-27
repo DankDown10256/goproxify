@@ -883,7 +883,7 @@ Liste toutes les règles. Réponse : tableau `Rule[]`.
 
 ### `POST /api/v1/rules-engine/rules`
 
-Crée une règle. Corps : `{ name, description, enabled, condition, action, cooldown_sec }`.
+Crée une règle. Corps : `{ name, description, enabled, condition, action, cooldown_sec, require_approval }`. `require_approval` (défaut `false`) : si vrai, l'action attend une décision humaine (`GET/POST /rules-engine/pending…`) au lieu de s'exécuter.
 
 ### `PUT /api/v1/rules-engine/rules/:id`
 
@@ -940,6 +940,18 @@ Crée un silence. Corps : `{ name, starts_at, ends_at, rule_ids }` (`starts_at`/
 ### `DELETE /api/v1/rules-engine/silences/:id`
 
 Supprime un silence (`204`).
+
+### `GET /api/v1/rules-engine/pending?[status=pending|approved|rejected]`
+
+Liste les actions mises en attente par une règle `require_approval` (sans filtre : tous les statuts). Réponse : tableau `{ id, rule_id, rule_name, action, detail, status, created_at, decided_at, decided_by }`.
+
+### `POST /api/v1/rules-engine/pending/:id/approve`
+
+Approuve une action en attente : elle est exécutée immédiatement (avec le détail capturé au déclenchement, la condition n'est pas réévaluée) et le résultat rejoint l'historique de la règle. `400` si l'action n'est plus `pending`. Réponse : `{ ok: true }`.
+
+### `POST /api/v1/rules-engine/pending/:id/reject`
+
+Refuse une action en attente : elle ne sera jamais exécutée. `400` si l'action n'est plus `pending`. Réponse : `{ ok: true }`.
 
 ### `GET /api/v1/rules-engine/export`
 

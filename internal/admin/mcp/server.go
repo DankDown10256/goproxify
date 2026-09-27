@@ -74,6 +74,7 @@ type Handler struct {
 type RulesEvaluator interface {
 	EvalNow(ctx context.Context, ruleID string, dryRun bool) (bool, map[string]any, error)
 	ReplayHistory(ctx context.Context, historyID int64) error
+	ApproveOrRejectPending(ctx context.Context, pendingID, decidedBy string, approve bool) error
 }
 
 // ScheduleRunner est implémenté par scheduler.Engine (évite l'import direct).
@@ -497,6 +498,21 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "list_pending_actions",
+		"description": "Liste les actions du moteur de règles mises en attente d'approbation humaine (règles avec require_approval).",
+		"inputSchema": schema(opt("status", "string", "Filtre par statut : pending (défaut si omis, tous les statuts sinon), approved, rejected")),
+	},
+	{
+		"name":        "approve_pending_action",
+		"description": "Approuve une action en attente : elle est exécutée immédiatement.",
+		"inputSchema": schema(req("id", "string", "ID de l'action en attente (list_pending_actions)")),
+	},
+	{
+		"name":        "reject_pending_action",
+		"description": "Refuse une action en attente : elle ne sera jamais exécutée.",
+		"inputSchema": schema(req("id", "string", "ID de l'action en attente (list_pending_actions)")),
+	},
+	{
 		"name":        "list_rule_versions",
 		"description": "Liste l'historique des versions d'une règle du moteur de règles (un instantané par création/modification/restauration, 20 derniers conservés).",
 		"inputSchema": schema(req("rule_id", "string", "ID de la règle")),
@@ -715,6 +731,15 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolListRuleHistory(r)
 	case "replay_rule_history":
 		result, toolErr = h.toolReplayRuleHistory(r, p.Arguments)
+	case "list_pending_actions":
+		status, _ := p.Arguments["status"].(string)
+		result, toolErr = h.toolListPendingActions(r, status)
+	case "approve_pending_action":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDecidePendingAction(r.Context(), id, true)
+	case "reject_pending_action":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDecidePendingAction(r.Context(), id, false)
 	case "list_rule_versions":
 		result, toolErr = h.toolListRuleVersions(r, p.Arguments)
 	case "restore_rule_version":
@@ -2103,6 +2128,60 @@ func (h *Handler) toolReplayRuleHistory(r *http.Request, args map[string]any) (a
 		return nil, fmt.Errorf("moteur de règles non disponible")
 	}
 	if err := h.RulesEngine.ReplayHistory(r.Context(), int64(idf)); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (h *Handler) toolListPendingActions(r *http.Request, status string) (any, error) {
+	query := `SELECT id, rule_id, rule_name, action_json, detail_json, status, created_at, decided_at, decided_by
+	          FROM rules_engine_pending_actions`
+	args := []any{}
+	if status == "" {
+		status = "pending"
+	}
+	if status != "all" {
+		query += ` WHERE status=?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := h.DB.QueryContext(r.Context(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, ruleID, ruleName, actionJSON, detailJSON, st, decidedBy string
+		var createdAt time.Time
+		var decidedAt sql.NullTime
+		if rows.Scan(&id, &ruleID, &ruleName, &actionJSON, &detailJSON, &st, &createdAt, &decidedAt, &decidedBy) != nil {
+			continue
+		}
+		item := map[string]any{
+			"id": id, "rule_id": ruleID, "rule_name": ruleName,
+			"action": json.RawMessage(actionJSON), "detail": json.RawMessage(detailJSON),
+			"status": st, "created_at": createdAt, "decided_by": decidedBy,
+		}
+		if decidedAt.Valid {
+			item["decided_at"] = decidedAt.Time
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolDecidePendingAction(ctx context.Context, id string, approve bool) (any, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	if h.RulesEngine == nil {
+		return nil, fmt.Errorf("moteur de règles non disponible")
+	}
+	if err := h.RulesEngine.ApproveOrRejectPending(ctx, id, adminauth.ActorFromContext(ctx), approve); err != nil {
 		return nil, err
 	}
 	return map[string]any{"ok": true}, nil

@@ -4,6 +4,7 @@
 
 function _auHistState(h) {
   if (h.error === 'silenced') return 'silenced';
+  if (h.error === 'pending_approval') return 'pending';
   if (h.error) return 'err';
   if (h.action_taken) return 'ok';
   if (h.cond_result) return 'warn';
@@ -15,19 +16,31 @@ window._auGo = function(page, opts) {
   navigate(page);
 };
 
+window._auDecidePending = async function(id, approve, btn) {
+  btn.disabled = true;
+  try {
+    await api('POST', `/rules-engine/pending/${id}/${approve ? 'approve' : 'reject'}`);
+    toast(approve ? t('automation.approved') : t('automation.rejected'), 'success');
+    pages.automation();
+  } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+};
+
 pages.automation = async function() {
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML =
     `<button class="btn btn-primary btn-sm" onclick="_auGo('automation-flow',{_flowSel:'new'})">${t('automation.new_rule')}</button>`;
   content.innerHTML = `<p style="color:var(--text2)">${t('common.loading')}</p>`;
 
-  const [rules, channels, templates, history] = await Promise.all([
+  const [rules, channels, templates, history, pending] = await Promise.all([
     api('GET', '/rules-engine/rules').catch(() => []),
     api('GET', '/alert-channels').catch(() => []),
     api('GET', '/rules-engine/templates').catch(() => []),
     api('GET', '/rules-engine/history').catch(() => []),
+    api('GET', '/rules-engine/pending?status=pending').catch(() => []),
   ]);
   const R = rules || [], C = channels || [], H = history || [];
+  const P = pending || [];
+  window._auPending = P;
   const activeRules = R.filter(r => r.enabled).length;
   const activeChannels = C.filter(c => c.enabled !== false).length;
 
@@ -55,6 +68,18 @@ pages.automation = async function() {
     <p style="margin:0 0 16px;font-size:13px;color:var(--text2)">${t('automation.subtitle')}</p>
     ${failed ? `<div class="au-banner"><span>⚠</span><div style="flex:1"><b>${t('automation.failed_banner', { n: failed })}</b></div>
       <button class="btn btn-ghost btn-sm" onclick="_auGo('automation-history',{_auJournalFilter:'err'})">${t('automation.see_failures')}</button></div>` : ''}
+    ${P.length ? `<div class="card" style="padding:14px 16px;margin-bottom:12px;border-color:var(--accent)">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${t('automation.pending_banner', { n: P.length })}</div>
+      <div style="display:flex;flex-direction:column;gap:8px">${P.map(p => `
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;background:var(--surf2, var(--bg2));border-radius:8px">
+          <div style="flex:1;min-width:180px">
+            <b style="font-size:12.5px">${esc(p.rule_name)}</b>
+            <div style="font-size:11.5px;color:var(--text2)">${esc(p.action?.type || '')} · ${fmtDate(p.created_at)}</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="_auDecidePending('${esc(p.id)}',true,this)">${t('automation.approve')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="_auDecidePending('${esc(p.id)}',false,this)">${t('automation.reject')}</button>
+        </div>`).join('')}</div>
+    </div>` : ''}
     <div class="sec-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">
       ${tile('security-rules', t('automation.tile_rules'), activeRules, `${R.length} ${t('common.total')}`, activeRules ? 'var(--accent)' : 'var(--text3)')}
       ${tile('automation-history', t('automation.tile_runs'), executed, t('automation.tile_runs_sub', { n: failed }), failed ? 'var(--yellow)' : 'var(--green)')}
@@ -150,9 +175,9 @@ window._auSetFilter = function(f) {
 function _auRenderJournal() {
   const f = window._auJournalFilter;
   const rows = (window._auHistory || []).filter(h => f === 'all' || _auHistState(h) === f);
-  const filters = [['all', t('automation.f_all')], ['ok', t('automation.f_ok')], ['err', t('automation.f_err')], ['warn', t('automation.f_warn')], ['silenced', t('automation.f_silenced')], ['idle', t('automation.f_idle')]];
-  const label = { ok: 'automation.s_ok', err: 'automation.s_err', warn: 'automation.s_warn', idle: 'automation.s_idle', silenced: 'automation.s_silenced' };
-  const tag = { ok: 'tag-green', err: 'tag-red', warn: 'tag-yellow', idle: 'tag-neutral', silenced: 'tag-neutral' };
+  const filters = [['all', t('automation.f_all')], ['ok', t('automation.f_ok')], ['err', t('automation.f_err')], ['warn', t('automation.f_warn')], ['silenced', t('automation.f_silenced')], ['pending', t('automation.f_pending')], ['idle', t('automation.f_idle')]];
+  const label = { ok: 'automation.s_ok', err: 'automation.s_err', warn: 'automation.s_warn', idle: 'automation.s_idle', silenced: 'automation.s_silenced', pending: 'automation.s_pending' };
+  const tag = { ok: 'tag-green', err: 'tag-red', warn: 'tag-yellow', idle: 'tag-neutral', silenced: 'tag-neutral', pending: 'tag-blue' };
   document.getElementById('content').innerHTML = `
     <p style="margin:0 0 14px;font-size:13px;color:var(--text2)">${t('automation.journal_hint')}</p>
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">${filters.map(([v, l]) =>
@@ -163,7 +188,7 @@ function _auRenderJournal() {
       <td style="font-size:11px;white-space:nowrap">${fmtDate(h.fired_at)}</td>
       <td style="font-size:12px">${esc(h.rule_name || h.rule_id)}</td>
       <td><span class="tag ${tag[s]}" style="font-size:10px">${t(label[s])}</span></td>
-      <td style="font-size:11px;color:var(--text2)">${s === 'silenced' ? t('automation.silenced_hint') : esc(h.error || h.detail || '')}</td>
+      <td style="font-size:11px;color:var(--text2)">${s === 'silenced' ? t('automation.silenced_hint') : s === 'pending' ? t('automation.pending_hint') : esc(h.error || h.detail || '')}</td>
       <td>${s === 'err' ? `<button class="btn btn-ghost btn-sm" onclick="_auReplay(${h.id},this)">${t('automation.replay')}</button>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`
       : `<div class="empty"><p>${t('security.rules.no_history')}</p></div>`}`;
 }

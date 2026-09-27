@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 )
 
@@ -139,6 +140,12 @@ func (e *Engine) evalRule(ctx context.Context, rule Rule) {
 	e.mu.Lock()
 	e.cooldowns[rule.ID] = time.Now()
 	e.mu.Unlock()
+
+	if rule.RequireApproval {
+		e.createPending(rule, detail)
+		e.recordExec(rule, true, false, "", "pending_approval")
+		return
+	}
 
 	actionErr := e.execAction(ctx, ActionContext{Rule: rule, Detail: detail})
 	errStr := ""
@@ -320,6 +327,69 @@ func (e *Engine) loadActiveSilences() ([]Silence, error) {
 	return out, nil
 }
 
+// createPending met une action en attente d'approbation humaine au lieu de
+// l'exécuter. L'identifiant est généré côté SQLite (randomblob) pour éviter une
+// dépendance supplémentaire au générateur d'UUID du package api.
+func (e *Engine) createPending(rule Rule, detail map[string]any) {
+	actionJSON, _ := json.Marshal(rule.Action)
+	detailJSON, _ := json.Marshal(detail)
+	id := uuid.New().String()
+	if _, err := e.db.Exec(
+		`INSERT INTO rules_engine_pending_actions (id, rule_id, rule_name, action_json, detail_json, status)
+		 VALUES (?, ?, ?, ?, ?, 'pending')`,
+		id, rule.ID, rule.Name, string(actionJSON), string(detailJSON),
+	); err != nil {
+		e.log.Error("rulesengine: création action en attente", "rule", rule.Name, "err", err)
+		return
+	}
+	e.log.Info("rulesengine: action en attente d'approbation", "rule", rule.Name, "pending_id", id)
+}
+
+// ApproveOrRejectPending décide d'une action en attente. Si approve est vrai et
+// que la règle est toujours en état 'pending', l'action est exécutée
+// immédiatement et son résultat journalisé dans l'historique de la règle
+// d'origine (si elle existe encore) ; sinon l'action reste simplement rejetée.
+func (e *Engine) ApproveOrRejectPending(ctx context.Context, pendingID, decidedBy string, approve bool) error {
+	var ruleID, ruleName, actionJSON, detailJSON, status string
+	err := e.db.QueryRowContext(ctx,
+		`SELECT rule_id, rule_name, action_json, detail_json, status FROM rules_engine_pending_actions WHERE id=?`, pendingID,
+	).Scan(&ruleID, &ruleName, &actionJSON, &detailJSON, &status)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("action en attente %q introuvable", pendingID)
+	}
+	if err != nil {
+		return err
+	}
+	if status != "pending" {
+		return fmt.Errorf("action déjà décidée (%s)", status)
+	}
+	newStatus := "rejected"
+	if approve {
+		newStatus = "approved"
+	}
+	if _, err := e.db.ExecContext(ctx,
+		`UPDATE rules_engine_pending_actions SET status=?, decided_at=CURRENT_TIMESTAMP, decided_by=? WHERE id=?`,
+		newStatus, decidedBy, pendingID,
+	); err != nil {
+		return err
+	}
+	if !approve {
+		return nil
+	}
+	var action Action
+	var detail map[string]any
+	_ = json.Unmarshal([]byte(actionJSON), &action)
+	_ = json.Unmarshal([]byte(detailJSON), &detail)
+	rule := Rule{ID: ruleID, Name: ruleName, Action: action}
+	actionErr := e.execAction(ctx, ActionContext{Rule: rule, Detail: detail})
+	errStr := ""
+	if actionErr != nil {
+		errStr = actionErr.Error()
+	}
+	e.recordExec(rule, true, actionErr == nil, detailJSON, errStr)
+	return actionErr
+}
+
 func (e *Engine) recordExec(rule Rule, matched, actionTaken bool, detail, errStr string) {
 	m := 0
 	if matched {
@@ -348,7 +418,7 @@ func (e *Engine) recordExec(rule Rule, matched, actionTaken bool, detail, errStr
 func (e *Engine) loadRules() ([]Rule, error) {
 	rows, err := e.db.Query(
 		`SELECT id, name, description, enabled, condition_json, action_json,
-		        cooldown_sec, created_at, updated_at, last_fired_at, fire_count
+		        cooldown_sec, created_at, updated_at, last_fired_at, fire_count, COALESCE(require_approval,0)
 		 FROM rules_engine_rules ORDER BY created_at`,
 	)
 	if err != nil {
@@ -359,16 +429,17 @@ func (e *Engine) loadRules() ([]Rule, error) {
 	for rows.Next() {
 		var r Rule
 		var condJSON, actionJSON string
-		var enabled int
+		var enabled, requireApproval int
 		var lastFired sql.NullString
 		if err := rows.Scan(
 			&r.ID, &r.Name, &r.Description, &enabled,
 			&condJSON, &actionJSON, &r.CooldownSec,
-			&r.CreatedAt, &r.UpdatedAt, &lastFired, &r.FireCount,
+			&r.CreatedAt, &r.UpdatedAt, &lastFired, &r.FireCount, &requireApproval,
 		); err != nil {
 			continue
 		}
 		r.Enabled = enabled == 1
+		r.RequireApproval = requireApproval == 1
 		_ = json.Unmarshal([]byte(condJSON), &r.Condition)
 		_ = json.Unmarshal([]byte(actionJSON), &r.Action)
 		if lastFired.Valid && lastFired.String != "" {

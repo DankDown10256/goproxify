@@ -330,6 +330,14 @@ Table `scheduled_tasks` : `id, name, cron_expr, action_json, enabled, last_run_a
 
 **Exécuter maintenant** (`POST /api/v1/scheduled-tasks/{id}/run`, bouton dans l'écran, `goproxify security schedule run <id>`, MCP `run_scheduled_task`) lance l'action indépendamment de l'expression cron. L'historique par planification est consultable via `GET /api/v1/scheduled-tasks/{id}/runs`, bouton **Historique**, `goproxify security schedule history <id>`, ou MCP `list_scheduled_task_runs`.
 
+### Approbation avant action
+
+Une règle du moteur de règles peut cocher **`require_approval`** : quand sa condition est vraie (cooldown passé, pas de silence actif), l'action n'est **pas exécutée** — elle est mise en attente dans `rules_engine_pending_actions` (règle, action, détail capturé, horodatage) et l'historique enregistre `error="pending_approval"`. Le cooldown est consommé normalement (une seule demande en attente par fenêtre).
+
+La **Vue d'ensemble** (`Admin > Automatisation`) affiche un bandeau listant les actions en attente, avec **Approuver** (exécute l'action immédiatement, avec le détail capturé au moment du déclenchement — la condition n'est pas réévaluée) et **Refuser** (l'action ne s'exécutera jamais). Chaque décision enregistre `decided_by` (l'acteur authentifié) et `decided_at`.
+
+API : `GET /rules-engine/pending[?status=pending|approved|rejected]`, `POST /rules-engine/pending/{id}/approve`, `POST /rules-engine/pending/{id}/reject`. CLI : `goproxify security rules pending list|approve|reject`. MCP : `list_pending_actions`, `approve_pending_action`, `reject_pending_action`.
+
 ---
 
 ## Timeouts serveur HTTP/QUIC

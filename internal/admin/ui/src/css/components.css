@@ -2178,17 +2178,33 @@ button.bn-rank:hover{background:var(--bg2)}
 
 /* Logs d'accès : périodes rapides, histogramme, lignes cliquables */
 .logs-filterbar{margin-bottom:12px}
-.logs-node-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
+.logs-filter-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.logs-node-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .logs-node-chips-label{font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;margin-right:2px}
 .logs-node-dot{display:inline-block;width:7px;height:7px;border-radius:50%;flex:none}
 .logs-node-badge{display:inline-flex;align-items:center;gap:6px}
 .logs-quick{display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:8px}
 .logs-quick-g{display:flex;flex-wrap:wrap;gap:4px}
+/* Toggle de période façon maquette : groupe segmenté, pastille active surélevée */
+.logs-seg{display:inline-flex;flex-wrap:wrap;gap:1px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:2px}
+.logs-seg .seg-btn{padding:5px 10px;font-size:12px;color:var(--text3);border-radius:6px;border:0;background:transparent;cursor:pointer;font:inherit}
+.logs-seg .seg-btn:hover{color:var(--text)}
+.logs-seg .seg-btn.active{background:var(--bg2);color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.logs-adv-toggle{font-size:11.5px;color:var(--accent);text-decoration:none;cursor:pointer}
+.logs-adv-toggle:hover{text-decoration:underline}
+.logs-toggle-inline{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);white-space:nowrap;margin-left:auto}
 #logs-hist{margin-bottom:10px}
 #logs-hist svg{width:100%;height:70px;display:block;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}
 .logs-hist-h{display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px}
 tr[data-log-i],article[data-log-i]{cursor:pointer}
 tr[data-log-i]:hover td{background:var(--bg3)}
+tr[data-log-i].is-selected td{background:color-mix(in srgb,var(--accent) 12%,var(--bg2))}
+article[data-log-i].is-selected{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+/* Vue Logs : tableau + colonne de détail en ligne (pas de tiroir superposé) */
+.logs-split{display:flex;gap:16px;align-items:flex-start}
+.logs-table-card{flex:1;min-width:0}
+.logs-detail-col{width:340px;flex-shrink:0;max-height:80vh;overflow:auto}
+@media(max-width:900px){.logs-split{flex-direction:column}.logs-detail-col{width:100%}}
 
 /* ── Automatisation : vue d'ensemble, éditeur de flux, journal ───────────── */
 .au-bars{display:flex;align-items:flex-end;gap:3px;height:72px}

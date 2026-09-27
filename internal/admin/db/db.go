@@ -750,6 +750,13 @@ func migrate(db *sql.DB) error {
 		_, _ = db.Exec(s)
 	}
 
+	// Colonnes additives rules_engine_rules
+	for _, s := range []string{
+		`ALTER TABLE rules_engine_rules ADD COLUMN require_approval INTEGER NOT NULL DEFAULT 0`,
+	} {
+		_, _ = db.Exec(s)
+	}
+
 	// Moteur de règles (condition→action périodique)
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS rules_engine_rules (
@@ -800,6 +807,20 @@ func migrate(db *sql.DB) error {
 			ran_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_sched_runs_task ON scheduled_task_runs (task_id, ran_at DESC)`,
+		// Approbation avant action : une règle avec require_approval=1 met son
+		// action en attente au lieu de l'exécuter ; un admin l'approuve ou la refuse.
+		`CREATE TABLE IF NOT EXISTS rules_engine_pending_actions (
+			id          TEXT PRIMARY KEY,
+			rule_id     TEXT NOT NULL,
+			rule_name   TEXT NOT NULL,
+			action_json TEXT NOT NULL DEFAULT '{}',
+			detail_json TEXT NOT NULL DEFAULT '{}',
+			status      TEXT NOT NULL DEFAULT 'pending',
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			decided_at  DATETIME,
+			decided_by  TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_re_pending_status ON rules_engine_pending_actions (status, created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS rules_engine_history (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			rule_id      TEXT NOT NULL,

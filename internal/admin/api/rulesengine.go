@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/rulesengine"
 )
 
@@ -81,6 +82,12 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.exportAutomation(w, r)
 	case r.Method == http.MethodPost && sub == "import":
 		h.importAutomation(w, r)
+	case r.Method == http.MethodGet && sub == "pending" && id == "":
+		h.listPending(w, r)
+	case r.Method == http.MethodPost && sub == "pending" && strings.HasSuffix(id, "/approve"):
+		h.decidePending(w, r, strings.TrimSuffix(id, "/approve"), true)
+	case r.Method == http.MethodPost && sub == "pending" && strings.HasSuffix(id, "/reject"):
+		h.decidePending(w, r, strings.TrimSuffix(id, "/reject"), false)
 	default:
 		writeErr(w, r, http.StatusNotFound, "api.err.not_found")
 	}
@@ -89,7 +96,7 @@ func (h *RulesEngineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *RulesEngineHandler) listRules(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.QueryContext(r.Context(), `
 		SELECT id, name, description, enabled, condition_json, action_json,
-		       cooldown_sec, created_at, updated_at, last_fired_at, fire_count
+		       cooldown_sec, created_at, updated_at, last_fired_at, fire_count, COALESCE(require_approval,0)
 		FROM rules_engine_rules ORDER BY created_at`)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -100,16 +107,17 @@ func (h *RulesEngineHandler) listRules(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var rule rulesengine.Rule
 		var condJSON, actionJSON string
-		var enabled int
+		var enabled, requireApproval int
 		var lastFired sql.NullString
 		if err := rows.Scan(
 			&rule.ID, &rule.Name, &rule.Description, &enabled,
 			&condJSON, &actionJSON, &rule.CooldownSec,
-			&rule.CreatedAt, &rule.UpdatedAt, &lastFired, &rule.FireCount,
+			&rule.CreatedAt, &rule.UpdatedAt, &lastFired, &rule.FireCount, &requireApproval,
 		); err != nil {
 			continue
 		}
 		rule.Enabled = enabled == 1
+		rule.RequireApproval = requireApproval == 1
 		_ = json.Unmarshal([]byte(condJSON), &rule.Condition)
 		_ = json.Unmarshal([]byte(actionJSON), &rule.Action)
 		if lastFired.Valid && lastFired.String != "" {
@@ -127,12 +135,13 @@ func (h *RulesEngineHandler) listRules(w http.ResponseWriter, r *http.Request) {
 }
 
 type ruleBody struct {
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Enabled     *bool                   `json:"enabled"`
-	Condition   rulesengine.Condition   `json:"condition"`
-	Action      rulesengine.Action      `json:"action"`
-	CooldownSec int                     `json:"cooldown_sec"`
+	Name            string                `json:"name"`
+	Description     string                `json:"description"`
+	Enabled         *bool                 `json:"enabled"`
+	Condition       rulesengine.Condition `json:"condition"`
+	Action          rulesengine.Action    `json:"action"`
+	CooldownSec     int                   `json:"cooldown_sec"`
+	RequireApproval bool                  `json:"require_approval"`
 }
 
 func (h *RulesEngineHandler) createRule(w http.ResponseWriter, r *http.Request) {
@@ -152,12 +161,16 @@ func (h *RulesEngineHandler) createRule(w http.ResponseWriter, r *http.Request) 
 	if body.Enabled != nil && !*body.Enabled {
 		enabled = 0
 	}
+	requireApproval := 0
+	if body.RequireApproval {
+		requireApproval = 1
+	}
 	_, err := h.DB.ExecContext(r.Context(), `
 		INSERT INTO rules_engine_rules
-		  (id, name, description, enabled, condition_json, action_json, cooldown_sec)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		  (id, name, description, enabled, condition_json, action_json, cooldown_sec, require_approval)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, body.Name, body.Description, enabled,
-		string(condJSON), string(actionJSON), body.CooldownSec,
+		string(condJSON), string(actionJSON), body.CooldownSec, requireApproval,
 	)
 	if err != nil {
 		h.Log.Error("rulesengine: create", "err", err)
@@ -206,13 +219,17 @@ func (h *RulesEngineHandler) updateRule(w http.ResponseWriter, r *http.Request, 
 	if body.Enabled != nil && !*body.Enabled {
 		enabled = 0
 	}
+	requireApproval := 0
+	if body.RequireApproval {
+		requireApproval = 1
+	}
 	res, err := h.DB.ExecContext(r.Context(), `
 		UPDATE rules_engine_rules SET
 		  name=?, description=?, enabled=?, condition_json=?, action_json=?,
-		  cooldown_sec=?, updated_at=CURRENT_TIMESTAMP
+		  cooldown_sec=?, require_approval=?, updated_at=CURRENT_TIMESTAMP
 		WHERE id=?`,
 		body.Name, body.Description, enabled,
-		string(condJSON), string(actionJSON), body.CooldownSec, id,
+		string(condJSON), string(actionJSON), body.CooldownSec, requireApproval, id,
 	)
 	if err != nil {
 		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
@@ -317,9 +334,9 @@ func (h *RulesEngineHandler) runRule(w http.ResponseWriter, r *http.Request, rul
 		return
 	}
 	jsonOK(w, map[string]any{
-		"matched":  matched,
-		"dry_run":  dryRun,
-		"detail":   detail,
+		"matched": matched,
+		"dry_run": dryRun,
+		"detail":  detail,
 	})
 }
 
@@ -492,38 +509,38 @@ func (h *RulesEngineHandler) installTemplate(w http.ResponseWriter, r *http.Requ
 func (h *RulesEngineHandler) conditionTypes(w http.ResponseWriter, r *http.Request) {
 	types := []map[string]any{
 		{
-			"type":  "cve_critical",
-			"label": "CVE critique sur proxy actif",
+			"type":   "cve_critical",
+			"label":  "CVE critique sur proxy actif",
 			"params": []string{"cvss_threshold", "proxy_id"},
 		},
 		{
-			"type":  "ban_spike",
-			"label": "Pic de bans",
+			"type":   "ban_spike",
+			"label":  "Pic de bans",
 			"params": []string{"ban_count", "ban_window", "ban_source"},
 		},
 		{
-			"type":  "engine_silent",
-			"label": "Moteur IPS silencieux",
+			"type":   "engine_silent",
+			"label":  "Moteur IPS silencieux",
 			"params": []string{"engine_type", "silent_minutes"},
 		},
 		{
-			"type":  "proxy_error_rate",
-			"label": "Taux d'erreurs proxy",
+			"type":   "proxy_error_rate",
+			"label":  "Taux d'erreurs proxy",
 			"params": []string{"error_rate_threshold", "error_rate_window", "proxy_id"},
 		},
 		{
-			"type":  "ban_repeat",
-			"label": "IP récidiviste",
+			"type":   "ban_repeat",
+			"label":  "IP récidiviste",
 			"params": []string{"repeat_count", "repeat_window"},
 		},
 		{
-			"type":  "node_offline",
-			"label": "Passerelle/Agent hors ligne",
+			"type":   "node_offline",
+			"label":  "Passerelle/Agent hors ligne",
 			"params": []string{"node_name", "offline_minutes"},
 		},
 		{
-			"type":  "cert_expiring",
-			"label": "Certificat TLS expirant",
+			"type":   "cert_expiring",
+			"label":  "Certificat TLS expirant",
 			"params": []string{"domain", "days_left"},
 		},
 	}
@@ -564,4 +581,58 @@ func (h *RulesEngineHandler) actionTypes(w http.ResponseWriter, r *http.Request)
 		},
 	}
 	jsonOK(w, types)
+}
+
+// ── Approbation avant action ─────────────────────────────────────────────────
+
+func (h *RulesEngineHandler) listPending(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	query := `SELECT id, rule_id, rule_name, action_json, detail_json, status, created_at, decided_at, decided_by
+	          FROM rules_engine_pending_actions`
+	args := []any{}
+	if status != "" {
+		query += ` WHERE status=?`
+		args = append(args, status)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := h.DB.QueryContext(r.Context(), query, args...)
+	if err != nil {
+		writeErr(w, r, http.StatusInternalServerError, "api.err.internal")
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, ruleID, ruleName, actionJSON, detailJSON, status, decidedBy string
+		var createdAt time.Time
+		var decidedAt sql.NullTime
+		if rows.Scan(&id, &ruleID, &ruleName, &actionJSON, &detailJSON, &status, &createdAt, &decidedAt, &decidedBy) != nil {
+			continue
+		}
+		var action, detail map[string]any
+		_ = json.Unmarshal([]byte(actionJSON), &action)
+		_ = json.Unmarshal([]byte(detailJSON), &detail)
+		item := map[string]any{
+			"id": id, "rule_id": ruleID, "rule_name": ruleName, "action": action, "detail": detail,
+			"status": status, "created_at": createdAt, "decided_by": decidedBy,
+		}
+		if decidedAt.Valid {
+			item["decided_at"] = decidedAt.Time
+		}
+		out = append(out, item)
+	}
+	jsonOK(w, out)
+}
+
+func (h *RulesEngineHandler) decidePending(w http.ResponseWriter, r *http.Request, id string, approve bool) {
+	if h.Engine == nil {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.internal")
+		return
+	}
+	actor := adminauth.ActorFromContext(r.Context())
+	if err := h.Engine.ApproveOrRejectPending(r.Context(), id, actor, approve); err != nil {
+		writeErr(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonOK(w, map[string]bool{"ok": true})
 }

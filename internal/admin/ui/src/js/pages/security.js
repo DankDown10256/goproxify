@@ -2140,6 +2140,7 @@ function _reRulesHTML() {
             <span style="font-weight:600;font-size:13.5px">${esc(r.name)}</span>
             <span class="tag ${r.enabled?'tag-green':'tag-neutral'}" style="font-size:10px">${r.enabled ? t('security.rules.enabled') : t('security.rules.disabled')}</span>
             ${r.fire_count ? `<span class="tag tag-yellow" style="font-size:10px">${svgFire} ${r.fire_count}x</span>` : ''}
+            ${r.require_approval ? `<span class="tag tag-blue" style="font-size:10px">${t('automation.require_approval_short')}</span>` : ''}
           </div>
           ${r.description ? `<p style="font-size:12px;color:var(--text2);margin:4px 0 0">${esc(r.description)}</p>` : ''}
           <div style="display:flex;gap:16px;margin-top:8px;flex-wrap:wrap">
@@ -2313,6 +2314,10 @@ window.openRuleModal = function(ruleId) {
           <input type="checkbox" id="re-enabled" ${(rule?.enabled!==false)?'checked':''}>
           <span>${t('security.rules.activate_now')}</span>
         </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px">
+          <input type="checkbox" id="re-require-approval" ${rule?.require_approval?'checked':''}>
+          <span>${t('automation.require_approval')}</span>
+        </label>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">${t('common.cancel')}</button>
@@ -2462,6 +2467,7 @@ window._reCollectRule = function() {
     condition,
     action,
     cooldown_sec: parseInt(document.getElementById('re-cooldown')?.value||'300'),
+    require_approval: document.getElementById('re-require-approval')?.checked === true,
   };
   return payload;
 };

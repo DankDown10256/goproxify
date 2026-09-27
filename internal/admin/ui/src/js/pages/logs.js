@@ -412,11 +412,24 @@ async function renderStaticLogs() {
   const cols = isSystem ? 6 : (logsScope.lockComp ? 8 : 9);
   c.innerHTML = `
     <div class="card blueprint logs-filterbar">
-      <div id="logs-node-chips-wrap">${nodeChipsHTML()}</div>
-      <div id="logs-quick-wrap">${logsQuickHTML()}</div>
+      <div class="logs-filter-row">
+        <div id="logs-node-chips-wrap" style="flex:1;min-width:0">${nodeChipsHTML()}</div>
+        <div id="logs-period-seg">${logsPeriodSegHTML()}</div>
+      </div>
+      <div class="logs-filter-row" style="margin-top:10px">
+        <input id="lf-search" class="input search-input" style="flex:1;max-width:none;min-width:180px" placeholder="${esc(t('logs.search_ph'))}" value="${esc(logsFilters.search)}" oninput="logsFilter()">
+        <div id="logs-status-chips">${logsStatusChipsHTML()}</div>
+        ${isSystem ? '' : `
+        <label class="logs-toggle-inline">
+          <span class="toggle"><input type="checkbox" id="lf-hide-internal" ${logsHideInternal ? 'checked' : ''} onchange="toggleHideInternal()"><span class="toggle-slider"></span></span>
+          ${esc(t('logs.hide_internal'))}
+        </label>`}
+      </div>
       <div id="logs-hist"></div>
-      <div class="search-bar" style="gap:8px;margin:10px 0 0">
-        <input id="lf-search" class="input search-input" placeholder="${esc(t('logs.search_ph'))}" value="${esc(logsFilters.search)}" oninput="logsFilter()">
+      <div style="margin-top:6px">
+        <a href="#" id="logs-adv-link" class="logs-adv-toggle" onclick="toggleLogsAdvanced();return false">${t('logs.advanced_filters')} ▾</a>
+      </div>
+      <div class="search-bar" id="logs-adv" style="gap:8px;margin-top:8px" hidden>
         <select id="lf-level" class="input" onchange="logsFilter()">
           <option value="">${t('logs.level_ph')}</option>
           <option${logsFilters.level==='info'?' selected':''}>info</option>
@@ -439,17 +452,19 @@ async function renderStaticLogs() {
         `}
       </div>
       <div id="logs-filter-chips" class="filter-chips" hidden></div>
-      <p style="font-size:11px;color:var(--text3);margin:8px 0 0">${t('logs.filter_hint')}</p>
     </div>
-    <div class="card blueprint" style="padding:0;overflow:hidden">
-      <div class="logs-desktop table-wrap">
-        <table>
-          <thead><tr>${head}</tr></thead>
-          <tbody id="logs-tbody"><tr><td colspan="${cols}" class="empty"><p>${t('common.loading')}</p></td></tr></tbody>
-        </table>
+    <div class="logs-split">
+      <div class="card blueprint logs-table-card" style="padding:0;overflow:hidden">
+        <div class="logs-desktop table-wrap">
+          <table>
+            <thead><tr>${head}</tr></thead>
+            <tbody id="logs-tbody"><tr><td colspan="${cols}" class="empty"><p>${t('common.loading')}</p></td></tr></tbody>
+          </table>
+        </div>
+        <div id="logs-list" class="logs-mobile logs-list"><div class="logs-empty">${t('common.loading')}</div></div>
+        <div id="logs-pager" class="logs-pager"></div>
       </div>
-      <div id="logs-list" class="logs-mobile logs-list"><div class="logs-empty">${t('common.loading')}</div></div>
-      <div id="logs-pager" class="logs-pager"></div>
+      <aside class="card blueprint logs-detail-col" id="logs-detail-col" hidden></aside>
     </div>`;
   renderFilterChips();
   loadStaticLogs(0);
@@ -509,6 +524,8 @@ function nodeCellHTML(e) {
 
 function countryCellHTML(e) {
   if (!e.country) return '<span style="color:var(--text3)">—</span>';
+  // "LO" = IP réseau local/privée (voir geoip_cache) : pas un vrai pays ISO, pas de drapeau.
+  if (e.country === 'LO') return `<span style="color:var(--text3);font-size:11px">${esc(t('logs.local_network'))}</span>`;
   return `<span title="${esc(e.country)}">${countryFlag(e.country)} <span style="color:var(--text3);font-size:11px">${esc(e.country)}</span></span>`;
 }
 
@@ -607,7 +624,8 @@ async function loadStaticLogs(beforeID) {
   const cols = isSystem ? 6 : 12;
   try {
     const data = await api('GET', '/logs?' + params);
-    const entries = data?.entries || [];
+    let entries = data?.entries || [];
+    if (logsHideInternal && !isSystem) entries = entries.filter(e => !isInternalLogEntry(e));
     const hasMore = data?.has_more || false;
     const lastID = data?.last_id || 0;
     logsCurrentLastID = lastID;
@@ -734,14 +752,17 @@ async function renderLiveLogs() {
       <div class="logs-live-dot"></div>
       <span id="live-status">${t('logs.connecting')}</span>
     </div>
-    <div class="card blueprint" style="padding:0;overflow:hidden">
-      <div class="logs-desktop table-wrap">
-        <table>
-          <thead><tr>${head}</tr></thead>
-          <tbody id="live-tbody"></tbody>
-        </table>
+    <div class="logs-split">
+      <div class="card blueprint logs-table-card" style="padding:0;overflow:hidden">
+        <div class="logs-desktop table-wrap">
+          <table>
+            <thead><tr>${head}</tr></thead>
+            <tbody id="live-tbody"></tbody>
+          </table>
+        </div>
+        <div id="live-list" class="logs-mobile logs-list"></div>
       </div>
-      <div id="live-list" class="logs-mobile logs-list"></div>
+      <aside class="card blueprint logs-detail-col" id="logs-detail-col" hidden></aside>
     </div>`;
   startSSE();
 }
@@ -894,23 +915,66 @@ const LOGS_PERIODS = [['15m', 900000], ['1h', 3600000], ['6h', 21600000], ['24h'
 let logsQuickMs = 0;
 let logsRows = [];
 
-function logsQuickHTML() {
-  const per = LOGS_PERIODS.map(([k, ms]) => `<button type="button" class="chip${logsQuickMs === ms ? ' active' : ''}" data-log-quick="${ms}">${k}</button>`).join('')
-    + `<button type="button" class="chip${logsQuickMs ? '' : ' active'}" data-log-quick="0">${esc(t('lg.q_all'))}</button>`;
+// Toggle de période (segmenté, façon maquette) : 15m/1h/6h/24h/7d + "Tout".
+function logsPeriodSegHTML() {
+  const per = LOGS_PERIODS.map(([k, ms]) => `<button type="button" class="seg-btn${logsQuickMs === ms ? ' active' : ''}" data-log-quick="${ms}">${k}</button>`).join('');
+  const all = `<button type="button" class="seg-btn${logsQuickMs ? '' : ' active'}" data-log-quick="0">${esc(t('lg.q_all'))}</button>`;
+  return `<div class="logs-seg">${per}${all}</div>`;
+}
+
+// Chips de classe de statut (ou niveau en logs système) : Tous/2xx/3xx/4xx/5xx.
+function logsStatusChipsHTML() {
   const set = isSystemLogs() ? ['warn', 'error'] : ['2xx', '3xx', '4xx', '5xx'];
   const key = isSystemLogs() ? 'level' : 'status';
+  const all = `<button type="button" class="chip${logsFilters[key] ? '' : ' active'}" data-log-cls="">${esc(t('lg.status_all'))}</button>`;
   const cls = set.map(c => `<button type="button" class="chip${logsFilters[key] === c ? ' active' : ''}" data-log-cls="${c}">${c}</button>`).join('');
-  return `<div class="logs-quick"><div class="logs-quick-g">${per}</div><div class="logs-quick-g">${cls}</div></div>`;
+  return `<div class="logs-quick-g">${all}${cls}</div>`;
 }
 
 function refreshLogsView() {
   syncLogFilterInputs();
   renderFilterChips();
-  const w = document.getElementById('logs-quick-wrap');
-  if (w) w.innerHTML = logsQuickHTML();
+  const seg = document.getElementById('logs-period-seg');
+  if (seg) seg.innerHTML = logsPeriodSegHTML();
+  const st = document.getElementById('logs-status-chips');
+  if (st) st.innerHTML = logsStatusChipsHTML();
   loadStaticLogs(0);
   loadLogsHist();
 }
+
+// Détection best-effort du trafic « interne » (réseau privé/loopback), pour le
+// toggle « Masquer le trafic interne » — se base d'abord sur le pays résolu
+// (LO = réseau local/privé, voir geoip_cache) puis, à défaut, sur la plage d'IP.
+let logsHideInternal = false;
+
+function isInternalIP(ip) {
+  if (!ip) return false;
+  if (ip === '127.0.0.1' || ip === '::1') return true;
+  if (/^10\./.test(ip)) return true;
+  if (/^192\.168\./.test(ip)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+  if (/^169\.254\./.test(ip)) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(ip)) return true;
+  if (/^fe80:/i.test(ip)) return true;
+  return false;
+}
+
+function isInternalLogEntry(e) {
+  return e.country === 'LO' || isInternalIP(e.ip);
+}
+
+window.toggleHideInternal = function() {
+  logsHideInternal = !!document.getElementById('lf-hide-internal')?.checked;
+  loadStaticLogs(0);
+};
+
+window.toggleLogsAdvanced = function() {
+  const el = document.getElementById('logs-adv');
+  const link = document.getElementById('logs-adv-link');
+  if (!el) return;
+  el.hidden = !el.hidden;
+  if (link) link.textContent = el.hidden ? t('logs.advanced_filters') + ' ▾' : t('logs.advanced_filters') + ' ▲';
+};
 
 // Retourne true si le clic a été traité (période, classe de statut, ligne → tiroir, actions du tiroir).
 function onLogsQuickClick(e) {
@@ -956,7 +1020,7 @@ function onLogsQuickClick(e) {
     logDrawerAction(act.getAttribute('data-log-dact'), parseInt(act.getAttribute('data-log-di'), 10));
     return true;
   }
-  if (e.target.closest('#log-drawer')) return true;
+  if (e.target.closest('#logs-detail-col')) return true;
   const row = e.target.closest('[data-log-i]');
   if (within(row) && !e.target.closest('button, a, input')) {
     openLogDrawer(logsRows[parseInt(row.getAttribute('data-log-i'), 10)], parseInt(row.getAttribute('data-log-i'), 10));
@@ -996,19 +1060,26 @@ async function loadLogsHist() {
 }
 
 function closeLogDrawer() {
-  document.getElementById('log-drawer')?.remove();
+  const col = document.getElementById('logs-detail-col');
+  if (col) { col.innerHTML = ''; col.hidden = true; }
+  document.querySelectorAll('[data-log-i].is-selected').forEach(el => el.classList.remove('is-selected'));
+}
+
+function markSelectedLogRow(i) {
+  document.querySelectorAll('[data-log-i].is-selected').forEach(el => el.classList.remove('is-selected'));
+  document.querySelector(`[data-log-i="${i}"]`)?.classList.add('is-selected');
 }
 
 function openLogDrawer(en, i) {
   if (!en) return;
-  closeLogDrawer();
   if (isSystemLogs()) { openSysLogDrawer(en, i); return; }
+  const col = document.getElementById('logs-detail-col');
+  if (!col) return;
+  markSelectedLogRow(i);
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-all">${v}</b></div>`;
   const btn = (act, label, extra = '') => `<button type="button" class="btn btn-secondary btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
-  const dr = document.createElement('aside');
-  dr.id = 'log-drawer';
-  dr.className = 'prism-drawer open';
-  dr.innerHTML = `
+  col.hidden = false;
+  col.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <span class="prism-panel-title" style="margin:0">${esc(t('lg.detail'))}</span>
       <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
@@ -1019,6 +1090,7 @@ function openLogDrawer(en, i) {
       ${row(t('logs.node'), esc(en.node_name || ''))}
       ${row(t('logs.component'), esc(en.component || ''))}
       ${row(t('logs.ip'), en.ip ? `<span class="mono">${esc(en.ip)}</span>` : '')}
+      ${row(t('logs.country'), en.country ? countryCellHTML(en) : '')}
       ${row(t('lg.latency'), en.latency_ms != null ? esc(String(en.latency_ms)) + ' ms' : '')}
       ${row(t('lg.bytes'), en.bytes ? esc(String(en.bytes)) + ' B' : '')}
       ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
@@ -1033,7 +1105,6 @@ function openLogDrawer(en, i) {
       ${en.domain ? btn('curl', t('lg.copy_curl')) : ''}
       ${en.ip ? btn('ban', t('lg.ban_ip'), 'style="color:var(--red)"') : ''}
     </div>`;
-  document.getElementById('content').appendChild(dr);
   if (en.ip) {
     api('GET', '/prism/ip-scan?ip=' + encodeURIComponent(en.ip)).then(d => {
       const box = document.getElementById('log-drawer-scan');
@@ -1074,12 +1145,13 @@ async function logDrawerAction(act, i) {
 
 // Tiroir d'un log système : message complet, contexte et actions de filtrage.
 function openSysLogDrawer(en, i) {
+  const col = document.getElementById('logs-detail-col');
+  if (!col) return;
+  markSelectedLogRow(i);
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-word">${v}</b></div>`;
   const btn = (act, label) => `<button type="button" class="btn btn-secondary btn-sm" data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
-  const dr = document.createElement('aside');
-  dr.id = 'log-drawer';
-  dr.className = 'prism-drawer open';
-  dr.innerHTML = `
+  col.hidden = false;
+  col.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <span class="prism-panel-title" style="margin:0">${esc(t('lg.sys_detail'))}</span>
       <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
@@ -1099,5 +1171,4 @@ function openSysLogDrawer(en, i) {
       ${btn('copymsg', t('lg.copy_message'))}
       ${btn('copyjson', t('lg.copy_json'))}
     </div>`;
-  document.getElementById('content').appendChild(dr);
 }
