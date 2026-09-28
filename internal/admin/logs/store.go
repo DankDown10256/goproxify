@@ -77,9 +77,14 @@ type SearchParams struct {
 	DateFrom string
 	DateTo   string
 	// Kind : "access" (status>0, requêtes HTTP) | "system" (status=0, événements process) | "" (tous).
-	Kind     string
-	Page     int
-	PageSize int
+	Kind string
+	// ExcludeInternal exclut les IP de réseau privé/loopback (bruit d'auto-supervision,
+	// ex. l'Admin qui s'interroge lui-même en 192.168.x) — appliqué en SQL, avant LIMIT,
+	// pour que la pagination reste cohérente (page pleine ou hasMore correct), plutôt
+	// qu'un filtrage après coup côté client qui peut rendre une page vide ou clairsemée.
+	ExcludeInternal bool
+	Page            int
+	PageSize        int
 	// BeforeID active la pagination par curseur (keyset) : retourne les entrées avec id < BeforeID.
 	// Quand > 0, Page est ignoré et aucun COUNT n'est exécuté.
 	BeforeID int64
@@ -431,10 +436,29 @@ func buildWhere(p SearchParams) (string, []any) {
 	case "system":
 		clauses = append(clauses, "status = 0")
 	}
+	if p.ExcludeInternal {
+		clauses = append(clauses, internalIPExclusionSQL())
+	}
 	if len(clauses) == 0 {
 		return "", args
 	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// internalIPExclusionSQL exclut les plages d'IP privées/loopback (RFC 1918 + loopback +
+// link-local IPv4/IPv6) par préfixe texte — pas besoin de paramètres, les préfixes sont
+// des littéraux fixes, non dérivés d'une entrée utilisateur.
+func internalIPExclusionSQL() string {
+	prefixes := []string{"10.", "192.168.", "127.", "169.254.", "fe80:", "fc", "fd"}
+	for i := 16; i <= 31; i++ {
+		prefixes = append(prefixes, fmt.Sprintf("172.%d.", i))
+	}
+	conds := make([]string, 0, len(prefixes)+1)
+	conds = append(conds, "ip != '::1'")
+	for _, p := range prefixes {
+		conds = append(conds, "ip NOT LIKE '"+p+"%'")
+	}
+	return "(" + strings.Join(conds, " AND ") + ")"
 }
 
 func matchesFilter(e Entry, p SearchParams) bool {
@@ -486,7 +510,31 @@ func matchesFilter(e Entry, p SearchParams) bool {
 			return false
 		}
 	}
+	if p.ExcludeInternal && isInternalIP(e.IP) {
+		return false
+	}
 	return true
+}
+
+// isInternalIP reprend les mêmes plages que internalIPExclusionSQL, pour le filtrage en
+// mémoire du flux Live (StreamSSE ne repasse pas par le SQL de Search).
+func isInternalIP(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	if ip == "::1" {
+		return true
+	}
+	prefixes := []string{"10.", "192.168.", "127.", "169.254.", "fe80:", "fc", "fd"}
+	for i := 16; i <= 31; i++ {
+		prefixes = append(prefixes, fmt.Sprintf("172.%d.", i))
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(ip, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // CorrelateByRequestID retourne tous les logs portant le même request_id.

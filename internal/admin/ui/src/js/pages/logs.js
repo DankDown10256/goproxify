@@ -605,11 +605,11 @@ async function loadStaticLogs(beforeID) {
     params.set(k, v);
   }
   const isSystem = isSystemLogs();
+  if (logsHideInternal && !isSystem) params.set('exclude_internal', '1');
   const cols = isSystem ? 6 : (logsScope.lockComp ? 7 : 8);
   try {
     const data = await api('GET', '/logs?' + params);
-    let entries = data?.entries || [];
-    if (logsHideInternal && !isSystem) entries = entries.filter(e => !isInternalLogEntry(e));
+    const entries = data?.entries || [];
     const hasMore = data?.has_more || false;
     const lastID = data?.last_id || 0;
     logsCurrentLastID = lastID;
@@ -985,26 +985,11 @@ function refreshLogsView() {
   loadLogsHist();
 }
 
-// Détection best-effort du trafic « interne » (réseau privé/loopback), pour le
-// toggle « Masquer le trafic interne » — se base d'abord sur le pays résolu
-// (LO = réseau local/privé, voir geoip_cache) puis, à défaut, sur la plage d'IP.
+// Toggle « Masquer le trafic interne » : exclusion appliquée côté serveur
+// (exclude_internal, voir Store.buildWhere) pour que la pagination reste cohérente —
+// filtrer après coup une page déjà limitée à 50 lignes pouvait la vider ou la
+// clairsemer sans que ce soit visible pour l'utilisateur.
 let logsHideInternal = false;
-
-function isInternalIP(ip) {
-  if (!ip) return false;
-  if (ip === '127.0.0.1' || ip === '::1') return true;
-  if (/^10\./.test(ip)) return true;
-  if (/^192\.168\./.test(ip)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
-  if (/^169\.254\./.test(ip)) return true;
-  if (/^f[cd][0-9a-f]{2}:/i.test(ip)) return true;
-  if (/^fe80:/i.test(ip)) return true;
-  return false;
-}
-
-function isInternalLogEntry(e) {
-  return e.country === 'LO' || isInternalIP(e.ip);
-}
 
 window.toggleHideInternal = function() {
   logsHideInternal = !!document.getElementById('lf-hide-internal')?.checked;
@@ -1142,9 +1127,9 @@ function openLogDrawer(en, i) {
     </div>
     <div id="log-drawer-scan" style="margin:14px 0"></div>
     <div class="logs-detail-actions">
-      ${btn('prism', t('lg.open_prism'), 'btn-primary', 'style="width:100%"')}
-      ${secondary ? `<div class="logs-detail-actions-grid">${secondary}</div>` : ''}
-      ${en.ip ? btn('ban', t('lg.ban_ip'), 'btn-secondary', 'style="width:100%;color:var(--red);border-color:var(--red)"') : ''}
+      ${btn('prism', t('lg.open_prism'), 'btn-primary')}
+      ${secondary}
+      ${en.ip ? btn('ban', t('lg.ban_ip'), 'btn-secondary', 'style="color:var(--red);border-color:var(--red)"') : ''}
     </div>`;
   if (en.ip) {
     api('GET', '/prism/ip-scan?ip=' + encodeURIComponent(en.ip)).then(d => {

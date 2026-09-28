@@ -2208,8 +2208,7 @@ article[data-log-i].is-selected{background:color-mix(in srgb,var(--accent) 10%,t
 .logs-table-card{flex:1;min-width:0}
 .logs-detail-col{width:340px;flex-shrink:0;max-height:80vh;overflow:auto}
 .logs-detail-actions{display:flex;flex-direction:column;gap:8px}
-.logs-detail-actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.logs-detail-actions-grid .btn{width:100%}
+.logs-detail-actions .btn{width:100%;white-space:normal;text-align:center;justify-content:center}
 @media(max-width:900px){.logs-split{flex-direction:column}.logs-detail-col{width:100%}}
 
 /* ── Automatisation : vue d'ensemble, éditeur de flux, journal ───────────── */
