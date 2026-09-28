@@ -155,8 +155,11 @@ function renderPageTabs(page) {
   el.querySelector('.tab.active')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
+// Pages sans entrée de menu propre : l'entrée de leur rubrique reste active.
+const NAV_ALIAS = { architecture: 'infrastructure' };
+
 function syncNavActive(page) {
-  const navPage = pageTabGroup(page)?.root || page;
+  const navPage = NAV_ALIAS[page] || pageTabGroup(page)?.root || page;
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.page === navPage);
     el.classList.remove('parent-active');

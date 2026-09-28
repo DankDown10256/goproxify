@@ -3,97 +3,79 @@
 
 // ── PAGE: Infrastructure : schéma de l'architecture (source : architecture.json) ────
 // Le modèle hôtes → rôles → capacités est chargé par _archLoad (architecture-wizard.js) depuis
-// GET /architecture ; l'état live (/nodes, /nodes/live) n'est qu'une surcouche.
+// GET /architecture ; l'état live (/nodes, /nodes/live, /metrics/summary) n'est qu'une surcouche.
+// Mise en page : indicateurs · À traiter · schéma (flux ou par hôte) + journal · panneau du nœud sélectionné.
 pages.infrastructure = async function() {
   const content = document.getElementById('content');
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   try {
     await _archLoad();
-    const [health, live, infraMetrics] = await Promise.all([
+    const [health, live, metrics, containers] = await Promise.all([
       api('GET','/health').catch(()=>null),
       api('GET','/nodes/live').catch(()=>null),
       api('GET','/metrics/summary').catch(()=>null),
+      api('GET','/discovered-containers').catch(()=>null),
     ]);
+    if (state.page !== 'infrastructure') return;
     const allNodes = _arch.nodes;
     window._excludedDeclaredNodes = new Map();
     for (const dn of _arch.declaredNodes) {
       if (_archParseCfg(dn.config).excluded) window._excludedDeclaredNodes.set(dn.name, dn);
     }
-    const pendingNodes = allNodes.filter(n => n.status === 'pending');
     window._edgeNodes = allNodes.filter(n => n.role === 'edge' && n.status !== 'pending');
     window.openEdge = function(i, page) { selectEdge(window._edgeNodes[i], page); };
     if (typeof refreshNavEdges === 'function') refreshNavEdges();
     window._asEdit = false;
     window._asHealthOK = health?.status === 'ok';
+    window._asMetrics = metrics;
+    window._asEvents = {};
+    window._asContainers = {};
+    for (const c of (Array.isArray(containers) ? containers : [])) {
+      if (c.agent_name) window._asContainers[c.agent_name] = (window._asContainers[c.agent_name] || 0) + 1;
+    }
     asApplyLive(live);
     asSample(_arch);
 
-    const sectionTitle = txt => `<div style="margin-bottom:8px;font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text2);opacity:.9;">${txt}</div>`;
-    const pendingSection = pendingNodes.length
-      ? `${sectionTitle(t('infra.section.pending_accept', { n: pendingNodes.length }))}
-         <div class="node-grid" style="margin-bottom:24px;">${pendingNodes.map(n => infraPendingCard(n)).join('')}</div>`
-      : '';
-    const excluded = [...window._excludedDeclaredNodes.values()];
-    const excludedSection = excluded.length
-      ? `<div class="card" style="padding:12px 16px;margin-top:16px;">
-          <div style="font-size:12px;font-weight:600;margin-bottom:6px;">${esc(t('infra.excluded_badge'))}</div>
-          ${excluded.map(dn => `<div style="display:flex;align-items:center;gap:10px;font-size:12.5px;padding:4px 0;">
-            <span style="flex:1;min-width:0;">${esc(dn.name)}</span>
-            <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="confirmAgentRemoval('${esc(dn.id)}','${esc(dn.name)}','${esc(dn.name)}')">${esc(t('infra.excluded.confirm_btn'))}</button>
-          </div>`).join('')}
-        </div>`
-      : '';
+    const ta = document.getElementById('topbar-actions');
+    if (ta) ta.innerHTML = `
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerLabelsModal()">${esc(t('infra.labels'))}</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="asOpenConfig(null,'v')">${esc(t('as.history'))}</button>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openInfraWizard()">${esc(t('as.edit_arch'))}</button>`;
 
-    const wsAdminConns = infraMetrics?.ws?.admin_connections ?? null;
-    const wsAgentConns = infraMetrics?.ws?.agent_connections ?? null;
-    const peerSyncAvg = infraMetrics?.peers?.avg_sync_ms ?? null;
-    const clusterMetricsBand = (wsAdminConns != null || wsAgentConns != null || peerSyncAvg != null) ? `
-      <div style="display:flex;gap:20px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px">
-        ${wsAdminConns!=null?`<span style="opacity:.7">WS Admin : <b>${wsAdminConns}</b></span>`:''}
-        ${wsAgentConns!=null?`<span style="opacity:.7">WS Agent : <b>${wsAgentConns}</b></span>`:''}
-        ${peerSyncAvg!=null?`<span style="opacity:.7">Sync pair (moy.) : <b>${Math.round(peerSyncAvg)} ms</b></span>`:''}
-      </div>` : '';
-
-    content.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-        <h2 style="font-family:var(--font-heading);font-size:16px;font-weight:600;margin:0;">${t('page.infrastructure')}</h2>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="openDockerLabelsModal()">${t('infra.labels')}</button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="asOpenConfig(null,'v')">${esc(t('as.history'))}</button>
-          <button type="button" class="btn btn-primary btn-sm" onclick="openInfraWizard()">${esc(t('as.edit_arch'))}</button>
+    content.innerHTML = `<div class="as-page">
+      <div id="as-kpis"></div>
+      <div id="as-todo"></div>
+      <div class="as-main">
+        <div class="as-left">
+          <section class="as-card"><div class="as-card-h" id="as-topo-h"></div><div id="as-root"></div></section>
+          <section class="as-card" id="as-journal" hidden></section>
         </div>
+        <aside class="as-card as-panel" id="as-panel" aria-label="${esc(t('as.panel.label'))}"></aside>
       </div>
-      ${clusterMetricsBand}
-      ${pendingSection}
-      <div id="as-root">${asSchemaHTML(_arch, { kpis: true })}</div>
-      ${excludedSection}
-    `;
+    </div>`;
+    asRenderLive();
     startTopologyLive(content);
-
-    // Événements scaling & santé
-    const events = await api('GET','/node-events?limit=30').catch(() => []);
-    const scaleEvents = (events||[]).filter(e => e.event_type.startsWith('scale_') || e.event_type === 'health_escalation');
-    if (scaleEvents.length) {
-      const evDiv = document.createElement('div');
-      evDiv.style.cssText = 'margin-top:24px';
-      evDiv.innerHTML = `
-        <div class="card blueprint">
-          <div class="card-header"><span class="card-title">${t('infra.scale_events')}</span></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>${t('infra.col.node')}</th><th>${t('trafic.type')}</th><th>${t('infra.col.container')}</th><th>${t('infra.col.detail')}</th><th>${t('common.date')}</th></tr></thead>
-            <tbody>${scaleEvents.map(e => `<tr>
-              <td style="font-weight:600">${esc(e.node_name)}</td>
-              <td><span class="tag ${e.event_type.startsWith('scale_up')?'tag-green':e.event_type.startsWith('scale_down')?'tag-yellow':'tag-red'}">${esc(e.event_type)}</span></td>
-              <td class="mono" style="font-size:11px">${esc(e.container_id||'—')}</td>
-              <td style="font-size:12px;color:var(--text2)">${esc(e.detail||'—')}</td>
-              <td style="font-size:11px">${fmtDate(e.created_at)}</td>
-            </tr>`).join('')}</tbody>
-          </table></div>
-        </div>`;
-      content.appendChild(evDiv);
-    }
+    loadInfraJournal();
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
+
+/** Journal d'infrastructure : événements de scaling et de santé récents. */
+async function loadInfraJournal() {
+  const events = await api('GET', '/node-events?limit=40').catch(() => []);
+  const el = document.getElementById('as-journal');
+  if (!el) return;
+  const list = (Array.isArray(events) ? events : [])
+    .filter(e => /^scale_/.test(e.event_type) || e.event_type === 'health_escalation' || e.event_type === 'health_critical')
+    .slice(0, 8);
+  el.hidden = !list.length;
+  el.innerHTML = `<div class="as-card-h"><h2>${esc(t('as.journal'))}</h2></div>
+    ${list.map(e => {
+      const l = _asEvLabel(e.event_type);
+      return `<div class="as-ev"><span class="as-ev-t">${esc(_asTime(e.created_at))}</span>
+        <span class="as-tag"${l.tone ? ` data-tone="${l.tone}"` : ''}>${esc(l.label)}</span>
+        <b>${esc(e.node_name || '—')}</b><span class="as-ev-d">${esc(e.detail || e.container_id || '—')}</span></div>`;
+    }).join('')}`;
+}
 
 // ── WIZARD : Ajout d'un nœud Infrastructure ───────────────────────────────
 
@@ -181,27 +163,6 @@ function openInfraWizard() {
     return;
   }
   toast(t('common.error') || 'Error', 'error');
-}
-
-
-function infraPendingCard(n) {
-  const name = n.display_name || n.node_name || n.id;
-  const role = n.role === 'edge' ? 'Passerelle' : (n.role === 'agent' ? 'Agent' : n.role);
-  return `<div class="card blueprint" style="padding:18px 20px;display:flex;flex-direction:column;gap:0;border-color:color-mix(in srgb,var(--orange,#f97316) 40%,var(--border));">
-    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;">
-      <div style="min-width:0;">
-        <div class="card-kicker">${esc(role)} · ${t('infra.pending_kicker')}</div>
-        <div style="font-weight:700;font-size:15px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(name)}</div>
-        <div style="font-size:10.5px;opacity:.45;margin-top:2px;font-family:monospace;">${esc(n.endpoint||n.remote_addr||'—')}</div>
-      </div>
-      <span class="tag" style="background:color-mix(in srgb,var(--orange,#f97316) 16%,transparent);color:var(--orange,#f97316);">○ ${t('infra.pending')}</span>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:14px;">
-      <button class="btn btn-ghost btn-sm" style="flex:1;justify-content:center;border:1px solid var(--border);font-size:11px;color:var(--red);" onclick="rejectNode('${esc(n.id)}')">${t('infra.reject')}</button>
-      <button class="btn btn-primary btn-sm" style="flex:1;justify-content:center;" onclick="acceptNode('${esc(n.id)}')">${t('infra.accept')}</button>
-    </div>
-  </div>`;
 }
 
 
@@ -760,8 +721,9 @@ window.nodeAction = async function(name, action) {
 };
 
 // ── Schéma temps réel : débit, statut, disponibilité de session ─────────────
-// Sonde GET /nodes/live toutes les 5 s : met à jour le débit et l'historique de statut, puis redessine le schéma.
-// Un nœud apparu, disparu ou dont le statut change modifie le modèle : rechargement complet de la page.
+// Sonde GET /nodes/live et /metrics/summary toutes les 5 s : met à jour le débit, l'historique de statut
+// et les indicateurs, puis redessine la vue. Un nœud apparu, disparu ou dont le statut change modifie
+// le modèle : rechargement complet de la page.
 
 const TOPO_LIVE_POLL_MS = 5000;
 
@@ -773,8 +735,11 @@ function asApplyLive(live) {
 
 async function _topoLiveTick(content) {
   if (!content.isConnected || !document.getElementById('as-root')) return;
-  const live = await api('GET', '/nodes/live').catch(() => null);
-  if (!live) return;
+  const [live, metrics] = await Promise.all([
+    api('GET', '/nodes/live').catch(() => null),
+    api('GET', '/metrics/summary').catch(() => null),
+  ]);
+  if (!live || !content.isConnected || state.page !== 'infrastructure') return;
   const sig = live.nodes.map(n => n.node_name + ':' + n.status).join('|');
   if (window._topoSig !== undefined && window._topoSig !== sig) {
     window._topoSig = sig;
@@ -782,10 +747,10 @@ async function _topoLiveTick(content) {
     return;
   }
   window._topoSig = sig;
+  if (metrics) window._asMetrics = metrics;
   asApplyLive(live);
   asSample(_arch);
-  const root = document.getElementById('as-root');
-  if (root) root.innerHTML = asSchemaHTML(_arch, { kpis: true });
+  asRenderLive();
 }
 
 function startTopologyLive(content) {
@@ -793,5 +758,9 @@ function startTopologyLive(content) {
   window._topoSig = undefined;
   _topoLiveTick(content);
   const timer = setInterval(() => _topoLiveTick(content), TOPO_LIVE_POLL_MS);
-  content._cleanup = () => clearInterval(timer);
+  // Les liaisons du schéma suivent la position des nœuds (redimensionnement, polices chargées…).
+  const root = document.getElementById('as-root');
+  const ro = root && typeof ResizeObserver === 'function' ? new ResizeObserver(() => asDrawLinks()) : null;
+  if (ro) ro.observe(root);
+  content._cleanup = () => { clearInterval(timer); if (ro) ro.disconnect(); };
 }

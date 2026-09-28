@@ -197,13 +197,27 @@ Endpoint `https://<admin>:9443/mcp` — MCP protocol `2025-03-26`, JSON-RPC 2.0 
 | Alerts | `alert-channels` | Tabs: **Channels** (email, webhook, ntfy, gotify, Slack, Microsoft Teams, Telegram, SMS via Twilio, plus the Jira/Linear/GitHub/GitLab/Zammad/GLPI ticketing channels), **Alert routing** (`alerts` — per-rule noise-reduction **grouping window**, `group_window_sec`, merges matching events into one notification; per-rule **escalation** steps, `escalation`, renotify unacknowledged events on their own channels, checked against acknowledgement at each step's due time), **Silences & maintenance** (`automation-silences`, time windows that suspend rule actions and alert notifications alike, for all or chosen rules of either engine — see [docs/security.md](security.md#silences--maintenance)) |
 | Journal | `automation-history` | Every rule evaluation (`GET /api/v1/rules-engine/history`), filterable: executed / failed / condition met without action / not met; a failed entry can be **replayed** (`POST /rules-engine/history/{id}/replay`, reuses the original detail, condition not re-evaluated) |
 
-### Architecture wizard
+### Infrastructure page and architecture edit mode
 
-The **Infrastructure** page and the wizard share one **architecture schema**, drawn top to bottom: Internet, Edges (HA group with leader and quorum), the Admin linked to the Edges by a "manages" link, Agents linked over WebSocket, plus a summary strip (req/s, nodes online, HA quorum, alert). Each node is a card (role icon, status, host, capabilities, throughput, session availability strip). The schema is responsive (single column on mobile). Its model (host → role → capability) comes from **`architecture.json`** (`GET /api/v1/architecture`); live state is only an overlay.
+The **Infrastructure** page reads top to bottom:
 
-**Infrastructure → Edit architecture** opens the same schema in edit mode: add nodes with the "+ Add" buttons, pick one to edit its host, capabilities (Access, HA, TLS, Docker, Podman, Portainer, K8s), domains and delegations in the inspector. A single **Save** button writes `architecture.json`; nothing is created or approved on save.
+- one **indicator strip**: traffic (with a session curve), nodes online, HA quorum, WebSocket connections (admin / agents), peer sync;
+- a **To handle** bar, only when something needs attention: pending nodes (Accept / Reject), offline nodes (for how long, last heartbeat), hosts to redeploy (declared vs. deployed differences), excluded agents to confirm;
+- the **architecture schema** in **Flow** layout, read left to right: Internet → Edges (HA groups framed, leader and quorum) → Agents, the Admin above the Edges. Links are drawn from the real node positions: user traffic, agent WebSocket (dashed red when the agent is offline), Admin management. A **By host** switch shows each host as a frame holding its roles. Each node is a card (role icon, status, host, throughput or containers, session availability strip). Responsive: single column on mobile;
+- a **detail panel** next to the schema for the selected node (no modal): status, host and exposure, req/s and 5xx rate (Edge) or containers and CPU (Agent), session availability, capabilities, version, configuration state, HA peers or target Edge, operating actions (traffic, settings, configuration, update, rollback, rescan, delete…) and the node's latest events. By default it shows a node that is down, if any;
+- the **infrastructure log** (scaling and health events).
 
-A **host** is a machine that carries one or more elements: several gateways, several agents and the Admin. An agent carries one or more platforms (Docker or Podman, Portainer, K8s), or one agent per platform can be placed on the same host. The wizard has a host strip (add a host, set its zone and region, add elements) and a **By role / By host** switch.
+The schema model (host → role → capability) comes from **`architecture.json`** (`GET /api/v1/architecture`); live state (`GET /api/v1/nodes/live`, `GET /api/v1/metrics/summary`, refreshed every 5 s) is only an overlay.
+
+**Infrastructure → Edit architecture** switches the page to **edit mode**:
+
+- an edit bar shows the number of unsaved changes, with *History*, *Cancel* (asks before discarding) and *Review and save*;
+- a palette (**Host, Edge, Agent, Admin**) whose items are dragged onto a host card, or clicked to add to the selected host; roles are moved between hosts by drag and drop. A **By host / By role** switch shows host cards or the Edges / Agents tiers;
+- each change is flagged on the canvas — **New**, **Modified** (added / removed capabilities highlighted), **Removed** (with **Restore**) — and listed below the canvas with its impact: install, redeploy, restart, applied on save (Access on a connected Edge), declaration only;
+- the **inspector** has *General* (name, host), *Capabilities* (Access, HA group, domains & TLS / ACME, Docker, Podman, Portainer, K8s) and *Network* (reachable address, delegations, target Edge) tabs, and shows the **Before** value of every changed setting;
+- **Review and save** lists the changes, their impact and warnings (e.g. removing a connected node only removes its declaration: use *Delete* in its detail panel to stop it), then writes `architecture.json`; the confirmation offers the *Configuration* (Compose, install ticket) of hosts with new nodes. Nothing is created or approved on save.
+
+A **host** is a machine that carries one or more elements: several gateways, several agents and the Admin. An agent carries one or more platforms (Docker or Podman, Portainer, K8s), or one agent per platform can be placed on the same host.
 
 Each host has a **Configuration** modal: *Formats* (Compose, `.env`, command line, network flows, declared JSON, install ticket), *Differences* (declared vs. what the node reports) and *Versions* (the 50 kept versions of `architecture.json`: view, diff against the current state, restore). The install ticket (QR / `/i/{token}` link / `curl|bash`, 24 h) and the pre-approval of the host's agents are only created when you click **Generate a ticket**. Nodes declared this way can be **auto-accepted** on connection.
 

@@ -242,7 +242,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - **GoProxify Access** — destination catalogue (global / per-Edge view), invite users by email (SMTP), tags, Access HTML templates, portal options per Edge
 - **User API tokens (PAT)** — `gpx_pat_*` self-service with scopes (`proxies:read`, …) for scripts and MCP clients; distinct from Edge/Agent pairing tokens
 - **MCP server** — JSON-RPC 2.0 + SSE; **PAT-only** authentication (no session JWT)
-- **Architecture wizard** — host canvas + palette, multi-Edge/HA, QR tickets / `curl|bash` to integrate a host
+- **Infrastructure view & architecture editor** — live flow schema (Internet → Edges → Agents) with a node detail panel and a "to handle" bar; in-place editing (drag-and-drop palette, host cards, changes flagged with their impact, review before save), multi-Edge/HA, QR tickets / `curl|bash` to integrate a host
 - **Bans page** — the same page in the Admin (all Edges) and in each Edge menu: KPIs, 48 h timeline, origin by country, filters, bulk actions and a mobile card layout; every ban records the Edge that reported it
 - **HA groups** — Sentinel, IPS provider, HTTP timeouts and the access portal are configured once per HA group; the portal store (accounts, 2FA, vaults, optional shared web sessions) and Sentinel reference lists are replicated between Edges, and bans keep flowing between peers when the Admin is down
 - **Guided first start** — initial configuration wizard

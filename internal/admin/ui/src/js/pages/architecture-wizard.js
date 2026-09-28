@@ -1,11 +1,14 @@
-// Wizard architecture : édition du schéma (hôtes → rôles → capacités) et enregistrement dans architecture.json.
+// Mode édition de l'infrastructure : schéma (hôtes → rôles → capacités), suivi des modifications
+// par rapport à l'état chargé, revue puis enregistrement dans architecture.json.
 // Dépend de shared/infra-config.js, shared/arch-schema.js et pages/infrastructure.js (_wiz helpers, _build*).
 
 const _arch = {
   hosts: [],
   haGroups: [], // [{id:'ha-1', members:['svc-id-a','svc-id-b']}, ...] — N groupes HA possibles
+  base: null,   // copie de { hosts, haGroups } au chargement : référence des modifications non enregistrées
   selectedSvcId: null,
   selectedHostId: null,
+  inspTab: 'caps',
   loading: false,
   pairingSecret: '',
   jwtSecret: '',
@@ -423,6 +426,7 @@ function _archLoad() {
       });
     }
     _arch.loading = false;
+    _archSnapshot();
     _archRender();
   });
 }
@@ -431,13 +435,252 @@ function closeArchWizard() {
   navigate('infrastructure');
 }
 
+// ── Suivi des modifications : écart entre la toile et l'état chargé (_arch.base) ──
+
+function _archSnapshot() {
+  _arch.base = JSON.parse(JSON.stringify({ hosts: _arch.hosts, haGroups: _arch.haGroups }));
+}
+
+// Champ d'un rôle → impact sur un nœud déjà déployé.
+const _ARCH_CHG_FIELDS = {
+  name: 'restart', reachable: 'restart', access: 'restart', domains: 'restart', acme: 'restart',
+  acmeEmail: 'restart', dnsProvider: 'restart', docker: 'redeploy', podman: 'redeploy', portainer: 'restart',
+  portainerUrl: 'restart', portainerKey: 'restart', k8s: 'restart', targetEdgeId: 'restart',
+};
+const _ARCH_IMPACT_RANK = { decl: 0, live: 1, restart: 2, redeploy: 3, install: 4 };
+const _ARCH_BOOL_FIELDS = new Set(['access', 'acme', 'docker', 'podman', 'portainer', 'k8s']);
+
+function _archNorm(v) { return v === undefined || v === null || v === false ? '' : v; }
+
+function _archFieldLabel(f) {
+  const k = {
+    access: 'arch.svc.access', acme: 'arch.opt.acme', docker: 'arch.svc.docker', podman: 'arch.svc.podman',
+    portainer: 'arch.svc.portainer', k8s: 'arch.svc.k8s', reachable: 'arch.opt.reachable', domains: 'arch.opt.domains',
+    acmeEmail: 'arch.opt.acme_email', dnsProvider: 'arch.opt.dns_provider', portainerKey: 'arch.opt.portainer_key',
+    targetEdgeId: 'arch.opt.target_edge',
+  }[f];
+  return k ? t(k) : f === 'portainerUrl' ? 'Portainer URL' : f;
+}
+
+function _archBaseIndex() {
+  if (!_arch.base) return null;
+  const svcs = new Map(), hostOf = new Map(), hosts = new Map(), group = new Map();
+  for (const h of _arch.base.hosts) {
+    hosts.set(h.id, h);
+    for (const s of h.services || []) { svcs.set(s.id, s); hostOf.set(s.id, h); }
+  }
+  for (const g of _arch.base.haGroups || []) for (const id of g.members) group.set(id, g.id);
+  return { svcs, hostOf, hosts, group };
+}
+
+/** Liste des modifications : { kind: add|mod|del|host, svc, host, parts, impact }. L'Admin n'est pas enregistré, il est ignoré. */
+function _archChanges() {
+  const bi = _archBaseIndex();
+  if (!bi) return [];
+  const out = [];
+  const cur = new Set();
+  const curGroup = new Map();
+  for (const g of _arch.haGroups) for (const id of g.members) curGroup.set(id, g.id);
+  for (const h of _arch.hosts) {
+    for (const s of h.services || []) {
+      cur.add(s.id);
+      if (s.type === 'admin') continue;
+      const b = bi.svcs.get(s.id);
+      if (!b) { out.push({ kind: 'add', svc: s, host: h, newHost: !bi.hosts.has(h.id), impact: 'install' }); continue; }
+      const parts = [];
+      let impact = null;
+      const bump = lvl => { if (!impact || _ARCH_IMPACT_RANK[lvl] > _ARCH_IMPACT_RANK[impact]) impact = lvl; };
+      for (const [f, lvl] of Object.entries(_ARCH_CHG_FIELDS)) {
+        if (_archNorm(b[f]) === _archNorm(s[f])) continue;
+        if (f === 'name') parts.push(t('as.chg.renamed', { from: b.name }));
+        else if (_ARCH_BOOL_FIELDS.has(f)) parts.push(t(s[f] ? 'as.chg.on' : 'as.chg.off', { cap: _archFieldLabel(f) }));
+        else parts.push(t('as.chg.field', { field: _archFieldLabel(f) }));
+        // Access est appliqué en direct aux passerelles connectées lors de l'enregistrement.
+        bump(f === 'access' && s.status === 'online' ? 'live' : lvl);
+      }
+      const bg = bi.group.get(s.id) || '', cg = curGroup.get(s.id) || '';
+      if (bg !== cg) { parts.push(t('as.chg.ha', { from: bg || '—', to: cg || '—' })); bump('redeploy'); }
+      const bh = bi.hostOf.get(s.id);
+      if (bh && bh.id !== h.id) { parts.push(t('as.chg.moved', { from: bh.name, to: h.name })); bump('redeploy'); }
+      if (!parts.length) continue;
+      out.push({ kind: 'mod', svc: s, host: h, parts, impact: s.status === 'declared' ? 'decl' : impact });
+    }
+    const bh = bi.hosts.get(h.id);
+    if (bh && (h.services || []).some(s => s.type !== 'admin')) {
+      const parts = [];
+      if (bh.name !== h.name) parts.push(t('as.chg.host_renamed', { from: bh.name }));
+      if (!!bh.internet !== !!h.internet) parts.push(t(h.internet ? 'as.chg.host_inet_on' : 'as.chg.host_inet_off'));
+      if ((bh.region || '') !== (h.region || '')) parts.push(t('as.chg.host_region', { from: bh.region || '—', to: h.region || '—' }));
+      if (parts.length) out.push({ kind: 'host', host: h, parts, impact: 'decl' });
+    }
+  }
+  for (const [id, b] of bi.svcs) {
+    if (cur.has(id) || b.type === 'admin') continue;
+    out.push({ kind: 'del', svc: b, host: bi.hostOf.get(id), impact: 'decl', live: !!b.existing && b.status !== 'declared' });
+  }
+  return out;
+}
+
+function _archChangeOf(id) {
+  return (_arch._chg || []).find(c => c.svc && c.svc.id === id && c.kind !== 'del') || null;
+}
+
+/** Rôles retirés dont l'hôte est toujours sur la toile (affichés barrés, avec « Rétablir »). */
+function _archRemovedOn(hostId) {
+  return (_arch._chg || []).filter(c => c.kind === 'del' && c.host && c.host.id === hostId).map(c => c.svc);
+}
+
+function _archIsNewHost(hostId) {
+  return !!_arch.base && !_arch.base.hosts.some(h => h.id === hostId);
+}
+
+function _archBaseSvc(id) {
+  for (const h of (_arch.base && _arch.base.hosts) || []) {
+    const s = (h.services || []).find(x => x.id === id);
+    if (s) return s;
+  }
+  return null;
+}
+
+function _archCapDiff(s) {
+  const b = _archBaseSvc(s.id);
+  if (!b) return { add: [], del: [] };
+  const before = _asCaps(_arch.base, b), after = _asCaps(_arch, s);
+  return { add: after.filter(c => !before.includes(c)), del: before.filter(c => !after.includes(c)) };
+}
+
+/** « Avant : … » sous un champ modifié d'un rôle déjà présent au chargement. */
+function _archBefore(svc, field) {
+  const b = _archBaseSvc(svc.id);
+  if (!b || _archNorm(b[field]) === _archNorm(svc[field])) return '';
+  let v = _ARCH_BOOL_FIELDS.has(field) ? t(b[field] ? 'as.ins.on' : 'as.ins.off') : (b[field] || '—');
+  if (field === 'targetEdgeId') v = b[field] ? ((_archFindSvc(b[field]) || _archBaseSvc(b[field]) || {}).name || '—') : t('arch.opt.target_edge_auto');
+  return `<span class="as-before">${esc(t('as.ins.before', { v }))}</span>`;
+}
+
+function asRestoreSvc(id) {
+  const bi = _archBaseIndex();
+  if (!bi || _archFindSvc(id)) return;
+  const b = bi.svcs.get(id), bh = bi.hostOf.get(id);
+  if (!b || !bh) return;
+  let host = _arch.hosts.find(h => h.id === bh.id);
+  if (!host) {
+    host = Object.assign(JSON.parse(JSON.stringify(bh)), { services: [] });
+    _arch.hosts.push(host);
+  }
+  host.services.push(JSON.parse(JSON.stringify(b)));
+  const gid = bi.group.get(id);
+  if (gid) {
+    const g = _arch.haGroups.find(x => x.id === gid);
+    if (g) { if (!g.members.includes(id)) g.members.push(id); } else _arch.haGroups.push({ id: gid, members: [id] });
+  }
+  _arch.selectedSvcId = id;
+  _arch.selectedHostId = host.id;
+  _archRender();
+}
+
+/** Après une saisie sans re-rendu : met à jour le compteur et la liste des modifications. */
+function _archRefreshChanges() {
+  if (state.page !== 'architecture') return;
+  _arch._chg = _archChanges();
+  const n = _arch._chg.length;
+  const cnt = document.getElementById('as-edit-n');
+  if (cnt) cnt.textContent = _archCountLabel(n);
+  const btn = document.getElementById('as-edit-save');
+  if (btn) btn.textContent = n ? t('as.edit.review_n', { n }) : t('as.edit.review');
+  const list = document.getElementById('as-chgs');
+  if (list) list.outerHTML = _asChangesHTML(_arch._chg);
+}
+
+function _archCountLabel(n) {
+  return n ? t(n === 1 ? 'as.edit.one_change' : 'as.edit.n_changes', { n }) : t('as.edit.no_change');
+}
+
+function _asImpactSummary(list) {
+  const cnt = {};
+  for (const c of list) cnt[c.impact] = (cnt[c.impact] || 0) + 1;
+  return ['install', 'redeploy', 'restart', 'live', 'decl'].filter(k => cnt[k]).map(k => t('as.imp.n.' + k, { n: cnt[k] })).join(', ');
+}
+
+function _asChangeRow(c, withRestore) {
+  const sym = { add: '+', mod: '~', host: '~', del: '−' }[c.kind];
+  const name = c.kind === 'host' ? c.host.name : c.svc.name;
+  let desc;
+  if (c.kind === 'add') desc = t(c.newHost ? 'as.chg.add_new_host' : 'as.chg.add', { host: c.host.name });
+  else if (c.kind === 'del') desc = t('as.chg.del', { host: c.host ? c.host.name : '—' });
+  else desc = c.parts.join(' · ');
+  const restore = withRestore && c.kind === 'del'
+    ? `<button type="button" class="as-restore" onclick="asRestoreSvc('${esc(c.svc.id)}')">${esc(t('as.edit.restore'))}</button>` : '<span></span>';
+  return `<div class="as-chg" data-k="${c.kind}"><span class="as-chg-s" aria-hidden="true">${sym}</span><b>${esc(name)}</b>
+    <span class="as-chg-d">${esc(desc)}</span><span class="as-chg-i" data-imp="${c.impact}">${esc(t('as.imp.' + c.impact))}</span>${restore}</div>`;
+}
+
+function _asChangesHTML(list) {
+  return `<section class="as-chgs" id="as-chgs" aria-label="${esc(t('as.edit.changes', { n: list.length }))}">
+    <div class="as-chgs-h"><h3>${esc(t('as.edit.changes', { n: list.length }))}</h3>${list.length ? `<span>${esc(t('as.imp.summary', { list: _asImpactSummary(list) }))}</span>` : ''}</div>
+    ${list.length ? list.map(c => _asChangeRow(c, true)).join('') : `<div class="as-chgs-empty">${esc(t('as.edit.no_changes_hint'))}</div>`}
+  </section>`;
+}
+
+function asCancelEdit() {
+  const n = (_arch._chg || []).length;
+  if (!n) { closeArchWizard(); return; }
+  modal(esc(t('as.edit.discard_title')),
+    `<p style="margin:0;font-size:13.5px;line-height:1.5">${esc(t('as.edit.discard_confirm', { n }))}</p>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">${esc(t('as.edit.keep_editing'))}</button>
+     <button class="btn btn-danger" onclick="closeModal();closeArchWizard()">${esc(t('as.edit.discard'))}</button>`);
+}
+
+/** Revue avant enregistrement : liste des modifications, impact, contrôles. */
+function asOpenReview() {
+  const list = _arch._chg = _archChanges();
+  const err = _archValidate();
+  const haNote = _archAccessHANote();
+  const liveDel = list.filter(c => c.kind === 'del' && c.live);
+  _asOverlay(`<div class="as-mh"><b>${esc(t('as.rev.title'))}</b>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="asCloseModal()" aria-label="${esc(t('common.close'))}">×</button></div>
+    <p class="as-rev-sub">${esc(t('as.rev.sub'))}</p>
+    ${list.length
+      ? `<div class="as-chgs as-chgs-flat">${list.map(c => _asChangeRow(c, false)).join('')}</div>
+         <p class="as-rev-imp">${esc(t('as.imp.summary', { list: _asImpactSummary(list) }))}</p>`
+      : `<div class="arch-msg" data-tone="info">${esc(t('as.rev.none'))}</div>`}
+    <div class="as-rev-msgs">
+      ${liveDel.map(c => `<div class="arch-msg" data-tone="warn">${esc(t('as.rev.live_removed', { name: c.svc.name }))}</div>`).join('')}
+      ${haNote ? `<div class="arch-msg" data-tone="warn">${esc(haNote)}</div>` : ''}
+      ${err ? `<div class="arch-msg" data-tone="error">${esc(err)}</div>` : ''}
+    </div>
+    <div class="as-acts" style="justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="asCloseModal()">${esc(t('common.cancel'))}</button>
+      <button class="btn btn-primary" id="as-rev-save" ${err ? 'disabled' : ''} onclick="asReviewSave()">${esc(t('as.rev.save'))}</button>
+    </div>`);
+}
+
+async function asReviewSave() {
+  const btn = document.getElementById('as-rev-save');
+  if (btn) { btn.disabled = true; btn.textContent = t('as.rev.saving'); }
+  const added = (_arch._chg || []).filter(c => c.kind === 'add');
+  const hosts = [...new Map(added.map(c => [c.host.id, c.host])).values()];
+  const ok = await _archSaveTopology();
+  if (!ok) {
+    if (btn) { btn.disabled = false; btn.textContent = t('as.rev.save'); }
+    return;
+  }
+  _asOverlay(`<div class="as-mh"><b>${esc(t('as.rev.done'))}</b></div>
+    ${hosts.length ? `<p class="as-rev-sub">${esc(t('as.rev.install_hint'))}</p>
+      ${hosts.map(h => `<div class="as-ver"><div><b>${esc(h.name)}</b><small>${esc(added.filter(c => c.host.id === h.id).map(c => c.svc.name).join(', '))}</small></div>
+        <div class="as-ver-b"><button class="btn btn-secondary btn-sm" onclick="asOpenConfig('${h.id}','f')">${esc(t('as.config'))}</button></div></div>`).join('')}` : ''}
+    <div class="as-acts" style="justify-content:flex-end">
+      <button class="btn btn-primary" onclick="asCloseModal();closeArchWizard()">${esc(t('as.rev.finish'))}</button>
+    </div>`);
+}
+
 async function _archSaveTopology() {
   const allSvcs = _arch.hosts.flatMap(h =>
     (h.services || [])
       .filter(s => s.type === 'edge' || s.type === 'agent')
       .map(s => ({ svc: s, host: h }))
   );
-  if (!allSvcs.length) { toast(t('arch.save_nothing') || 'Aucun nœud à enregistrer', 'warning'); return; }
+  if (!allSvcs.length) { toast(t('arch.save_nothing') || 'Aucun nœud à enregistrer', 'warning'); return false; }
 
   // Nœuds présents avant la sauvegarde (pour détecter les suppressions / renommages)
   const prevDeclared = [...(_arch.declaredNodes || [])];
@@ -524,7 +767,9 @@ async function _archSaveTopology() {
   if (fresh) { _arch.declaredNodes = fresh; _wiz.declaredNodes = fresh; }
 
   toast(t('common.saved') || 'Enregistré', 'success');
+  _archSnapshot();
   _archRender();
+  return true;
 }
 
 pages.architecture = function() {
@@ -541,36 +786,33 @@ function _archRender() {
   content.innerHTML = _archCanvasHTML();
 };
 
-/** Wizard : le schéma d'architecture en mode édition + inspecteur. Enregistrer écrit architecture.json. */
+/** Mode édition : barre d'édition, toile (hôtes ou tiers), modifications en cours et inspecteur. */
 function _archCanvasHTML() {
   if (_arch.loading) return `<p style="color:var(--text2)">${t('common.loading')}</p>`;
   window._asEdit = true;
+  _arch._chg = _archChanges();
+  const n = _arch._chg.length;
   const err = _archValidate() || '';
   const haNote = _archAccessHANote();
   return `<div class="arch-page">
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-      <div style="min-width:0;">
-        <div class="card-kicker">${t('arch.kicker')}</div>
-        <h2 style="font-family:var(--font-heading);font-size:20px;font-weight:700;margin:0;letter-spacing:-.01em;">${t('arch.title')}</h2>
-        <p style="font-size:12.5px;color:var(--text2);margin-top:5px;max-width:52rem;line-height:1.5;">${t('as.wizard_sub')}</p>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-ghost btn-sm" onclick="asOpenConfig(null,'v')">${esc(t('as.history'))}</button>
-        <button class="btn btn-ghost btn-sm" onclick="closeArchWizard()">${t('arch.back_infra')}</button>
-      </div>
+    <div class="as-editbar" role="region" aria-label="${esc(t('as.edit.mode'))}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg>
+      <b>${esc(t('as.edit.mode'))}</b><span class="as-editbar-sep" aria-hidden="true"></span>
+      <span id="as-edit-n" class="as-editbar-n" aria-live="polite">${esc(_archCountLabel(n))}</span>
+      <span class="as-editbar-sp"></span>
+      <button class="btn btn-ghost btn-sm" onclick="asOpenConfig(null,'v')">${esc(t('as.history'))}</button>
+      <button class="btn btn-secondary btn-sm" onclick="asCancelEdit()">${esc(t(n ? 'common.cancel' : 'as.edit.close'))}</button>
+      <button class="btn btn-primary btn-sm" id="as-edit-save" onclick="asOpenReview()" ${err ? 'disabled' : ''}>${esc(n ? t('as.edit.review_n', { n }) : t('as.edit.review'))}</button>
     </div>
     <div class="as-wz">
-      ${asSchemaHTML(_arch, { edit: true, selectedId: _arch.selectedSvcId, selectedHostId: _arch.selectedHostId })}
-      <aside>${asInspectorHTML()}</aside>
-    </div>
-    ${haNote ? `<div class="arch-msg" data-tone="warn">${esc(haNote)}</div>` : ''}
-    ${err ? `<div class="arch-msg" data-tone="error">${esc(err)}</div>` : ''}
-    <div class="arch-actionbar">
-      <div class="arch-summary"><span><b>${_asAllSvcs(_arch).length}</b> ${esc(t('as.nodes'))}</span></div>
-      <div class="arch-actionbar-btns">
-        <button class="btn btn-ghost" onclick="closeArchWizard()">${t('common.cancel') || 'Annuler'}</button>
-        <button class="btn btn-primary" onclick="_archSaveTopology()" ${err ? 'disabled' : ''}>${t('arch.save_topology') || 'Enregistrer'}</button>
+      <div class="as-wz-main">
+        ${_asEditToolbarHTML(_arch)}
+        ${asSchemaHTML(_arch, { edit: true, selectedId: _arch.selectedSvcId, selectedHostId: _arch.selectedHostId })}
+        ${haNote ? `<div class="arch-msg" data-tone="warn">${esc(haNote)}</div>` : ''}
+        ${err ? `<div class="arch-msg" data-tone="error">${esc(err)}</div>` : ''}
+        ${_asChangesHTML(_arch._chg)}
       </div>
+      <aside class="as-wz-ins">${asInspectorHTML()}</aside>
     </div>
   </div>`;
 }
@@ -586,13 +828,14 @@ const _ARCH_DNS_PROVIDERS = [
   { id: 'hetzner', label: 'Hetzner' },
 ];
 
-/** Ligne capacité : case à cocher + libellé + explication. */
-function _archCapRow(on, label, desc, onchange, extraHTML) {
-  return `<label class="arch-cap" data-on="${on ? 1 : 0}">
-      <input type="checkbox" ${on ? 'checked' : ''} onchange="${onchange}">
+/** Ligne capacité : interrupteur + libellé + explication ; « Avant : … » si elle a changé depuis le chargement. */
+function _archCapRow(on, label, desc, onchange, extraHTML, beforeHTML) {
+  return `<label class="arch-cap" data-on="${on ? 1 : 0}"${beforeHTML ? ' data-chg="1"' : ''}>
+      <input type="checkbox" role="switch" ${on ? 'checked' : ''} onchange="${onchange}">
       <span style="min-width:0;">
         <span class="arch-cap-label" style="display:block;">${label}</span>
         <span class="arch-cap-desc" style="display:block;">${esc(desc)}</span>
+        ${beforeHTML || ''}
       </span>
     </label>${on && extraHTML ? `<div class="arch-cap-extra">${extraHTML}</div>` : ''}`;
 }
@@ -605,146 +848,171 @@ function _archField(label, inputHTML) {
   return `<div class="arch-field"><span class="arch-field-label">${label}</span>${inputHTML}</div>`;
 }
 
+function asInsTab(tab) {
+  _arch.inspTab = tab;
+  _archRender();
+}
+
+/** « Avant : … » d'une capacité dérivée (HA, TLS) : état au chargement vs état courant. */
+function _archBeforeState(svc, was, now, wasLabel) {
+  if (!_archBaseSvc(svc.id) || was === now) return '';
+  return `<span class="as-before">${esc(t('as.ins.before', { v: wasLabel }))}</span>`;
+}
+
+function _archEdgeCapsHTML(svc) {
+  const b = _archBaseSvc(svc.id);
+  const namedProviders = _arch.acmeProviders || [];
+  const dnsProviderList = namedProviders.length
+    ? [{ id: 'none', label: '—' }, ...namedProviders.map(p => ({ id: p.id, label: `${p.name} (${p.type})` }))]
+    : _ARCH_DNS_PROVIDERS;
+  const dnsOpts = dnsProviderList.map(p =>
+    `<option value="${p.id}" ${(svc.dnsProvider || 'none') === p.id ? 'selected' : ''}>${esc(p.label)}</option>`
+  ).join('');
+  const baseGroup = (((_arch.base && _arch.base.haGroups) || []).find(g => g.members.includes(svc.id)) || {}).id || '';
+  const curGroup = _archGroupOfSvc(svc.id);
+  const bTls = !!(b && (b.domains || b.acme));
+  const tls = !!(svc.domains || svc.acme);
+  return _archCapRow(!!svc.access, t('arch.svc.access') + _archImpactBadge('restart', svc.existing && svc.status !== 'online'), t('arch.cap.access_desc'),
+      `_archSetOpt('${svc.id}','access',this.checked)`, '', _archBefore(svc, 'access')) +
+    _archCapRow(!!curGroup, t('arch.svc.ha') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.ha_desc'),
+      `_archSetHAGroup('${svc.id}',this.checked,'')`,
+      (() => {
+        const peers = curGroup ? curGroup.members.filter(id => id !== svc.id).map(id => { const p = _archFindSvc(id); return p ? p.name : id; }) : [];
+        const groupOpts = _arch.haGroups.map(g =>
+          `<option value="${esc(g.id)}" ${curGroup && curGroup.id === g.id ? 'selected' : ''}>${esc(g.id.replace(/^ha-(\d+)$/, t('arch.ha.group_n') + ' $1'))}</option>`
+        ).join('') + `<option value="new">${esc(t('arch.ha.new_group'))}</option>`;
+        return `<div style="margin-bottom:4px;">${esc(t('arch.ha.group'))} : <select class="arch-select" style="display:inline-block;width:auto;margin-left:4px;" onchange="_archSetHAGroup('${svc.id}',true,this.value)">${groupOpts}</select></div>` +
+          `<div class="arch-cap-desc">${esc(peers.length ? t('arch.ha.peers', { names: peers.join(', ') }) : t('arch.ha.peers_none'))}</div>`;
+      })(),
+      _archBeforeState(svc, baseGroup, curGroup ? curGroup.id : '', baseGroup || t('as.ins.off'))) +
+    _archCapRow(tls, t('arch.svc.domains') + _archImpactBadge('restart', svc.existing), t('arch.cap.tls_desc'),
+      `_archSetTLS('${svc.id}',this.checked)`,
+      _archField(t('arch.opt.domains'), `<input class="arch-input" value="${esc(svc.domains || '')}" placeholder="app.example.fr, api.example.fr" oninput="_archSetField('${svc.id}','domains',this.value)">` + _archBefore(svc, 'domains')) +
+      _archCapRow(!!svc.acme, t('arch.opt.acme'), t('arch.cap.acme_desc'),
+        `_archSetOpt('${svc.id}','acme',this.checked)`,
+        _archField(t('arch.opt.acme_email'), `<input class="arch-input" value="${esc(svc.acmeEmail || '')}" placeholder="admin@example.fr" oninput="_archSetField('${svc.id}','acmeEmail',this.value)">`) +
+        _archField(t('arch.opt.dns_provider'), `<select class="arch-select" onchange="_archSetField('${svc.id}','dnsProvider',this.value);_archRender()">${dnsOpts}</select>`) +
+        `<div class="arch-cap-desc">${t('arch.opt.acme_admin_hint')}</div>`,
+        _archBefore(svc, 'acme')),
+      _archBeforeState(svc, bTls, tls, t(bTls ? 'as.ins.on' : 'as.ins.off')));
+}
+
+function _archDelegationsHTML(svc) {
+  const dOut = svc.delegationsOut || [];
+  const dIn  = svc.delegationsIn  || [];
+  if (!dOut.length && !dIn.length) return '';
+  const outHTML = dOut.length ? `
+    <div class="arch-cap-desc" style="margin-bottom:8px;">${esc(t('arch.deleg.out_desc'))}</div>
+    ${dOut.map(d => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
+          <span style="font-size:12px;font-weight:600;flex:1;min-width:0;">${esc(d.domain)}</span>
+          <span style="font-size:11px;color:var(--text2);">→ ${esc(d.targetName)}</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer;" title="${esc(t('arch.deleg.passthrough_hint'))}">
+            <input type="radio" name="dmode_${esc(d.id)}" value="passthrough" ${d.mode !== 'terminate' ? 'checked' : ''} onchange="_archSetDelegMode('${esc(d.id)}','passthrough')">
+            ${esc(t('arch.deleg.passthrough'))}
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer;" title="${esc(t('arch.deleg.terminate_hint'))}">
+            <input type="radio" name="dmode_${esc(d.id)}" value="terminate" ${d.mode === 'terminate' ? 'checked' : ''} onchange="_archSetDelegMode('${esc(d.id)}','terminate')">
+            ${esc(t('arch.deleg.terminate'))}
+          </label>
+        </div>
+      </div>`).join('')}
+  ` : '';
+  const inHTML = dIn.length ? `
+    ${dOut.length ? `<div style="margin-top:10px;"></div>` : ''}
+    <div class="arch-cap-desc" style="margin-bottom:6px;">${esc(t('arch.deleg.in_desc'))}</div>
+    ${dIn.map(d => `
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;font-weight:600;flex:1;min-width:0;">${esc(d.domain)}</span>
+        <span style="font-size:11px;color:var(--text2);">${esc(t('arch.deleg.from'))} ${esc(d.sourceName)}</span>
+        <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg2,var(--bg));color:var(--text2);">${esc(d.mode === 'terminate' ? t('arch.deleg.terminate') : t('arch.deleg.passthrough'))}</span>
+      </div>`).join('')}
+  ` : '';
+  return _archGroup(t('arch.group.delegations'), outHTML + inHTML);
+}
+
+function _archAgentCapsHTML(svc) {
+  const req = missing => missing ? ' <span style="color:var(--red);font-size:10px;font-weight:700;vertical-align:middle;">*</span>' : '';
+  return `<div class="arch-cap-desc" style="margin-bottom:6px">${t('as.platforms_hint')}</div>` +
+    _archCapRow(!!svc.docker, t('arch.svc.docker') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.docker_desc'),
+      `_archSetRuntime('${svc.id}','docker',this.checked)`, '', _archBefore(svc, 'docker')) +
+    _archCapRow(!!svc.podman, t('arch.svc.podman') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.podman_desc'),
+      `_archSetRuntime('${svc.id}','podman',this.checked)`, '', _archBefore(svc, 'podman')) +
+    _archCapRow(!!svc.portainer, t('arch.svc.portainer') + _archImpactBadge('restart', svc.existing), t('arch.cap.portainer_desc'),
+      `_archSetOpt('${svc.id}','portainer',this.checked)`,
+      _archField('URL' + req(svc.portainer && !svc.portainerUrl),
+        `<input class="arch-input" style="${svc.portainer && !svc.portainerUrl ? 'border-color:var(--red);' : ''}" value="${esc(svc.portainerUrl || '')}" placeholder="https://portainer:9443" oninput="_archSetField('${svc.id}','portainerUrl',this.value)">`) +
+      _archField(t('arch.opt.portainer_key') + req(svc.portainer && !svc.portainerKey),
+        `<input class="arch-input" type="password" style="${svc.portainer && !svc.portainerKey ? 'border-color:var(--red);' : ''}" value="${esc(svc.portainerKey || '')}" placeholder="ptr_…" oninput="_archSetField('${svc.id}','portainerKey',this.value)">`),
+      _archBefore(svc, 'portainer')) +
+    _archCapRow(!!svc.k8s, t('arch.svc.k8s') + _archImpactBadge('restart', svc.existing), t('arch.cap.k8s_desc'),
+      `_archSetOpt('${svc.id}','k8s',this.checked)`, '', _archBefore(svc, 'k8s'));
+}
+
+function _archAgentNetHTML(svc, host) {
+  const edges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge'));
+  const local = host && (host.services || []).find(s => s.type === 'edge');
+  let html = `<div class="arch-cap-desc" style="margin-bottom:8px">${esc(t(local ? 'as.ins.colocated' : 'as.ins.remote'))}</div>`;
+  if (edges.length > 1) {
+    const targetOpts = edges.map(c => `<option value="${esc(c.id)}" ${svc.targetEdgeId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    html += _archField(t('arch.opt.target_edge'),
+      `<select class="arch-select" onchange="_archSetField('${svc.id}','targetEdgeId',this.value)">
+        <option value="">${t('arch.opt.target_edge_auto')}</option>${targetOpts}
+      </select>` + _archBefore(svc, 'targetEdgeId'));
+  } else if (edges.length === 1) {
+    html += `<div class="arch-cap-desc">${esc(t('as.ins.target_only', { name: edges[0].name }))}</div>`;
+  } else {
+    html += `<div class="arch-cap-desc">${esc(t('arch.err.agent_needs_edge'))}</div>`;
+  }
+  return html;
+}
+
 function _archInspectRole(svc) {
   const host = _archFindHostOfSvc(svc.id);
-  const accent = _archRoleAccent(svc.type);
-  let body = '';
+  const tabs = svc.type === 'admin'
+    ? []
+    : [['gen', 'as.ins.tab.general'], ['caps', 'as.ins.tab.caps'], ['net', 'as.ins.tab.network']];
+  if (tabs.length && !tabs.some(([id]) => id === _arch.inspTab)) _arch.inspTab = 'caps';
+  const tab = tabs.length ? _arch.inspTab : 'gen';
+  const chg = _archChangeOf(svc.id);
 
-  if (svc.type === 'edge') {
-    const namedProviders = _arch.acmeProviders || [];
-    const dnsProviderList = namedProviders.length
-      ? [{ id: 'none', label: '—' }, ...namedProviders.map(p => ({ id: p.id, label: `${p.name} (${p.type})` }))]
-      : _ARCH_DNS_PROVIDERS;
-    const dnsOpts = dnsProviderList.map(p =>
-      `<option value="${p.id}" ${(svc.dnsProvider || 'none') === p.id ? 'selected' : ''}>${esc(p.label)}</option>`
-    ).join('');
-    body = `
-      ${_archGroup(t('arch.group.identity'),
-        _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing)) +
-        _archField(t('arch.opt.reachable'), `<input class="arch-input" value="${esc(svc.reachable || '')}" placeholder="edge.example.com" oninput="_archSetField('${svc.id}','reachable',this.value)">`) +
-        `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: (host && host.region) || '—' })}</div>`
-      )}
-      ${_archGroup(t('arch.group.caps'),
-        _archCapRow(!!svc.access, t('arch.svc.access') + _archImpactBadge('restart', svc.existing && svc.status !== 'online'), t('arch.cap.access_desc'),
-          `_archSetOpt('${svc.id}','access',this.checked)`) +
-        _archCapRow(_archInHA(svc.id), t('arch.svc.ha') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.ha_desc'),
-          `_archSetHAGroup('${svc.id}',this.checked,'')`,
-          (() => {
-            const curGroup = _archGroupOfSvc(svc.id);
-            const peers = curGroup ? curGroup.members.filter(id => id !== svc.id).map(id => { const p = _archFindSvc(id); return p ? p.name : id; }) : [];
-            const groupOpts = _arch.haGroups.map(g =>
-              `<option value="${esc(g.id)}" ${curGroup && curGroup.id === g.id ? 'selected' : ''}>${esc(g.id.replace(/^ha-(\d+)$/, t('arch.ha.group_n') + ' $1'))}</option>`
-            ).join('') + `<option value="new">${esc(t('arch.ha.new_group'))}</option>`;
-            return `<div style="margin-bottom:4px;">${esc(t('arch.ha.group'))} : <select class="arch-select" style="display:inline-block;width:auto;margin-left:4px;" onchange="_archSetHAGroup('${svc.id}',true,this.value)">${groupOpts}</select></div>` +
-              (peers.length
-                ? `<div class="arch-cap-desc">${esc(t('arch.ha.peers', { names: peers.join(', ') }))}</div>`
-                : `<div class="arch-cap-desc">${esc(t('arch.ha.peers_none'))}</div>`);
-          })()) +
-        _archCapRow(!!(svc.domains || svc.acme), t('arch.svc.domains') + _archImpactBadge('restart', svc.existing), t('arch.cap.tls_desc'),
-          `_archSetTLS('${svc.id}',this.checked)`,
-          _archField(t('arch.opt.domains'), `<input class="arch-input" value="${esc(svc.domains || '')}" placeholder="app.example.fr, api.example.fr" oninput="_archSetField('${svc.id}','domains',this.value)">`) +
-          _archCapRow(!!svc.acme, t('arch.opt.acme'), t('arch.cap.acme_desc'),
-            `_archSetOpt('${svc.id}','acme',this.checked)`,
-            _archField(t('arch.opt.acme_email'), `<input class="arch-input" value="${esc(svc.acmeEmail || '')}" placeholder="admin@example.fr" oninput="_archSetField('${svc.id}','acmeEmail',this.value)">`) +
-            _archField(t('arch.opt.dns_provider'), `<select class="arch-select" onchange="_archSetField('${svc.id}','dnsProvider',this.value);_archRender()">${dnsOpts}</select>`) +
-            `<div class="arch-cap-desc">${t('arch.opt.acme_admin_hint')}</div>`
-          )
-        )
-      )}
-      ${(() => {
-        const dOut = svc.delegationsOut || [];
-        const dIn  = svc.delegationsIn  || [];
-        if (!dOut.length && !dIn.length) return '';
-        const outHTML = dOut.length ? `
-          <div class="arch-cap-desc" style="margin-bottom:8px;">${esc(t('arch.deleg.out_desc'))}</div>
-          ${dOut.map(d => `
-            <div style="padding:8px 0;border-bottom:1px solid var(--border);">
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
-                <span style="font-size:12px;font-weight:600;flex:1;min-width:0;">${esc(d.domain)}</span>
-                <span style="font-size:11px;color:var(--text2);">→ ${esc(d.targetName)}</span>
-              </div>
-              <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer;" title="${esc(t('arch.deleg.passthrough_hint'))}">
-                  <input type="radio" name="dmode_${esc(d.id)}" value="passthrough" ${d.mode !== 'terminate' ? 'checked' : ''} onchange="_archSetDelegMode('${esc(d.id)}','passthrough')">
-                  ${esc(t('arch.deleg.passthrough'))}
-                </label>
-                <label style="display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer;" title="${esc(t('arch.deleg.terminate_hint'))}">
-                  <input type="radio" name="dmode_${esc(d.id)}" value="terminate" ${d.mode === 'terminate' ? 'checked' : ''} onchange="_archSetDelegMode('${esc(d.id)}','terminate')">
-                  ${esc(t('arch.deleg.terminate'))}
-                </label>
-              </div>
-            </div>`).join('')}
-        ` : '';
-        const inHTML = dIn.length ? `
-          ${dOut.length ? `<div style="margin-top:10px;"></div>` : ''}
-          <div class="arch-cap-desc" style="margin-bottom:6px;">${esc(t('arch.deleg.in_desc'))}</div>
-          ${dIn.map(d => `
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);">
-              <span style="font-size:12px;font-weight:600;flex:1;min-width:0;">${esc(d.domain)}</span>
-              <span style="font-size:11px;color:var(--text2);">${esc(t('arch.deleg.from'))} ${esc(d.sourceName)}</span>
-              <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg2,var(--bg));color:var(--text2);">${esc(d.mode === 'terminate' ? t('arch.deleg.terminate') : t('arch.deleg.passthrough'))}</span>
-            </div>`).join('')}
-        ` : '';
-        return _archGroup(t('arch.group.delegations'), outHTML + inHTML);
-      })()}`;
-  } else if (svc.type === 'agent') {
-    const edges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge'));
-    const targetOpts = edges.map(c =>
-      `<option value="${esc(c.id)}" ${svc.targetEdgeId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`
-    ).join('');
-    body = `
-      ${_archGroup(t('arch.group.identity'),
-        _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing)) +
-        (edges.length > 1
-          ? _archField(t('arch.opt.target_edge'),
-              `<select class="arch-select" onchange="_archSetField('${svc.id}','targetEdgeId',this.value)">
-                <option value="">${t('arch.opt.target_edge_auto')}</option>${targetOpts}
-              </select>`)
-          : '') +
-        `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: (host && host.region) || '—' })}</div>`
-      )}
-      ${_archGroup(t('as.platforms'),
-        `<div class="arch-cap-desc" style="margin-bottom:6px">${t('as.platforms_hint')}</div>` +
-        _archCapRow(!!svc.docker, t('arch.svc.docker') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.docker_desc'),
-          `_archSetRuntime('${svc.id}','docker',this.checked)`) +
-        _archCapRow(!!svc.podman, t('arch.svc.podman') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.podman_desc'),
-          `_archSetRuntime('${svc.id}','podman',this.checked)`) +
-        _archCapRow(!!svc.portainer, t('arch.svc.portainer') + _archImpactBadge('restart', svc.existing), t('arch.cap.portainer_desc'),
-          `_archSetOpt('${svc.id}','portainer',this.checked)`,
-          _archField('URL' + (svc.portainer && !svc.portainerUrl ? ' <span style="color:var(--red);font-size:10px;font-weight:700;vertical-align:middle;">*</span>' : ''),
-            `<input class="arch-input" style="${svc.portainer && !svc.portainerUrl ? 'border-color:var(--red);' : ''}" value="${esc(svc.portainerUrl || '')}" placeholder="https://portainer:9443" oninput="_archSetField('${svc.id}','portainerUrl',this.value)">`) +
-          _archField(t('arch.opt.portainer_key') + (svc.portainer && !svc.portainerKey ? ' <span style="color:var(--red);font-size:10px;font-weight:700;vertical-align:middle;">*</span>' : ''),
-            `<input class="arch-input" type="password" style="${svc.portainer && !svc.portainerKey ? 'border-color:var(--red);' : ''}" value="${esc(svc.portainerKey || '')}" placeholder="ptr_…" oninput="_archSetField('${svc.id}','portainerKey',this.value)">`)
-        ) +
-        _archCapRow(!!svc.k8s, t('arch.svc.k8s') + _archImpactBadge('restart', svc.existing), t('arch.cap.k8s_desc'),
-          `_archSetOpt('${svc.id}','k8s',this.checked)`)
-      )}
-      `;
-  } else {
+  const hostOpts = _arch.hosts.map(h => `<option value="${esc(h.id)}"${host && h.id === host.id ? ' selected' : ''}>${esc(h.name)}</option>`).join('')
+    + `<option value="new">${esc(t('as.new_host'))}</option>`;
+  const general = _archGroup(t('arch.group.identity'),
+      _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing) + _archBefore(svc, 'name'))) +
+    _archGroup(t('as.host'),
+      _archField(t('as.ins.run_on'), `<select class="arch-select" onchange="asMoveSvc('${svc.id}',this.value)">${hostOpts}</select>`) +
+      `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: esc((host && host.region) || '—') })}</div>` +
+      (host ? `<div class="as-acts" style="margin-top:8px">
+        <button class="btn btn-secondary btn-sm" onclick="_archSelectHost('${host.id}')">${esc(t('as.ins.edit_host'))}</button>
+        <button class="btn btn-secondary btn-sm" onclick="asOpenConfig('${host.id}')">${esc(t('as.config'))}</button></div>` : ''));
+
+  let body = '';
+  if (svc.type === 'admin') {
     const tlsEdges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge' && s.acme));
-    body = `
-      ${_archGroup(t('arch.group.identity'),
-        _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" onchange="_archSetField('${svc.id}','name',this.value);_archRender()">`)
-      )}
-      ${_archGroup(t('arch.group.caps'), `<div class="arch-cap-desc">${
-        tlsEdges.length ? t('arch.opt.admin_acme_note') : t('arch.opt.none')
-      }</div>`)}`;
+    body = general + `<div class="arch-cap-desc">${tlsEdges.length ? t('arch.opt.admin_acme_note') : t('arch.opt.none')}</div>`;
+  } else if (tab === 'gen') {
+    body = general;
+  } else if (tab === 'caps') {
+    body = svc.type === 'edge' ? _archEdgeCapsHTML(svc) : _archAgentCapsHTML(svc);
+  } else if (svc.type === 'edge') {
+    body = _archField(t('arch.opt.reachable'), `<input class="arch-input" value="${esc(svc.reachable || '')}" placeholder="edge.example.com" oninput="_archSetField('${svc.id}','reachable',this.value)">` + _archBefore(svc, 'reachable')) +
+      `<div class="arch-cap-desc">${esc(t('as.ins.reachable_hint'))}</div>` + _archDelegationsHTML(svc);
+  } else {
+    body = _archAgentNetHTML(svc, host);
   }
 
-  return `<div class="arch-panel" style="--arch-accent:${accent};">
-    <div class="arch-insp-head">
-      <div class="arch-insp-level">${t('arch.level.role')} · ${esc(t(_ARCH_ROLES[svc.type].label))}</div>
-      <div class="arch-insp-name">${esc(svc.name)}</div>
-      <div class="arch-insp-note">${t('arch.role.insp_note', { host: (host && host.name) || '—' })}</div>
+  const badge = chg ? `<span class="as-bd" data-k="${chg.kind === 'add' ? 'new' : 'mod'}">${esc(t(chg.kind === 'add' ? 'as.edit.new' : 'as.edit.modified'))}</span>` : '';
+  return `<div class="as-ins-h" style="--k:${_AS_ROLE[svc.type].k}">
+      <span class="as-ins-k">${esc(t('as.ins.on_host', { role: t(_ARCH_ROLES[svc.type].label), host: host ? host.name : '—' }))}</span>
+      <div class="as-ins-n"><b>${esc(svc.name)}</b>${badge}</div>
+      <div class="as-ins-tabs" role="tablist">${tabs.map(([id, k]) => `<button type="button" role="tab" aria-selected="${tab === id}" onclick="asInsTab('${id}')">${esc(t(k))}</button>`).join('')}</div>
     </div>
-    <div class="arch-insp-body">
-      ${body}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <button class="btn btn-ghost btn-sm" style="color:var(--red);"
-          onclick="_archRemoveSvc('${host ? host.id : ''}','${svc.id}')">${t('arch.role.remove')}</button>
-      </div>
-    </div>
-  </div>`;
+    <div class="as-ins-b">${body}</div>
+    <div class="as-ins-f"><button class="btn btn-ghost btn-sm" style="color:var(--red);margin-left:auto" onclick="_archRemoveSvc('${host ? host.id : ''}','${svc.id}')">${esc(t('arch.role.remove'))}</button></div>`;
 }
 
 function _archDragStart(ev) {
@@ -813,6 +1081,7 @@ function _archSetHostInternet(hostId, on) {
 function _archSetHostRegion(hostId, region) {
   const h = _arch.hosts.find(x => x.id === hostId);
   if (h) h.region = (region || '').trim();
+  _archRefreshChanges();
 }
 
 function _archSetRuntime(id, kind, on) {
@@ -919,6 +1188,13 @@ function _archSelectSvc(id) {
   const host = _archFindHostOfSvc(id);
   _arch.selectedHostId = host ? host.id : null;
   _archRender();
+  _archRevealInspector();
+}
+
+/** Écran étroit : l'inspecteur passe sous la toile, on l'amène à l'écran après une sélection. */
+function _archRevealInspector() {
+  if (window.innerWidth > 1180) return;
+  document.querySelector('.as-wz-ins')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function _archApplyPortal(edgeName, enabled) {
@@ -965,6 +1241,7 @@ function _archSelectHost(hostId) {
   _arch.selectedHostId = hostId;
   _arch.selectedSvcId = null;
   _archRender();
+  _archRevealInspector();
 }
 
 /**
@@ -1006,6 +1283,7 @@ function _archSetOpt(id, key, val) {
 function _archSetField(id, key, val) {
   const s = _archFindSvc(id);
   if (s) s[key] = val;
+  _archRefreshChanges();
 }
 
 /** Ajoute/retire une passerelle d'un groupe HA. groupId='new' crée un groupe, ''=auto. */
@@ -1184,7 +1462,7 @@ function _archResolveEdgeEndpoint(agentHost, agentSvc) {
     }
   }
 
-  // Préférer une passerelle HA leader / premiÃ¨re passerelle avec reachable
+  // Préférer une passerelle HA leader / première passerelle avec reachable
   const allEdges = _arch.hosts.flatMap(h => h.services.filter(s => s.type === 'edge'));
   const preferred = allEdges.find(c => (c.reachable || '').trim()) || allEdges[0];
   if (preferred) {

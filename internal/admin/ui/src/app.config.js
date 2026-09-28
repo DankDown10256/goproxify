@@ -347,7 +347,7 @@ const APP_CONFIG = {
   pageTitles: {
     dashboard:          'Dashboard',
     infrastructure:     'Infrastructure',
-    architecture:       'Composer la topologie',
+    architecture:       'Infrastructure',
     'admin-trafic':     'Routage',
     logs:               'Logs d\'accès',
     'logs-system':      'Logs système',
