@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.63.4 — Prism : flux « Connexions temps réel » noyé par les répétitions** : une même IP bannie en boucle sur le même domaine (scan, tentative répétée) produisait une ligne par événement, remplissant le flux de dizaines de lignes identiques en quelques secondes. Les événements consécutifs identiques (même IP + domaine + verdict) sont désormais fusionnés en une seule ligne avec un compteur (`×N`). (Admin `0.63.4`)
+
 - **Admin 0.63.3 — Carte temps réel : point d'attaque trop bref** : le marqueur de pulsation affiché sur la carte à chaque événement (connexion/bannissement) disparaissait après 6s, trop court pour le repérer visuellement sur une carte peu chargée. Porté à 15s. (Admin `0.63.3`)
 
 - **Edge 0.17.2 — Logs d'accès : message façon « combined log format »** : le champ `message` (section « Message » du tiroir de détail) contient désormais une ligne complète façon Apache/nginx combined log — `IP - [horodatage] "MÉTHODE chemin" code octets "referer" "user-agent"` — au lieu d'être vide (`request_id` et le contexte de sécurité voyagent par ailleurs dans leurs propres champs structurés, pas besoin de les dupliquer ici). Référer et User-Agent étaient déjà capturés par requête mais jamais transmis à l'Admin. (Edge `0.17.2`)

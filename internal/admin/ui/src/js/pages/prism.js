@@ -847,10 +847,26 @@ async function renderPrismPage() {
       // Filtrer les doublons déjà dans le feed
       const newEvts = visible.filter(e => !_liveMapFeed.some(f => f.ip === e.ip && f.ts === e.ts));
       if (!newEvts.length) return;
-      _liveMapFeed = [...newEvts, ..._liveMapFeed].slice(0, LIVE_MAP_FEED_MAX);
+      _liveMapFeed = collapseLiveFeed([...newEvts, ..._liveMapFeed]).slice(0, LIVE_MAP_FEED_MAX);
       renderLiveFeed(_liveMapFeed);
       placeLiveDots(newEvts);
     } catch { /* ignore */ }
+  }
+
+  // Fusionne les events consécutifs identiques (même IP/domaine/kind — cas typique d'un
+  // scan ou d'une tentative répétée bannie) en une seule ligne avec un compteur, au lieu
+  // de noyer le flux sous des dizaines de lignes identiques en quelques secondes.
+  function collapseLiveFeed(events) {
+    const out = [];
+    for (const ev of events) {
+      const last = out[out.length - 1];
+      if (last && last.ip === ev.ip && last.domain === ev.domain && last.kind === ev.kind) {
+        last.count = (last.count || 1) + 1;
+      } else {
+        out.push({ ...ev, count: 1 });
+      }
+    }
+    return out;
   }
 
   function placeLiveDots(events) {
@@ -877,6 +893,7 @@ async function renderPrismPage() {
         <span class="live-feed-flag">${flag(ev.country_code)}</span>
         <code class="live-feed-ip">${esc(ev.ip)}</code>
         <span class="live-feed-domain" title="${esc(ev.domain)}">${esc(ev.domain)}</span>
+        ${ev.count > 1 ? `<span class="live-feed-count" title="${ev.count} occurrences">×${ev.count}</span>` : ''}
         <span class="live-feed-ts">${ts}</span>
       </div>`;
     }).join('');
