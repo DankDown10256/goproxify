@@ -498,7 +498,9 @@ button.chip:hover{color:var(--text);border-color:var(--text3)}
   display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;
 }
 .log-entry-ts{font-family:monospace;font-size:11px;color:var(--text3);white-space:nowrap;flex-shrink:0}
-.log-entry-actions{display:inline-flex;align-items:center;gap:2px;margin-left:auto;flex-shrink:0}
+.logs-ts-cell{display:inline-flex;flex-direction:column;line-height:1.3}
+.logs-ts-cell .logs-ts-date{font-size:11px;color:var(--text2)}
+.logs-ts-cell .logs-ts-time{font-size:10.5px;color:var(--text3)}
 .log-entry-mid{
   display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
   font-size:12px;min-width:0;color:var(--text2);
@@ -2205,6 +2207,9 @@ article[data-log-i].is-selected{background:color-mix(in srgb,var(--accent) 10%,t
 .logs-split{display:flex;gap:16px;align-items:flex-start}
 .logs-table-card{flex:1;min-width:0}
 .logs-detail-col{width:340px;flex-shrink:0;max-height:80vh;overflow:auto}
+.logs-detail-actions{display:flex;flex-direction:column;gap:8px}
+.logs-detail-actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.logs-detail-actions-grid .btn{width:100%}
 @media(max-width:900px){.logs-split{flex-direction:column}.logs-detail-col{width:100%}}
 
 /* ── Automatisation : vue d'ensemble, éditeur de flux, journal ───────────── */

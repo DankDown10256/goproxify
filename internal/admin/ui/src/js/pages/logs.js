@@ -42,6 +42,27 @@ function nodeColor(name) {
   return `hsl(${h % 360} 62% 52%)`;
 }
 
+// Horodatage sur deux lignes (date puis heure, avec secondes) pour la colonne/carte
+// "Horodatage" des logs — plus précis et plus lisible que la ligne unique de fmtDate,
+// utile ici pour distinguer l'ordre des entrées à la seconde près.
+function logsTsParts(iso) {
+  if (!iso) return { d: '—', h: '' };
+  const loc = typeof gpxBCP47 === 'function' ? gpxBCP47() : 'en-US';
+  const tz = state.timezone ? { timeZone: state.timezone } : {};
+  try {
+    const dt = new Date(iso);
+    return {
+      d: dt.toLocaleDateString(loc, { ...tz, dateStyle: 'short' }),
+      h: dt.toLocaleTimeString(loc, { ...tz, timeStyle: 'medium' }),
+    };
+  } catch { return { d: fmtDate(iso), h: '' }; }
+}
+
+function logsTsCellHTML(iso) {
+  const { d, h } = logsTsParts(iso);
+  return `<span class="logs-ts-cell"><span class="logs-ts-date">${esc(d)}</span><span class="logs-ts-time mono">${esc(h)}</span></span>`;
+}
+
 // Convertit un code pays ISO-3166 alpha-2 (ex. "FR") en emoji drapeau.
 function countryFlag(cc) {
   if (!cc || cc.length !== 2) return '';
@@ -404,7 +425,7 @@ async function renderStaticLogs() {
   const head = isSystem
     ? `<th>${t('logs.ts')}</th><th>${t('logs.level')}</th><th>${t('logs.component')}</th><th>${t('logs.node')}</th><th>${t('logs.context')}</th><th>${t('logs.message')}</th>`
     : accessLogHead();
-  const cols = isSystem ? 6 : (logsScope.lockComp ? 8 : 9);
+  const cols = isSystem ? 6 : (logsScope.lockComp ? 7 : 8);
   c.innerHTML = `
     <div class="card blueprint logs-filterbar">
       <div class="logs-filter-row">
@@ -454,10 +475,9 @@ function renderAccessLogEntry(e, i) {
   if (e.latency_ms != null && e.latency_ms !== '') parts.push(`<span>${esc(String(e.latency_ms))}ms</span>`);
   return `<article class="log-entry" data-log-i="${i}" style="border-left:3px solid ${e.level==='error'?'var(--red)':e.level==='warn'?'var(--yellow)':'transparent'}">
     <div class="log-entry-top">
-      <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
+      <span class="log-entry-ts">${logsTsCellHTML(e.ts)}</span>
       ${e.method ? `<b>${logCellFilter('method', e.method)}</b>` : ''}
       ${e.status ? logCellFilter('status', String(e.status), httpStatusBadge(e.status)) : ''}
-      <span class="log-entry-actions">${corrIconBtn(e.domain, e.ts)}${prismIconBtn(e.domain, e.ip)}</span>
     </div>
     ${parts.length ? `<div class="log-entry-mid">${parts.join(logEntrySep())}</div>` : ''}
     ${e.message ? `<div class="log-entry-msg" title="${esc(e.message)}">${esc(e.message)}</div>` : ''}
@@ -471,7 +491,7 @@ function renderSystemLogEntry(e, i) {
   if (e.domain) parts.push(`<span class="mono">${logCellFilter('domain', e.domain)}</span>`);
   return `<article class="log-entry" data-log-i="${i}">
     <div class="log-entry-top">
-      <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
+      <span class="log-entry-ts">${logsTsCellHTML(e.ts)}</span>
       ${logLvlBadge(e.level)}
       ${parts.join(logEntrySep())}
     </div>
@@ -484,7 +504,7 @@ function renderSystemLogEntry(e, i) {
 // pour les deux contextes, seule la portée change ce qui est affiché.
 function accessLogHead() {
   const node = logsScope.lockComp ? '' : `<th>${t('logs.node')}</th>`;
-  return `<th>${t('logs.ts')}</th>${node}<th>${t('logs.status')}</th><th>${t('logs.method')}</th><th>${t('logs.host_path')}</th><th>${t('logs.ip')}</th><th>${t('logs.country')}</th><th>${t('logs.latency')}</th><th></th>`;
+  return `<th>${t('logs.ts')}</th>${node}<th>${t('logs.status')}</th><th>${t('logs.method')}</th><th>${t('logs.host_path')}</th><th>${t('logs.ip')}</th><th>${t('logs.country')}</th><th>${t('logs.latency')}</th>`;
 }
 
 function nodeCellHTML(e) {
@@ -506,7 +526,7 @@ function renderAccessLogRow(e, i) {
   const pathPart = e.path ? logCellFilter('path', e.path) : '';
   const hostPath = (domainPart || pathPart) ? `${domainPart}${pathPart}` : '<span style="color:var(--text3)">—</span>';
   return `<tr data-log-i="${i}" style="border-left:3px solid ${lvlBorder}" title="${esc(e.level||'info')}${e.message ? ' — ' + e.message : ''}">
-    <td class="mono" style="font-size:11px;white-space:nowrap">${esc(fmtDate(e.ts))}</td>
+    <td style="white-space:nowrap">${logsTsCellHTML(e.ts)}</td>
     ${nodeCell}
     <td>${e.status ? logCellFilter('status', String(e.status), httpStatusBadge(e.status)) : '<span style="color:var(--text3)">—</span>'}</td>
     <td><b>${logCellFilter('method', e.method)}</b></td>
@@ -514,13 +534,12 @@ function renderAccessLogRow(e, i) {
     <td class="mono" style="font-size:11px">${logCellFilter('ip', e.ip)}</td>
     <td style="font-size:11px">${countryCellHTML(e)}</td>
     <td style="color:var(--text2);font-size:11px">${e.latency_ms}ms</td>
-    <td style="white-space:nowrap">${corrIconBtn(e.domain, e.ts)}${prismIconBtn(e.domain, e.ip)}</td>
   </tr>`;
 }
 
 function renderSystemLogRow(e, i) {
   return `<tr data-log-i="${i}">
-    <td class="mono" style="font-size:11px;white-space:nowrap">${esc(fmtDate(e.ts))}</td>
+    <td style="white-space:nowrap">${logsTsCellHTML(e.ts)}</td>
     <td>${logLvlBadge(e.level)}</td>
     <td><span class="chip" style="font-size:11px">${esc(e.component||'—')}</span></td>
     <td class="mono" style="font-size:11px">${esc(e.node_name||'—')}</td>
@@ -580,7 +599,7 @@ async function loadStaticLogs(beforeID) {
     params.set(k, v);
   }
   const isSystem = isSystemLogs();
-  const cols = isSystem ? 6 : 12;
+  const cols = isSystem ? 6 : (logsScope.lockComp ? 7 : 8);
   try {
     const data = await api('GET', '/logs?' + params);
     let entries = data?.entries || [];
@@ -1087,7 +1106,16 @@ function openLogDrawer(en, i) {
   if (!col) return;
   markSelectedLogRow(i);
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-all">${v}</b></div>`;
-  const btn = (act, label, extra = '') => `<button type="button" class="btn btn-secondary btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
+  const btn = (act, label, cls = 'btn-secondary', extra = '') => `<button type="button" class="btn ${cls} btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
+  // Hiérarchie façon maquette : action principale pleine largeur en avant, actions
+  // secondaires (filtrer/corréler/copier) groupées à égalité, "Bannir" isolée en bas —
+  // les icônes de corrélation/Prism ont disparu du tableau, tout est ici désormais.
+  const secondary = [
+    en.domain && en.ts ? btn('corr', t('logs.correlate')) : '',
+    en.ip ? btn('fip', t('lg.filter_ip')) : '',
+    en.path ? btn('fpath', t('lg.filter_path')) : '',
+    en.domain ? btn('curl', t('lg.copy_curl')) : '',
+  ].filter(Boolean).join('');
   col.hidden = false;
   col.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1107,13 +1135,10 @@ function openLogDrawer(en, i) {
       ${row(t('logs.message'), esc(en.message || ''))}
     </div>
     <div id="log-drawer-scan" style="margin:14px 0"></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${btn('prism', t('lg.open_prism'))}
-      ${en.domain && en.ts ? btn('corr', t('logs.correlate')) : ''}
-      ${en.ip ? btn('fip', t('lg.filter_ip')) : ''}
-      ${en.path ? btn('fpath', t('lg.filter_path')) : ''}
-      ${en.domain ? btn('curl', t('lg.copy_curl')) : ''}
-      ${en.ip ? btn('ban', t('lg.ban_ip'), 'style="color:var(--red)"') : ''}
+    <div class="logs-detail-actions">
+      ${btn('prism', t('lg.open_prism'), 'btn-primary', 'style="width:100%"')}
+      ${secondary ? `<div class="logs-detail-actions-grid">${secondary}</div>` : ''}
+      ${en.ip ? btn('ban', t('lg.ban_ip'), 'btn-secondary', 'style="width:100%;color:var(--red);border-color:var(--red)"') : ''}
     </div>`;
   if (en.ip) {
     api('GET', '/prism/ip-scan?ip=' + encodeURIComponent(en.ip)).then(d => {

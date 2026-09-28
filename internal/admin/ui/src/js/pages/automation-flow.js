@@ -6,8 +6,14 @@ pages['automation-flow'] = async function() {
   const content = document.getElementById('content');
   document.getElementById('topbar-actions').innerHTML = '';
   content.innerHTML = `<p style="color:var(--text2)">${t('common.loading')}</p>`;
-  try { window._reRules = await api('GET', '/rules-engine/rules') || []; }
-  catch (e) { toast(e.message, 'error'); window._reRules = []; }
+  try {
+    const [rules, playbooks] = await Promise.all([
+      api('GET', '/rules-engine/rules').catch(() => []),
+      api('GET', '/playbooks').catch(() => []),
+    ]);
+    window._reRules = rules || [];
+    window._pbList = playbooks || [];
+  } catch (e) { toast(e.message, 'error'); window._reRules = []; }
   if (!window._flowSel || (window._flowSel !== 'new' && !window._reRules.some(r => r.id === window._flowSel))) {
     window._flowSel = window._reRules[0]?.id || 'new';
   }

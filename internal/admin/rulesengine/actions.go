@@ -119,6 +119,16 @@ func (e *Engine) execRunBackup(ctx context.Context, ac ActionContext) error {
 	return e.deps.RunBackup(ctx, name, ac.Rule.Action.BackupRetention)
 }
 
+func (e *Engine) execRunPlaybook(ctx context.Context, ac ActionContext) error {
+	if e.deps.RunPlaybook == nil {
+		return fmt.Errorf("RunPlaybook non configuré")
+	}
+	if ac.Rule.Action.PlaybookID == "" {
+		return fmt.Errorf("playbook_id requis")
+	}
+	return e.deps.RunPlaybook(ctx, ac.Rule.Action.PlaybookID, ac.Detail)
+}
+
 func (e *Engine) execEnableStrict(ctx context.Context, ac ActionContext) error {
 	// Réduire max_errors Fail2Ban temporairement via la DB
 	_, err := e.db.ExecContext(ctx, `

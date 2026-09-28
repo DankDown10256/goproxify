@@ -152,11 +152,11 @@ func (e *Engine) evalProxyErrorRate(ctx context.Context, c Condition) (bool, map
 	since := time.Now().Add(-dur).UTC().Format("2006-01-02 15:04:05")
 
 	type row struct {
-		proxyID    string
-		proxyName  string
-		total      int
-		errors     int
-		errorRate  float64
+		proxyID   string
+		proxyName string
+		total     int
+		errors    int
+		errorRate float64
 	}
 
 	query := `

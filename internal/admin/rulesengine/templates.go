@@ -7,13 +7,13 @@ package rulesengine
 // Installer un template crée une Rule concrète (via l'API), avec ses propres
 // paramètres par défaut modifiables avant activation.
 type Template struct {
-	ID          string      `json:"id"`
-	Category    string      `json:"category"` // "security" | "reliability" | "compliance"
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	CooldownSec int         `json:"cooldown_sec"`
-	Condition   Condition   `json:"condition"`
-	Action      Action      `json:"action"`
+	ID          string    `json:"id"`
+	Category    string    `json:"category"` // "security" | "reliability" | "compliance"
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CooldownSec int       `json:"cooldown_sec"`
+	Condition   Condition `json:"condition"`
+	Action      Action    `json:"action"`
 }
 
 // Templates liste le catalogue v1 des règles préconfigurées.

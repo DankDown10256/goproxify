@@ -2082,6 +2082,7 @@ const _ACTION_TYPES = [
   { value: 'enable_strict',  label: 'Mode strict Fail2Ban (temporaire)' },
   { value: 'webhook_call',   label: 'Appeler un webhook' },
   { value: 'run_backup',     label: 'Déclencher une sauvegarde' },
+  { value: 'run_playbook',   label: 'Enchaîner un playbook' },
 ];
 
 async function renderSecurityRules() {
@@ -2091,12 +2092,14 @@ async function renderSecurityRules() {
   if (ta) ta.innerHTML = `<button class="btn btn-primary btn-sm" onclick="openRuleModal(null)">${t('security.rules.add')}</button>`;
 
   try {
-    const [rules, history, reMetrics] = await Promise.all([
+    const [rules, history, reMetrics, playbooks] = await Promise.all([
       api('GET', '/rules-engine/rules'),
       api('GET', '/rules-engine/history'),
       api('GET', '/metrics/summary').catch(() => null),
+      api('GET', '/playbooks').catch(() => []),
     ]);
     window._reRules = rules || [];
+    window._pbList = playbooks || [];
     window._reHistory = history || [];
     window._reTab = window._reTab || 'rules';
     window._reMetrics = reMetrics;
@@ -2399,6 +2402,11 @@ function _reActFieldsHTML(type, act = {}) {
     case 'run_backup': return `
       <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Rétention (nombre de snapshots à garder, 0 = illimité)</label>
         <input id="re-act-backup-retention" type="number" class="input" value="${act.backup_retention||0}" min="0"></div>`;
+    case 'run_playbook': return `
+      <div class="field" style="margin:0;grid-column:span 2"><label class="field-label">Playbook</label>
+        <select id="re-act-playbook-id" class="input" style="height:32px">
+          ${(window._pbList||[]).map(p => `<option value="${esc(p.id)}"${act.playbook_id===p.id?' selected':''}>${esc(p.name)}</option>`).join('') || '<option value="">(aucun playbook — créez-en un dans l\'onglet Playbooks)</option>'}
+        </select></div>`;
     default: return '';
   }
 }
@@ -2458,6 +2466,8 @@ window._reCollectRule = function() {
     action.webhook_url = document.getElementById('re-act-webhook-url')?.value||'';
   } else if (actType === 'run_backup') {
     action.backup_retention = parseInt(document.getElementById('re-act-backup-retention')?.value||'0');
+  } else if (actType === 'run_playbook') {
+    action.playbook_id = document.getElementById('re-act-playbook-id')?.value||'';
   }
 
   const payload = {

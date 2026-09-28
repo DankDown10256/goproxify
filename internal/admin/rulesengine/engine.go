@@ -32,6 +32,10 @@ type Deps struct {
 	GetCrowdSecLastSync func() time.Time
 	// RunBackup déclenche un snapshot de sauvegarde immédiat (name, retention).
 	RunBackup func(ctx context.Context, name string, retention int) error
+	// RunPlaybook démarre l'exécution d'un playbook (actions/attentes/approbations
+	// enchaînées) — callback vers internal/admin/playbooks pour éviter un cycle
+	// d'import (playbooks dépend de rulesengine pour RunAction/EvalCondition).
+	RunPlaybook func(ctx context.Context, playbookID string, detail map[string]any) error
 }
 
 // Engine évalue périodiquement les règles et exécute les actions.
@@ -163,6 +167,12 @@ func (e *Engine) evalRule(ctx context.Context, rule Rule) {
 }
 
 // evalCondition évalue la condition et retourne (matched, detail, err).
+// EvalCondition évalue une condition indépendamment de toute règle — utilisé
+// par le moteur de playbooks pour une étape de type "condition".
+func (e *Engine) EvalCondition(ctx context.Context, c Condition) (bool, map[string]any, error) {
+	return e.evalCondition(ctx, c)
+}
+
 func (e *Engine) evalCondition(ctx context.Context, c Condition) (bool, map[string]any, error) {
 	switch c.Type {
 	case CondCVECritical:
@@ -207,6 +217,8 @@ func (e *Engine) execAction(ctx context.Context, ac ActionContext) error {
 		return e.execWebhookCall(ctx, ac)
 	case ActionRunBackup:
 		return e.execRunBackup(ctx, ac)
+	case ActionRunPlaybook:
+		return e.execRunPlaybook(ctx, ac)
 	default:
 		return fmt.Errorf("type d'action inconnu: %s", ac.Rule.Action.Type)
 	}

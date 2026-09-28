@@ -37,6 +37,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/mcp"
 	"github.com/vincamok/goproxify/internal/admin/mfa"
 	"github.com/vincamok/goproxify/internal/admin/monitor"
+	"github.com/vincamok/goproxify/internal/admin/playbooks"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
 	"github.com/vincamok/goproxify/internal/admin/rulesengine"
 	"github.com/vincamok/goproxify/internal/admin/scheduler"
@@ -61,6 +62,7 @@ type Server struct {
 	alertingEngine *alerting.Engine
 	rulesEngine    *rulesengine.Engine
 	schedEngine    *scheduler.Engine
+	pbEngine       *playbooks.Engine
 	logStore       *logs.Store
 	gdprKey        []byte          // clé AES-GCM pseudonymisation RGPD
 	wsManager      *edgews.Manager // manager WS Admin→Passerelle
@@ -429,6 +431,10 @@ func (s *Server) Start(ctx context.Context) error {
 		securityH.Groups = api.NewGroupResolver(archStore, s.db)
 	}
 	// Moteur de règles : condition → action périodique
+	// pbEngine est assigné juste après reEngine (voir plus bas) : le callback
+	// RunPlaybook capture la variable par référence, pas sa valeur au moment de
+	// la construction de Deps, ce qui évite un cycle d'import rulesengine↔playbooks.
+	var pbEngine *playbooks.Engine
 	reEngine := rulesengine.New(s.db, s.log, rulesengine.Deps{
 		DisableProxy: func(ctx context.Context, proxyID string) error {
 			_, err := s.db.ExecContext(ctx,
@@ -475,9 +481,19 @@ func (s *Server) Start(ctx context.Context) error {
 		RunBackup: func(_ context.Context, name string, retention int) error {
 			return backupSched.TakeSnapshot(name, "", retention)
 		},
+		RunPlaybook: func(ctx context.Context, playbookID string, detail map[string]any) error {
+			if pbEngine == nil {
+				return fmt.Errorf("playbooks: moteur non initialisé")
+			}
+			_, err := pbEngine.StartRun(ctx, playbookID, detail)
+			return err
+		},
 	})
 	reEngine.Start()
 	s.rulesEngine = reEngine
+	pbEngine = playbooks.New(s.db, s.log, reEngine)
+	s.pbEngine = pbEngine
+	pbH := &api.PlaybooksHandler{DB: s.db, Log: s.log, Engine: pbEngine}
 	reH := &api.RulesEngineHandler{DB: s.db, Log: s.log, Engine: reEngine}
 	schedEngine := scheduler.New(s.db, s.log, reEngine)
 	schedEngine.Start()
@@ -715,6 +731,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("/api/v1/rules-engine", adminOnly(reH))
 	mux.Handle("/api/v1/scheduled-tasks/", adminOnly(schedH))
 	mux.Handle("/api/v1/scheduled-tasks", adminOnly(schedH))
+	mux.Handle("/api/v1/playbooks/", adminOnly(pbH))
+	mux.Handle("/api/v1/playbooks", adminOnly(pbH))
 	mux.Handle("GET /api/v1/edges/waf-status", protected(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := s.db.QueryContext(r.Context(),
 			`SELECT key, value FROM settings WHERE key LIKE 'waf_reloaded_at:%'`)

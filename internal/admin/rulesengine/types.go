@@ -31,6 +31,7 @@ const (
 	ActionEnableStrict ActionType = "enable_strict" // réduire max_errors F2B (mode strict temporaire)
 	ActionWebhookCall  ActionType = "webhook_call"  // POST JSON vers une URL externe
 	ActionRunBackup    ActionType = "run_backup"    // déclencher un snapshot de sauvegarde immédiat
+	ActionRunPlaybook  ActionType = "run_playbook"  // enchaîner un playbook (actions, attentes, approbations)
 )
 
 // Condition décrit le prédicat évalué périodiquement.
@@ -90,6 +91,9 @@ type Action struct {
 
 	// ActionRunBackup
 	BackupRetention int `json:"backup_retention,omitempty"` // 0 = pas de purge automatique
+
+	// ActionRunPlaybook
+	PlaybookID string `json:"playbook_id,omitempty"`
 }
 
 // Rule est une règle du moteur : une condition + une action + métadonnées.

@@ -821,6 +821,32 @@ func migrate(db *sql.DB) error {
 			decided_by  TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_re_pending_status ON rules_engine_pending_actions (status, created_at DESC)`,
+		// Playbooks : enchaînent plusieurs étapes (action, attente, condition,
+		// approbation) — déclenchés comme une action du moteur de règles
+		// (run_playbook) ou manuellement.
+		`CREATE TABLE IF NOT EXISTS playbooks (
+			id          TEXT PRIMARY KEY,
+			name        TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			steps_json  TEXT NOT NULL DEFAULT '[]',
+			enabled     INTEGER NOT NULL DEFAULT 1,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS playbook_runs (
+			id            TEXT PRIMARY KEY,
+			playbook_id   TEXT NOT NULL,
+			playbook_name TEXT NOT NULL,
+			steps_json    TEXT NOT NULL DEFAULT '[]',
+			current_step  INTEGER NOT NULL DEFAULT 0,
+			status        TEXT NOT NULL DEFAULT 'running',
+			log_json      TEXT NOT NULL DEFAULT '[]',
+			context_json  TEXT NOT NULL DEFAULT '{}',
+			started_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+			finished_at   DATETIME
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_playbook_runs_playbook ON playbook_runs (playbook_id, started_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS rules_engine_history (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
 			rule_id      TEXT NOT NULL,

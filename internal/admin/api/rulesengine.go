@@ -579,6 +579,11 @@ func (h *RulesEngineHandler) actionTypes(w http.ResponseWriter, r *http.Request)
 			"label":  "Déclencher une sauvegarde",
 			"params": []string{"backup_retention"},
 		},
+		{
+			"type":   "run_playbook",
+			"label":  "Enchaîner un playbook",
+			"params": []string{"playbook_id"},
+		},
 	}
 	jsonOK(w, types)
 }
