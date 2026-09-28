@@ -222,8 +222,14 @@ function renderLogsPage() {
   logsCursorStack = [];
   logsCurrentLastID = 0;
   logsActiveTab = 'static';
+  // État de vue (période rapide, masquage du trafic interne) : propre à chaque page, ne
+  // doit pas survivre à un changement de portée (Admin ↔ passerelle), sinon un filtre
+  // laissé actif ailleurs peut vider silencieusement la vue suivante (ex. "masquer le
+  // trafic interne" coché en Admin, puis plus aucune ligne sur une passerelle dont le
+  // trafic est presque entièrement local).
+  logsQuickMs = 0;
+  logsHideInternal = false;
 
-  logsActiveTab = 'static';
   document.getElementById('topbar-actions').innerHTML = `
     <button class="btn btn-secondary btn-sm" onclick="exportLogs('json')">${t('logs.export_json')}</button>
     <button class="btn btn-secondary btn-sm" onclick="exportLogs('csv')">${t('logs.export_csv')}</button>
@@ -813,10 +819,12 @@ function _flushLiveRows() {
   const isSystem = isSystemLogs();
   const fragTbody = document.createDocumentFragment();
   const fragList  = document.createDocumentFragment();
-  for (const e of _livePending) {
+  // Le plus récent en premier, comme la vue statique : on parcourt le lot du plus
+  // récent au plus vieux (arrivés dans _livePending en ordre chronologique croissant)
+  // et on l'insère en tête, plutôt que de l'empiler en bas.
+  for (let idx = _livePending.length - 1; idx >= 0; idx--) {
+    const e = _livePending[idx];
     if (tbody) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = isSystem ? renderSystemLogRow(e) : renderAccessLogRow(e);
       // innerHTML sur <tr> ne fonctionne pas directement — on passe par un wrapper
       const tmp = document.createElement('tbody');
       tmp.innerHTML = isSystem ? renderSystemLogRow(e) : renderAccessLogRow(e);
@@ -829,14 +837,12 @@ function _flushLiveRows() {
     }
   }
   if (tbody) {
-    tbody.appendChild(fragTbody);
-    while (tbody.children.length > 500) tbody.removeChild(tbody.firstChild);
-    tbody.closest('.table-wrap')?.scrollTo(0, tbody.closest('.table-wrap').scrollHeight);
+    tbody.insertBefore(fragTbody, tbody.firstChild);
+    while (tbody.children.length > 500) tbody.removeChild(tbody.lastChild);
   }
   if (list) {
-    list.appendChild(fragList);
-    while (list.children.length > 500) list.removeChild(list.firstChild);
-    list.scrollTop = list.scrollHeight;
+    list.insertBefore(fragList, list.firstChild);
+    while (list.children.length > 500) list.removeChild(list.lastChild);
   }
   _livePending = [];
   _liveRaf = null;

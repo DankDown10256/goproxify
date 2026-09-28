@@ -48,6 +48,10 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 | Pages | `error_page_templates`, `error_page_assets`, `portal_page_templates` | Les assets binaires sont encodés en base64 |
 | Portail Access | `portal_destinations`, `portal_users` | Utilisateurs sans hash d'invitation |
 
+### 2.3 Configuration HA et fichiers de config
+
+Les paramètres de Haute Disponibilité (`NodeID`, `Peers`, `RaftPort`, voir [internal/admin/ha/ha.go](../internal/admin/ha/ha.go)) ne sont **pas** en base : ils viennent du fichier de config Admin (YAML/env), pas d'une table SQL. Ils ne sont donc inclus dans le snapshot que via la section `configs` (voir note ci-dessous) — un snapshot standard sans `ExportConfigs` **ne sauvegarde pas la config HA**.
+
 ## 3. Ce qui N'EST PAS sauvegardé (volontairement)
 
 | Donnée | Raison |
@@ -62,7 +66,7 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 | Autres snapshots (`backup_snapshots`) et historique des proxies (`proxy_history`) | Éviter la récursivité ; l'historique a son propre mécanisme de restauration |
 | Nœuds actifs / agents enregistrés (`nodes`, `pending_nodes`) | État dynamique ; les nœuds se ré-enregistrent |
 
-> Les fichiers de configuration (`admin`, `edge`, `agent:<nom>`) ne sont inclus que si la sauvegarde est générée avec `ExportConfigs` (section `configs`).
+> Les fichiers de configuration (`admin`, `edge`, `agent:<nom>`) — dont la configuration HA de l'Admin (`NodeID`, `Peers`, `RaftPort`) — ne sont inclus que si la sauvegarde est générée avec `ExportConfigs` (section `configs`).
 
 ## 4. Gestion des secrets
 
@@ -95,5 +99,6 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 1. Définir `GPX_BACKUP_KEY` et la conserver **hors** du serveur.
 2. Planifier au moins une sauvegarde quotidienne avec rétention ≥ 7.
 3. Copier régulièrement `<storage.base_path>/backups/` hors de l'hôte.
-4. Sauvegarder à part : clés RGPD, certificats/clés privées, et fichiers de configuration.
-5. Tester une restauration sur une instance de test après tout changement majeur.
+4. Activer `ExportConfigs` (ou sauvegarder à part) si le cluster utilise la HA : sans cette section, `NodeID`/`Peers`/`RaftPort` ne sont pas dans le snapshot et une restauration sur une instance vierge perd la topologie du cluster.
+5. Sauvegarder à part : clés RGPD, certificats/clés privées, et fichiers de configuration (si `ExportConfigs` n'est pas utilisé).
+6. Tester une restauration sur une instance de test après tout changement majeur.
