@@ -1008,9 +1008,8 @@ function asInspectorHTML() {
 
 // ── Actions d'exploitation (panneau de détail) ──────────────────────────────
 
-const _asM = { hostId: null, tab: 'f', fmt: 'compose', versions: null, current: null, verName: null, verData: null, ticket: null };
-
-function _asOverlay(html) {
+/** Modale générique du schéma ; size 'wide' = panneau de configuration d'un hôte. */
+function _asOverlay(html, size, labelId) {
   let ov = document.getElementById('as-overlay');
   if (!ov) {
     ov = document.createElement('div');
@@ -1020,7 +1019,7 @@ function _asOverlay(html) {
     document.body.appendChild(ov);
     document.addEventListener('keydown', _asEsc);
   }
-  ov.innerHTML = `<div class="as-md" role="dialog" aria-modal="true">${html}</div>`;
+  ov.innerHTML = `<div class="as-md"${size ? ` data-size="${size}"` : ''} role="dialog" aria-modal="true"${labelId ? ` aria-labelledby="${labelId}"` : ''}>${html}</div>`;
 }
 
 function _asEsc(e) { if (e.key === 'Escape') asCloseModal(); }
@@ -1059,10 +1058,56 @@ function asAct(kind, id) {
   }
 }
 
-// ── Modale Configuration : formats · écarts · versions ──────────────────────
+// ── Modale Configuration d'un hôte : déployer (Compose, .env, CLI, ticket) · vérifier (écarts, flux, déclaration) · historique ──
+
+const _asM = { hostId: null, sec: 'compose', mask: true, versions: null, vLoading: false, current: null, verName: null, verData: null, ticket: null, raw: '', file: '' };
+
+// Anciens onglets (f/e/v) acceptés par les appelants existants.
+const _AS_CFG_TAB = { f: 'compose', e: 'drift', v: 'versions' };
+
+const _AS_CFG_SECS = [
+  { g: 'deploy', id: 'compose', icon: 'file', k: 'as.fmt.compose' },
+  { g: 'deploy', id: 'env', icon: 'vars', k: 'as.fmt.env' },
+  { g: 'deploy', id: 'cli', icon: 'term', k: 'as.fmt.cli' },
+  { g: 'deploy', id: 'ticket', icon: 'qr', k: 'as.fmt.ticket' },
+  { g: 'check', id: 'drift', icon: 'diff', k: 'as.tab.drift' },
+  { g: 'check', id: 'flows', icon: 'net', k: 'as.fmt.flows' },
+  { g: 'check', id: 'declared', icon: 'json', k: 'as.cfg.s.declared' },
+  { g: 'history', id: 'versions', icon: 'clock', k: 'as.tab.versions' },
+];
+
+const _AS_IC = {
+  file: '<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z"/><path d="M14 3v4h4"/>',
+  vars: '<path d="M8 4H6a2 2 0 0 0-2 2v3l-1 3 1 3v3a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v3l1 3-1 3v3a2 2 0 0 1-2 2h-2"/>',
+  term: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  qr: '<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/>',
+  diff: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v8a2 2 0 0 0 2 2h8M18 16V8a2 2 0 0 0-2-2H8"/>',
+  net: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v4M12 11l-6 6M12 11l6 6"/>',
+  json: '<path d="M8 4c-2 0-2 2-2 4s-2 4-2 4 2 0 2 4 0 4 2 4M16 4c2 0 2 2 2 4s2 4 2 4-2 0-2 4 0 4-2 4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  check: '<path d="M5 12l5 5 9-10"/>',
+  alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+  plug: '<path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0zM12 17v5"/>',
+  external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  restore: '<path d="M4 12a8 8 0 1 0 2.3-5.6L4 9"/><path d="M4 4v5h5"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.6L20 9"/><path d="M20 4v5h-5"/>',
+};
+
+function _asIcon(name, size) {
+  const s = size || 16;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_AS_IC[name] || ''}</svg>`;
+}
 
 function asOpenConfig(hostId, tab) {
-  Object.assign(_asM, { hostId: hostId || null, tab: tab || (hostId ? 'f' : 'v'), fmt: 'compose', verName: null, verData: null, ticket: null });
+  Object.assign(_asM, { hostId: hostId || null, sec: _AS_CFG_TAB[tab] || tab || (hostId ? 'compose' : 'versions'), mask: true, versions: null, current: null, verName: null, verData: null, ticket: null });
+  asRenderConfig();
+}
+
+function asCfgGo(sec) {
+  _asM.sec = sec;
   asRenderConfig();
 }
 
@@ -1102,12 +1147,6 @@ function asDiffArch(oldA, newA) {
   return out;
 }
 
-function _asFormatFlows(host) {
-  const flows = (typeof _archNetworkFlows === 'function' ? _archNetworkFlows() : []);
-  const mine = flows.filter(f => String(f.from).includes(host.name) || String(f.to).includes(host.name));
-  return (mine.length ? mine : flows).map(f => `${f.from} → ${f.to}  [${f.dir}]  ${f.why}`).join('\n') || '—';
-}
-
 function _asDriftRows(s, host) {
   const node = _asLiveNode(s);
   const rows = [];
@@ -1128,93 +1167,319 @@ function _asDriftRows(s, host) {
   return rows;
 }
 
-const _AS_FMTS = [['compose', 'as.fmt.compose'], ['env', 'as.fmt.env'], ['cli', 'as.fmt.cli'], ['flows', 'as.fmt.flows'], ['declared', 'as.fmt.declared'], ['ticket', 'as.fmt.ticket']];
-
-function _asFormatsHTML(host) {
-  const pack = _archBuildPacks().find(p => p.hostId === host.id);
-  let text = '';
-  if (_asM.fmt === 'compose') text = pack ? pack.composeText : '';
-  else if (_asM.fmt === 'env') text = pack ? pack.envText : '';
-  else if (_asM.fmt === 'cli') text = pack ? pack.cliText : '';
-  else if (_asM.fmt === 'flows') text = _asFormatFlows(host);
-  else if (_asM.fmt === 'declared') {
-    const names = new Set(host.services.map(s => s.type + ':' + (s.nodeName || s.name)));
-    text = JSON.stringify({ nodes: (_arch.declaredNodes || []).filter(n => names.has(n.role + ':' + n.name)) }, null, 2);
-  }
-  const pills = `<div class="as-pills">${_AS_FMTS.map(([id, k]) => `<button type="button"${_asM.fmt === id ? ' data-on' : ''} onclick="_asM.fmt='${id}';asRenderConfig()">${esc(t(k))}</button>`).join('')}</div>`;
-  if (_asM.fmt === 'ticket') {
-    const tk = _asM.ticket;
-    return pills + (tk
-      ? `<div class="arch-field-label">${esc(t('arch.install_label'))}</div><pre class="as-code">${esc(tk.installCmd || '')}</pre>
-         <div class="arch-field-label" style="margin-top:10px">${esc(t('arch.bootstrap_label'))}</div><pre class="as-code">${esc(tk.url || '')}</pre>
-         ${tk.qr ? `<img src="${esc(tk.qr)}" alt="QR" width="140" height="140" style="background:#fff;padding:8px;margin-top:10px">` : ''}`
-      : `<p style="font-size:12.5px;color:var(--text2);margin:0 0 10px">${esc(t('as.ticket.hint'))}</p>
-         <button class="btn btn-primary btn-sm" ${pack ? '' : 'disabled'} onclick="asMakeTicket('${host.id}')">${esc(t('as.ticket.generate'))}</button>`);
-  }
-  if (!text) return pills + `<div class="as-empty">${esc(t(_asM.fmt === 'env' && pack ? 'as.env_inline' : 'as.no_config'))}</div>`;
-  return `${pills}<pre class="as-code" id="as-code">${esc(text)}</pre>
-    <div class="as-acts"><button class="btn btn-secondary btn-sm" onclick="asCopy()">${esc(t('as.copy'))}</button>
-    <button class="btn btn-secondary btn-sm" onclick="asDownload('${host.name.replace(/[^a-z0-9_-]/gi, '_')}-${_asM.fmt}.txt')">${esc(t('as.download'))}</button></div>`;
+/** Tout ce que la modale affiche pour un hôte, calculé une fois par rendu. */
+function _asCfgData(host) {
+  const pack = _archBuildPacks().find(p => p.hostId === host.id) || null;
+  const svcs = host.services || [];
+  const all = typeof _archNetworkFlows === 'function' ? _archNetworkFlows() : [];
+  const names = [host.name, ...svcs.map(s => s.name)];
+  // Flux génériques (« Admin → Edge :8000 », « Agent → Edge ») : concernent l'hôte qui porte ce rôle.
+  if (svcs.some(s => s.type === 'admin')) names.push('Admin');
+  if (svcs.some(s => s.type === 'agent')) names.push('Agent');
+  if (svcs.some(s => s.type === 'edge')) names.push('Edge');
+  const mine = all.filter(f => names.some(n => String(f.from).includes(n) || String(f.to).includes(n)));
+  const keys = new Set(svcs.map(s => s.type + ':' + (s.nodeName || s.name)));
+  const nodes = svcs.filter(s => s.type !== 'admin').map(s => ({ s, node: _asLiveNode(s), rows: _asDriftRows(s, host).slice(1) }));
+  return {
+    pack,
+    flows: mine.length ? mine : all,
+    declared: (_arch.declaredNodes || []).filter(n => keys.has(n.role + ':' + n.name)),
+    nodes,
+    driftN: nodes.reduce((n, x) => n + x.rows.filter(r => r.bad).length, 0),
+    connected: nodes.some(x => x.node),
+    services: pack ? pack.edgeOpts.length + pack.agentOpts.length + (pack.adminOpts ? 1 : 0) : 0,
+    vars: pack && pack.envText ? pack.envText.split('\n').filter(l => l.includes('=')).length : 0,
+  };
 }
 
-function _asDriftHTML(host) {
-  const rows = host.services.filter(s => s.type !== 'admin').flatMap(s => _asDriftRows(s, host).map(r => ({ ...r, p: `${s.name} · ${r.p}` })));
-  return `<table class="as-diff"><tr><th>${esc(t('as.drift.col.param'))}</th><th>${esc(t('as.drift.col.declared'))}</th><th>${esc(t('as.drift.col.live'))}</th></tr>
-    ${rows.map(r => `<tr${r.bad ? ' data-bad' : ''}><td>${esc(r.p)}</td><td>${esc(r.d)}</td><td>${esc(r.l)}</td></tr>`).join('')}</table>`;
+// ── Visionneuse de code : numéros de ligne, coloration, secrets masqués à l'affichage (copie et téléchargement restent complets) ──
+
+const _AS_SECRET_RES = [
+  /(\b[A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|_KEY)\s*(?:=|:\s*))(["']?)([^"'\s]+)(["']?)/gi,
+  /("[a-z0-9_]*(?:secret|token|password|_key)"\s*:\s*")([^"]+)(")/gi,
+];
+const _AS_MASK = '••••••••';
+
+function _asHasSecrets(text) {
+  return _AS_SECRET_RES.some(re => { re.lastIndex = 0; return re.test(text); });
 }
 
-function _asVersionsHTML() {
-  if (!_asM.versions) return `<p style="color:var(--text2)">${esc(t('common.loading'))}</p>`;
-  const rows = _asM.versions.map(v => {
-    const on = _asM.verName === v.name;
-    return `<div class="as-ver"${on ? ' data-on' : ''}><div><b>${esc(new Date(v.saved_at).toLocaleString())}</b><small>${esc(v.name)}</small></div>
-      <div class="as-ver-b"><button class="btn btn-secondary btn-sm" onclick="asViewVersion('${esc(v.name)}')">${esc(t('as.ver.view'))}</button>
-      <button class="btn btn-ghost btn-sm" onclick="asRestoreVersion('${esc(v.name)}')">${esc(t('as.ver.restore'))}</button></div></div>`;
+function _asMaskLine(line) {
+  return line
+    .replace(_AS_SECRET_RES[0], (m, k, q1, v, q2) => k + q1 + _AS_MASK + q2)
+    .replace(_AS_SECRET_RES[1], (m, k, v, q) => k + _AS_MASK + q);
+}
+
+function _asHlScalar(v) {
+  if (!v.trim()) return esc(v);
+  const lead = v.match(/^\s*/)[0];
+  const val = v.slice(lead.length);
+  if (/^(true|false|null|~|-?\d+(\.\d+)?)$/.test(val)) return esc(lead) + `<span class="l">${esc(val)}</span>`;
+  return esc(lead) + `<span class="s">${esc(val)}</span>`;
+}
+
+function _asHlLine(line, lang) {
+  if (/^\s*#/.test(line)) return `<span class="c">${esc(line)}</span>`;
+  if (lang === 'env') {
+    const m = line.match(/^([A-Za-z_]\w*)=(.*)$/);
+    return m ? `<span class="k">${esc(m[1])}</span>=<span class="s">${esc(m[2])}</span>` : esc(line);
+  }
+  if (lang === 'yaml') {
+    const m = line.match(/^(\s*(?:-\s+)?)([\w.\-]+)(:)(\s.*|)$/);
+    if (m) return esc(m[1]) + `<span class="k">${esc(m[2])}</span>:` + _asHlScalar(m[4]);
+    const li = line.match(/^(\s*-\s+)(.*)$/);
+    if (li) {
+      const kv = li[2].match(/^([A-Za-z_]\w*)=(.*)$/);
+      return esc(li[1]) + (kv ? `<span class="k">${esc(kv[1])}</span>=<span class="s">${esc(kv[2])}</span>` : _asHlScalar(li[2]));
+    }
+    return esc(line);
+  }
+  if (lang === 'sh') {
+    return esc(line)
+      .replace(/(^|\s)(--?[a-zA-Z][\w-]*)/g, '$1<span class="f">$2</span>')
+      .replace(/(\s\\)$/, '<span class="c">$1</span>');
+  }
+  if (lang === 'json') {
+    let out = '', last = 0;
+    for (const m of line.matchAll(/("(?:[^"\\]|\\.)*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?)/g)) {
+      out += esc(line.slice(last, m.index));
+      if (m[1]) out += m[2] ? `<span class="k">${esc(m[1])}</span>${esc(m[2])}` : `<span class="s">${esc(m[1])}</span>`;
+      else out += `<span class="l">${esc(m[0])}</span>`;
+      last = m.index + m[0].length;
+    }
+    return out + esc(line.slice(last));
+  }
+  return esc(line);
+}
+
+function _asCodeHTML(text, lang) {
+  return text.replace(/\n$/, '').split('\n').map(l => {
+    const html = _asHlLine(_asM.mask ? _asMaskLine(l) : l, lang).replaceAll(_AS_MASK, `<span class="m">${_AS_MASK}</span>`);
+    return `<span class="as-cl">${html}</span>`;
   }).join('');
-  let detail = '';
-  if (_asM.verData && _asM.current) {
-    const d = asDiffArch(_asM.verData, _asM.current);
-    const sym = { add: '+', del: '−', mod: '~' };
-    detail = `<div style="margin-top:12px"><div class="arch-field-label">${esc(t('as.ver.diff_title'))}</div>
-      ${d.length ? `<table class="as-diff">${d.map(x => `<tr><td style="width:24px">${sym[x.kind]}</td><td>${esc(x.text)}</td><td style="color:var(--text2)">${esc(t('as.ver.' + x.kind))}</td></tr>`).join('')}</table>` : `<div class="as-empty" style="padding:10px 0">${esc(t('as.ver.same'))}</div>`}
-      <details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">${esc(t('as.ver.content'))}</summary><pre class="as-code" style="margin-top:6px">${esc(JSON.stringify(_asM.verData, null, 2))}</pre></details></div>`;
+}
+
+function _asCodePanel(text, lang, file) {
+  _asM.raw = text;
+  _asM.file = file;
+  const secrets = _asHasSecrets(text);
+  return `<div class="as-cv">
+    <div class="as-cv-bar">
+      <span class="as-cv-f">${_asIcon('file', 14)}${esc(file)}</span>
+      <span class="as-cv-m">${esc(t('as.cfg.lines', { n: text.replace(/\n$/, '').split('\n').length }))}</span>
+      <span class="as-cv-sp"></span>
+      ${secrets ? `<label class="as-cv-sw"><input type="checkbox"${_asM.mask ? '' : ' checked'} onchange="_asM.mask=!this.checked;asRenderConfig()">${esc(t('as.cfg.show_secrets'))}</label>` : ''}
+      <button type="button" class="as-cv-b" onclick="asCopy()">${_asIcon('copy', 14)}${esc(t('as.copy'))}</button>
+      <button type="button" class="as-cv-b" onclick="asDownload()">${_asIcon('download', 14)}${esc(t('as.download'))}</button>
+    </div>
+    <pre class="as-cv-pre"><code>${_asCodeHTML(text, lang)}</code></pre>
+  </div>`;
+}
+
+function _asCfgHead(title, desc, extra) {
+  return `<div class="as-cfg-sh"><div><h3>${esc(title)}</h3>${desc ? `<p>${esc(desc)}</p>` : ''}</div>${extra || ''}</div>`;
+}
+
+function _asCfgEmpty(text, action) {
+  return `<div class="as-cfg-empty"><p>${esc(text)}</p>${action || ''}</div>`;
+}
+
+// ── Sections ──
+
+function _asCfgCodeSec(title, desc, text, lang, file, emptyText, emptyAction) {
+  return _asCfgHead(title, desc) + (text ? _asCodePanel(text, lang, file) : _asCfgEmpty(emptyText || t('as.no_config'), emptyAction));
+}
+
+function _asCfgTicketHTML(host, d) {
+  const head = _asCfgHead(t('as.fmt.ticket'), t('as.cfg.d.ticket'));
+  if (!d.pack) return head + _asCfgEmpty(t('as.tk.no_pack'));
+  const tk = _asM.ticket;
+  if (!tk) {
+    return head + `<ol class="as-tk-steps">
+        <li><span>1</span>${esc(t('as.tk.s1'))}</li>
+        <li><span>2</span>${esc(t('as.tk.s2'))}</li>
+        <li><span>3</span>${esc(t('as.tk.s3'))}</li>
+      </ol>
+      <div class="as-tk-cta"><button type="button" class="btn btn-primary" id="as-tk-btn" onclick="asMakeTicket('${host.id}')">${_asIcon('qr', 15)}${esc(t('as.ticket.generate'))}</button>
+        <small>${esc(t('as.ticket.hint'))}</small></div>`;
   }
-  return `${rows || `<div class="as-empty">${esc(t('as.ver.none'))}</div>`}${detail}`;
+  const field = (label, value, btn) => `<div class="as-tk-f"><span class="as-tk-l">${esc(label)}</span><div class="as-tk-cmd"><code>${esc(value)}</code>${btn}</div></div>`;
+  return head + `<div class="as-tk">
+      <div class="as-tk-main">
+        ${field(t('as.tk.cmd'), tk.installCmd, `<button type="button" class="as-cv-b" onclick="asCopyTicket('installCmd')">${_asIcon('copy', 14)}${esc(t('as.copy'))}</button>`)}
+        ${field(t('as.tk.page'), tk.url, `<a class="as-cv-b" href="${esc(tk.url)}" target="_blank" rel="noopener">${_asIcon('external', 14)}${esc(t('as.tk.open'))}</a>`)}
+        ${tk.expiresAt ? `<p class="as-tk-exp">${_asIcon('clock', 14)}${esc(t('as.tk.expires', { date: fmtDate(tk.expiresAt) }))}</p>` : ''}
+        <button type="button" class="btn btn-ghost btn-sm" onclick="asMakeTicket('${host.id}')">${_asIcon('refresh', 14)}${esc(t('as.tk.again'))}</button>
+      </div>
+      ${tk.qr ? `<figure class="as-tk-qr"><img src="${esc(tk.qr)}" alt="${esc(t('as.tk.qr'))}" width="180" height="180"><figcaption>${esc(t('as.tk.qr'))}</figcaption></figure>` : ''}
+    </div>`;
+}
+
+function _asCfgDriftHTML(host, d) {
+  let tone, icon, title, sub, action = '';
+  if (!d.connected) { tone = 'off'; icon = 'plug'; title = t('as.dr.none_title'); sub = t('as.dr.none_sub'); }
+  else if (d.driftN) {
+    tone = 'warn'; icon = 'alert'; title = t('as.dr.bad_title', { n: d.driftN }); sub = t('as.dr.bad_sub');
+    action = `<button type="button" class="btn btn-secondary btn-sm" onclick="asCfgGo('compose')">${esc(t('as.dr.see_compose'))}</button>`;
+  } else { tone = 'ok'; icon = 'check'; title = t('as.dr.ok_title'); sub = t('as.dr.ok_sub'); }
+  const cards = d.nodes.map(({ s, node, rows }) => {
+    const st = _asState(s);
+    const body = !node
+      ? `<p class="as-dr-none">${esc(t('as.dr.not_connected'))}</p>`
+      : rows.length
+        ? `<table class="as-dt"><thead><tr><th>${esc(t('as.drift.col.param'))}</th><th>${esc(t('as.drift.col.declared'))}</th><th>${esc(t('as.drift.col.live'))}</th><th>${esc(t('as.dr.col.state'))}</th></tr></thead>
+            <tbody>${rows.map(r => `<tr${r.bad ? ' data-bad' : ''}><td>${esc(r.p)}</td><td class="as-mono">${esc(r.d)}</td><td class="as-mono">${esc(r.l)}</td>
+              <td><span class="as-dt-s"${r.bad ? ' data-bad' : ''}>${_asIcon(r.bad ? 'alert' : 'check', 13)}${esc(t(r.bad ? 'as.dr.diff' : 'as.dr.match'))}</span></td></tr>`).join('')}</tbody></table>`
+        : `<p class="as-dr-none">${esc(t('as.dr.nothing'))}</p>`;
+    return `<div class="as-dr"><div class="as-dr-h" style="--k:${_AS_ROLE[s.type].k}"><span class="as-ic">${_ARCH_ICONS[s.type] || ''}</span>
+        <span class="as-nm">${esc(s.name)}<small>${esc(t(_AS_ROLE[s.type].label))}${node && node.version ? ' · ' + esc(node.version) : ''}</small></span>
+        <span class="as-st" data-tone="${st}">${esc(_asStTxt(st))}</span></div>${body}</div>`;
+  }).join('');
+  return _asCfgHead(t('as.tab.drift'), t('as.cfg.d.drift')) + `<div class="as-drs" data-tone="${tone}"><span class="as-drs-ic">${_asIcon(icon, 18)}</span>
+      <div><b>${esc(title)}</b><small>${esc(sub)}</small></div>${action}</div>
+    ${cards || _asCfgEmpty(t('as.host_empty'))}`;
+}
+
+function _asCfgFlowsHTML(d) {
+  _asM.raw = d.flows.map(f => `${f.from} → ${f.to}  [${f.dir}]  ${f.why}`).join('\n');
+  _asM.file = 'network-flows.txt';
+  const copy = d.flows.length ? `<button type="button" class="as-cv-b" onclick="asCopy()">${_asIcon('copy', 14)}${esc(t('as.copy'))}</button>` : '';
+  const inbound = t('arch.flow.inbound');
+  return _asCfgHead(t('as.fmt.flows'), t('as.cfg.d.flows'), copy) + (d.flows.length
+    ? `<table class="as-dt"><thead><tr><th>${esc(t('arch.flow.from'))}</th><th>${esc(t('arch.flow.to'))}</th><th>${esc(t('arch.flow.dir'))}</th><th>${esc(t('arch.flow.why'))}</th></tr></thead>
+        <tbody>${d.flows.map(f => `<tr><td>${esc(f.from)}</td><td class="as-mono">${esc(f.to)}</td>
+          <td><span class="as-tag"${f.dir === inbound ? ' data-tone="warn"' : ''}>${esc(f.dir)}</span></td><td>${esc(f.why)}</td></tr>`).join('')}</tbody></table>`
+    : _asCfgEmpty(t('as.no_config')));
+}
+
+function _asCfgVersionsHTML() {
+  const head = _asCfgHead(t('as.tab.versions'), t('as.cfg.d.versions'));
+  if (!_asM.versions) return head + `<div class="as-pn-empty">${esc(t('common.loading'))}</div>`;
+  if (!_asM.versions.length) return head + _asCfgEmpty(t('as.ver.none'));
+  const kb = n => _asNum((n || 0) / 1024, 1);
+  const list = `<ol class="as-vt">
+      <li class="as-vt-cur"><span class="as-vt-dot"></span><span><b>${esc(t('as.ver.current'))}</b><small>${esc(t('as.ver.current_sub'))}</small></span></li>
+      ${_asM.versions.map(v => `<li><button type="button" class="as-vt-i"${_asM.verName === v.name ? ' aria-current="true"' : ''} onclick="asViewVersion('${esc(v.name)}')">
+        <span class="as-vt-dot"></span><span><b>${esc(fmtDate(v.saved_at))}</b><small>${esc(t('as.ver.ago', { dur: _asDur(v.saved_at) }))} · ${esc(t('as.ver.kb', { n: kb(v.size) }))}</small></span></button></li>`).join('')}
+    </ol>`;
+  const v = _asM.versions.find(x => x.name === _asM.verName);
+  let detail;
+  if (!v) detail = _asCfgEmpty(t('as.ver.pick'));
+  else if (!_asM.verData || !_asM.current) detail = `<div class="as-pn-empty">${esc(t('common.loading'))}</div>`;
+  else {
+    const diff = asDiffArch(_asM.verData, _asM.current);
+    const n = k => diff.filter(x => x.kind === k).length;
+    const sym = { add: '+', del: '−', mod: '~' };
+    detail = `<div class="as-vd">
+      <div class="as-vd-h"><div><span class="as-cfg-k">${esc(t('as.ver.diff_title'))}</span><h4>${esc(t('as.ver.title', { date: fmtDate(v.saved_at) }))}</h4>
+          <div class="as-vd-sum"><span data-k="add">+${n('add')}</span><span data-k="mod">~${n('mod')}</span><span data-k="del">−${n('del')}</span></div></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="asRestoreVersion('${esc(v.name)}')">${_asIcon('restore', 14)}${esc(t('as.ver.restore_this'))}</button></div>
+      ${diff.length
+        ? `<ul class="as-vd-list">${diff.map(x => `<li data-k="${x.kind}"><span class="as-chg-s" aria-hidden="true">${sym[x.kind]}</span><span>${esc(x.text)}</span><small>${esc(t('as.ver.' + x.kind))}</small></li>`).join('')}</ul>`
+        : `<p class="as-dr-none">${esc(t('as.ver.same'))}</p>`}
+      <details class="as-vd-raw"><summary>${esc(t('as.ver.content'))}</summary>${_asCodePanel(JSON.stringify(_asM.verData, null, 2), 'json', v.name)}</details>
+    </div>`;
+  }
+  return head + `<div class="as-vg">${list}${detail}</div>`;
+}
+
+// ── Cadre : en-tête d'hôte, navigation, section ──
+
+function _asCfgHeaderHTML(host, d) {
+  const roles = (host.services || []).map(s => `<span class="as-cfg-role" style="--k:${_AS_ROLE[s.type].k}">${_ARCH_ICONS[s.type] || ''}${esc(s.name)}</span>`).join('');
+  let tone = 'ok', label = t('as.drift.ok');
+  if (!d.connected && d.nodes.length) { tone = 'off'; label = t('as.cfg.st.none'); }
+  else if (d.driftN) { tone = 'warn'; label = t('as.cfg.st.drift', { n: d.driftN }); }
+  return `<header class="as-cfg-h">
+    <span class="as-cfg-ic" style="--h:${_asHostColor(_arch, host)}">${_ARCH_ICONS.host}</span>
+    <div class="as-cfg-t"><span class="as-cfg-k">${esc(t('as.cfg.kicker'))}</span><h2 id="as-cfg-title">${esc(host.name)}</h2>
+      <div class="as-cfg-meta"><span class="as-zt" data-p="${host.internet ? 0 : 1}">${esc(host.internet ? t('arch.host.internet') : t('arch.host.private'))}</span>
+        ${host.region ? `<span>${esc(host.region)}</span>` : ''}${roles}</div></div>
+    ${d.nodes.length ? `<button type="button" class="as-cfg-st" data-tone="${tone}" onclick="asCfgGo('drift')">${esc(label)}</button>` : ''}
+    <button type="button" class="as-cfg-x" onclick="asCloseModal()" aria-label="${esc(t('common.close'))}">${_asIcon('close', 18)}</button>
+  </header>`;
+}
+
+function _asCfgNavHTML(d) {
+  const meta = {
+    compose: d.pack ? t('as.cfg.m.services', { n: d.services }) : '—',
+    env: !d.pack ? '—' : d.vars ? t('as.cfg.m.vars', { n: d.vars }) : t('as.cfg.m.inline'),
+    cli: 'docker run',
+    ticket: _asM.ticket ? t('as.cfg.m.ticket_ready') : t('as.cfg.m.ticket'),
+    drift: d.connected ? '' : t('as.cfg.st.none'),
+    flows: t('as.cfg.m.flows', { n: d.flows.length }),
+    declared: 'architecture.json',
+    versions: _asM.versions ? t('as.cfg.m.versions', { n: _asM.versions.length }) : '',
+  };
+  let group = '';
+  return `<nav class="as-cfg-nav" aria-label="${esc(t('as.cfg.nav'))}">${_AS_CFG_SECS.map(sec => {
+    const g = sec.g !== group ? `<span class="as-cfg-ng">${esc(t('as.cfg.g.' + sec.g))}</span>` : '';
+    group = sec.g;
+    const badge = sec.id === 'drift' && d.driftN ? `<span class="as-cfg-badge">${d.driftN}</span>` : '';
+    return `${g}<button type="button" class="as-cfg-ni"${_asM.sec === sec.id ? ' aria-current="page"' : ''} onclick="asCfgGo('${sec.id}')">
+      <span class="as-cfg-nic">${_asIcon(sec.icon, 15)}</span><span class="as-cfg-nt"><b>${esc(t(sec.k))}</b>${meta[sec.id] ? `<small>${esc(meta[sec.id])}</small>` : ''}</span>${badge}</button>`;
+  }).join('')}</nav>`;
 }
 
 function asRenderConfig() {
   const host = _asM.hostId ? _arch.hosts.find(h => h.id === _asM.hostId) : null;
-  if (_asM.tab !== 'v' && !host) _asM.tab = 'v';
-  const tabs = [host ? ['f', 'as.tab.formats'] : null, host ? ['e', 'as.tab.drift'] : null, ['v', 'as.tab.versions']].filter(Boolean);
-  let body = '';
-  if (_asM.tab === 'f') body = _asFormatsHTML(host);
-  else if (_asM.tab === 'e') body = _asDriftHTML(host);
+  if (!host) _asM.sec = 'versions';
+  if (_asM.sec === 'versions' && !_asM.versions && !_asM.vLoading) asLoadVersions();
+  const navFocus = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('.as-cfg-nav'));
+  let body;
+  if (!host) body = _asCfgVersionsHTML();
   else {
-    body = _asVersionsHTML();
-    if (!_asM.versions) asLoadVersions();
+    const d = _asCfgData(host);
+    const slug = host.name.replace(/[^a-z0-9_-]/gi, '_');
+    const p = d.pack;
+    const secs = {
+      compose: () => _asCfgCodeSec(t('as.fmt.compose'), t('as.cfg.d.compose'), p && p.composeText, 'yaml', 'docker-compose.yml'),
+      env: () => _asCfgCodeSec(t('as.fmt.env'), t('as.cfg.d.env'), p && p.envText, 'env', '.env',
+        p ? t('as.env_inline') : '', p ? `<button type="button" class="btn btn-secondary btn-sm" onclick="asCfgGo('compose')">${esc(t('as.dr.see_compose'))}</button>` : ''),
+      cli: () => _asCfgCodeSec(t('as.fmt.cli'), t('as.cfg.d.cli'), p && p.cliText, 'sh', slug + '-docker-run.sh'),
+      ticket: () => _asCfgTicketHTML(host, d),
+      drift: () => _asCfgDriftHTML(host, d),
+      flows: () => _asCfgFlowsHTML(d),
+      declared: () => _asCfgCodeSec(t('as.cfg.s.declared'), t('as.cfg.d.declared'),
+        d.declared.length ? JSON.stringify({ nodes: d.declared }, null, 2) : '', 'json', slug + '-architecture.json', t('as.cfg.no_declared')),
+      versions: _asCfgVersionsHTML,
+    };
+    body = (secs[_asM.sec] || secs.compose)();
+    body = `${_asCfgHeaderHTML(host, d)}<div class="as-cfg-body">${_asCfgNavHTML(d)}<section class="as-cfg-main">${body}</section></div>`;
   }
-  const drift = host ? host.services.filter(s => s.type !== 'admin').some(s => _asDriftRows(s, host).some(r => r.bad)) : false;
-  _asOverlay(`<div class="as-mh"><b>${esc(host ? t('as.cfg.title', { name: host.name }) : t('as.history'))}</b>
-      ${host ? `<span class="as-st" data-tone="${drift ? 'warn' : 'ok'}">${esc(drift ? t('as.drift.bad') : t('as.drift.ok'))}</span>` : ''}
-      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="asCloseModal()" aria-label="${esc(t('common.close'))}">×</button></div>
-    <div class="as-tabs">${tabs.map(([id, k]) => `<button type="button"${_asM.tab === id ? ' data-on' : ''} onclick="_asM.tab='${id}';asRenderConfig()">${esc(t(k))}</button>`).join('')}</div>
-    ${body}`);
+  const html = host ? body : `<header class="as-cfg-h">
+      <span class="as-cfg-ic" style="--h:var(--accent)">${_asIcon('clock', 18)}</span>
+      <div class="as-cfg-t"><span class="as-cfg-k">architecture.json</span><h2 id="as-cfg-title">${esc(t('as.cfg.hist_title'))}</h2></div>
+      <button type="button" class="as-cfg-x" onclick="asCloseModal()" aria-label="${esc(t('common.close'))}">${_asIcon('close', 18)}</button>
+    </header><div class="as-cfg-body"><section class="as-cfg-main">${body}</section></div>`;
+  _asOverlay(`<div class="as-cfg${host ? '' : ' as-cfg-solo'}">${html}</div>`, host ? 'wide' : 'hist', 'as-cfg-title');
+  const current = document.querySelector('.as-cfg-nav [aria-current]');
+  if (current) current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (navFocus && current) current.focus();
 }
 
 async function asLoadVersions() {
+  _asM.vLoading = true;
   const [list, cur] = await Promise.all([
     api('GET', '/architecture/versions').catch(() => []),
     api('GET', '/architecture').catch(() => null),
   ]);
-  _asM.versions = Array.isArray(list) ? list : [];
+  _asM.versions = (Array.isArray(list) ? list : []).sort((a, b) => new Date(b.saved_at) - new Date(a.saved_at));
   _asM.current = cur;
-  if (document.getElementById('as-overlay')) asRenderConfig();
+  _asM.vLoading = false;
+  if (!document.getElementById('as-overlay')) return;
+  if (!_asM.verName && _asM.versions.length) asViewVersion(_asM.versions[0].name);
+  else asRenderConfig();
 }
 
 async function asViewVersion(name) {
   _asM.verName = name;
-  _asM.verData = await api('GET', '/architecture/versions/' + encodeURIComponent(name)).catch(() => null);
+  _asM.verData = null;
   asRenderConfig();
+  const data = await api('GET', '/architecture/versions/' + encodeURIComponent(name)).catch(() => null);
+  if (_asM.verName !== name) return;
+  _asM.verData = data;
+  if (document.getElementById('as-overlay')) asRenderConfig();
 }
 
 function asRestoreVersion(name) {
@@ -1234,22 +1499,34 @@ function asRestoreVersion(name) {
 async function asMakeTicket(hostId) {
   const pack = _archBuildPacks().find(p => p.hostId === hostId);
   if (!pack) return;
+  const btn = document.getElementById('as-tk-btn');
+  if (btn) { btn.disabled = true; btn.textContent = t('as.tk.generating'); }
   await _archCreateTickets([pack]);
-  _asM.ticket = { installCmd: pack.installCmd, url: pack.bootstrapUrl, qr: pack.qrCode };
+  if (!pack.installCmd) {
+    toast(t('as.tk.failed'), 'error');
+    asRenderConfig();
+    return;
+  }
+  _asM.ticket = { installCmd: pack.installCmd, url: pack.bootstrapUrl, qr: pack.qrCode, expiresAt: pack.ticketExpires };
   asRenderConfig();
 }
 
-function asCopy() {
-  const el = document.getElementById('as-code');
-  if (el) navigator.clipboard.writeText(el.textContent).then(() => toast(t('common.copied') || 'Copié', 'success'));
+function _asClip(text) {
+  navigator.clipboard.writeText(text).then(() => toast(t('common.copied') || 'Copié', 'success'));
 }
 
-function asDownload(filename) {
-  const el = document.getElementById('as-code');
-  if (!el) return;
+function asCopy() { _asClip(_asM.raw); }
+
+function asCopyTicket(field) {
+  if (_asM.ticket) _asClip(_asM.ticket[field] || '');
+}
+
+function asDownload() {
+  const host = _asM.hostId ? _arch.hosts.find(h => h.id === _asM.hostId) : null;
+  const file = _asM.file.startsWith('.') && host ? host.name.replace(/[^a-z0-9_-]/gi, '_') + _asM.file : _asM.file;
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([el.textContent], { type: 'text/plain' }));
-  a.download = filename;
+  a.href = URL.createObjectURL(new Blob([_asM.raw], { type: 'text/plain' }));
+  a.download = file;
   a.click();
   URL.revokeObjectURL(a.href);
 }

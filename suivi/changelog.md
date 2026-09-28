@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.67.0 — Ticket d'installation : la génération échouait toujours** : `_archCreateTickets` utilisait une variable `nodeNames` jamais déclarée (déclaration supprimée par erreur lors de la refonte des hôtes multi-éléments) ; l'erreur était avalée par le `try/catch`, si bien que « Générer un ticket » ne produisait ni commande, ni lien, ni QR code. Les noms des passerelles et agents de l'hôte sont de nouveau transmis (acceptation automatique à la connexion), et un échec est désormais signalé. (Admin `0.67.0`)
+
 - **Admin 0.66.0 — Architecture : la passerelle cible d'un agent n'était jamais enregistrée** : l'enregistrement de la topologie n'écrivait pas `target_edge` dans la config déclarée d'un agent, alors que le chargement la relit pour rattacher l'agent à sa passerelle. Un agent distant rattaché à une passerelle précise perdait ce lien au premier enregistrement (une ancienne valeur était même effacée du fichier) et retombait sur la passerelle par défaut. Le nom de la passerelle cible est désormais écrit. Repéré grâce au nouveau diff de `architecture.json` de la revue. (Admin `0.66.0`)
 
 - **Landing 0.3.1 — Installation multi-passerelle : chemin de l'Admin à jour** : l'étape 2 de l'installation « Entreprise » renvoyait vers « Infrastructure → Wizard », entrée qui n'existe plus ; elle pointe désormais vers « Infrastructure → Modifier l'architecture », avec les libellés de l'interface dans chaque langue (4 langues). (Landing `0.3.1`)
@@ -75,6 +77,16 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Admin 0.29.2 — logs d'accès/système d'une passerelle vides** : le filtre par `node_id` excluait les logs sans `node_id` (ingestion HTTP, historique) ; ils sont désormais rattachés via `node_name`.
 
 ### Ajouté
+
+- **Admin 0.67.0 — Infrastructure : panneau « Configuration » d'un hôte refait** : la petite modale à onglets et pastilles devient un panneau large.
+  - **En-tête d'identité** de l'hôte (zone, région, rôles) avec son état de conformité, cliquable vers les écarts.
+  - **Navigation latérale** en trois groupes : *Déployer* (Docker Compose, Variables .env, Ligne de commande, Ticket d'installation), *Vérifier* (Écarts avec compteur, Flux réseau, Déclaration) et *Historique* (Versions), chaque entrée résumant son contenu (nombre de services, de variables, de flux…).
+  - **Visionneuse de code** : numéros de ligne, coloration YAML / .env / shell / JSON, secrets masqués par défaut à l'affichage (clé d'appairage, JWT, mots de passe, clés d'API ; copie et téléchargement restent complets), nom de fichier et nombre de lignes.
+  - **Ticket** présenté en trois étapes, puis commande, page d'installation, date d'expiration et QR code côte à côte.
+  - **Écarts** : verdict global puis, par nœud, paramètres déclarés / déployés avec leur état. **Flux réseau** en tableau.
+  - **Versions** en frise (date, ancienneté, taille, état actuel en tête) avec le détail de la version choisie à côté : compteurs ajoutés / modifiés / retirés, liste des changements, contenu et restauration. La plus récente est ouverte d'office.
+  - Repli en plein écran sur mobile (navigation en bandeau horizontal), thèmes clair et sombre, 4 langues.
+  (Admin `0.67.0`)
 
 - **Admin 0.66.0 — Infrastructure : vue Liste, brouillon conservé, p95, journal complet, revue enrichie, édition au doigt, es/de** : finition de la refonte 0.65.0, sans changement d'API.
   - **Vue « Liste »** : 3ᵉ disposition du schéma (Flux · Par hôte · Liste), inventaire groupé par hôte (état Identique / À redéployer / Non connecté, accès à la Configuration) avec, par nœud, statut, disponibilité de session, charge, version et capacités ; filtres Tous / Passerelles / Agents / Hors ligne / Écarts avec compteurs, et recherche par nom, hôte ou capacité qui garde le focus pendant le rafraîchissement de 5 s.

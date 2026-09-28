@@ -1731,7 +1731,8 @@ function _archBuildPacks() {
 async function _archCreateTickets(packs) {
   for (const p of packs) {
     try {
-      if (p.agentOpts && p.agentOpts.name) nodeNames.push(p.agentOpts.name);
+      // Nœuds déclarés de l'hôte : le ticket les relie pour qu'ils soient acceptés automatiquement à la connexion.
+      const nodeNames = [...(p.edgeOpts || []), ...(p.agentOpts || [])].map(o => o.name).filter(Boolean);
       const res = await api('POST', '/bootstrap-tickets', {
         host_name: p.hostName,
         edge_endpoint: p.edgeEndpoint || '',
@@ -1751,6 +1752,7 @@ async function _archCreateTickets(packs) {
       if (res && res.script_url) p.scriptUrl = res.script_url;
       if (res && res.install_cmd) p.installCmd = res.install_cmd;
       if (res && res.qr_code) p.qrCode = res.qr_code;
+      if (res && res.expires_at) p.ticketExpires = res.expires_at;
       // Pré-approbation Agent sur le(s) passerelle(s) avant connexion
       for (const a of p.agentOpts) {
         try {
