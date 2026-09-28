@@ -31,6 +31,23 @@ func TestProgressPct(t *testing.T) {
 	}
 }
 
+func TestBuildNVDQuery(t *testing.T) {
+	cases := []struct {
+		keyword string
+		want    string
+	}{
+		{"nginx 1.27.5", "https://services.nvd.nist.gov/rest/json/cves/2.0?virtualMatchString=cpe%3A2.3%3Aa%3Anginx%3Anginx%3A1.27.5%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A&resultsPerPage=20"},
+		{"Apache 2.4.58", "https://services.nvd.nist.gov/rest/json/cves/2.0?virtualMatchString=cpe%3A2.3%3Aa%3Aapache%3Ahttp_server%3A2.4.58%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A%3A%2A&resultsPerPage=20"},
+		{"caddy 2.7.6", "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=caddy+2.7.6&resultsPerPage=5"},
+		{"nginx", "https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=nginx&resultsPerPage=5"},
+	}
+	for _, c := range cases {
+		if got := buildNVDQuery(c.keyword); got != c.want {
+			t.Errorf("buildNVDQuery(%q) = %q, want %q", c.keyword, got, c.want)
+		}
+	}
+}
+
 func TestLoadBackends_ReadsBackendsArray(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := admindb.Open(dbPath)

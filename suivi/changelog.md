@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.63.5 — Scan de vulnérabilités : recherche NVD par CPE pour nginx et Apache** : la recherche de CVE (`GET` interne appelant NVD) faisait un `keywordSearch` texte libre du type `nginx 1.27.5` — or les descriptions de CVE contiennent rarement la version exacte sous cette forme (`"nginx before 1.25.3"` typiquement), donc la quasi-totalité des backends nginx/Apache à jour remontaient 0 CVE même quand des vulnérabilités connues existaient pour leur version. Pour ces deux produits, la requête utilise désormais `virtualMatchString` avec un identifiant CPE (`cpe:2.3:a:nginx:nginx:1.27.5:...`), ce qui fait comparer la version par NVD contre les plages réelles (`versionStartIncluding`/`versionEndExcluding`) de chaque CVE. Les autres produits (sans mapping CPE) restent sur le `keywordSearch` existant. (Admin `0.63.5`)
+
 - **Admin 0.63.4 — Prism : flux « Connexions temps réel » noyé par les répétitions** : une même IP bannie en boucle sur le même domaine (scan, tentative répétée) produisait une ligne par événement, remplissant le flux de dizaines de lignes identiques en quelques secondes. Les événements consécutifs identiques (même IP + domaine + verdict) sont désormais fusionnés en une seule ligne avec un compteur (`×N`). (Admin `0.63.4`)
 
 - **Admin 0.63.3 — Carte temps réel : point d'attaque trop bref** : le marqueur de pulsation affiché sur la carte à chaque événement (connexion/bannissement) disparaissait après 6s, trop court pour le repérer visuellement sur une carte peu chargée. Porté à 15s. (Admin `0.63.3`)

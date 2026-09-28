@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -367,12 +368,34 @@ type cveResult struct {
 
 var nvdRateLimit = time.NewTicker(7 * time.Second) // ~5 req / 35s sans clé
 
+// cpeVendorProduct mappe le nom de produit détecté dans le header Server vers son
+// identifiant CPE "vendor:product" officiel (souvent différent du nom du header).
+var cpeVendorProduct = map[string]string{
+	"nginx":  "nginx:nginx",
+	"apache": "apache:http_server",
+}
+
+// buildNVDQuery construit l'URL d'interrogation NVD. Quand le produit est mappé en CPE
+// et qu'une version a été détectée, on interroge par virtualMatchString : NVD compare alors
+// la version contre les plages (versionStartIncluding/versionEndExcluding) de chaque CVE,
+// au lieu d'un keywordSearch texte libre qui ne matche quasi jamais une version exacte.
+func buildNVDQuery(keyword string) string {
+	parts := strings.SplitN(keyword, " ", 2)
+	if len(parts) == 2 {
+		if vendorProduct, ok := cpeVendorProduct[strings.ToLower(parts[0])]; ok {
+			cpe := fmt.Sprintf("cpe:2.3:a:%s:%s:*:*:*:*:*:*:*", vendorProduct, parts[1])
+			return "https://services.nvd.nist.gov/rest/json/cves/2.0?virtualMatchString=" +
+				url.QueryEscape(cpe) + "&resultsPerPage=20"
+		}
+	}
+	return fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=%s&resultsPerPage=5",
+		strings.ReplaceAll(keyword, " ", "+"))
+}
+
 func (s *Scanner) queryCVEs(ctx context.Context, keyword string) ([]cveResult, string) {
 	<-nvdRateLimit.C
 
-	url := fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=%s&resultsPerPage=5",
-		strings.ReplaceAll(keyword, " ", "+"))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildNVDQuery(keyword), nil)
 	if err != nil {
 		return nil, err.Error()
 	}
