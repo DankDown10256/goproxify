@@ -2192,6 +2192,7 @@ button.bn-rank:hover{background:var(--bg2)}
 .logs-seg .seg-btn.active{background:var(--bg2);color:var(--accent);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .logs-adv-toggle{font-size:11.5px;color:var(--accent);text-decoration:none;cursor:pointer}
 .logs-adv-toggle:hover{text-decoration:underline}
+#btn-logs-live.is-active{color:#fff;background:var(--red);border-color:var(--red)}
 .logs-toggle-inline{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);white-space:nowrap;margin-left:auto}
 #logs-hist{margin-bottom:10px}
 #logs-hist svg{width:100%;height:70px;display:block;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius)}

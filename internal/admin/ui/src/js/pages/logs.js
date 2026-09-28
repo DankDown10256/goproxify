@@ -202,18 +202,18 @@ function renderLogsPage() {
   logsCurrentLastID = 0;
   logsActiveTab = 'static';
 
+  logsActiveTab = 'static';
   document.getElementById('topbar-actions').innerHTML = `
     <button class="btn btn-secondary btn-sm" onclick="exportLogs('json')">${t('logs.export_json')}</button>
-    <button class="btn btn-secondary btn-sm" onclick="exportLogs('csv')">${t('logs.export_csv')}</button>`;
+    <button class="btn btn-secondary btn-sm" onclick="exportLogs('csv')">${t('logs.export_csv')}</button>
+    <button type="button" id="btn-logs-live" class="btn btn-secondary btn-sm" onclick="toggleLogsLive()">⚡ ${t('logs.tab_live')}</button>
+    <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="openLogsSettingsModal()" title="${esc(t('logs.tab_settings'))}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>`;
 
   const content = document.getElementById('content');
   content.innerHTML = `
     ${logsScopeBanner()}
-    <div class="tabs">
-      <div class="tab active" id="tab-static" onclick="switchLogsTab('static')">${t('logs.tab_static')}</div>
-      <div class="tab" id="tab-live" onclick="switchLogsTab('live')">${t('logs.tab_live')}</div>
-      <div class="tab" id="tab-logsettings" onclick="switchLogsTab('settings')">${t('logs.tab_settings')}</div>
-    </div>
     <div id="logs-tab-content"></div>`;
 
   // Délégation : filtres cliquables + corrélation (évite les onclick cassés par les guillemets)
@@ -284,15 +284,8 @@ window.clearLogFilter = function(field) {
 };
 
 function syncLogFilterInputs() {
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-  set('lf-search', logsFilters.search);
-  set('lf-level', logsFilters.level);
-  set('lf-node', logsFilters.node_name);
-  set('lf-domain', logsFilters.domain);
-  set('lf-ip', logsFilters.ip);
-  set('lf-method', logsFilters.method);
-  set('lf-status', logsFilters.status);
-  set('lf-path', logsFilters.path);
+  const el = document.getElementById('lf-search');
+  if (el) el.value = logsFilters.search || '';
 }
 
 function renderFilterChips() {
@@ -347,18 +340,19 @@ function openPrismFromLogs(opts = {}) {
   toast(t('logs.prism_need_edge'), 'error');
 }
 
-function switchLogsTab(tab) {
-  logsActiveTab = tab;
-  document.getElementById('tab-static')?.classList.toggle('active', tab === 'static');
-  document.getElementById('tab-live')?.classList.toggle('active', tab === 'live');
-  document.getElementById('tab-logsettings')?.classList.toggle('active', tab === 'settings');
+// Remplace les anciens onglets Statique/Temps réel/Paramètres : un bouton bascule le
+// contenu de la page en direct, un autre ouvre les réglages de rétention en modale.
+window.toggleLogsLive = function() {
+  const goingLive = logsActiveTab !== 'live';
+  logsActiveTab = goingLive ? 'live' : 'static';
+  const btn = document.getElementById('btn-logs-live');
+  if (btn) btn.classList.toggle('is-active', goingLive);
   if (logsSSE) { logsSSE.close(); logsSSE = null; }
   livePaused = false;
   liveRows = [];
-  if (tab === 'static') renderStaticLogs();
-  else if (tab === 'live') renderLiveLogs();
-  else renderLogsSettings();
-}
+  if (goingLive) renderLiveLogs();
+  else renderStaticLogs();
+};
 
 function componentFilterHTML(idPrefix) {
   if (logsScope.lockComp) {
@@ -403,6 +397,7 @@ function nodeFilterHTML(idPrefix) {
 
 async function renderStaticLogs() {
   if (!logsScope.lockComp) await ensureLogsEdges();
+  await ensureLogsRetention();
   const c = document.getElementById('logs-tab-content');
   if (!c) return; // navigation entre-temps
   const isSystem = isSystemLogs();
@@ -426,31 +421,6 @@ async function renderStaticLogs() {
         </label>`}
       </div>
       <div id="logs-hist"></div>
-      <div style="margin-top:6px">
-        <a href="#" id="logs-adv-link" class="logs-adv-toggle" onclick="toggleLogsAdvanced();return false">${t('logs.advanced_filters')} ▾</a>
-      </div>
-      <div class="search-bar" id="logs-adv" style="gap:8px;margin-top:8px" hidden>
-        <select id="lf-level" class="input" onchange="logsFilter()">
-          <option value="">${t('logs.level_ph')}</option>
-          <option${logsFilters.level==='info'?' selected':''}>info</option>
-          <option${logsFilters.level==='warn'?' selected':''}>warn</option>
-          <option${logsFilters.level==='error'?' selected':''}>error</option>
-          <option${logsFilters.level==='debug'?' selected':''}>debug</option>
-        </select>
-        <input type="hidden" id="lf-kind" value="${esc(logsFilters.kind)}">
-        ${componentFilterHTML('lf-')}
-        <input type="hidden" id="lf-node" value="${esc(logsFilters.node_name)}">
-        ${isSystem ? '' : `
-        <input id="lf-domain" class="input" placeholder="${esc(t('logs.domain_ph'))}" value="${esc(logsFilters.domain)}" oninput="logsFilter()">
-        <input id="lf-ip" class="input" placeholder="${esc(t('logs.ip_ph'))}" value="${esc(logsFilters.ip)}" oninput="logsFilter()">
-        <input id="lf-path" class="input" placeholder="${esc(t('logs.path_ph'))}" value="${esc(logsFilters.path)}" oninput="logsFilter()">
-        <select id="lf-method" class="input" onchange="logsFilter()">
-          <option value="">${t('logs.method_ph')}</option>
-          ${['GET','POST','PUT','DELETE','PATCH','HEAD'].map(m=>`<option${logsFilters.method===m?' selected':''}>${m}</option>`).join('')}
-        </select>
-        <input id="lf-status" class="input" placeholder="${esc(t('logs.status_ph'))}" value="${esc(logsFilters.status)}" oninput="logsFilter()">
-        `}
-      </div>
       <div id="logs-filter-chips" class="filter-chips" hidden></div>
     </div>
     <div class="logs-split">
@@ -559,22 +529,11 @@ function renderSystemLogRow(e, i) {
   </tr>`;
 }
 
+// Pas de filtres avancés séparés : la recherche libre couvre déjà domaine, chemin, IP,
+// méthode, code, niveau et nœud (voir buildWhere côté backend) ; le filtrage précis par
+// champ reste possible en cliquant une cellule (logCellFilter / applyLogCellFilter).
 window.logsFilter = function() {
   logsFilters.search = document.getElementById('lf-search')?.value || '';
-  logsFilters.level  = document.getElementById('lf-level')?.value || '';
-  logsFilters.kind   = document.getElementById('lf-kind')?.value || logsScope.kind || 'access';
-  // Ne pas laisser l'UI écraser le composant verrouillé (vue passerelle).
-  if (!logsScope.lockComp) {
-    logsFilters.component = document.getElementById('lf-comp')?.value || '';
-  } else {
-    logsFilters.component = logsScope.component;
-  }
-  logsFilters.node_name = logsScope.lockComp ? logsScope.node_name : (document.getElementById('lf-node')?.value || '');
-  logsFilters.domain = document.getElementById('lf-domain')?.value || '';
-  logsFilters.ip     = document.getElementById('lf-ip')?.value || '';
-  logsFilters.path   = document.getElementById('lf-path')?.value || '';
-  logsFilters.method = document.getElementById('lf-method')?.value || '';
-  logsFilters.status = document.getElementById('lf-status')?.value || '';
   renderFilterChips();
   loadStaticLogs(0);
 };
@@ -701,29 +660,40 @@ window.showCorrelate = async function(domain, ts) {
   }
 };
 
-async function renderLogsSettings() {
-  const c = document.getElementById('logs-tab-content');
-  c.innerHTML = `<div class="spinner" style="margin:40px auto"></div>`;
+// Réglages de rétention : modale (remplace l'ancien onglet Paramètres). Les deux durées
+// (accès / système) sont celles réellement lues par le backend (GET/PUT /logs/settings) —
+// l'ancienne UI n'en exposait qu'une sous un nom `retention_days` que l'API n'a jamais eu,
+// ce qui faisait que la sauvegarde ne prenait jamais effet.
+window.openLogsSettingsModal = async function() {
+  modal(t('logs.tab_settings'), `<div class="spinner" style="margin:20px auto"></div>`);
   try {
     const s = await api('GET', '/logs/settings') || {};
-    c.innerHTML = `
-      <div class="card blueprint" style="max-width:480px">
-        <h3 style="margin-bottom:16px">${t('logs.retention')}</h3>
-        <div class="field">
-          <label class="field-label">${t('logs.retention_days')}</label>
-          <input id="log-retention-days" type="number" class="input" value="${s.retention_days ?? 30}" min="1" max="3650" style="width:120px">
-          <p style="font-size:12px;color:var(--text2);margin-top:4px">${t('logs.retention_hint')}</p>
-        </div>
-        <button class="btn btn-primary" onclick="saveLogsSettings()">${t('common.save')}</button>
-      </div>`;
-  } catch(e) { c.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
-}
+    const body = `
+      <div class="field" style="margin-bottom:14px">
+        <label class="field-label">${t('logs.retention_access')}</label>
+        <input id="log-retention-access" type="number" class="input" value="${s.retention_access_days ?? 30}" min="1" max="3650" style="width:120px">
+      </div>
+      <div class="field">
+        <label class="field-label">${t('logs.retention_system')}</label>
+        <input id="log-retention-system" type="number" class="input" value="${s.retention_system_days ?? 90}" min="1" max="3650" style="width:120px">
+      </div>
+      <p style="font-size:12px;color:var(--text2);margin-top:10px">${t('logs.retention_hint')}</p>`;
+    modal(t('logs.tab_settings'), body,
+      `<button class="btn btn-secondary" onclick="closeModal()">${t('common.cancel')}</button>
+       <button class="btn btn-primary" onclick="saveLogsSettings()">${t('common.save')}</button>`);
+  } catch(e) { modal(t('logs.tab_settings'), `<p style="color:var(--red)">${esc(e.message)}</p>`); }
+};
 
 window.saveLogsSettings = async function() {
-  const days = parseInt(document.getElementById('log-retention-days')?.value) || 30;
+  const access = parseInt(document.getElementById('log-retention-access')?.value) || 30;
+  const sys = parseInt(document.getElementById('log-retention-system')?.value) || 90;
   try {
-    await api('PUT', '/logs/settings', { retention_days: days });
+    await api('PUT', '/logs/settings', { retention_access_days: access, retention_system_days: sys });
     toast(t('logs.settings_saved'), 'success');
+    closeModal();
+    logsRetention = { access, system: sys };
+    logsRetentionLoaded = true;
+    if (logsActiveTab === 'static') refreshLogsView();
   } catch(e) { toast(e.message, 'error'); }
 };
 
@@ -911,13 +881,61 @@ window.exportLogs = function(fmt) {
 
 // ── Logs d'accès : périodes rapides, classes de statut, histogramme, tiroir de détail ──
 
-const LOGS_PERIODS = [['15m', 900000], ['1h', 3600000], ['6h', 21600000], ['24h', 86400000], ['7d', 604800000]];
 let logsQuickMs = 0;
 let logsRows = [];
 
-// Toggle de période (segmenté, façon maquette) : 15m/1h/6h/24h/7d + "Tout".
+// Rétention effective (jours), chargée depuis GET /logs/settings — conditionne les
+// tranches de temps proposées (pas la peine d'offrir "1 an" si tout est purgé à 30 jours).
+let logsRetention = { access: 30, system: 90 };
+let logsRetentionLoaded = false;
+async function ensureLogsRetention() {
+  if (logsRetentionLoaded) return logsRetention;
+  try {
+    const s = await api('GET', '/logs/settings');
+    logsRetention = { access: s?.retention_access_days || 30, system: s?.retention_system_days || 90 };
+  } catch { /* défauts conservés */ }
+  logsRetentionLoaded = true;
+  return logsRetention;
+}
+
+// Échelle de temps courte, fixe (< 1 mois) — `days` = ancienneté couverte (0 = toujours
+// proposée quelle que soit la rétention, ce sont des fenêtres < 1 jour).
+const LOGS_PERIOD_SHORT = [
+  { label: '15m', ms: 9e5, days: 0 },
+  { label: '1h', ms: 3.6e6, days: 0 },
+  { label: '6h', ms: 2.16e7, days: 0 },
+  { label: '24h', ms: 8.64e7, days: 1 },
+  { label: '7d', ms: 7 * 8.64e7, days: 7 },
+  { label: '14d', ms: 14 * 8.64e7, days: 14 },
+];
+// Au-delà, en mois puis en années — pas de plafond : la rétention peut dépasser 1 an
+// (jusqu'à 3650 jours, la limite du champ dans la modale de réglages).
+const LOGS_PERIOD_LONG_DAYS = [30, 90, 180, 365, 730, 1095, 1825, 2555, 3650];
+
+function logsPeriodLabel(days) {
+  if (days >= 365) {
+    const n = Math.round(days / 365);
+    return `${n} ${n === 1 ? t('lg.year') : t('lg.years')}`;
+  }
+  const n = Math.round(days / 30);
+  return `${n} ${n === 1 ? t('lg.month') : t('lg.months')}`;
+}
+
+function logsPeriodCandidates() {
+  const long = LOGS_PERIOD_LONG_DAYS.map(d => ({ label: logsPeriodLabel(d), ms: d * 8.64e7, days: d }));
+  return [...LOGS_PERIOD_SHORT, ...long];
+}
+
+function logsPeriodsForRetention(retentionDays) {
+  const r = retentionDays > 0 ? retentionDays : 3650;
+  return logsPeriodCandidates().filter(c => c.days === 0 || c.days <= r);
+}
+
+// Toggle de période (segmenté, façon maquette), échelonné selon la rétention configurée.
 function logsPeriodSegHTML() {
-  const per = LOGS_PERIODS.map(([k, ms]) => `<button type="button" class="seg-btn${logsQuickMs === ms ? ' active' : ''}" data-log-quick="${ms}">${k}</button>`).join('');
+  const retention = isSystemLogs() ? logsRetention.system : logsRetention.access;
+  const periods = logsPeriodsForRetention(retention);
+  const per = periods.map(c => `<button type="button" class="seg-btn${logsQuickMs === c.ms ? ' active' : ''}" data-log-quick="${c.ms}">${c.label}</button>`).join('');
   const all = `<button type="button" class="seg-btn${logsQuickMs ? '' : ' active'}" data-log-quick="0">${esc(t('lg.q_all'))}</button>`;
   return `<div class="logs-seg">${per}${all}</div>`;
 }
@@ -966,14 +984,6 @@ function isInternalLogEntry(e) {
 window.toggleHideInternal = function() {
   logsHideInternal = !!document.getElementById('lf-hide-internal')?.checked;
   loadStaticLogs(0);
-};
-
-window.toggleLogsAdvanced = function() {
-  const el = document.getElementById('logs-adv');
-  const link = document.getElementById('logs-adv-link');
-  if (!el) return;
-  el.hidden = !el.hidden;
-  if (link) link.textContent = el.hidden ? t('logs.advanced_filters') + ' ▾' : t('logs.advanced_filters') + ' ▲';
 };
 
 // Retourne true si le clic a été traité (période, classe de statut, ligne → tiroir, actions du tiroir).

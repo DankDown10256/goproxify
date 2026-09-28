@@ -410,10 +410,12 @@ func buildWhere(p SearchParams) (string, []any) {
 		// node_name est inclus pour permettre de retrouver l'historique d'un
 		// nœud renommé ou disparu (le filtre dédié NodeName/NodeID exige une
 		// égalité exacte sur le nœud sélectionné, alors que Search est une
-		// recherche libre indépendante de tout nœud "actuel").
-		clauses = append(clauses, "(message LIKE ? OR path LIKE ? OR ip LIKE ? OR domain LIKE ? OR node_name LIKE ?)")
+		// recherche libre indépendante de tout nœud "actuel"). method/status
+		// couverts aussi : la recherche libre remplace les filtres avancés
+		// dédiés côté UI (une seule zone de recherche pour tout).
+		clauses = append(clauses, "(message LIKE ? OR path LIKE ? OR ip LIKE ? OR domain LIKE ? OR node_name LIKE ? OR method LIKE ? OR level LIKE ? OR CAST(status AS TEXT) LIKE ?)")
 		q := "%" + p.Search + "%"
-		args = append(args, q, q, q, q, q)
+		args = append(args, q, q, q, q, q, q, q, q)
 	}
 	if p.DateFrom != "" {
 		clauses = append(clauses, "ts >= ?")

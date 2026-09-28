@@ -15,7 +15,7 @@ window.acmeInternalCALoad = async function () {
     <tr style="cursor:pointer;" onclick="openInternalCACertsPanel('${esc(ca.id)}','${esc(ca.name)}')">
       <td style="padding:6px 8px;font-size:12px;font-weight:500;">${esc(ca.name)}</td>
       <td style="padding:6px 8px;font-size:11px;opacity:0.7;">${esc(ca.subject)}</td>
-      <td style="padding:6px 8px;font-size:11px;opacity:0.6;white-space:nowrap;">${fmtDate(ca.not_after)}</td>
+      <td style="padding:6px 8px;font-size:11px;opacity:0.6;white-space:nowrap;">${caFmtDate(ca.not_after)}</td>
       <td style="text-align:right;padding:6px 8px;white-space:nowrap;">
         <button class="btn btn-ghost" style="padding:4px 6px;font-size:11px;" onclick="event.stopPropagation();dcDownloadCARoot('${esc(ca.id)}')">${t('dc.download_ca')}</button>
         <button class="btn btn-ghost" style="padding:4px 6px;font-size:11px;" onclick="event.stopPropagation();openInternalCACertsPanel('${esc(ca.id)}','${esc(ca.name)}')">${t('internal_ca.manage')}</button>
@@ -48,7 +48,10 @@ window.acmeInternalCALoad = async function () {
     </div>`;
 };
 
-function fmtDate(iso) {
+// Nommée à part (et non fmtDate) : ce fichier n'a besoin que de la date (expiration de
+// certificat), pas de l'heure — un fmtDate global existe déjà (core/auth.js) avec date+heure,
+// et une déclaration globale du même nom l'écraserait silencieusement pour toute la page.
+function caFmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (isNaN(d)) return '—';
@@ -169,7 +172,7 @@ function icaCertRow(c, caId) {
       </div>
       <div style="font-size:11px;opacity:0.6;display:flex;flex-direction:column;gap:2px;">
         ${(c.sans||[]).length ? `<span>SAN: ${esc((c.sans||[]).join(', '))}</span>` : ''}
-        <span>${t('internal_ca.col_expiry')}: ${fmtDate(c.not_after)}</span>
+        <span>${t('internal_ca.col_expiry')}: ${caFmtDate(c.not_after)}</span>
       </div>
       ${!c.revoked ? `
       <div style="margin-top:8px;text-align:right;">
