@@ -9,7 +9,7 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
-- **Edge 0.17.2 — Logs d'accès : le User-Agent n'était jamais transmis** : capturé sur chaque requête (`accessEntry.UserAgent`) mais jamais mis dans `ShipEntry`, donc jamais visible côté Admin. `shipMessage()` (qui ne servait plus qu'à porter `request_id`, retiré au profit d'un champ dédié) porte maintenant le User-Agent — affiché dans la section « Message » du tiroir de détail des Logs d'accès. (Edge `0.17.2`)
+- **Edge 0.17.2 — Logs d'accès : message façon « combined log format »** : le champ `message` (section « Message » du tiroir de détail) contient désormais une ligne complète façon Apache/nginx combined log — `IP - [horodatage] "MÉTHODE chemin" code octets "referer" "user-agent"` — au lieu d'être vide (`request_id` et le contexte de sécurité voyagent par ailleurs dans leurs propres champs structurés, pas besoin de les dupliquer ici). Référer et User-Agent étaient déjà capturés par requête mais jamais transmis à l'Admin. (Edge `0.17.2`)
 
 - **Admin 0.63.1 — Prism : filtre proxy incomplet, les proxies TCP/UDP jamais listés** : `GetProxies` excluait tout proxy sans `config.host` — vrai pour tout proxy TCP/UDP (le routage L4 identifie par port d'écoute, pas par domaine, voir `router.Route.Host`). Ils apparaissent maintenant dans le sélecteur, identifiés par leur nom suivi de « (TCP/UDP) » ; note : Prism reste basé sur `logs.domain` (journal des requêtes HTTP), donc sélectionner un proxy TCP/UDP ne fera remonter aucune donnée tant que le flux L4 n'est pas journalisé par requête — seule sa visibilité dans la liste est corrigée ici. Les proxies découverts par étiquettes Docker n'étaient pas concernés (déjà listés dès qu'activés). (Admin `0.63.1`)
 

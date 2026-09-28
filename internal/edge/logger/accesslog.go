@@ -6,6 +6,7 @@ package logger
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -420,11 +421,25 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// shipMessage porte le User-Agent de la requête (déjà capturé sur accessEntry, jamais
-// transmis jusqu'ici) — RequestID, lui, voyage comme son propre champ structuré
-// (ShipEntry.RequestID), plus besoin de le glisser ici.
+// shipMessage construit une ligne façon "combined log format" (Apache/nginx) — tout ce
+// qu'un œil habitué à lire des access logs attend d'y trouver en un coup d'œil, plutôt que
+// le seul User-Agent. RequestID, WAFMatches et ThreatSignal voyagent par ailleurs comme
+// leurs propres champs structurés (ShipEntry), pas besoin de les dupliquer ici.
 func shipMessage(e accessEntry) string {
-	return e.UserAgent
+	ts := e.Time
+	if t, err := time.Parse(time.RFC3339Nano, e.Time); err == nil {
+		ts = t.Format("02/Jan/2006:15:04:05 -0700")
+	}
+	ref := e.Referrer
+	if ref == "" {
+		ref = "-"
+	}
+	ua := e.UserAgent
+	if ua == "" {
+		ua = "-"
+	}
+	return fmt.Sprintf(`%s - [%s] "%s %s" %d %d "%s" "%s"`,
+		e.RemoteIP, ts, e.Method, e.Path, e.Status, e.BytesSent, ref, ua)
 }
 
 // stripHostPort retire le port de host:port pour aligner domain Prism / proxies.host.
