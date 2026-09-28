@@ -12,6 +12,9 @@ window._asRpsHist = [];     // débit total des passerelles à chaque échantill
 window._asContainers = {};  // node_name d'agent → nombre de conteneurs découverts
 window._asEvents = {};      // node_name → derniers événements (panneau de détail)
 window._asLinks = [];       // liaisons du schéma en flux, tracées après rendu
+window._asEdgeWin = {};     // node_name de passerelle → dernier intervalle (/metrics/proxies : p95_ms, error_rate)
+window._asListFilter = { f: 'all', q: '' };
+window._asArm = null;       // écran tactile : type de rôle choisi dans la palette, en attente d'un hôte
 const AS_HIST_LEN = 24;
 
 const _AS_ROLE = {
@@ -114,12 +117,13 @@ function _asDur(iso) {
   return t('as.dur.d', { n: Math.round(h / 24) });
 }
 
+/** Heure seule pour aujourd'hui, jour/mois + heure sinon (colonnes étroites du panneau et du journal). */
 function _asTime(iso) {
   const d = new Date(iso);
-  if (new Date().toDateString() !== d.toDateString()) return fmtDate(iso);
   const opts = { hour: '2-digit', minute: '2-digit' };
+  if (new Date().toDateString() !== d.toDateString()) Object.assign(opts, { day: '2-digit', month: '2-digit' });
   if (state.timezone) opts.timeZone = state.timezone;
-  return d.toLocaleTimeString(typeof gpxBCP47 === 'function' ? gpxBCP47() : undefined, opts);
+  return d.toLocaleString(typeof gpxBCP47 === 'function' ? gpxBCP47() : undefined, opts);
 }
 
 /** Sous-titre d'un rôle : « Passerelle · leader », « Agent · Docker, Portainer »… */
@@ -376,7 +380,8 @@ function _asKpiStripHTML(model) {
 }
 
 const _AS_WARN_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>';
-const _AS_REDEPLOY_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6L20 9"/><path d="M20 4v5h-5"/></svg>';
+const _AS_EDIT_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg>';
+const _AS_REDEPLOY_ICON ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6L20 9"/><path d="M20 4v5h-5"/></svg>';
 
 /** Écarts déclaré/déployé d'un hôte, hors statut (déjà signalé comme hors ligne). */
 function _asHostDrift(h) {
@@ -387,6 +392,12 @@ function _asTodoHTML(model) {
   const items = [];
   const item = (tone, icon, title, sub, btns) => `<div class="as-td"><span class="as-td-ic" data-tone="${tone}">${icon}</span>
     <div class="as-td-tx"><b>${esc(title)}</b><small>${esc(sub)}</small></div>${btns}</div>`;
+  const draft = typeof _archDraftRead === 'function' ? _archDraftRead() : null;
+  if (draft && draft.n) {
+    items.push(item('info', _AS_EDIT_ICON, t('as.todo.draft', { n: draft.n }), t('as.todo.draft_sub', { date: fmtDate(new Date(draft.savedAt).toISOString()) }),
+      `<button class="btn btn-ghost btn-sm as-td-no" onclick="asDraftDiscard()">${esc(t('as.edit.discard'))}</button>
+       <button class="btn btn-primary btn-sm" onclick="openInfraWizard()">${esc(t('as.todo.draft_resume'))}</button>`));
+  }
   for (const n of (_arch.nodes || []).filter(x => x.status === 'pending')) {
     const role = n.role === 'edge' ? t('arch.svc.edge') : n.role === 'agent' ? t('arch.svc.agent') : n.role;
     items.push(item('warn', _ARCH_ICONS[n.role] || '', t('as.todo.pending', { name: n.display_name || n.node_name || n.id }),
@@ -440,8 +451,17 @@ function _asSelected(model) {
 const _AS_EV = {
   scale_up: ['as.ev.scale_up', 'ok'], scale_down: ['as.ev.scale_down', 'warn'],
   health_escalation: ['as.ev.health', 'bad'], health_critical: ['as.ev.health', 'bad'],
-  agent_online: ['as.ev.online', 'ok'], new_digest: ['as.ev.digest', ''],
+  health_watch_started: ['as.ev.watch', ''], agent_online: ['as.ev.online', 'ok'], new_digest: ['as.ev.digest', ''],
+  start: ['as.ev.start', 'ok'], stop: ['as.ev.stop', 'warn'], destroy: ['as.ev.destroy', 'bad'],
 };
+
+/** Catégorie d'un événement pour les filtres du journal complet. */
+function _asEvCat(type) {
+  if (/^scale_/.test(type)) return 'scale';
+  if (/^health_/.test(type)) return 'health';
+  if (/online|offline|connect/.test(type)) return 'conn';
+  return 'other';
+}
 
 function _asEvLabel(type) {
   const e = _AS_EV[type];
@@ -472,8 +492,9 @@ function _asPanelHTML(model) {
   const stat = (v, l) => `<div class="as-pn-stat"><b>${v}</b><small>${esc(l)}</small></div>`;
   let stats;
   if (s.type === 'edge') {
+    const win = window._asEdgeWin[key];
     stats = stat(live ? _asRps(live.rps) : '—', t('as.stat.rps'))
-      + stat(live && !live.low_traffic ? _asNum(live.error_pct) + ' %' : '—', t('as.stat.err'))
+      + stat(win && win.p95_ms > 0 ? _asNum(win.p95_ms, 0) + ' ms' : '—', t('as.stat.p95'))
       + stat(pct == null ? '—' : _asNum(pct) + ' %', t('as.stat.avail'));
   } else if (s.type === 'agent') {
     const cpu = live && live.cpu_pct != null ? live.cpu_pct : (node && node.cpu_pct != null ? node.cpu_pct : null);
@@ -490,7 +511,10 @@ function _asPanelHTML(model) {
   const caps = _asCaps(model, s);
   const dl = [];
   const row = (k, v, tone) => { if (v) dl.push(`<dt>${esc(k)}</dt><dd${tone ? ` data-tone="${tone}"` : ''}>${v}</dd>`); };
-  if (s.type === 'edge') row(t('as.panel.reach'), (s.reachable || (node && node.endpoint)) ? `<span class="as-mono">${esc(s.reachable || node.endpoint)}</span>` : '');
+  if (s.type === 'edge') {
+    row(t('as.panel.reach'), (s.reachable || (node && node.endpoint)) ? `<span class="as-mono">${esc(s.reachable || node.endpoint)}</span>` : '');
+    if (live && !live.low_traffic) row(t('as.panel.err'), `${_asNum(live.error_pct)} %`, live.error_pct >= 5 ? 'warn' : '');
+  }
   if (s.type !== 'admin') row(t('as.panel.version'), node && node.version ? esc(node.version) : '—');
   if (s.type !== 'admin' && h) {
     if (!node) row(t('as.config'), esc(t('as.drift.not_connected')));
@@ -558,11 +582,22 @@ async function _asLoadNodeEvents(nodeName) {
 
 function _asTopoHeadHTML() {
   const b = (m, k) => `<button type="button"${window._asMode === m ? ' data-on aria-pressed="true"' : ' aria-pressed="false"'} onclick="asSetMode('${m}')">${esc(t(k))}</button>`;
-  const legend = window._asMode === 'host' ? '' : `<div class="as-lg">
+  let extra = '';
+  if (window._asMode === 'role') {
+    extra = `<div class="as-lg">
       <span style="--c:var(--blue)">${esc(t('as.legend.users'))}</span>
       <span style="--c:var(--green)">${esc(t('as.legend.ws'))}</span>
       <span style="--c:var(--purple)" data-dashed>${esc(t('as.legend.admin'))}</span></div>`;
-  return `<h2>${esc(t('as.topology'))}</h2><div class="as-seg" role="group" aria-label="${esc(t('as.layout'))}">${b('role', 'as.view.flow')}${b('host', 'as.by_host')}</div>${legend}`;
+  } else if (window._asMode === 'list') {
+    extra = _asListFiltersHTML();
+  }
+  return `<h2>${esc(t('as.topology'))}</h2><div class="as-seg" role="group" aria-label="${esc(t('as.layout'))}">${b('role', 'as.view.flow')}${b('host', 'as.by_host')}${b('list', 'as.view.list')}</div>${extra}`;
+}
+
+/** En-tête du schéma : rendu au chargement et au changement de disposition seulement (la recherche garde le focus). */
+function asRenderHead() {
+  const el = document.getElementById('as-topo-h');
+  if (el) el.innerHTML = _asTopoHeadHTML();
 }
 
 /** Vue lecture : redessine indicateurs, « À traiter », schéma et panneau (chargement puis tick du live). */
@@ -571,7 +606,8 @@ function asRenderLive() {
   const x = _asSelected(_arch);
   set('as-kpis', _asKpiStripHTML(_arch));
   set('as-todo', _asTodoHTML(_arch));
-  set('as-topo-h', _asTopoHeadHTML());
+  if (!document.querySelector('#as-topo-h h2')) asRenderHead();
+  _asListCountsUpdate();
   set('as-root', asSchemaHTML(_arch, { selectedId: x ? x.s.id : null }));
   set('as-panel', _asPanelHTML(_arch));
   requestAnimationFrame(asDrawLinks);
@@ -595,9 +631,9 @@ function _asHostColor(model, host) {
   return i < 0 ? 'var(--border)' : _AS_HOST_COLORS[i % _AS_HOST_COLORS.length];
 }
 
-// Disposition de la vue lecture (role = flux, host = par hôte) et du mode édition (host = cartes d'hôtes, role = tiers).
+// Disposition de la vue lecture (role = flux, host = par hôte, list = liste) et du mode édition (host = cartes d'hôtes, role = tiers).
 window._asMode = (function () {
-  try { return localStorage.getItem('gpx_as_mode') === 'host' ? 'host' : 'role'; } catch { return 'role'; }
+  try { const m = localStorage.getItem('gpx_as_mode'); return m === 'host' || m === 'list' ? m : 'role'; } catch { return 'role'; }
 })();
 window._asEditMode = (function () {
   try { return localStorage.getItem('gpx_as_edit_mode') === 'role' ? 'role' : 'host'; } catch { return 'host'; }
@@ -612,6 +648,7 @@ function _asRerender() {
 function asSetMode(mode) {
   window._asMode = mode;
   try { localStorage.setItem('gpx_as_mode', mode); } catch {}
+  asRenderHead();
   _asRerender();
 }
 
@@ -679,7 +716,7 @@ function _asHostStripHTML(model, o) {
     const sel = o.selectedHostId === h.id && !o.selectedId;
     const roles = (h.services || []).map(s => `<span class="as-hrole" style="--k:${_AS_ROLE[s.type].k}" onclick="event.stopPropagation();asNodeClick('${esc(s.id)}')">${esc(s.name)}</span>`).join('');
     const plats = _asPlatforms(h).map(p => `<span class="as-hplat">${esc(p)}</span>`).join('');
-    return `<div class="as-hcard"${sel ? ' data-sel' : ''} style="--h:${_asHostColor(model, h)}" onclick="_archSelectHost('${h.id}')">
+    return `<div class="as-hcard"${sel ? ' data-sel' : ''} style="--h:${_asHostColor(model, h)}" onclick="asHostTap('${h.id}')"${window._asArm ? ' data-arm' : ''}>
       ${_asHostHead(model, h, o)}
       <div class="as-hroles">${roles || `<span class="as-hempty">${esc(t('as.host_empty'))}</span>`}</div>
       ${plats ? `<div class="as-hroles">${plats}</div>` : ''}
@@ -705,6 +742,104 @@ function _asByHostHTML(model, o) {
   return `<div class="as-byhost">${boxes}</div>`;
 }
 
+// ── Vue lecture « Liste » : inventaire groupé par hôte, filtres et recherche ──
+
+const _AS_LIST_F = [['all', 'as.list.f.all'], ['edge', 'as.list.f.edge'], ['agent', 'as.list.f.agent'], ['down', 'as.list.f.down'], ['drift', 'as.list.f.drift']];
+
+function _asListMatch(model, x, f, q) {
+  const { s, h } = x;
+  if (f === 'edge' && s.type !== 'edge') return false;
+  if (f === 'agent' && s.type !== 'agent') return false;
+  if (f === 'down' && (s.type === 'admin' || _asState(s) !== 'warn')) return false;
+  if (f === 'drift' && !(s.type !== 'admin' && h && _asLiveNode(s) && _asDriftRows(s, h).slice(1).some(r => r.bad))) return false;
+  if (!q) return true;
+  return [s.name, h ? h.name : '', (h && h.region) || '', t(_AS_ROLE[s.type].label), ..._asCaps(model, s)].join(' ').toLowerCase().includes(q);
+}
+
+function _asListCount(model, f) {
+  return _asAllSvcs(model).filter(x => _asListMatch(model, x, f, '')).length;
+}
+
+function _asListCountsUpdate() {
+  for (const [f] of _AS_LIST_F) {
+    const el = document.getElementById('as-lc-' + f);
+    if (el) el.textContent = _asListCount(_arch, f);
+  }
+}
+
+function _asListFiltersHTML() {
+  const lf = window._asListFilter;
+  return `<div class="as-lf">
+    <label class="as-lf-q">${'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>'}
+      <input type="search" value="${esc(lf.q)}" placeholder="${esc(t('as.list.search_ph'))}" aria-label="${esc(t('as.list.search'))}" oninput="asListSearch(this.value)"></label>
+    ${_AS_LIST_F.map(([f, k]) => `<button type="button" class="as-lf-c"${lf.f === f ? ' data-on aria-pressed="true"' : ' aria-pressed="false"'} onclick="asListFilter('${f}')">${esc(t(k))} <span id="as-lc-${f}">${_asListCount(_arch, f)}</span></button>`).join('')}
+  </div>`;
+}
+
+function asListFilter(f) {
+  window._asListFilter.f = f;
+  asRenderHead();
+  asRenderLive();
+}
+
+function asListSearch(q) {
+  window._asListFilter.q = q;
+  const x = _asSelected(_arch);
+  const root = document.getElementById('as-root');
+  if (root) root.innerHTML = asSchemaHTML(_arch, { selectedId: x ? x.s.id : null });
+}
+
+function _asListRowHTML(model, x, sel) {
+  const { s } = x;
+  const st = _asState(s);
+  const key = _asKey(s);
+  const node = _asLiveNode(s);
+  const live = window._asLive[key];
+  const pct = _asPct(key);
+  let load = '—';
+  if (s.type === 'edge' && live) load = t('as.req_s', { n: `<b>${_asRps(live.rps)}</b>` });
+  else if (s.type === 'agent' && st === 'warn' && node && _asSeen(node.last_seen_at)) load = esc(t('as.since', { dur: _asDur(node.last_seen_at) }));
+  else if (s.type === 'agent' && window._asContainers[key] != null) load = t('as.containers_n', { n: `<b>${window._asContainers[key]}</b>` });
+  else if (s.type === 'admin' && window._asMetrics && window._asMetrics.ws && window._asMetrics.ws.admin_connections != null) load = esc(t('as.list.sessions', { n: window._asMetrics.ws.admin_connections }));
+  const caps = _asCaps(model, s);
+  return `<button type="button" class="as-lr" style="--k:${_AS_ROLE[s.type].k}"${sel ? ' data-sel aria-pressed="true"' : ' aria-pressed="false"'}${st === 'warn' ? ' data-tone="warn"' : ''} onclick="asSelect('${esc(s.id)}')">
+    <span class="as-lr-n"><span class="as-ic">${_ARCH_ICONS[s.type] || ''}</span><span class="as-nm">${esc(s.name)}<small>${esc(t(_AS_ROLE[s.type].label))}</small></span></span>
+    <span><span class="as-st" data-tone="${st}">${esc(_asStTxt(st))}</span></span>
+    <span class="as-lr-av">${s.type === 'admin' ? '—' : `${_asSpark(key)}<span>${pct == null ? '—' : _asNum(pct) + ' %'}</span>`}</span>
+    <span class="as-lr-ld">${load}</span>
+    <span>${node && node.version ? esc(node.version) : '—'}</span>
+    <span class="as-cs">${caps.map(c => `<span>${esc(c)}</span>`).join('')}</span>
+  </button>`;
+}
+
+function _asListHostHTML(model, h) {
+  const svcs = h.services || [];
+  const connected = svcs.some(s => s.type !== 'admin' && _asLiveNode(s));
+  const tone = _asHostDrift(h) ? 'warn' : connected ? 'ok' : 'off';
+  const label = tone === 'warn' ? t('as.drift.bad') : tone === 'ok' ? t('as.drift.ok') : t('as.drift.not_connected');
+  return `<div class="as-lh" style="--h:${_asHostColor(model, h)}">
+    <span class="as-hd-dot"></span><b>${esc(h.name)}</b>
+    <span class="as-zt" data-p="${h.internet ? 0 : 1}">${esc(h.internet ? t('arch.host.internet') : t('arch.host.private'))}</span>
+    <small>${esc([h.region, t('as.list.roles', { n: svcs.length })].filter(Boolean).join(' · '))}</small>
+    <span class="as-lh-st" data-tone="${tone}">${esc(label)}</span>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="asOpenConfig('${h.id}')">${esc(t('as.config'))}</button>
+  </div>`;
+}
+
+function _asListHTML(model, o) {
+  if (!_asAllSvcs(model).length) return `<div class="as-empty">${esc(t('as.empty'))}</div>`;
+  const lf = window._asListFilter;
+  const q = (lf.q || '').trim().toLowerCase();
+  const body = model.hosts.map(h => {
+    const rows = (h.services || []).map(s => ({ s, h })).filter(x => _asListMatch(model, x, lf.f, q));
+    return rows.length ? _asListHostHTML(model, h) + rows.map(x => _asListRowHTML(model, x, o.selectedId === x.s.id)).join('') : '';
+  }).join('');
+  return `<div class="as-list">
+    <div class="as-lr as-lr-h" aria-hidden="true"><span>${esc(t('as.list.col.node'))}</span><span>${esc(t('as.drift.status'))}</span><span>${esc(t('as.list.col.avail'))}</span><span>${esc(t('as.list.col.load'))}</span><span>${esc(t('as.panel.version'))}</span><span>${esc(t('as.caps'))}</span></div>
+    ${body || `<div class="as-empty">${esc(t('as.list.none'))}</div>`}
+  </div>`;
+}
+
 // ── Mode édition « Par hôte » : cartes d'hôtes, rôles glissables, modifications repérées ──
 
 function _asEditRoleHTML(model, s, h, sel) {
@@ -714,7 +849,7 @@ function _asEditRoleHTML(model, s, h, sel) {
     .concat(diff.del.map(c => `<span data-chg="del">${esc(c)}</span>`)).join('');
   const badge = chg ? `<span class="as-bd" data-k="${chg.kind === 'add' ? 'new' : 'mod'}">${esc(t(chg.kind === 'add' ? 'as.edit.new' : 'as.edit.modified'))}</span>` : '';
   return `<button type="button" class="as-rb" draggable="true" data-arch-svc="${esc(s.id)}" ondragstart="_archDragStart(event)" style="--k:${_AS_ROLE[s.type].k}"${sel ? ' data-sel' : ''}${chg && chg.kind === 'add' ? ' data-new' : ''}
-    onclick="event.stopPropagation();_archSelectSvc('${esc(s.id)}')">
+    onclick="event.stopPropagation();asRoleTap('${esc(s.id)}','${h.id}')">
     <span class="as-hd"><span class="as-ic">${_ARCH_ICONS[s.type] || ''}</span><span class="as-nm">${esc(s.name)}<small>${esc(_asRoleDetail(model, s, h))}</small></span>${badge}</span>
     ${caps ? `<span class="as-cs">${caps}</span>` : ''}
   </button>`;
@@ -742,7 +877,7 @@ function _asEditHostsHTML(model, o) {
     const ghosts = _archRemovedOn(h.id).map(_asEditGhostHTML).join('');
     const empty = !(h.services || []).length;
     return `<section class="as-hc"${sel ? ' data-sel' : ''}${isNew ? ' data-new' : ''} style="--h:${_asHostColor(model, h)}" aria-label="${esc(t('as.host'))} ${esc(h.name)}"
-      onclick="_archSelectHost('${h.id}')" ondragover="asDragOver(event,this)" ondragleave="this.removeAttribute('data-drop')" ondrop="asDropOn(event,this,'${h.id}')">
+      ${window._asArm ? ' data-arm' : ''} onclick="asHostTap('${h.id}')" ondragover="asDragOver(event,this)" ondragleave="this.removeAttribute('data-drop')" ondrop="asDropOn(event,this,'${h.id}')">
       <div class="as-hh"><span class="as-hd-dot"></span><b>${esc(h.name)}</b>${isNew ? `<span class="as-bd" data-k="new">${esc(t('as.edit.new'))}</span>` : ''}
         <button type="button" class="as-zt" data-p="${h.internet ? 0 : 1}" onclick="event.stopPropagation();_archSetHostInternet('${h.id}',${!h.internet})" title="${esc(t('arch.host.internet_hint'))}">${esc(h.internet ? t('arch.host.internet') : t('arch.host.private'))}</button></div>
       ${h.region ? `<small class="as-hsub">${esc(h.region)}</small>` : ''}
@@ -767,16 +902,46 @@ function asDropOn(ev, el, hostId) {
   _archDrop(ev, hostId);
 }
 
+// Écran tactile : le glisser-déposer HTML n'y fonctionne pas ; on touche un élément de la palette, puis l'hôte.
+function _asCoarse() {
+  return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+}
+
+function asPalettePick(type) {
+  if (!_asCoarse()) { asAdd(type); return; }
+  window._asArm = window._asArm === type ? null : type;
+  _archRender();
+}
+
+function asDisarm() {
+  window._asArm = null;
+  _archRender();
+}
+
+function asHostTap(hostId) {
+  const type = window._asArm;
+  if (!type) { _archSelectHost(hostId); return; }
+  window._asArm = null;
+  asAddTo(hostId, type);
+}
+
+function asRoleTap(svcId, hostId) {
+  if (window._asArm) asHostTap(hostId);
+  else _archSelectSvc(svcId);
+}
+
 function _asEditToolbarHTML(model) {
   const pal = (type, label, off) => `<button type="button" class="as-pal" data-t="${type}" draggable="${off ? 'false' : 'true'}" data-arch-type="${type}"
-    ondragstart="_archDragStart(event)" onclick="asAdd('${type}')"${off ? ` disabled title="${esc(t('as.edit.admin_single'))}"` : ''}>${_ARCH_ICONS[type]}${esc(label)}</button>`;
+    ondragstart="_archDragStart(event)" onclick="asPalettePick('${type}')"${window._asArm === type ? ' aria-pressed="true"' : ''}${off ? ` disabled title="${esc(t('as.edit.admin_single'))}"` : ''}>${_ARCH_ICONS[type]}${esc(label)}</button>`;
   const seg = (m, k) => `<button type="button"${window._asEditMode === m ? ' data-on aria-pressed="true"' : ' aria-pressed="false"'} onclick="asSetEditMode('${m}')">${esc(t(k))}</button>`;
   return `<div class="as-etb">
     <span class="as-etb-l">${esc(t('as.edit.add'))}</span>
     <button type="button" class="as-pal" onclick="asAddHost()">${_ARCH_ICONS.host}${esc(t('as.host'))}</button>
     ${pal('edge', t('arch.svc.edge'))}${pal('agent', t('arch.svc.agent'))}${pal('admin', t('arch.svc.admin'), _asHasAdmin(model))}
-    <span class="as-etb-h">${esc(t('as.edit.drag_hint'))}</span>
+    <span class="as-etb-h">${esc(t(_asCoarse() ? 'as.edit.tap_hint' : 'as.edit.drag_hint'))}</span>
     <div class="as-seg" role="group" aria-label="${esc(t('as.layout'))}">${seg('host', 'as.by_host')}${seg('role', 'as.by_role')}</div>
+    ${window._asArm ? `<div class="as-arm" role="status"><span>${esc(t('as.edit.arm', { role: t(_AS_ROLE[window._asArm].label) }))}</span>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="asDisarm()">${esc(t('common.cancel'))}</button></div>` : ''}
   </div>`;
 }
 
@@ -788,7 +953,8 @@ function asSchemaHTML(model, o) {
       ? _asHostStripHTML(model, o) + _asTiersHTML(model, o)
       : _asEditHostsHTML(model, o)}</div>`;
   }
-  return `<div class="as">${window._asMode === 'host' ? _asByHostHTML(model, o) : _asFlowHTML(model, o)}</div>`;
+  const view = window._asMode === 'host' ? _asByHostHTML : window._asMode === 'list' ? _asListHTML : _asFlowHTML;
+  return `<div class="as">${view(model, o)}</div>`;
 }
 
 function asNodeClick(id) {
@@ -913,6 +1079,11 @@ function _asCfgOf(n) {
   return c;
 }
 
+/** Valeur de config comparée : absente, vide, false ou « none » reviennent au même réglage par défaut. */
+function _asCfgVal(v) {
+  return v === undefined || v === null || v === false || v === '' || v === 'none' ? null : v;
+}
+
 /** Différences entre deux versions du fichier d'architecture. */
 function asDiffArch(oldA, newA) {
   const key = n => n.role + ':' + n.name;
@@ -922,7 +1093,9 @@ function asDiffArch(oldA, newA) {
   for (const [k, n] of nm) {
     if (!om.has(k)) { out.push({ kind: 'add', text: n.name }); continue; }
     const a = _asCfgOf(om.get(k)), b = _asCfgOf(n);
-    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(x => x !== 'env_vars' && x !== 'arch_bootstrap' && _asStable(a[x]) !== _asStable(b[x]));
+    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])]
+      .filter(x => x !== 'env_vars' && x !== 'arch_bootstrap' && _asStable(_asCfgVal(a[x])) !== _asStable(_asCfgVal(b[x])));
+    if ((om.get(k).region || '') !== (n.region || '')) keys.unshift('region');
     if (keys.length) out.push({ kind: 'mod', text: n.name + ' · ' + keys.join(', ') });
   }
   for (const [k, n] of om) if (!nm.has(k)) out.push({ kind: 'del', text: n.name });

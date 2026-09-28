@@ -260,14 +260,15 @@ En plus des séries par host, la réponse porte les agrégats du tableau de bord
 ```json
 {
   "global": { "requests_per_second": 4.0, "error_rate_5xx": 0.0, "bytes_in_total": 0, "bytes_out_total": 1005480 },
-  "edges": [ { "edge_name": "localhost", "requests_per_second": 4.0, "p95_ms": 9.5 } ],
+  "edges": [ { "edge_name": "localhost", "requests_per_second": 4.0, "error_rate": 0.0, "p95_ms": 9.5 } ],
   "tls": { "certs": [ { "domain": "myapp.example.fr", "expires_in_seconds": 5184000 } ] }
 }
 ```
 
 `global` = débit et taux de 5xx du dernier intervalle, toutes passerelles et tous hosts confondus ;
 `bytes_*_total` = octets cumulés depuis le démarrage des passerelles ; `edges` = dernier intervalle
-par passerelle ; `tls.certs` = plus proche expiration par domaine, lue dans les métriques des passerelles.
+par passerelle (la page Infrastructure y lit la latence p95 affichée dans le panneau d'une passerelle) ;
+`tls.certs` = plus proche expiration par domaine, lue dans les métriques des passerelles.
 
 ### `GET /api/v1/metrics/summary`
 

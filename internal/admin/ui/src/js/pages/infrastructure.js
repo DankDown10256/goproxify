@@ -10,11 +10,12 @@ pages.infrastructure = async function() {
   content.innerHTML = '<p style="color:var(--text2)">' + t('common.loading') + '</p>';
   try {
     await _archLoad();
-    const [health, live, metrics, containers] = await Promise.all([
+    const [health, live, metrics, containers, windows] = await Promise.all([
       api('GET','/health').catch(()=>null),
       api('GET','/nodes/live').catch(()=>null),
       api('GET','/metrics/summary').catch(()=>null),
       api('GET','/discovered-containers').catch(()=>null),
+      api('GET','/metrics/proxies?points=1').catch(()=>null),
     ]);
     if (state.page !== 'infrastructure') return;
     const allNodes = _arch.nodes;
@@ -34,6 +35,7 @@ pages.infrastructure = async function() {
       if (c.agent_name) window._asContainers[c.agent_name] = (window._asContainers[c.agent_name] || 0) + 1;
     }
     asApplyLive(live);
+    asApplyEdgeWindows(windows);
     asSample(_arch);
 
     const ta = document.getElementById('topbar-actions');
@@ -48,7 +50,7 @@ pages.infrastructure = async function() {
       <div class="as-main">
         <div class="as-left">
           <section class="as-card"><div class="as-card-h" id="as-topo-h"></div><div id="as-root"></div></section>
-          <section class="as-card" id="as-journal" hidden></section>
+          <section class="as-card" id="as-journal"></section>
         </div>
         <aside class="as-card as-panel" id="as-panel" aria-label="${esc(t('as.panel.label'))}"></aside>
       </div>
@@ -59,22 +61,56 @@ pages.infrastructure = async function() {
   } catch(e) { content.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
 };
 
-/** Journal d'infrastructure : événements de scaling et de santé récents. */
+function _infraEventRow(e) {
+  const l = _asEvLabel(e.event_type);
+  return `<div class="as-ev"><span class="as-ev-t">${esc(_asTime(e.created_at))}</span>
+    <span class="as-tag"${l.tone ? ` data-tone="${l.tone}"` : ''}>${esc(l.label)}</span>
+    <b>${esc(e.node_name || '—')}</b><span class="as-ev-d">${esc(e.detail || '—')}${e.container_id ? ` <small class="as-mono">${esc(String(e.container_id).slice(0, 12))}</small>` : ''}</span></div>`;
+}
+
+/** Journal d'infrastructure : événements de scaling et de santé récents ; « Tout voir » ouvre le journal complet. */
 async function loadInfraJournal() {
   const events = await api('GET', '/node-events?limit=40').catch(() => []);
   const el = document.getElementById('as-journal');
   if (!el) return;
   const list = (Array.isArray(events) ? events : [])
-    .filter(e => /^scale_/.test(e.event_type) || e.event_type === 'health_escalation' || e.event_type === 'health_critical')
+    .filter(e => _asEvCat(e.event_type) === 'scale' || _asEvCat(e.event_type) === 'health')
     .slice(0, 8);
-  el.hidden = !list.length;
-  el.innerHTML = `<div class="as-card-h"><h2>${esc(t('as.journal'))}</h2></div>
-    ${list.map(e => {
-      const l = _asEvLabel(e.event_type);
-      return `<div class="as-ev"><span class="as-ev-t">${esc(_asTime(e.created_at))}</span>
-        <span class="as-tag"${l.tone ? ` data-tone="${l.tone}"` : ''}>${esc(l.label)}</span>
-        <b>${esc(e.node_name || '—')}</b><span class="as-ev-d">${esc(e.detail || e.container_id || '—')}</span></div>`;
-    }).join('')}`;
+  el.innerHTML = `<div class="as-card-h"><h2>${esc(t('as.journal'))}</h2>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="asOpenEvents()">${esc(t('as.evs.see_all'))}</button></div>
+    ${list.length ? list.map(_infraEventRow).join('') : `<div class="as-pn-empty">${esc(t('as.journal_empty'))}</div>`}`;
+}
+
+// ── Journal complet : les 200 derniers événements de nœuds, filtrables par catégorie et par nœud ──
+
+const _asEvM = { list: null, cat: 'all', node: '' };
+
+async function asOpenEvents() {
+  Object.assign(_asEvM, { list: null, cat: 'all', node: '' });
+  _asRenderEvents();
+  const evs = await api('GET', '/node-events?limit=200').catch(() => []);
+  _asEvM.list = Array.isArray(evs) ? evs : [];
+  if (document.getElementById('as-overlay')) _asRenderEvents();
+}
+
+function _asRenderEvents() {
+  const list = _asEvM.list;
+  const cats = [['all', 'as.evs.all'], ['scale', 'as.evs.scale'], ['health', 'as.evs.health'], ['conn', 'as.evs.conn'], ['other', 'as.evs.other']];
+  const nodes = list ? [...new Set(list.map(e => e.node_name).filter(Boolean))].sort() : [];
+  const rows = (list || []).filter(e => (_asEvM.cat === 'all' || _asEvCat(e.event_type) === _asEvM.cat) && (!_asEvM.node || e.node_name === _asEvM.node));
+  _asOverlay(`<div class="as-mh"><b>${esc(t('as.journal'))}</b>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="asCloseModal()" aria-label="${esc(t('common.close'))}">×</button></div>
+    <div class="as-evf">
+      <div class="as-pills">${cats.map(([id, k]) => `<button type="button"${_asEvM.cat === id ? ' data-on' : ''} onclick="_asEvM.cat='${id}';_asRenderEvents()">${esc(t(k))}</button>`).join('')}</div>
+      <select class="arch-select" aria-label="${esc(t('as.evs.node'))}" onchange="_asEvM.node=this.value;_asRenderEvents()">
+        <option value="">${esc(t('as.evs.all_nodes'))}</option>
+        ${nodes.map(n => `<option value="${esc(n)}"${_asEvM.node === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}
+      </select>
+    </div>
+    ${!list ? `<div class="as-pn-empty">${esc(t('common.loading'))}</div>`
+      : rows.length ? `<div class="as-evs">${rows.map(_infraEventRow).join('')}</div>`
+      : `<div class="as-pn-empty">${esc(t('as.evs.none'))}</div>`}
+    <p class="as-rev-sub" style="margin:12px 0 0">${esc(t('as.evs.limit'))}</p>`);
 }
 
 // ── WIZARD : Ajout d'un nœud Infrastructure ───────────────────────────────
@@ -166,16 +202,29 @@ function openInfraWizard() {
 }
 
 
+/** Retire un nœud connecté : un agent est révoqué puis exclu (son conteneur reste à arrêter), une passerelle est supprimée. */
+async function _infraRevokeNode(id, role) {
+  if (role === 'agent') {
+    await api('POST', '/agents/' + encodeURIComponent(id) + '/revoke');
+    await api('POST', '/declared-nodes', {role: 'agent', name: id, config: {excluded: true}}).catch(() => {});
+    return;
+  }
+  await api('DELETE', '/nodes/' + encodeURIComponent(id));
+}
+
+function _infraStopCommand(nodeName) {
+  const svcName = nodeName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  return `# Stop and remove the agent container\ndocker compose stop ${svcName}\ndocker compose rm -f ${svcName}\n\n# Or with plain docker:\ndocker stop ${svcName} && docker rm ${svcName}`;
+}
+
 async function deleteActiveNode(id, name, role) {
   const doDelete = async () => {
     try {
+      await _infraRevokeNode(id, role);
       if (role === 'agent') {
-        await api('POST', '/agents/' + encodeURIComponent(id) + '/revoke');
-        await api('POST', '/declared-nodes', {role: 'agent', name: id, config: {excluded: true}}).catch(() => {});
         toast(t('infra.toast.agent_excluded'), 'success');
         _showAgentStopSnippet(id, name);
       } else {
-        await api('DELETE', '/nodes/' + encodeURIComponent(id));
         toast(t('infra.toast.node_deleted'), 'success');
         navigate('infrastructure');
       }
@@ -207,8 +256,7 @@ async function deleteActiveNode(id, name, role) {
 }
 
 function _showAgentStopSnippet(nodeName, displayName) {
-  const svcName = nodeName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
-  const snippet = `# Stop and remove the agent container\ndocker compose stop ${svcName}\ndocker compose rm -f ${svcName}\n\n# Or with plain docker:\ndocker stop ${svcName} && docker rm ${svcName}`;
+  const snippet = _infraStopCommand(nodeName);
   modal(
     t('infra.excluded.compose_title'),
     `<p style="margin:0 0 10px;font-size:13.5px;">${t('infra.excluded.compose_hint')}</p>
@@ -733,11 +781,20 @@ function asApplyLive(live) {
   window._asLive = m;
 }
 
+/** Dernier intervalle par passerelle relevé par l'Admin (/metrics/proxies) : p95 et taux d'erreurs. */
+function asApplyEdgeWindows(res) {
+  if (!res) return;
+  const m = {};
+  for (const e of res.edges || []) m[e.edge_name] = e;
+  window._asEdgeWin = m;
+}
+
 async function _topoLiveTick(content) {
   if (!content.isConnected || !document.getElementById('as-root')) return;
-  const [live, metrics] = await Promise.all([
+  const [live, metrics, windows] = await Promise.all([
     api('GET', '/nodes/live').catch(() => null),
     api('GET', '/metrics/summary').catch(() => null),
+    api('GET', '/metrics/proxies?points=1').catch(() => null),
   ]);
   if (!live || !content.isConnected || state.page !== 'infrastructure') return;
   const sig = live.nodes.map(n => n.node_name + ':' + n.status).join('|');
@@ -748,6 +805,7 @@ async function _topoLiveTick(content) {
   }
   window._topoSig = sig;
   if (metrics) window._asMetrics = metrics;
+  asApplyEdgeWindows(windows);
   asApplyLive(live);
   asSample(_arch);
   asRenderLive();

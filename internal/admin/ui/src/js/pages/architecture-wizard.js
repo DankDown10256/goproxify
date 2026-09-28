@@ -314,6 +314,8 @@ function openArchWizard() {
   _arch.declaredNodes = [];
   _arch.onlineEdgeEndpoint = '';
   _arch.existingCount = 0;
+  _arch.draft = null;
+  window._asArm = null;
   _arch.loading = true;
   _archLoad();
   navigate('architecture');
@@ -427,6 +429,7 @@ function _archLoad() {
     }
     _arch.loading = false;
     _archSnapshot();
+    if (state.page === 'architecture') _archDraftRestore();
     _archRender();
   });
 }
@@ -439,6 +442,118 @@ function closeArchWizard() {
 
 function _archSnapshot() {
   _arch.base = JSON.parse(JSON.stringify({ hosts: _arch.hosts, haGroups: _arch.haGroups }));
+}
+
+// ── Brouillon : les modifications non enregistrées survivent à un rechargement ou à un changement de rubrique ──
+
+const _ARCH_DRAFT_KEY = 'gpx_arch_draft';
+
+/** Signature du modèle indépendante des ids (régénérés à chaque chargement) : l'architecture a-t-elle changé depuis le brouillon ? */
+function _archSig(model) {
+  const byId = new Map();
+  for (const h of model.hosts) for (const s of h.services || []) byId.set(s.id, s);
+  const svc = s => {
+    const o = { t: s.type, n: s.name };
+    for (const f of Object.keys(_ARCH_CHG_FIELDS)) if (f !== 'portainerKey') o[f] = _archNorm(s[f]);
+    o.targetEdgeId = s.targetEdgeId ? (byId.get(s.targetEdgeId) || {}).name || '' : '';
+    return o;
+  };
+  const hosts = model.hosts.filter(h => (h.services || []).length)
+    .map(h => ({ n: h.name, r: h.region || '', i: !!h.internet, s: h.services.map(svc).sort((a, b) => (a.t + a.n).localeCompare(b.t + b.n)) }))
+    .sort((a, b) => a.n.localeCompare(b.n));
+  const groups = (model.haGroups || []).map(g => g.members.map(id => (byId.get(id) || {}).name || '').sort().join(',')).sort();
+  return JSON.stringify({ hosts, groups });
+}
+
+/** Copie sans secret : les clés Portainer ne sont jamais écrites dans le navigateur. */
+function _archWithoutSecrets(model) {
+  const m = JSON.parse(JSON.stringify(model));
+  for (const h of m.hosts || []) for (const s of h.services || []) delete s.portainerKey;
+  return m;
+}
+
+function _archDraftRead() {
+  try { return JSON.parse(localStorage.getItem(_ARCH_DRAFT_KEY) || 'null'); } catch { return null; }
+}
+
+function _archDraftClear() {
+  try { localStorage.removeItem(_ARCH_DRAFT_KEY); } catch {}
+  _arch.draft = null;
+}
+
+function _archDraftSave() {
+  // Brouillon périmé en attente de décision : on ne l'écrase qu'à la première modification de la toile fraîche.
+  if (_arch.draft && _arch.draft.stale) {
+    if (!(_arch._chg || []).length) return;
+    _arch.draft = null;
+  }
+  try {
+    if (!_arch.base || !(_arch._chg || []).length) { localStorage.removeItem(_ARCH_DRAFT_KEY); return; }
+    localStorage.setItem(_ARCH_DRAFT_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      n: _arch._chg.length,
+      baseSig: _archSig(_arch.base),
+      base: _archWithoutSecrets(_arch.base),
+      model: _archWithoutSecrets({ hosts: _arch.hosts, haGroups: _arch.haGroups }),
+    }));
+  } catch {}
+}
+
+/** Fin de chargement en mode édition : reprend le brouillon s'il porte sur la même architecture, sinon le signale. */
+function _archDraftRestore() {
+  _arch.draft = null;
+  const d = _archDraftRead();
+  if (!d || !d.base || !d.model) return;
+  if (d.baseSig === _archSig(_arch.base)) _archDraftApply(d);
+  else _arch.draft = { savedAt: d.savedAt, stale: true };
+}
+
+/** Remplace la toile par le brouillon ; statut live et clés Portainer viennent du chargement frais. */
+function _archDraftApply(d) {
+  const fresh = new Map();
+  for (const h of _arch.hosts) for (const s of h.services || []) fresh.set(s.type + ':' + (s.nodeName || s.name), s);
+  const merge = m => {
+    for (const h of m.hosts) for (const s of h.services || []) {
+      const f = fresh.get(s.type + ':' + (s.nodeName || s.name));
+      if (!f) continue;
+      s.status = f.status;
+      s.existing = f.existing;
+      if (!s.portainerKey && f.portainerKey) s.portainerKey = f.portainerKey;
+    }
+    return m;
+  };
+  const base = merge(JSON.parse(JSON.stringify(d.base)));
+  const model = merge(JSON.parse(JSON.stringify(d.model)));
+  _arch.base = base;
+  _arch.hosts = model.hosts;
+  _arch.haGroups = model.haGroups || [];
+  _arch.selectedSvcId = null;
+  _arch.selectedHostId = null;
+  _arch.draft = { savedAt: d.savedAt, stale: false };
+}
+
+function asDraftResume() {
+  const d = _archDraftRead();
+  if (d) _archDraftApply(d);
+  _archRender();
+}
+
+function asDraftDiscard() {
+  _archDraftClear();
+  if (state.page === 'architecture') openArchWizard();
+  else if (typeof asRenderLive === 'function') asRenderLive();
+}
+
+function _archDraftBannerHTML() {
+  const d = _arch.draft;
+  if (!d) return '';
+  const date = fmtDate(new Date(d.savedAt).toISOString());
+  return d.stale
+    ? `<div class="arch-msg as-draft" data-tone="warn"><span>${esc(t('as.draft.stale', { date }))}</span>
+        <button class="btn btn-secondary btn-sm" onclick="asDraftResume()">${esc(t('as.draft.resume_anyway'))}</button>
+        <button class="btn btn-ghost btn-sm" onclick="asDraftDiscard()">${esc(t('as.draft.discard'))}</button></div>`
+    : `<div class="arch-msg as-draft" data-tone="info"><span>${esc(t('as.draft.restored', { date }))}</span>
+        <button class="btn btn-ghost btn-sm" onclick="asDraftDiscard()">${esc(t('as.draft.discard'))}</button></div>`;
 }
 
 // Champ d'un rôle → impact sur un nœud déjà déployé.
@@ -590,6 +705,7 @@ function _archRefreshChanges() {
   if (btn) btn.textContent = n ? t('as.edit.review_n', { n }) : t('as.edit.review');
   const list = document.getElementById('as-chgs');
   if (list) list.outerHTML = _asChangesHTML(_arch._chg);
+  _archDraftSave();
 }
 
 function _archCountLabel(n) {
@@ -628,10 +744,23 @@ function asCancelEdit() {
   modal(esc(t('as.edit.discard_title')),
     `<p style="margin:0;font-size:13.5px;line-height:1.5">${esc(t('as.edit.discard_confirm', { n }))}</p>`,
     `<button class="btn btn-secondary" onclick="closeModal()">${esc(t('as.edit.keep_editing'))}</button>
-     <button class="btn btn-danger" onclick="closeModal();closeArchWizard()">${esc(t('as.edit.discard'))}</button>`);
+     <button class="btn btn-danger" onclick="closeModal();_archDraftClear();closeArchWizard()">${esc(t('as.edit.discard'))}</button>`);
 }
 
-/** Revue avant enregistrement : liste des modifications, impact, contrôles. */
+/** Diff exact de architecture.json : entrées actuelles (hors nœuds issus des fichiers de config) vs entrées écrites. */
+function _archPayloadDiffHTML() {
+  const cur = { nodes: (_arch.declaredNodes || []).filter(n => !String(n.id || '').startsWith('cfg:')) };
+  const next = { nodes: _archDeclaredPayload().map(p => p.entry) };
+  const d = asDiffArch(cur, next);
+  const sym = { add: '+', del: '−', mod: '~' };
+  return `<details class="as-rev-diff"><summary>${esc(t('as.rev.diff', { n: d.length }))}</summary>
+    ${d.length
+      ? `<table class="as-diff">${d.map(x => `<tr><td style="width:24px">${sym[x.kind]}</td><td>${esc(x.text)}</td><td style="color:var(--text2)">${esc(t('as.rev.d.' + x.kind))}</td></tr>`).join('')}</table>`
+      : `<div class="as-empty" style="padding:10px 0">${esc(t('as.rev.diff_none'))}</div>`}
+  </details>`;
+}
+
+/** Revue avant enregistrement : liste des modifications, impact, diff du fichier, contrôles. */
 function asOpenReview() {
   const list = _arch._chg = _archChanges();
   const err = _archValidate();
@@ -644,8 +773,12 @@ function asOpenReview() {
       ? `<div class="as-chgs as-chgs-flat">${list.map(c => _asChangeRow(c, false)).join('')}</div>
          <p class="as-rev-imp">${esc(t('as.imp.summary', { list: _asImpactSummary(list) }))}</p>`
       : `<div class="arch-msg" data-tone="info">${esc(t('as.rev.none'))}</div>`}
+    ${_archPayloadDiffHTML()}
     <div class="as-rev-msgs">
-      ${liveDel.map(c => `<div class="arch-msg" data-tone="warn">${esc(t('as.rev.live_removed', { name: c.svc.name }))}</div>`).join('')}
+      ${liveDel.map(c => `<div class="arch-msg" data-tone="warn">
+        <div>${esc(t('as.rev.live_removed', { name: c.svc.name }))}</div>
+        <label class="as-rev-rv"><input type="checkbox" data-revoke="${esc(c.svc.id)}"> ${esc(t('as.rev.revoke', { name: c.svc.name }))}</label>
+      </div>`).join('')}
       ${haNote ? `<div class="arch-msg" data-tone="warn">${esc(haNote)}</div>` : ''}
       ${err ? `<div class="arch-msg" data-tone="error">${esc(err)}</div>` : ''}
     </div>
@@ -658,80 +791,82 @@ function asOpenReview() {
 async function asReviewSave() {
   const btn = document.getElementById('as-rev-save');
   if (btn) { btn.disabled = true; btn.textContent = t('as.rev.saving'); }
-  const added = (_arch._chg || []).filter(c => c.kind === 'add');
+  const chg = _arch._chg || [];
+  const added = chg.filter(c => c.kind === 'add');
   const hosts = [...new Map(added.map(c => [c.host.id, c.host])).values()];
+  const revokeIds = new Set([...document.querySelectorAll('#as-overlay [data-revoke]:checked')].map(i => i.getAttribute('data-revoke')));
+  const toRevoke = chg.filter(c => c.kind === 'del' && revokeIds.has(c.svc.id)).map(c => ({ svc: c.svc, node: _asLiveNode(c.svc) }));
   const ok = await _archSaveTopology();
   if (!ok) {
     if (btn) { btn.disabled = false; btn.textContent = t('as.rev.save'); }
     return;
   }
+  // Révocation demandée pour des nœuds connectés retirés : même opération que « Supprimer » dans le panneau.
+  const revoked = [];
+  for (const { svc, node } of toRevoke) {
+    if (!node) continue;
+    const id = svc.type === 'agent' ? node.node_name : node.id;
+    const res = await _infraRevokeNode(id, svc.type).then(() => true, () => false);
+    revoked.push({ svc, ok: res, cmd: svc.type === 'agent' ? _infraStopCommand(node.node_name) : '' });
+  }
   _asOverlay(`<div class="as-mh"><b>${esc(t('as.rev.done'))}</b></div>
     ${hosts.length ? `<p class="as-rev-sub">${esc(t('as.rev.install_hint'))}</p>
       ${hosts.map(h => `<div class="as-ver"><div><b>${esc(h.name)}</b><small>${esc(added.filter(c => c.host.id === h.id).map(c => c.svc.name).join(', '))}</small></div>
         <div class="as-ver-b"><button class="btn btn-secondary btn-sm" onclick="asOpenConfig('${h.id}','f')">${esc(t('as.config'))}</button></div></div>`).join('')}` : ''}
+    ${revoked.map(r => `<div class="arch-msg" data-tone="${r.ok ? 'info' : 'error'}">
+      <div>${esc(t(r.ok ? 'as.rev.revoked' : 'as.rev.revoke_failed', { name: r.svc.name }))}</div>
+      ${r.ok && r.cmd ? `<div style="margin-top:8px">${esc(t('as.rev.stop_hint'))}</div><pre class="as-code" style="margin-top:6px">${esc(r.cmd)}</pre>` : ''}</div>`).join('')}
     <div class="as-acts" style="justify-content:flex-end">
       <button class="btn btn-primary" onclick="asCloseModal();closeArchWizard()">${esc(t('as.rev.finish'))}</button>
     </div>`);
 }
 
+/** Entrées de architecture.json telles que l'enregistrement les écrit : une par passerelle / agent de la toile. */
+function _archDeclaredPayload() {
+  return _arch.hosts.flatMap(host => (host.services || [])
+    .filter(s => s.type === 'edge' || s.type === 'agent')
+    .map(svc => {
+      const cfg = { host: host.name, internet_exposed: !!host.internet, reachable_host: svc.reachable || '' };
+      if (svc.nodeId) cfg.node_id = svc.nodeId; // UUID stable du nœud live
+      if (svc.type === 'edge') {
+        const g = _archGroupOfSvc(svc.id);
+        cfg.portal        = !!svc.access;
+        cfg.cluster       = !!g;
+        cfg.cluster_group = g ? g.id : '';
+        cfg.domains       = svc.domains || '';
+        cfg.acme          = !!svc.acme;
+        cfg.acme_email    = svc.acmeEmail || '';
+        cfg.dns_provider  = svc.dnsProvider || 'none';
+      } else {
+        cfg.docker         = !!svc.docker;
+        cfg.podman         = !!svc.podman;
+        cfg.k8s            = !!svc.k8s;
+        cfg.portainer      = !!svc.portainer;
+        cfg.portainer_url  = svc.portainerUrl || '';
+        cfg.portainer_key  = svc.portainerKey || '';
+        cfg.placement      = svc.placement || '';
+        // Relu par _archHydrateFromExisting (_archResolveEdgeKey) : sans lui, la passerelle cible choisie se perdait.
+        const target = svc.targetEdgeId ? _archFindSvc(svc.targetEdgeId) : null;
+        cfg.target_edge    = target ? (target.nodeName || target.name) : '';
+      }
+      // Pour les nœuds live, node_name est la clé d'upsert (pas le display_name) : évite un doublon si display_name ≠ node_name.
+      return { svc, host, entry: { role: svc.type, name: svc.nodeName || svc.name, region: host.region || '', environment: '', config: cfg } };
+    }));
+}
+
 async function _archSaveTopology() {
-  const allSvcs = _arch.hosts.flatMap(h =>
-    (h.services || [])
-      .filter(s => s.type === 'edge' || s.type === 'agent')
-      .map(s => ({ svc: s, host: h }))
-  );
+  const allSvcs = _archDeclaredPayload();
   if (!allSvcs.length) { toast(t('arch.save_nothing') || 'Aucun nœud à enregistrer', 'warning'); return false; }
 
   // Nœuds présents avant la sauvegarde (pour détecter les suppressions / renommages)
   const prevDeclared = [...(_arch.declaredNodes || [])];
 
-  const saved = [];
-  for (const { svc, host } of allSvcs) {
-    const cfg = { host: host.name, internet_exposed: !!host.internet, reachable_host: svc.reachable || '' };
-    if (svc.nodeId) cfg.node_id = svc.nodeId; // UUID stable du nœud live
-    if (svc.type === 'edge') {
-      cfg.portal        = !!svc.access;
-      cfg.cluster       = _archInHA(svc.id);
-      cfg.cluster_group = (() => { const g = _archGroupOfSvc(svc.id); return g ? g.id : ''; })();
-      cfg.domains       = svc.domains || '';
-      cfg.acme          = !!svc.acme;
-      cfg.acme_email    = svc.acmeEmail || '';
-      cfg.dns_provider  = svc.dnsProvider || 'none';
-    }
-    if (svc.type === 'agent') {
-      cfg.docker         = !!svc.docker;
-      cfg.podman         = !!svc.podman;
-      cfg.k8s            = !!svc.k8s;
-      cfg.portainer      = !!svc.portainer;
-      cfg.portainer_url  = svc.portainerUrl || '';
-      cfg.portainer_key  = svc.portainerKey || '';
-      cfg.placement      = svc.placement || '';
-    }
-
-    // Si renommage, supprimer l'ancienne entrée
-    const prevName = svc._prevEdgeName || svc._prevAgentName;
-    if (prevName && prevName !== svc.name) {
-      const old = prevDeclared.find(n => n.role === svc.type && n.name === prevName);
-      if (old && old.id && !old.id.startsWith('cfg:')) {
-        await api('DELETE', '/declared-nodes/' + old.id).catch(() => {});
-      }
-    }
-
-    // Pour les nœuds live, utiliser node_name comme clé d'upsert (pas le display_name)
-    // pour éviter de créer un doublon si display_name ≠ node_name.
-    const declName = svc.nodeName || svc.name;
-    const result = await api('POST', '/declared-nodes', {
-      role: svc.type,
-      name: declName,
-      region: host.region || '',
-      environment: '',
-      config: cfg,
-    }).catch(() => null);
-    if (result) saved.push(result);
+  for (const { entry } of allSvcs) {
+    await api('POST', '/declared-nodes', entry).catch(() => null);
   }
 
-  // Supprimer les declared-nodes DB qui ne sont plus sur le canvas
-  const canvasKeys = new Set(allSvcs.map(({ svc }) => svc.type + ':' + (svc.nodeName || svc.name)));
+  // Supprimer les declared-nodes DB qui ne sont plus sur le canvas (retirés ou renommés)
+  const canvasKeys = new Set(allSvcs.map(({ entry }) => entry.role + ':' + entry.name));
   for (const n of prevDeclared) {
     if (n.id && !n.id.startsWith('cfg:') && !canvasKeys.has(n.role + ':' + n.name)) {
       await api('DELETE', '/declared-nodes/' + n.id).catch(() => {});
@@ -767,6 +902,7 @@ async function _archSaveTopology() {
   if (fresh) { _arch.declaredNodes = fresh; _wiz.declaredNodes = fresh; }
 
   toast(t('common.saved') || 'Enregistré', 'success');
+  _archDraftClear();
   _archSnapshot();
   _archRender();
   return true;
@@ -784,7 +920,8 @@ function _archRender() {
   const content = document.getElementById('content');
   if (!content || state.page !== 'architecture') return;
   content.innerHTML = _archCanvasHTML();
-};
+  if (!_arch.loading) _archDraftSave();
+}
 
 /** Mode édition : barre d'édition, toile (hôtes ou tiers), modifications en cours et inspecteur. */
 function _archCanvasHTML() {
@@ -804,6 +941,7 @@ function _archCanvasHTML() {
       <button class="btn btn-secondary btn-sm" onclick="asCancelEdit()">${esc(t(n ? 'common.cancel' : 'as.edit.close'))}</button>
       <button class="btn btn-primary btn-sm" id="as-edit-save" onclick="asOpenReview()" ${err ? 'disabled' : ''}>${esc(n ? t('as.edit.review_n', { n }) : t('as.edit.review'))}</button>
     </div>
+    ${_archDraftBannerHTML()}
     <div class="as-wz">
       <div class="as-wz-main">
         ${_asEditToolbarHTML(_arch)}
@@ -985,6 +1123,7 @@ function _archInspectRole(svc) {
       _archField(t('arch.role.name'), `<input class="arch-input" value="${esc(svc.name)}" oninput="_archSetField('${svc.id}','name',this.value)">` + _archImpactBadge('restart', svc.existing) + _archBefore(svc, 'name'))) +
     _archGroup(t('as.host'),
       _archField(t('as.ins.run_on'), `<select class="arch-select" onchange="asMoveSvc('${svc.id}',this.value)">${hostOpts}</select>`) +
+      (_asCoarse() ? `<div class="arch-cap-desc" style="margin-bottom:6px">${esc(t('as.ins.move_hint'))}</div>` : '') +
       `<div class="arch-cap-desc">${t('arch.opt.region_from_host', { region: esc((host && host.region) || '—') })}</div>` +
       (host ? `<div class="as-acts" style="margin-top:8px">
         <button class="btn btn-secondary btn-sm" onclick="_archSelectHost('${host.id}')">${esc(t('as.ins.edit_host'))}</button>
