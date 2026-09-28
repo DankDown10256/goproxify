@@ -782,6 +782,25 @@ Exemple de fichier planification (`task.json`) :
 }
 ```
 
+**`security playbook`** — enchaîne plusieurs étapes (`action`, `wait`, `condition`, `approval`), contrairement à une règle (une condition → une action). Déclenché comme action d'une règle ou d'une planification (`{ "type": "run_playbook", "playbook_id": "…" }`), ou manuellement (`run`). `history` liste les exécutions (`playbook_runs`) avec leur statut (`running`, `waiting_approval`, `completed`, `failed`, `stopped`) et leur journal détaillé ; `approve`/`reject` décident d'une exécution suspendue à une étape `approval` (`<run-id>`, pas l'ID du playbook).
+
+Exemple de fichier playbook (`playbook.json`) :
+
+```json
+{
+  "name": "Incident CVE critique",
+  "steps": [
+    { "type": "action", "action": { "type": "notify", "notify_severity": "critical", "notify_message": "CVE critique détectée" } },
+    { "type": "approval" },
+    { "type": "action", "action": { "type": "disable_proxy" } },
+    { "type": "wait", "wait_sec": 900 },
+    { "type": "condition", "condition": { "type": "cve_critical", "cvss_threshold": 9.0 } },
+    { "type": "action", "action": { "type": "run_backup", "backup_retention": 5 } }
+  ],
+  "enabled": true
+}
+```
+
 ---
 
 ### `goproxify containers`

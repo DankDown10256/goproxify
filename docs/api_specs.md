@@ -991,6 +991,46 @@ Historique des 100 dernières exécutions (30 jours conservés). Réponse : tabl
 
 ---
 
+## Playbooks
+
+### `GET /api/v1/playbooks`
+
+Liste les playbooks. Réponse : tableau `{ id, name, description, steps, enabled, created_at, updated_at }`.
+
+### `POST /api/v1/playbooks`
+
+Crée un playbook. Corps : `{ name, description, steps, enabled }`. `steps` : tableau non vide de `{ type: "action"|"wait"|"condition"|"approval", action?, wait_sec?, condition?, note? }`. `400` si `name` vide ou `steps` vide. Réponse : `{ id }` (201).
+
+### `PUT /api/v1/playbooks/:id`
+
+Met à jour un playbook existant. Même corps que la création.
+
+### `DELETE /api/v1/playbooks/:id`
+
+Supprime un playbook (`204`).
+
+### `POST /api/v1/playbooks/:id/run`
+
+Démarre une exécution depuis la première étape. Réponse : `{ run_id }`.
+
+### `GET /api/v1/playbooks/:id/runs`
+
+Liste les 50 dernières exécutions du playbook. Réponse : tableau `{ id, current_step, status, log, started_at, updated_at, finished_at }` (`status` : `running`, `waiting_approval`, `completed`, `failed`, `stopped`).
+
+### `GET /api/v1/playbooks/runs/:run_id`
+
+Détail d'une exécution : `{ id, playbook_id, playbook_name, steps, current_step, status, log, context, started_at, updated_at, finished_at }`.
+
+### `POST /api/v1/playbooks/runs/:run_id/approve`
+
+Approuve une exécution suspendue à une étape `approval` : reprend à l'étape suivante. `400` si l'exécution n'est pas `waiting_approval`. Réponse : `{ ok: true }`.
+
+### `POST /api/v1/playbooks/runs/:run_id/reject`
+
+Refuse une exécution suspendue à une étape `approval` : l'exécution passe au statut `stopped`. `400` si l'exécution n'est pas `waiting_approval`. Réponse : `{ ok: true }`.
+
+---
+
 ## Accès MCP (admin)
 
 Périmètre d'accès du serveur MCP, admin uniquement (`RequireAdmin`).

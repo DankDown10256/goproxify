@@ -708,3 +708,184 @@ func (h *Handler) toolListScheduledTaskRuns(r *http.Request, id string) (any, er
 	}
 	return out, nil
 }
+
+// ── Playbooks ─────────────────────────────────────────────────────────────────
+
+func (h *Handler) toolListPlaybooks(r *http.Request) (any, error) {
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, name, description, steps_json, enabled, created_at, updated_at FROM playbooks ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, name, desc, stepsJSON string
+		var enabled int
+		var createdAt, updatedAt time.Time
+		if rows.Scan(&id, &name, &desc, &stepsJSON, &enabled, &createdAt, &updatedAt) != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "name": name, "description": desc, "steps": json.RawMessage(stepsJSON),
+			"enabled": enabled == 1, "created_at": createdAt, "updated_at": updatedAt,
+		})
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolCreatePlaybook(r *http.Request, args map[string]any) (any, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return nil, fmt.Errorf("name est requis")
+	}
+	steps, ok := args["steps"].([]any)
+	if !ok || len(steps) == 0 {
+		return nil, fmt.Errorf("steps est requis (au moins une étape)")
+	}
+	stepsJSON, _ := json.Marshal(steps)
+	description, _ := args["description"].(string)
+	enabled := 1
+	if e, ok := args["enabled"].(bool); ok && !e {
+		enabled = 0
+	}
+	id := uuid.New().String()
+	if _, err := h.DB.ExecContext(r.Context(),
+		`INSERT INTO playbooks (id, name, description, steps_json, enabled) VALUES (?,?,?,?,?)`,
+		id, name, description, string(stepsJSON), enabled); err != nil {
+		return nil, err
+	}
+	return map[string]any{"id": id, "name": name}, nil
+}
+
+func (h *Handler) toolUpdatePlaybook(r *http.Request, args map[string]any) (any, error) {
+	id, _ := args["id"].(string)
+	name, _ := args["name"].(string)
+	if id == "" || name == "" {
+		return nil, fmt.Errorf("id et name requis")
+	}
+	steps, ok := args["steps"].([]any)
+	if !ok || len(steps) == 0 {
+		return nil, fmt.Errorf("steps est requis (au moins une étape)")
+	}
+	stepsJSON, _ := json.Marshal(steps)
+	description, _ := args["description"].(string)
+	enabled := 1
+	if e, ok := args["enabled"].(bool); ok && !e {
+		enabled = 0
+	}
+	res, err := h.DB.ExecContext(r.Context(),
+		`UPDATE playbooks SET name=?, description=?, steps_json=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		name, description, string(stepsJSON), enabled, id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, fmt.Errorf("playbook introuvable : %s", id)
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func (h *Handler) toolDeletePlaybook(ctx context.Context, id string) (any, error) {
+	res, err := h.DB.ExecContext(ctx, `DELETE FROM playbooks WHERE id=?`, id)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("playbook introuvable : %s", id)
+	}
+	return map[string]any{"deleted": id}, nil
+}
+
+func (h *Handler) toolRunPlaybookNow(ctx context.Context, id string) (any, error) {
+	if id == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	if h.Playbooks == nil {
+		return nil, fmt.Errorf("moteur de playbooks non disponible")
+	}
+	runID, err := h.Playbooks.StartRun(ctx, id, nil)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"run_id": runID}, nil
+}
+
+func (h *Handler) toolListPlaybookRuns(r *http.Request, playbookID string) (any, error) {
+	if playbookID == "" {
+		return nil, fmt.Errorf("id requis")
+	}
+	rows, err := h.DB.QueryContext(r.Context(),
+		`SELECT id, current_step, status, log_json, started_at, updated_at, finished_at
+		 FROM playbook_runs WHERE playbook_id=? ORDER BY started_at DESC LIMIT 50`, playbookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []map[string]any
+	for rows.Next() {
+		var id, status, logJSON string
+		var step int
+		var startedAt, updatedAt time.Time
+		var finishedAt sql.NullTime
+		if rows.Scan(&id, &step, &status, &logJSON, &startedAt, &updatedAt, &finishedAt) != nil {
+			continue
+		}
+		item := map[string]any{
+			"id": id, "current_step": step, "status": status, "log": json.RawMessage(logJSON),
+			"started_at": startedAt, "updated_at": updatedAt,
+		}
+		if finishedAt.Valid {
+			item["finished_at"] = finishedAt.Time
+		}
+		out = append(out, item)
+	}
+	if out == nil {
+		out = []map[string]any{}
+	}
+	return out, nil
+}
+
+func (h *Handler) toolGetPlaybookRun(r *http.Request, runID string) (any, error) {
+	if runID == "" {
+		return nil, fmt.Errorf("run_id requis")
+	}
+	var playbookID, playbookName, stepsJSON, status, logJSON, contextJSON string
+	var step int
+	var startedAt, updatedAt time.Time
+	var finishedAt sql.NullTime
+	err := h.DB.QueryRowContext(r.Context(),
+		`SELECT playbook_id, playbook_name, steps_json, current_step, status, log_json, context_json, started_at, updated_at, finished_at
+		 FROM playbook_runs WHERE id=?`, runID,
+	).Scan(&playbookID, &playbookName, &stepsJSON, &step, &status, &logJSON, &contextJSON, &startedAt, &updatedAt, &finishedAt)
+	if err != nil {
+		return nil, fmt.Errorf("run introuvable : %w", err)
+	}
+	item := map[string]any{
+		"id": runID, "playbook_id": playbookID, "playbook_name": playbookName,
+		"steps": json.RawMessage(stepsJSON), "current_step": step, "status": status,
+		"log": json.RawMessage(logJSON), "context": json.RawMessage(contextJSON),
+		"started_at": startedAt, "updated_at": updatedAt,
+	}
+	if finishedAt.Valid {
+		item["finished_at"] = finishedAt.Time
+	}
+	return item, nil
+}
+
+func (h *Handler) toolDecidePlaybookRun(runID string, approve bool) (any, error) {
+	if runID == "" {
+		return nil, fmt.Errorf("run_id requis")
+	}
+	if h.Playbooks == nil {
+		return nil, fmt.Errorf("moteur de playbooks non disponible")
+	}
+	if err := h.Playbooks.Decide(runID, approve); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true}, nil
+}

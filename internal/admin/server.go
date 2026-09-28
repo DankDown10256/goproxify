@@ -822,6 +822,7 @@ func (s *Server) Start(ctx context.Context) error {
 		OnBansChange: pushBans,
 		RulesEngine:  s.rulesEngine,
 		Scheduler:    s.schedEngine,
+		Playbooks:    s.pbEngine,
 		CertDeployer: certDeployer,
 		InternalCA:   internalCAMgr,
 	}

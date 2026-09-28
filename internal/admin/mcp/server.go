@@ -62,7 +62,9 @@ type Handler struct {
 	// RulesEngine (optionnel) — moteur de règles automatiques pour l'outil run_rule.
 	RulesEngine RulesEvaluator
 	// Scheduler (optionnel) — planificateur cron pour l'outil run_scheduled_task.
-	Scheduler    ScheduleRunner
+	Scheduler ScheduleRunner
+	// Playbooks (optionnel) — moteur de playbooks pour run_playbook_now/approve/reject.
+	Playbooks    PlaybookRunner
 	CertDeployer CertDeployerIface   // optionnel — déclenche les déploiements de certs
 	InternalCA   *internalca.Manager // optionnel — CA interne (émission de certs hors ACME)
 	ArchStore    *archstore.Store    // optionnel — architecture.json (outil get_architecture)
@@ -80,6 +82,12 @@ type RulesEvaluator interface {
 // ScheduleRunner est implémenté par scheduler.Engine (évite l'import direct).
 type ScheduleRunner interface {
 	RunNow(id string) error
+}
+
+// PlaybookRunner est implémenté par playbooks.Engine (évite l'import direct).
+type PlaybookRunner interface {
+	StartRun(ctx context.Context, playbookID string, detail map[string]any) (string, error)
+	Decide(runID string, approve bool) error
 }
 
 // CertDeployerIface est implémenté par certdeploy.Deployer (évite l'import direct).
@@ -567,6 +575,62 @@ var tools = []map[string]any{
 		"inputSchema": schema(req("id", "string", "ID de la planification")),
 	},
 	{
+		"name":        "list_playbooks",
+		"description": "Liste les playbooks : séquences d'étapes (action, attente, condition, approbation) déclenchables via une règle (action run_playbook), une planification, ou manuellement.",
+		"inputSchema": schema(),
+	},
+	{
+		"name":        "create_playbook",
+		"description": "Crée un playbook.",
+		"inputSchema": schema(
+			req("name", "string", "Nom du playbook"),
+			req("steps", "array", "Étapes : [{\"type\":\"action\",\"action\":{...}}, {\"type\":\"wait\",\"wait_sec\":900}, {\"type\":\"condition\",\"condition\":{...}}, {\"type\":\"approval\"}]"),
+			opt("description", "string", "Description"),
+			opt("enabled", "boolean", "Activer immédiatement (défaut: true)"),
+		),
+	},
+	{
+		"name":        "update_playbook",
+		"description": "Met à jour un playbook existant.",
+		"inputSchema": schema(
+			req("id", "string", "ID du playbook"),
+			req("name", "string", "Nom du playbook"),
+			req("steps", "array", "Étapes (voir create_playbook)"),
+			opt("description", "string", "Description"),
+			opt("enabled", "boolean", "Activé (défaut: true)"),
+		),
+	},
+	{
+		"name":        "delete_playbook",
+		"description": "Supprime un playbook par son ID.",
+		"inputSchema": schema(req("id", "string", "ID du playbook à supprimer")),
+	},
+	{
+		"name":        "run_playbook_now",
+		"description": "Démarre l'exécution d'un playbook depuis sa première étape. Retourne l'ID du run, à suivre avec get_playbook_run.",
+		"inputSchema": schema(req("id", "string", "ID du playbook")),
+	},
+	{
+		"name":        "list_playbook_runs",
+		"description": "Liste les 50 dernières exécutions d'un playbook.",
+		"inputSchema": schema(req("id", "string", "ID du playbook")),
+	},
+	{
+		"name":        "get_playbook_run",
+		"description": "Détail d'une exécution de playbook : étape courante, statut, journal de chaque étape.",
+		"inputSchema": schema(req("run_id", "string", "ID de l'exécution")),
+	},
+	{
+		"name":        "approve_playbook_run",
+		"description": "Approuve une exécution suspendue à une étape d'approbation : reprend à l'étape suivante.",
+		"inputSchema": schema(req("run_id", "string", "ID de l'exécution")),
+	},
+	{
+		"name":        "reject_playbook_run",
+		"description": "Refuse une exécution suspendue à une étape d'approbation : l'exécution s'arrête.",
+		"inputSchema": schema(req("run_id", "string", "ID de l'exécution")),
+	},
+	{
 		"name":        "export_automation",
 		"description": "Exporte en YAML toute la configuration d'automatisation (règles, canaux d'alerte, silences), réimportable telle quelle (GitOps). Les canaux exportent leur config en clair (identifiants inclus) : à traiter comme un secret.",
 		"inputSchema": schema(),
@@ -759,6 +823,30 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 	case "list_scheduled_task_runs":
 		id, _ := p.Arguments["id"].(string)
 		result, toolErr = h.toolListScheduledTaskRuns(r, id)
+	case "list_playbooks":
+		result, toolErr = h.toolListPlaybooks(r)
+	case "create_playbook":
+		result, toolErr = h.toolCreatePlaybook(r, p.Arguments)
+	case "update_playbook":
+		result, toolErr = h.toolUpdatePlaybook(r, p.Arguments)
+	case "delete_playbook":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolDeletePlaybook(r.Context(), id)
+	case "run_playbook_now":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolRunPlaybookNow(r.Context(), id)
+	case "list_playbook_runs":
+		id, _ := p.Arguments["id"].(string)
+		result, toolErr = h.toolListPlaybookRuns(r, id)
+	case "get_playbook_run":
+		id, _ := p.Arguments["run_id"].(string)
+		result, toolErr = h.toolGetPlaybookRun(r, id)
+	case "approve_playbook_run":
+		id, _ := p.Arguments["run_id"].(string)
+		result, toolErr = h.toolDecidePlaybookRun(id, true)
+	case "reject_playbook_run":
+		id, _ := p.Arguments["run_id"].(string)
+		result, toolErr = h.toolDecidePlaybookRun(id, false)
 	case "export_automation":
 		result, toolErr = h.toolExportAutomation(r)
 	case "import_automation":

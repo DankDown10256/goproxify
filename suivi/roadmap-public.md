@@ -20,6 +20,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Escalades avec accusé de réception** : des paliers renotifient un événement non acquitté vers d'autres canaux, jusqu'à acquittement
 - **Planifications (cron)** : déclenche une action du moteur de règles à heure fixe (expression cron 5 champs), indépendamment de toute condition
 - **Approbation avant action** : une règle peut exiger qu'un admin approuve ou refuse son action avant exécution
+- **Playbooks** : enchaîne action, attente, condition et approbation en une séquence, déclenchable comme une action de règle/planification ou manuellement
 - **Page admin "Accès MCP"** : allowlist d'IP sources pour `/mcp` (réseaux privés par défaut), vue des utilisateurs porteurs d'un token, catalogue de scopes ↔ outils
 - **IP client fiable** : les en-têtes `X-Forwarded-For` / `CF-Connecting-IP` / `X-Real-IP` ne sont crus que depuis un proxy de confiance (`GPX_TRUSTED_PROXIES`) — fin du contournement Fail2Ban/Sentinel par IP forgée
 - **MCP — allowlist de destinations backend** : `create_proxy` / `update_proxy` ne peuvent pointer que vers des destinations autorisées (réseaux privés par défaut), contre le détournement de trafic par prompt injection

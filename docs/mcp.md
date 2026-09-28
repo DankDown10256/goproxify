@@ -712,6 +712,103 @@ Refuse une action en attente : elle ne sera jamais exécutée.
 
 ---
 
+### `list_playbooks`
+
+Liste les playbooks (séquences d'étapes déclenchables via une règle, une planification, ou manuellement).
+
+**Réponse :** tableau `{ id, name, description, steps, enabled, created_at, updated_at }`
+
+---
+
+### `create_playbook`
+
+Crée un playbook.
+
+| Paramètre     | Type    | Requis | Description                                                       |
+|---------------|---------|--------|---------------------------------------------------------------------|
+| `name`        | string  | Oui    | Nom du playbook                                                     |
+| `steps`       | array   | Oui    | `[{"type":"action","action":{...}}, {"type":"wait","wait_sec":900}, {"type":"condition","condition":{...}}, {"type":"approval"}]` |
+| `description` | string  | —      | Description                                                         |
+| `enabled`     | boolean | —      | Activer immédiatement (défaut `true`)                               |
+
+**Réponse :** `{ id, name }`
+
+---
+
+### `update_playbook`
+
+Met à jour un playbook existant. Mêmes paramètres que `create_playbook`, plus `id` (requis).
+
+---
+
+### `delete_playbook`
+
+| Paramètre | Type   | Requis | Description                |
+|-----------|--------|--------|-------------------------------|
+| `id`      | string | Oui    | ID du playbook à supprimer     |
+
+---
+
+### `run_playbook_now`
+
+Démarre l'exécution d'un playbook depuis sa première étape.
+
+| Paramètre | Type   | Requis | Description        |
+|-----------|--------|--------|------------------------|
+| `id`      | string | Oui    | ID du playbook         |
+
+**Réponse :** `{ run_id }` — à suivre avec `get_playbook_run`.
+
+---
+
+### `list_playbook_runs`
+
+Liste les 50 dernières exécutions d'un playbook.
+
+| Paramètre | Type   | Requis | Description    |
+|-----------|--------|--------|-------------------|
+| `id`      | string | Oui    | ID du playbook      |
+
+**Réponse :** tableau `{ id, current_step, status, log, started_at, updated_at, finished_at }`
+
+---
+
+### `get_playbook_run`
+
+Détail d'une exécution : étape courante, statut, journal de chaque étape.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|----------------------|
+| `run_id`  | string | Oui    | ID de l'exécution     |
+
+**Réponse :** `{ id, playbook_id, playbook_name, steps, current_step, status, log, context, started_at, updated_at, finished_at }`
+
+---
+
+### `approve_playbook_run`
+
+Approuve une exécution suspendue à une étape d'approbation : reprend à l'étape suivante.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|----------------------|
+| `run_id`  | string | Oui    | ID de l'exécution     |
+
+**Réponse :** `{ ok: true }`
+
+---
+
+### `reject_playbook_run`
+
+Refuse une exécution suspendue à une étape d'approbation : l'exécution s'arrête.
+
+| Paramètre | Type   | Requis | Description       |
+|-----------|--------|--------|----------------------|
+| `run_id`  | string | Oui    | ID de l'exécution     |
+
+**Réponse :** `{ ok: true }`
+
+---
+
 ### `list_silences`
 
 Liste les fenêtres de silence, communes au moteur de règles et au moteur d'alertes (suspendent l'exécution des actions / l'envoi des notifications ; la condition ou l'événement reste évalué et journalisé).

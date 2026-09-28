@@ -25,6 +25,8 @@ func runSecurity() {
 		runSecurityRules()
 	case "schedule":
 		runSecuritySchedule()
+	case "playbook":
+		runSecurityPlaybook()
 	case "cve":
 		runSecurityCVE()
 	case "help", "":
@@ -36,6 +38,7 @@ Sous-commandes :
   waf      Config WAF d'un proxy
   rules    Moteur de règles automatiques
   schedule Planifications (cron) : exécute une action à heure fixe
+  playbook Enchaîne plusieurs étapes (action, attente, condition, approbation)
   cve      SLA de correction des CVE (délai attendu selon la gravité)
 
 goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
@@ -79,6 +82,15 @@ goproxify security schedule update <id> -file <task.json> [-admin-url …] [-tok
 goproxify security schedule delete <id> [-y]           [-admin-url …] [-token …]
 goproxify security schedule run    <id>                [-admin-url …] [-token …]
 goproxify security schedule history <id>               [-admin-url …] [-token …]
+
+goproxify security playbook list                         [-admin-url …] [-token …]
+goproxify security playbook create -file <playbook.json> [-admin-url …] [-token …]
+goproxify security playbook update <id> -file <playbook.json> [-admin-url …] [-token …]
+goproxify security playbook delete <id> [-y]             [-admin-url …] [-token …]
+goproxify security playbook run    <id>                  [-admin-url …] [-token …]
+goproxify security playbook history <id>                 [-admin-url …] [-token …]
+goproxify security playbook approve <run-id>             [-admin-url …] [-token …]
+goproxify security playbook reject  <run-id>             [-admin-url …] [-token …]
 
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
@@ -1058,6 +1070,200 @@ func runSecuritySchedule() {
 
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande schedule inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+// ── Playbooks (enchaîne action / attente / condition / approbation) ──────────
+
+func runSecurityPlaybook() {
+	sub := subcommand(os.Args, 3)
+	switch sub {
+	case "list", "":
+		args := parseFlags(os.Args[4:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var pbs []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/playbooks", nil, &pbs); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook list : %v\n", err)
+			os.Exit(1)
+		}
+		if len(pbs) == 0 {
+			fmt.Println("(aucun playbook)")
+			return
+		}
+		for _, pb := range pbs {
+			id, _ := pb["id"].(string)
+			name, _ := pb["name"].(string)
+			steps, _ := pb["steps"].([]any)
+			enabled := "non"
+			if e, ok := pb["enabled"].(bool); ok && e {
+				enabled = "oui"
+			}
+			fmt.Printf("[%s] %-24s  %d étape(s)  actif=%s\n", id, name, len(steps), enabled)
+		}
+
+	case "create":
+		args := parseFlags(os.Args[4:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook create -file <playbook.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/playbooks", body, &result, 200, 201); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook create : %v\n", err)
+			os.Exit(1)
+		}
+		id, _ := result["id"].(string)
+		fmt.Printf("Playbook créé : %s\n", id)
+
+	case "update":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook update <id> -file <playbook.json>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook update <id> -file <playbook.json>")
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/playbooks/"+id, body, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook update : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Playbook %s mis à jour.\n", id)
+
+	case "delete":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook delete <id> [-y]")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		if flagValue(args, "-y", "") == "" {
+			fmt.Printf("Supprimer le playbook %s ? [y/N] ", id)
+			var ans string
+			fmt.Scanln(&ans) //nolint:errcheck
+			if ans != "y" && ans != "Y" {
+				fmt.Println("Annulé.")
+				return
+			}
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("DELETE", "/api/v1/playbooks/"+id, nil, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook delete : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Playbook %s supprimé.\n", id)
+
+	case "run":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook run <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var result map[string]any
+		if _, err := client.DoJSON("POST", "/api/v1/playbooks/"+id+"/run", nil, &result, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook run : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Playbook démarré, run %s.\n", result["run_id"])
+
+	case "history":
+		id := subcommand(os.Args, 4)
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security playbook history <id>")
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		var runs []map[string]any
+		if _, err := client.DoJSON("GET", "/api/v1/playbooks/"+id+"/runs", nil, &runs); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook history : %v\n", err)
+			os.Exit(1)
+		}
+		if len(runs) == 0 {
+			fmt.Println("(aucune exécution)")
+			return
+		}
+		for _, run := range runs {
+			fmt.Printf("[%v] %-18s étape %v  %v\n", run["id"], run["status"], run["current_step"], run["started_at"])
+		}
+
+	case "approve", "reject":
+		runID := subcommand(os.Args, 4)
+		if runID == "" {
+			fmt.Fprintf(os.Stderr, "usage: goproxify security playbook %s <run-id>\n", sub)
+			os.Exit(1)
+		}
+		args := parseFlags(os.Args[5:])
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/playbooks/runs/"+runID+"/"+sub, nil, nil, 200); err != nil {
+			fmt.Fprintf(os.Stderr, "playbook %s : %v\n", sub, err)
+			os.Exit(1)
+		}
+		verb := "approuvé"
+		if sub == "reject" {
+			verb = "refusé"
+		}
+		fmt.Printf("Run %s %s.\n", runID, verb)
+
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande playbook inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

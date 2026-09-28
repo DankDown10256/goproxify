@@ -338,6 +338,23 @@ La **Vue d'ensemble** (`Admin > Automatisation`) affiche un bandeau listant les 
 
 API : `GET /rules-engine/pending[?status=pending|approved|rejected]`, `POST /rules-engine/pending/{id}/approve`, `POST /rules-engine/pending/{id}/reject`. CLI : `goproxify security rules pending list|approve|reject`. MCP : `list_pending_actions`, `approve_pending_action`, `reject_pending_action`.
 
+### Playbooks
+
+Un **playbook** (`Admin > Automatisation > Automatisations > Playbooks`, tables `playbooks`/`playbook_runs`) enchaîne plusieurs étapes, contrairement à une règle simple (une condition → une action) :
+
+| Étape | Effet |
+|---|---|
+| `action` | Exécute une action du moteur de règles (mêmes types qu'une règle ou une planification) |
+| `wait` | Attend `wait_sec` secondes avant l'étape suivante |
+| `condition` | Évalue une condition du moteur de règles ; si fausse, le playbook s'arrête (statut `stopped`, pas une erreur) |
+| `approval` | Suspend l'exécution (statut `waiting_approval`) jusqu'à une décision humaine |
+
+Un playbook se déclenche comme une **action** de règle ou de planification (`type: "run_playbook"`, `playbook_id`), ou manuellement (bouton **Exécuter**, `POST /playbooks/{id}/run`). Chaque déclenchement crée un **run** (`playbook_runs`) qui avance de manière asynchrone : les étapes `action`/`condition` s'exécutent immédiatement, une étape `wait` reprogramme la suite après son délai, une étape `approval` suspend jusqu'à `POST /playbooks/runs/{run_id}/approve` ou `.../reject` (visible et actionnable depuis l'historique du playbook). Un run a pour statut `running`, `waiting_approval`, `completed`, `failed` ou `stopped`, et journalise chaque étape (`log`) dans `GET /playbooks/{id}/runs` ou `GET /playbooks/runs/{run_id}` (via l'API REST — l'UI et le CLI utilisent le premier).
+
+> ⚠️ Comme le regroupement anti-bruit et les escalades, l'avancement d'un run (minuteur `wait`, attente `approval`) vit en mémoire : un redémarrage de l'Admin pendant qu'un run est en cours l'interrompt sans le reprendre automatiquement.
+
+API : `GET/POST /playbooks`, `PUT/DELETE /playbooks/{id}`, `POST /playbooks/{id}/run`, `GET /playbooks/{id}/runs`, `GET/POST /playbooks/runs/{run_id}[/approve|reject]`. CLI : `goproxify security playbook list|create|update|delete|run|history|approve|reject`. MCP : `list_playbooks`, `create_playbook`, `update_playbook`, `delete_playbook`, `run_playbook_now`, `list_playbook_runs`, `get_playbook_run`, `approve_playbook_run`, `reject_playbook_run`.
+
 ---
 
 ## Timeouts serveur HTTP/QUIC
