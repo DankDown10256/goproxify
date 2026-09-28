@@ -420,11 +420,11 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// shipMessage ne renvoie plus "request_id=<id>" : RequestID voyage maintenant comme son
-// propre champ structuré (ShipEntry.RequestID) jusqu'à l'Admin, plus besoin de le glisser
-// dans un texte libre — ça ne faisait que dupliquer l'info et rendre le message peu lisible.
-func shipMessage(_ accessEntry) string {
-	return ""
+// shipMessage porte le User-Agent de la requête (déjà capturé sur accessEntry, jamais
+// transmis jusqu'ici) — RequestID, lui, voyage comme son propre champ structuré
+// (ShipEntry.RequestID), plus besoin de le glisser ici.
+func shipMessage(e accessEntry) string {
+	return e.UserAgent
 }
 
 // stripHostPort retire le port de host:port pour aligner domain Prism / proxies.host.
