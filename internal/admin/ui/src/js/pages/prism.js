@@ -106,6 +106,10 @@ async function renderPrismPage() {
       window._edgeNodes = (nodes || []).filter(n => n.role === 'edge');
     } catch { /* ignore */ }
   }
+  // Échelle de temps alignée sur la rétention des logs d'accès configurée (voir
+  // ensureLogsRetention/logsPeriodsForRetention, définies globalement dans logs.js) —
+  // inutile de proposer "7j" si tout est purgé après 3 jours.
+  await ensureLogsRetention();
 
 
 
@@ -486,8 +490,8 @@ async function renderPrismPage() {
         </select>`;
     const icoCompare = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>`;
     const icoLive = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
-    const quickBtns = [['15 min',900000],['1h',3600000],['6h',21600000],['24h',86400000],['7j',604800000]].map(([lbl,ms])=>
-      `<button type="button" class="btn btn-secondary btn-sm" data-prism="quick" data-ms="${ms}"${liveMode ? ' disabled' : ''}>${lbl}</button>`
+    const quickBtns = logsPeriodsForRetention(logsRetention.access).map(({label, ms})=>
+      `<button type="button" class="seg-btn" data-prism="quick" data-ms="${ms}"${liveMode ? ' disabled' : ''}>${label}</button>`
     ).join('');
     return `
       <div class="prism-filters">
@@ -506,7 +510,7 @@ async function renderPrismPage() {
           <input type="datetime-local" id="prism-to" class="form-input" style="max-width:168px" value="${esc(selTo)}" data-prism="to"${liveMode ? ' disabled' : ''}>
         </div>
         <div class="prism-fg-sep"></div>
-        <div class="prism-fg" style="gap:4px">${quickBtns}</div>
+        <div class="prism-fg"><div class="logs-seg">${quickBtns}</div></div>
         <div class="prism-fg prism-fg-end" style="gap:4px">
           <button type="button" class="btn btn-primary btn-sm" id="prism-refresh-btn" data-prism="refresh">${esc(t('obs.syn.refresh'))}</button>
           <span id="prism-live-indicator" class="prism-live-indicator" style="display:${liveMode ? 'inline-flex' : 'none'};margin:0 4px">
@@ -616,6 +620,11 @@ async function renderPrismPage() {
   let _liveMapFeed   = [];         // buffer des événements récents (50 max)
   const LIVE_MAP_INTERVAL_MS = 4000;
   const LIVE_MAP_FEED_MAX = 50;
+  // Masque par défaut le trafic réseau local/privé (auto-supervision de l'Admin, souvent
+  // la même IP répétée en boucle) — country_code "LO" est déjà la convention Prism pour
+  // ce trafic (voir bansByCountry / GetGeoBreakdown côté backend).
+  let prismHideInternal = true;
+  const isInternalLiveEvent = e => prismHideInternal && e.country_code === 'LO';
 
   // Mode actif de la choroplèthe : 'requests' | 'error_rate' | 'banned_ips'
   let geoViewMode = 'requests';
@@ -626,9 +635,13 @@ async function renderPrismPage() {
   function geoHtml(geo) {
     const liveFeedHtml = liveMode ? `
       <div id="prism-live-feed-wrap" style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <span class="logs-live-dot"></span>
           <span style="font-size:11px;font-weight:600;color:var(--text2)">${esc(t('pz.live_conns'))}</span>
+          <label class="logs-toggle-inline" style="margin-left:auto">
+            <span class="toggle"><input type="checkbox" id="prism-hide-internal" ${prismHideInternal ? 'checked' : ''} data-prism="hide-internal"><span class="toggle-slider"></span></span>
+            ${esc(t('logs.hide_internal'))}
+          </label>
         </div>
         <div id="prism-live-feed" style="max-height:200px;overflow-y:auto;font-size:11px">
           <div style="color:var(--text3);font-size:12px;padding:8px 0">${esc(t('prism.wait_traffic'))}</div>
@@ -827,9 +840,12 @@ async function renderPrismPage() {
       const events = await api('GET', '/prism/live-ips?' + q.toString()).catch(() => []);
       if (!Array.isArray(events) || !events.length) return;
       // Ne conserver que les events plus récents que since (tri desc, on prend le plus récent comme prochain since)
+      // — calculé sur les events bruts : un event interne masqué à l'affichage ne doit pas
+      // empêcher le curseur d'avancer (sinon on le re-récupère en boucle sans jamais dépasser).
       _liveMapLastTs = events[0].ts || new Date().toISOString();
+      const visible = events.filter(e => !isInternalLiveEvent(e));
       // Filtrer les doublons déjà dans le feed
-      const newEvts = events.filter(e => !_liveMapFeed.some(f => f.ip === e.ip && f.ts === e.ts));
+      const newEvts = visible.filter(e => !_liveMapFeed.some(f => f.ip === e.ip && f.ts === e.ts));
       if (!newEvts.length) return;
       _liveMapFeed = [...newEvts, ..._liveMapFeed].slice(0, LIVE_MAP_FEED_MAX);
       renderLiveFeed(_liveMapFeed);
@@ -1182,6 +1198,11 @@ async function renderPrismPage() {
       else if (act === 'proxy') { selProxy = el.value; loadAll(); }
       else if (act === 'from') { selFrom = el.value; }
       else if (act === 'to') { selTo = el.value; }
+      else if (act === 'hide-internal') {
+        prismHideInternal = !!el.checked;
+        _liveMapFeed = _liveMapFeed.filter(e => !isInternalLiveEvent(e));
+        renderLiveFeed(_liveMapFeed);
+      }
     });
     prismRoot.addEventListener('keydown', e => {
       if (e.key !== 'Enter') return;

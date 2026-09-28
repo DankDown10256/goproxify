@@ -51,6 +51,12 @@ type Entry struct {
 	Referrer      string     `json:"referrer,omitempty"`
 	UserID        string     `json:"user_id,omitempty"`
 	RequestID     string     `json:"request_id,omitempty"`
+	// WAFMatches (catégories WAF déclenchées) et ThreatSignal (signal Sentinel) sont le
+	// contexte de sécurité calculé par la passerelle pour la requête d'origine — vides
+	// pour l'immense majorité des requêtes propres (200 OK), renseignés seulement quand
+	// une protection s'est déclenchée.
+	WAFMatches    []string   `json:"waf_matches,omitempty"`
+	ThreatSignal  string     `json:"threat_signal,omitempty"`
 	RetainedUntil *time.Time `json:"retained_until,omitempty"`
 	// Country est le code pays ISO résolu depuis geoip_cache — renseigné à la volée
 	// par le handler API (LogsHandler.list), jamais persisté ici.
@@ -190,12 +196,12 @@ func (s *Store) Write(e Entry) {
 	}
 
 	res, err := s.db.Exec(
-		`INSERT INTO logs (ts, level, component, node_name, node_id, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, retained_until, ip_enc)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO logs (ts, level, component, node_name, node_id, domain, method, path, status, ip, latency_ms, bytes, message, referrer, user_id, request_id, waf_matches, threat_signal, retained_until, ip_enc)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.Ts.UTC().Format(time.RFC3339Nano),
 		nvl(e.Level, "info"), nvl(e.Component, "admin"), e.NodeName, e.NodeID,
 		e.Domain, e.Method, e.Path, e.Status, e.IP, e.LatencyMs, e.Bytes, e.Message, e.Referrer,
-		e.UserID, e.RequestID, retained.Format(time.RFC3339), ipEnc,
+		e.UserID, e.RequestID, encodeWAFMatches(e.WAFMatches), e.ThreatSignal, retained.Format(time.RFC3339), ipEnc,
 	)
 	if err == nil {
 		if id, err2 := res.LastInsertId(); err2 == nil {
@@ -203,6 +209,30 @@ func (s *Store) Write(e Entry) {
 		}
 	}
 	s.broadcast(e)
+}
+
+// encodeWAFMatches/decodeWAFMatches sérialisent WAFMatches en JSON pour la colonne TEXT
+// waf_matches — vide (chaîne "") pour l'immense majorité des lignes (aucun match).
+func encodeWAFMatches(m []string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeWAFMatches(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var m []string
+	if json.Unmarshal([]byte(s), &m) != nil {
+		return nil
+	}
+	return m
 }
 
 func (s *Store) broadcast(e Entry) {
@@ -251,7 +281,7 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 		if where == "" {
 			cursorClause = " WHERE id < ?"
 		}
-		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
+		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,''), COALESCE(waf_matches,''), COALESCE(threat_signal,'') FROM logs" +
 			where + cursorClause + " ORDER BY id DESC LIMIT ?"
 		qArgs = append(args, p.BeforeID, p.PageSize)
 	} else {
@@ -259,7 +289,7 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 			p.Page = 1
 		}
 		offset := (p.Page - 1) * p.PageSize
-		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'') FROM logs" +
+		q = "SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,''), COALESCE(waf_matches,''), COALESCE(threat_signal,'') FROM logs" +
 			where + " ORDER BY id DESC LIMIT ? OFFSET ?"
 		qArgs = append(args, p.PageSize, offset)
 	}
@@ -272,12 +302,13 @@ func (s *Store) Search(p SearchParams) ([]Entry, bool, error) {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		var ts string
+		var ts, wafMatches string
 		if err := rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.NodeID, &e.Domain, &e.Method, &e.Path,
-			&e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID); err != nil {
+			&e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID, &wafMatches, &e.ThreatSignal); err != nil {
 			continue
 		}
 		e.Ts, _ = time.Parse(time.RFC3339Nano, ts)
+		e.WAFMatches = decodeWAFMatches(wafMatches)
 		out = append(out, e)
 	}
 	if out == nil {
@@ -544,7 +575,7 @@ func (s *Store) CorrelateByRequestID(requestID string) []Entry {
 		return []Entry{}
 	}
 	rows, err := s.db.Query(
-		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
+		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,''), COALESCE(waf_matches,''), COALESCE(threat_signal,'')
 		 FROM logs
 		 WHERE request_id = ?
 		 ORDER BY ts ASC LIMIT 200`,
@@ -569,7 +600,7 @@ func (s *Store) Correlate(domain string, at time.Time, windowSec int) []Entry {
 	domainDash := strings.ReplaceAll(domain, ".", "-")
 	domainFlat := strings.ReplaceAll(domain, ".", "")
 	rows, err := s.db.Query(
-		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,'')
+		`SELECT id, ts, level, component, COALESCE(node_name,''), COALESCE(node_id,''), domain, method, path, status, ip, latency_ms, bytes, message, COALESCE(request_id,''), COALESCE(waf_matches,''), COALESCE(threat_signal,'')
 		 FROM logs
 		 WHERE ts BETWEEN ? AND ?
 		   AND status = 0
@@ -598,12 +629,13 @@ func scanEntries(rows interface {
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		var ts string
+		var ts, wafMatches string
 		if rows.Scan(&e.ID, &ts, &e.Level, &e.Component, &e.NodeName, &e.NodeID, &e.Domain, &e.Method,
-			&e.Path, &e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID) != nil {
+			&e.Path, &e.Status, &e.IP, &e.LatencyMs, &e.Bytes, &e.Message, &e.RequestID, &wafMatches, &e.ThreatSignal) != nil {
 			continue
 		}
 		e.Ts, _ = time.Parse(time.RFC3339Nano, ts)
+		e.WAFMatches = decodeWAFMatches(wafMatches)
 		out = append(out, e)
 	}
 	if out == nil {

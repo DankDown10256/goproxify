@@ -63,6 +63,22 @@ function logsTsCellHTML(iso) {
   return `<span class="logs-ts-cell"><span class="logs-ts-date">${esc(d)}</span><span class="logs-ts-time mono">${esc(h)}</span></span>`;
 }
 
+// Horodatage à la milliseconde, pour le tiroir de détail (une seule ligne de requête,
+// la précision compte plus que dans la liste). e.ts est déjà formaté en RFC3339Nano de
+// bout en bout (voir accesslog.go côté passerelle), les millisecondes sont donc réelles.
+function logsTsPrecise(iso) {
+  if (!iso) return '—';
+  try {
+    const dt = new Date(iso);
+    const loc = typeof gpxBCP47 === 'function' ? gpxBCP47() : 'en-US';
+    const tz = state.timezone ? { timeZone: state.timezone } : {};
+    const d = dt.toLocaleDateString(loc, { ...tz, dateStyle: 'short' });
+    const h = dt.toLocaleTimeString(loc, { ...tz, timeStyle: 'medium' });
+    const ms = String(dt.getMilliseconds()).padStart(3, '0');
+    return `${d} ${h}.${ms}`;
+  } catch { return fmtDate(iso); }
+}
+
 // Convertit un code pays ISO-3166 alpha-2 (ex. "FR") en emoji drapeau.
 function countryFlag(cc) {
   if (!cc || cc.length !== 2) return '';
@@ -228,12 +244,18 @@ function renderLogsPage() {
   // trafic interne" coché en Admin, puis plus aucune ligne sur une passerelle dont le
   // trafic est presque entièrement local).
   logsQuickMs = 0;
-  logsHideInternal = false;
+  logsHideInternal = true;
 
   document.getElementById('topbar-actions').innerHTML = `
-    <button class="btn btn-secondary btn-sm" onclick="exportLogs('json')">${t('logs.export_json')}</button>
-    <button class="btn btn-secondary btn-sm" onclick="exportLogs('csv')">${t('logs.export_csv')}</button>
-    <button type="button" id="btn-logs-live" class="btn btn-secondary btn-sm" onclick="toggleLogsLive()">⚡ ${t('logs.tab_live')}</button>
+    <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="exportLogs('json')" title="${esc(t('logs.export_json'))}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15l1.5 3L12 15l1.5 3L15 15"/></svg>
+    </button>
+    <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="exportLogs('csv')" title="${esc(t('logs.export_csv'))}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 17v-4M12 17v-4M16 17v-4"/></svg>
+    </button>
+    <button type="button" id="btn-logs-live" class="btn btn-ghost btn-icon btn-sm" onclick="toggleLogsLive()" title="${esc(t('logs.tab_live'))}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+    </button>
     <button type="button" class="btn btn-ghost btn-icon btn-sm" onclick="openLogsSettingsModal()" title="${esc(t('logs.tab_settings'))}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>`;
@@ -477,7 +499,7 @@ function renderAccessLogEntry(e, i) {
   if (e.domain || e.path) parts.push(`<span class="mono">${e.domain ? logCellFilter('domain', e.domain) : ''}${e.path ? logCellFilter('path', e.path) : ''}</span>`);
   if (e.ip) parts.push(`<span class="mono">${logCellFilter('ip', e.ip)}</span>`);
   if (e.country) parts.push(`<span>${countryFlag(e.country)} ${esc(e.country)}</span>`);
-  if (!logsScope.lockComp && e.node_name) parts.push(`<span class="mono"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${esc(e.node_name)}</span>`);
+  if (!logsScope.lockComp && e.node_name) parts.push(`<span class="mono"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${esc(nodeDisplayName(e.node_name))}</span>`);
   if (e.latency_ms != null && e.latency_ms !== '') parts.push(`<span>${esc(String(e.latency_ms))}ms</span>`);
   return `<article class="log-entry" data-log-i="${i}" style="border-left:3px solid ${e.level==='error'?'var(--red)':e.level==='warn'?'var(--yellow)':'transparent'}">
     <div class="log-entry-top">
@@ -493,7 +515,7 @@ function renderAccessLogEntry(e, i) {
 function renderSystemLogEntry(e, i) {
   const parts = [];
   if (e.component) parts.push(`<span class="chip" style="font-size:11px">${esc(e.component)}</span>`);
-  if (e.node_name) parts.push(`<span class="mono">${esc(e.node_name)}</span>`);
+  if (e.node_name) parts.push(`<span class="mono">${esc(nodeDisplayName(e.node_name))}</span>`);
   if (e.domain) parts.push(`<span class="mono">${logCellFilter('domain', e.domain)}</span>`);
   return `<article class="log-entry" data-log-i="${i}">
     <div class="log-entry-top">
@@ -513,9 +535,23 @@ function accessLogHead() {
   return `<th>${t('logs.ts')}</th>${node}<th>${t('logs.status')}</th><th>${t('logs.method')}</th><th>${t('logs.host_path')}</th><th>${t('logs.ip')}</th><th>${t('logs.country')}</th><th>${t('logs.latency')}</th>`;
 }
 
+// Le nom affiché doit être le nom lisible de la passerelle (display_name), pas le
+// node_name technique stocké sur la ligne de log — cherché dans la liste des passerelles
+// (portée Admin) ou la passerelle sélectionnée (portée verrouillée) ; à défaut, node_name.
+function nodeDisplayName(nodeName) {
+  if (!nodeName) return '';
+  if (logsScope.lockComp) {
+    const sel = state.selectedEdge;
+    if (sel && (sel.node_name === nodeName || sel.id === nodeName)) return sel.display_name || nodeName;
+    return nodeName;
+  }
+  const found = (logsAllEdges || []).find(n => n.node_name === nodeName || n.id === nodeName);
+  return found?.display_name || nodeName;
+}
+
 function nodeCellHTML(e) {
   if (!e.node_name) return '<span style="color:var(--text3)">—</span>';
-  return `<span class="logs-node-badge"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${logCellFilter('node_name', e.node_name)}</span>`;
+  return `<span class="logs-node-badge"><span class="logs-node-dot" style="background:${nodeColor(e.node_name)}"></span>${logCellFilter('node_name', e.node_name, esc(nodeDisplayName(e.node_name)))}</span>`;
 }
 
 function countryCellHTML(e) {
@@ -548,7 +584,7 @@ function renderSystemLogRow(e, i) {
     <td style="white-space:nowrap">${logsTsCellHTML(e.ts)}</td>
     <td>${logLvlBadge(e.level)}</td>
     <td><span class="chip" style="font-size:11px">${esc(e.component||'—')}</span></td>
-    <td class="mono" style="font-size:11px">${esc(e.node_name||'—')}</td>
+    <td class="mono" style="font-size:11px">${e.node_name ? esc(nodeDisplayName(e.node_name)) : '—'}</td>
     <td class="mono" style="font-size:11px">${logCellFilter('domain', e.domain)}</td>
     <td class="logs-cell-clip" style="font-size:12px;max-width:480px" title="${esc(e.message)}">${esc(e.message||'—')}</td>
   </tr>`;
@@ -637,19 +673,22 @@ async function loadStaticLogs(beforeID) {
 }
 window.loadStaticLogs = loadStaticLogs;
 
-window.showCorrelate = async function(domain, ts) {
+// requestId, quand disponible, bascule sur une correspondance exacte (CorrelateByRequestID)
+// au lieu du rapprochement approximatif par domaine + fenêtre de ±30s — beaucoup plus fiable
+// quand la passerelle a bien transmis l'ID de requête (voir ShipEntry côté edge).
+window.showCorrelate = async function(domain, ts, requestId) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.innerHTML = `<div class="modal" style="max-width:720px">
     <div class="modal-header"><h3>${t('logs.correlation', { domain: esc(domain) })}</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div>
     <div class="modal-body">
-      <p style="font-size:12px;color:var(--text2);margin-bottom:12px">${t('logs.corr_window', { ts: esc(ts) })}</p>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:12px">${requestId ? esc(t('lg.request_id')) + ' = ' + esc(requestId) : t('logs.corr_window', { ts: esc(ts) })}</p>
       <div id="corr-result"><div class="spinner" style="margin:20px auto"></div></div>
     </div>
   </div>`;
   document.body.appendChild(modal);
   try {
-    const params = new URLSearchParams({ domain, ts, window: 30 });
+    const params = requestId ? new URLSearchParams({ request_id: requestId }) : new URLSearchParams({ domain, ts, window: 30 });
     const entries = await api('GET', '/logs/correlate?' + params) || [];
     const el = document.getElementById('corr-result');
     if (!el) return;
@@ -659,7 +698,7 @@ window.showCorrelate = async function(domain, ts) {
           <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
           ${logLvlBadge(e.level)}
           <span class="chip" style="font-size:11px">${esc(e.component||'—')}</span>
-          ${e.node_name ? `<span class="mono" style="font-size:11px">${esc(e.node_name)}</span>` : ''}
+          ${e.node_name ? `<span class="mono" style="font-size:11px">${esc(nodeDisplayName(e.node_name))}</span>` : ''}
           ${e.domain ? `<span class="mono" style="font-size:11px">${esc(e.domain)}</span>` : ''}
         </div>
         ${e.message ? `<div class="log-entry-msg" title="${esc(e.message)}">${esc(e.message)}</div>` : ''}
@@ -989,7 +1028,7 @@ function refreshLogsView() {
 // (exclude_internal, voir Store.buildWhere) pour que la pagination reste cohérente —
 // filtrer après coup une page déjà limitée à 50 lignes pouvait la vider ou la
 // clairsemer sans que ce soit visible pour l'utilisateur.
-let logsHideInternal = false;
+let logsHideInternal = true;
 
 window.toggleHideInternal = function() {
   logsHideInternal = !!document.getElementById('lf-hide-internal')?.checked;
@@ -1107,6 +1146,16 @@ function openLogDrawer(en, i) {
     en.path ? btn('fpath', t('lg.filter_path')) : '',
     en.domain ? btn('curl', t('lg.copy_curl')) : '',
   ].filter(Boolean).join('');
+  // Badges de sécurité : qui a traité cette requête (WAF / Sentinel), vert quand rien ne
+  // s'est déclenché plutôt que de simplement masquer la ligne — l'absence de signal est
+  // une information en soi ("j'ai vérifié, rien à signaler").
+  const wafBadge = (en.waf_matches || []).length
+    ? `<span class="tag tag-red" style="font-size:11px" title="${esc(t('lg.waf_matches'))}">${esc(t('lg.waf_matches'))}: ${en.waf_matches.map(esc).join(', ')}</span>`
+    : `<span class="tag tag-green" style="font-size:11px">${esc(t('lg.waf_clean'))}</span>`;
+  const sentinelBadge = en.threat_signal
+    ? `<span class="tag tag-red" style="font-size:11px" title="${esc(t('lg.threat_signal'))}">${esc(t('lg.threat_signal'))}: ${esc(en.threat_signal)}</span>`
+    : `<span class="tag tag-green" style="font-size:11px">${esc(t('lg.sentinel_clean'))}</span>`;
+
   col.hidden = false;
   col.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -1114,9 +1163,13 @@ function openLogDrawer(en, i) {
       <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
     </div>
     <div style="margin-bottom:10px">${en.status ? httpStatusBadge(en.status) : ''} <b>${esc(en.method || '')}</b> <span class="mono" style="word-break:break-all">${esc((en.domain || '') + (en.path || ''))}</span></div>
+    <div style="margin-bottom:12px">
+      <div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.security_badges'))}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${wafBadge}${sentinelBadge}</div>
+    </div>
     <div class="prism-dstats" style="grid-template-columns:1fr">
-      ${row(t('logs.ts'), esc(fmtDate(en.ts)))}
-      ${row(t('logs.node'), esc(en.node_name || ''))}
+      ${row(t('logs.ts'), esc(logsTsPrecise(en.ts)))}
+      ${row(t('logs.node'), en.node_name ? esc(nodeDisplayName(en.node_name)) : '')}
       ${row(t('logs.component'), esc(en.component || ''))}
       ${row(t('logs.ip'), en.ip ? `<span class="mono">${esc(en.ip)}</span>` : '')}
       ${row(t('logs.country'), en.country ? countryCellHTML(en) : '')}
@@ -1126,6 +1179,7 @@ function openLogDrawer(en, i) {
       ${row(t('logs.message'), esc(en.message || ''))}
     </div>
     <div id="log-drawer-scan" style="margin:14px 0"></div>
+    <div id="log-drawer-corr" style="margin:14px 0"></div>
     <div class="logs-detail-actions">
       ${btn('prism', t('lg.open_prism'), 'btn-primary')}
       ${secondary}
@@ -1141,6 +1195,33 @@ function openLogDrawer(en, i) {
         <span style="color:var(--text3);font-size:12px;margin-left:8px">${esc(t('pz.past_bans'))} ${d.ban_history || 0} · ${esc(t('pz.threat_decisions'))} ${(d.threats || []).length}</span>`;
     }).catch(() => {});
   }
+  loadDrawerCorrelation(en);
+}
+
+// Charge automatiquement le(s) log(s) système correspondant à cette requête (au lieu de
+// n'afficher qu'un bouton "Corréler" à cliquer) : exact par request_id quand disponible,
+// sinon rapprochement par domaine + fenêtre de ±30s (voir showCorrelate).
+async function loadDrawerCorrelation(en) {
+  const box = document.getElementById('log-drawer-corr');
+  if (!box) return;
+  box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div><div class="spinner" style="margin:6px 0"></div>`;
+  try {
+    const params = en.request_id
+      ? new URLSearchParams({ request_id: en.request_id })
+      : new URLSearchParams({ domain: en.domain || '', ts: en.ts, window: 30 });
+    const entries = await api('GET', '/logs/correlate?' + params) || [];
+    if (!document.getElementById('log-drawer-corr')) return;
+    const sysEntries = entries.filter(se => se.status === 0 || se.status == null);
+    if (!sysEntries.length) {
+      box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div><p class="prism-muted" style="font-size:12px;margin:0">${esc(t('logs.corr_empty'))}</p>`;
+      return;
+    }
+    box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div>` +
+      sysEntries.slice(0, 5).map(se => `<div class="prism-dstat" style="display:block">
+        <span style="display:block;font-size:10.5px;color:var(--text3)">${esc(fmtDate(se.ts))} · ${esc(se.component || '')}${se.node_name ? ' · ' + esc(nodeDisplayName(se.node_name)) : ''}</span>
+        <b style="font-size:12.5px;font-weight:500;word-break:break-word">${esc(se.message || '—')}</b>
+      </div>`).join('');
+  } catch { /* section annexe, échec silencieux */ }
 }
 
 async function logDrawerAction(act, i) {
@@ -1154,7 +1235,7 @@ async function logDrawerAction(act, i) {
     try { await navigator.clipboard.writeText(txt); toast(t('lg.copied'), 'success'); } catch { toast(txt.slice(0, 200), 'info'); }
   }
   else if (act === 'prism') openPrismFromLogs({ proxy: en.domain, ip: en.ip, path: en.path });
-  else if (act === 'corr') showCorrelate(en.domain, en.ts);
+  else if (act === 'corr') showCorrelate(en.domain, en.ts, en.request_id);
   else if (act === 'fip') { closeLogDrawer(); applyLogCellFilter('ip', en.ip, true); }
   else if (act === 'fpath') { closeLogDrawer(); applyLogCellFilter('path', en.path, true); }
   else if (act === 'curl') {
@@ -1186,7 +1267,7 @@ function openSysLogDrawer(en, i) {
     <pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(en.message || '—')}</pre>
     <div class="prism-dstats" style="grid-template-columns:1fr">
       ${row(t('logs.ts'), esc(fmtDate(en.ts)))}
-      ${row(t('logs.node'), esc(en.node_name || ''))}
+      ${row(t('logs.node'), en.node_name ? esc(nodeDisplayName(en.node_name)) : '')}
       ${row(t('logs.domain'), en.domain ? `<span class="mono">${esc(en.domain)}</span>` : '')}
       ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
     </div>

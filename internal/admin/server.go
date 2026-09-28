@@ -188,10 +188,13 @@ func (s *Server) Start(ctx context.Context) error {
 				Status:    item.Status,
 				IP:        item.IP,
 				RealIP:    item.RealIP,
-				LatencyMs: item.LatencyMs,
-				Bytes:     item.Bytes,
-				Message:   item.Message,
-				Referrer:  item.Referrer,
+				LatencyMs:    item.LatencyMs,
+				Bytes:        item.Bytes,
+				Message:      item.Message,
+				Referrer:     item.Referrer,
+				RequestID:    item.RequestID,
+				WAFMatches:   item.WAFMatches,
+				ThreatSignal: item.ThreatSignal,
 			})
 		}
 	})

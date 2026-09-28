@@ -6,7 +6,6 @@ package logger
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -421,10 +420,10 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-func shipMessage(e accessEntry) string {
-	if e.RequestID != "" {
-		return fmt.Sprintf("request_id=%s", e.RequestID)
-	}
+// shipMessage ne renvoie plus "request_id=<id>" : RequestID voyage maintenant comme son
+// propre champ structuré (ShipEntry.RequestID) jusqu'à l'Admin, plus besoin de le glisser
+// dans un texte libre — ça ne faisait que dupliquer l'info et rendre le message peu lisible.
+func shipMessage(_ accessEntry) string {
 	return ""
 }
 

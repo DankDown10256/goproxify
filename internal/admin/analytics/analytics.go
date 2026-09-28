@@ -455,12 +455,19 @@ func GetProxies(db *sql.DB, nodeName string) []ProxyOption {
 			   AND domain IS NOT NULL AND domain != ''
 			 ORDER BY domain`, nodeName)
 	} else {
+		// Les proxies TCP/UDP (config.host vide, voir router.Route) n'étaient jamais listés
+		// (filtre host IS NOT NULL) — ils apparaissent maintenant, identifiés par leur nom
+		// plutôt qu'un domaine qu'ils n'ont pas. Prism reste basé sur logs.domain (requêtes
+		// HTTP) : sélectionner un proxy TCP/UDP ici ne fera remonter aucune donnée tant que
+		// le flux L4 lui-même n'est pas journalisé par requête, mais au moins il est visible.
 		rows, err = db.QueryContext(ctx,
-			`SELECT json_extract(config,'$.host') AS domain, name
+			`SELECT
+			   CASE WHEN json_extract(config,'$.host') IS NOT NULL AND json_extract(config,'$.host') != ''
+			        THEN json_extract(config,'$.host') ELSE name END,
+			   CASE WHEN json_extract(config,'$.host') IS NOT NULL AND json_extract(config,'$.host') != ''
+			        THEN name ELSE name || ' (TCP/UDP)' END
 			 FROM proxies
 			 WHERE enabled = 1
-			   AND json_extract(config,'$.host') IS NOT NULL
-			   AND json_extract(config,'$.host') != ''
 			 ORDER BY name`)
 	}
 	if err != nil {

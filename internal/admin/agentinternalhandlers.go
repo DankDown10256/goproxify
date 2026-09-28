@@ -30,9 +30,11 @@ func (s *Server) handleAgentLogs(w http.ResponseWriter, r *http.Request) {
 		IP        string `json:"ip"`
 		LatencyMs int64  `json:"latency_ms"`
 		Bytes     int64  `json:"bytes"`
-		Message   string `json:"message"`
-		Referrer  string `json:"referrer"`
-		RequestID string `json:"request_id"`
+		Message      string   `json:"message"`
+		Referrer     string   `json:"referrer"`
+		RequestID    string   `json:"request_id"`
+		WAFMatches   []string `json:"waf_matches"`
+		ThreatSignal string   `json:"threat_signal"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
 		http.Error(w, "JSON invalide", http.StatusBadRequest)
@@ -58,9 +60,11 @@ func (s *Server) handleAgentLogs(w http.ResponseWriter, r *http.Request) {
 			IP:        item.IP,
 			LatencyMs: item.LatencyMs,
 			Bytes:     item.Bytes,
-			Message:   item.Message,
-			Referrer:  item.Referrer,
-			RequestID: item.RequestID,
+			Message:      item.Message,
+			Referrer:     item.Referrer,
+			RequestID:    item.RequestID,
+			WAFMatches:   item.WAFMatches,
+			ThreatSignal: item.ThreatSignal,
 		})
 	}
 	w.WriteHeader(http.StatusAccepted)

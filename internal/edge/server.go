@@ -304,10 +304,13 @@ func New(cfg *config.EdgeConfig, cfgPath ...string) (*Server, error) {
 				Status:    e.Status,
 				IP:        e.IP,
 				RealIP:    e.RealIP,
-				LatencyMs: e.LatencyMs,
-				Bytes:     e.Bytes,
-				Message:   e.Message,
-				Referrer:  e.Referrer,
+				LatencyMs:    e.LatencyMs,
+				Bytes:        e.Bytes,
+				Message:      e.Message,
+				Referrer:     e.Referrer,
+				RequestID:    e.RequestID,
+				WAFMatches:   e.WAFMatches,
+				ThreatSignal: e.ThreatSignal,
 			}
 		}
 		msg, err := edgews.NewMessage(0, edgews.TypeAccessLog, payload)

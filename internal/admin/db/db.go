@@ -632,6 +632,13 @@ func migrate(db *sql.DB) error {
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_access_id ON logs (id DESC) WHERE status > 0`) //nolint:errcheck
 	db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_system_id ON logs (id DESC) WHERE status = 0`) //nolint:errcheck
 
+	// Contexte de sécurité de la requête d'origine (catégories WAF déclenchées, signal
+	// Sentinel) : la passerelle le calculait déjà et l'envoyait (ShipEntry), mais rien ne
+	// le recevait ni ne le stockait — jeté silencieusement à l'ingestion. waf_matches est
+	// un tableau JSON (ex. `["942100"]`), vide pour l'immense majorité des lignes propres.
+	db.Exec(`ALTER TABLE logs ADD COLUMN waf_matches   TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+	db.Exec(`ALTER TABLE logs ADD COLUMN threat_signal TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+
 	// Bibliothèque de pages d'erreur (templates HTML + assets) — scope Admin V1.
 	for _, s := range []string{
 		`CREATE TABLE IF NOT EXISTS error_page_templates (

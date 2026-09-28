@@ -163,6 +163,12 @@ type LogEntryPayload struct {
 	Bytes     int64  `json:"bytes"`
 	Message   string `json:"message"`
 	Referrer  string `json:"referrer,omitempty"`
+	// RequestID/WAFMatches/ThreatSignal : contexte de sécurité de la requête d'origine
+	// (voir logger.ShipEntry côté passerelle) — vides pour la majorité des requêtes
+	// propres, renseignés quand le WAF ou Sentinel se sont déclenchés.
+	RequestID    string   `json:"request_id,omitempty"`
+	WAFMatches   []string `json:"waf_matches,omitempty"`
+	ThreatSignal string   `json:"threat_signal,omitempty"`
 }
 
 // EdgeHeartbeatPayload est envoyé par passerelle → Admin toutes les 30 s.
