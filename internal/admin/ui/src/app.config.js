@@ -58,6 +58,11 @@ const APP_CONFIG = {
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8h12M9 4l5 4-5 4"/></svg>',
     },
     {
+      page: 'proxy-inspector',
+      label: 'Vue Proxy',
+      icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11"/><circle cx="14.5" cy="6.5" r=".6" fill="currentColor" stroke="none"/></svg>',
+    },
+    {
       page: 'admin-observability',
       label: 'Observabilité',
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
@@ -81,11 +86,6 @@ const APP_CONFIG = {
           page: 'prism',
           label: 'Prism',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
-        },
-        {
-          page: 'logs-explore',
-          label: 'Explorer',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
         },
         {
           page: 'obs-metrics',
@@ -213,6 +213,11 @@ const APP_CONFIG = {
       icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 17h2.5a3 3 0 0 0 2.4-1.2l6.2-8.6A3 3 0 0 1 16.5 6H21"/><path d="m17.5 3 3.5 3-3.5 3"/><path d="M3 7h2.5a3 3 0 0 1 2.4 1.2l1 1.4"/><path d="M14.5 15.4l1 1.4A3 3 0 0 0 17.9 18H21"/><path d="m17.5 15 3.5 3-3.5 3"/></svg>',
     },
     {
+      page: 'edge-proxy-inspector',
+      label: 'Vue Proxy',
+      icon: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11"/><circle cx="14.5" cy="6.5" r=".6" fill="currentColor" stroke="none"/></svg>',
+    },
+    {
       page: 'portal',
       label: 'Portail Access',
       section: 'Passerelle',
@@ -244,11 +249,6 @@ const APP_CONFIG = {
           page: 'edge-prism',
           label: 'Prism',
           icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
-        },
-        {
-          page: 'edge-logs-explore',
-          label: 'Explorer',
-          icon: '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
         },
         {
           page: 'edge-metrics',
@@ -391,8 +391,8 @@ const APP_CONFIG = {
     'edge-observability': 'Observabilité',
     'obs-synthese':     'Synthèse',
     'edge-obs-synthese': 'Synthèse',
-    'logs-explore':     'Explorer',
-    'edge-logs-explore': 'Explorer',
+    'proxy-inspector':  'Vue Proxy',
+    'edge-proxy-inspector': 'Vue Proxy',
     'obs-metrics':      'Métriques',
     'obs-alerts':       'Alertes et SLO',
     'edge-obs-alerts':  'Alertes et SLO',

@@ -21,12 +21,12 @@ const App = {
   const SETTINGS_PAGES = new Set([
   'snippets','error-pages','portal-templates','tokens','api-tokens','alerts','alert-channels','audit',
   'security','security-bans','security-vulns','security-rules','automation','automation-flow','automation-history','automation-silences','automation-schedules','automation-playbooks','rules-store','mcp-access',
-  'backups','import','docker-labels','prism','logs-explore',
+  'backups','import','docker-labels','prism','proxy-inspector',
 ]);
 const EDGE_PAGES = new Set([
   'edge-trafic','edge-proxies','edge-streams','edge-waf','edge-ipfilter',
   'edge-certs','edge-auth','edge-logs-access','edge-logs-system',
-  'edge-observability','edge-obs-synthese','edge-obs-alerts','edge-prism','edge-logs-explore','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
+  'edge-observability','edge-obs-synthese','edge-obs-alerts','edge-prism','edge-proxy-inspector','edge-metrics','edge-cluster','edge-tokens','edge-settings','edge-general','ip-profiles',
   'edge-security','edge-security-vulns','edge-security-posture','edge-security-bans','edge-security-sentinel',
   'edge-tunnel',
   'portal','portal-settings','portal-sessions','portal-approvals','portal-policy','portal-recordings','portal-audit','edge-portal-catalog','edge-portal-users','snippets',
@@ -227,7 +227,7 @@ const SPACE_EQUIV = {
   'logs': 'edge-logs-access',
   'logs-system': 'edge-logs-system',
   'prism': 'edge-prism',
-  'logs-explore': 'edge-logs-explore',
+  'proxy-inspector': 'edge-proxy-inspector',
   'security': 'edge-security',
   'security-bans': 'edge-security-bans',
   'security-vulns': 'edge-security-vulns',

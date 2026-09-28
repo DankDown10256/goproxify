@@ -18,12 +18,12 @@ pages['obs-metrics'] = async function() {
   const g = sum?.global || {};
   const has = !!(sum && (sum.edges || []).length) || !!(prox?.proxies || []).length;
 
-  const card = (label, val, foot = '') => `<div class="card kpi pk"><small>${esc(label)}</small><strong>${val}</strong>${foot ? `<em class="note">${foot}</em>` : '<em>&nbsp;</em>'}</div>`;
+  const card = (label, val, foot = '') => `<div class="om-kpi"><small>${esc(label)}</small><strong>${val}</strong>${foot ? `<em>${foot}</em>` : '<em>&nbsp;</em>'}</div>`;
   const rps = v => v == null ? '—' : v < 1 ? v.toFixed(2) : v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString();
   const pctv = v => v == null ? '—' : (v * (v <= 1 ? 100 : 1)).toFixed(2) + '%';
   const errColor = v => (v > 0.05 ? 'var(--red)' : v > 0.01 ? 'var(--yellow)' : 'inherit');
 
-  const kpis = `<div class="grid g6" style="margin-bottom:14px">
+  const kpis = `<div class="om-kpis" style="margin-bottom:14px">
     ${card(t('om.rps'), rps(g.requests_per_second))}
     ${card(t('om.err5'), pctv(g.error_rate_5xx))}
     ${card(t('om.bytes_in'), obsBytes(g.bytes_in_total || 0))}

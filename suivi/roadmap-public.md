@@ -40,6 +40,7 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - **Prism** : refonte « centre de commande » (carte zoomable, anomalies détectées, onglets) — livré
 - **Observabilité** : Synthèse commune à l’Admin et aux passerelles, Prism recentré (onglets Chemins / IP / Sources / Pays), carte Leaflet avec vues par ville et par région et connexions en direct, carte « Attaques en direct » dans la Synthèse sécurité, anomalies calculées côté serveur (API, MCP `get_prism_anomalies` / `get_prism_geo`, CLI `goproxify prism`) — livré
 - **Observabilité** : Fond vectoriel auto-hébergé pour zoomer jusqu’à la rue — prévu
+- **Vue Proxy** : nouveau menu racine (remplace « Explorer ») — sélection d'un proxy dans une liste puis poste de contrôle temps réel (carte, flux de requêtes en direct, KPI, anomalies) — livré
 - [x] **Sentinel — page en onglets et tiroir de réglages** : vue d'ensemble, détections, listes et exceptions ; simulation sur les logs récents avant d'enregistrer (`POST /security/threat-config/simulate`, `goproxify security threat simulate`)
 
 ### v0.2 — Architecture distribuée _(juillet – août 2026)_
@@ -109,6 +110,15 @@ Vue allégée pour la communauté. Le détail interne n’est pas publié.
 - [x] **Sentinel — tarpit** : retient la réponse aux IP bloquées ou bannies (délai configurable, nombre de requêtes retenues plafonné, repli sur refus immédiat)
 - [ ] **Sentinel — score cumulatif par IP** (avec décroissance), bans graduels, 4xx pondérés par code (hors 401/403/429) et par route
 - [ ] **Page Bans — bans par CIDR ou ASN** (aperçu de l'impact avant validation), liste blanche, import de liste, filtres enregistrés, ban ciblant une passerelle ou un groupe
+
+### Intégrations Infrastructure as Code
+
+- [ ] **Provider Terraform** : ressources `goproxify_proxy`, `goproxify_route`, `goproxify_domain`, `goproxify_workspace`… — gestion déclarative de la config GoProxify depuis Terraform/OpenTofu, appuyée sur l'API existante
+- [ ] **Collection Ansible** : modules et rôles (`goproxify_proxy`, `goproxify_cert`, `goproxify_access_target`…) pour provisionner et maintenir GoProxify depuis des playbooks
+
+### Chatbot d'implémentation (landing page)
+
+- [ ] **Assistant conversationnel sur la landing page** : chatbot guidant l'intégration de GoProxify dans une infrastructure existante (choix d'architecture, génération de config de départ, réponses aux questions courantes)
 
 Proposer des idées via
 [Discussions](https://github.com/Vincamok/goproxify/discussions) ou une issue

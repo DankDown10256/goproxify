@@ -9,6 +9,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.64.1 — Métriques d'observabilité : tuiles KPI empilées verticalement** : les 6 tuiles d'en-tête (Requêtes/s, Taux 5xx, Octets entrants/sortants, Connexions de contrôle, Sync pairs) utilisaient les classes `grid g6` / `card kpi pk`, jamais définies dans le CSS (aucune règle correspondante) — `.card` étant un bloc normal, les tuiles s'empilaient les unes sous les autres au lieu de former une rangée, avec le libellé et la valeur qui se chevauchaient faute de mise en page. Nouvelles classes dédiées `.om-kpis`/`.om-kpi` (grille de 6 colonnes, repliée à 3 puis 2 sous 1100px/640px). (Admin `0.64.1`)
+
 - **Admin 0.63.5 — Scan de vulnérabilités : recherche NVD par CPE pour nginx et Apache** : la recherche de CVE (`GET` interne appelant NVD) faisait un `keywordSearch` texte libre du type `nginx 1.27.5` — or les descriptions de CVE contiennent rarement la version exacte sous cette forme (`"nginx before 1.25.3"` typiquement), donc la quasi-totalité des backends nginx/Apache à jour remontaient 0 CVE même quand des vulnérabilités connues existaient pour leur version. Pour ces deux produits, la requête utilise désormais `virtualMatchString` avec un identifiant CPE (`cpe:2.3:a:nginx:nginx:1.27.5:...`), ce qui fait comparer la version par NVD contre les plages réelles (`versionStartIncluding`/`versionEndExcluding`) de chaque CVE. Les autres produits (sans mapping CPE) restent sur le `keywordSearch` existant. (Admin `0.63.5`)
 
 - **Admin 0.63.4 — Prism : flux « Connexions temps réel » noyé par les répétitions** : une même IP bannie en boucle sur le même domaine (scan, tentative répétée) produisait une ligne par événement, remplissant le flux de dizaines de lignes identiques en quelques secondes. Les événements consécutifs identiques (même IP + domaine + verdict) sont désormais fusionnés en une seule ligne avec un compteur (`×N`). (Admin `0.63.4`)
@@ -69,6 +71,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Admin 0.29.2 — logs d'accès/système d'une passerelle vides** : le filtre par `node_id` excluait les logs sans `node_id` (ingestion HTTP, historique) ; ils sont désormais rattachés via `node_name`.
 
 ### Ajouté
+
+- **Admin 0.64.0 — Vue Proxy : poste de contrôle par proxy sélectionné** : remplace le menu « Explorer » (Observabilité), jugé peu utile en pratique. Nouvelle rubrique **Vue Proxy** (niveau racine, Admin et Passerelle) : liste de tous les proxies configurés (statut, débit, p95) à gauche, et à la sélection d'un proxy — carte géographique temps réel, flux de requêtes en direct, KPI (req/s, p95, taux d'erreur) et anomalies détectées, avec accès rapide vers les logs filtrés, les bannissements et la vue Prism complète du proxy. Réutilise les briques existantes (carte `gpxGeoMap`, flux live et anomalies de Prism) plutôt que dupliquer un moteur d'analytics. (Admin `0.64.0`)
 
 - **Admin 0.63.0 — Prism : masquer le trafic interne (flux Live), plage de temps selon la rétention** : le flux « Connexions temps réel » propose un interrupteur « Masquer le trafic interne » (coché par défaut) qui filtre les IP réseau local/privé (`country_code` `LO`) — évite qu'une IP d'auto-supervision de l'Admin (ex. 192.168.x) ne monopolise le flux de connexions répétées. Les boutons de plage rapide (15m/1h/6h/24h/7j…) sont désormais générés selon la rétention des logs d'accès configurée (même logique que Logs d'accès), au lieu d'une liste fixe s'arrêtant à 7 jours quelle que soit la rétention réelle.
 
