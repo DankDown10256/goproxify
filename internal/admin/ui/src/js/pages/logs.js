@@ -1216,11 +1216,20 @@ async function loadDrawerCorrelation(en) {
       box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div><p class="prism-muted" style="font-size:12px;margin:0">${esc(t('logs.corr_empty'))}</p>`;
       return;
     }
-    box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div>` +
-      sysEntries.slice(0, 5).map(se => `<div class="prism-dstat" style="display:block">
-        <span style="display:block;font-size:10.5px;color:var(--text3)">${esc(fmtDate(se.ts))} · ${esc(se.component || '')}${se.node_name ? ' · ' + esc(nodeDisplayName(se.node_name)) : ''}</span>
-        <b style="font-size:12.5px;font-weight:500;word-break:break-word">${esc(se.message || '—')}</b>
-      </div>`).join('');
+    // Table avec en-tête (comme la page Logs système) plutôt qu'une liste de blocs : la
+    // ligne correspondante se lit dans le même format que sa source.
+    box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div>
+      <div style="overflow-x:auto">
+        <table class="prism-table" style="width:100%;font-size:11px">
+          <thead><tr><th>${esc(t('logs.ts'))}</th><th>${esc(t('logs.level'))}</th><th>${esc(t('logs.component'))}</th><th>${esc(t('logs.message'))}</th></tr></thead>
+          <tbody>${sysEntries.slice(0, 5).map(se => `<tr>
+            <td class="mono" style="white-space:nowrap">${esc(fmtDate(se.ts))}</td>
+            <td>${logLvlBadge(se.level)}</td>
+            <td style="white-space:nowrap">${esc(se.component || '—')}${se.node_name ? ' · ' + esc(nodeDisplayName(se.node_name)) : ''}</td>
+            <td style="word-break:break-word;min-width:120px" title="${esc(se.message || '')}">${esc(se.message || '—')}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>`;
   } catch { /* section annexe, échec silencieux */ }
 }
 
