@@ -276,12 +276,6 @@ function renderLogsPage() {
 
 function onLogsClick(e) {
   if (onLogsQuickClick(e)) return;
-  const corr = e.target.closest('[data-log-corr]');
-  if (corr && document.getElementById('content')?.contains(corr)) {
-    e.preventDefault();
-    showCorrelate(corr.getAttribute('data-log-corr') || '', corr.getAttribute('data-log-ts') || '');
-    return;
-  }
   const prismBtn = e.target.closest('[data-log-prism]');
   if (prismBtn && document.getElementById('content')?.contains(prismBtn)) {
     e.preventDefault();
@@ -599,14 +593,6 @@ window.logsFilter = function() {
   loadStaticLogs(0);
 };
 
-function corrIconBtn(domain, ts) {
-  if (!domain || !ts) return '';
-  const tsStr = typeof ts === 'string' ? ts : (ts?.toISOString?.() || String(ts));
-  return `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-log-corr="${esc(domain)}" data-log-ts="${esc(tsStr)}" title="${esc(t('logs.correlate'))}">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-  </button>`;
-}
-
 function prismIconBtn(domain, ip) {
   if (!domain && !ip) return '';
   return `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-log-prism="${esc(domain||'')}" data-log-ip="${esc(ip||'')}" title="${esc(t('logs.prism'))}">
@@ -672,57 +658,6 @@ async function loadStaticLogs(beforeID) {
   } catch(e) { toast(e.message, 'error'); }
 }
 window.loadStaticLogs = loadStaticLogs;
-
-// requestId, quand disponible, bascule sur une correspondance exacte (CorrelateByRequestID)
-// au lieu du rapprochement approximatif par domaine + fenêtre de ±30s — beaucoup plus fiable
-// quand la passerelle a bien transmis l'ID de requête (voir ShipEntry côté edge).
-window.showCorrelate = async function(domain, ts, requestId) {
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `<div class="modal" style="max-width:720px">
-    <div class="modal-header"><h3>${t('logs.correlation', { domain: esc(domain) })}</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button></div>
-    <div class="modal-body">
-      <p style="font-size:12px;color:var(--text2);margin-bottom:12px">${requestId ? esc(t('lg.request_id')) + ' = ' + esc(requestId) : t('logs.corr_window', { ts: esc(ts) })}</p>
-      <div id="corr-result"><div class="spinner" style="margin:20px auto"></div></div>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);
-  try {
-    const params = requestId ? new URLSearchParams({ request_id: requestId }) : new URLSearchParams({ domain, ts, window: 30 });
-    const entries = await api('GET', '/logs/correlate?' + params) || [];
-    const el = document.getElementById('corr-result');
-    if (!el) return;
-    el.innerHTML = entries.length ? `<div class="logs-list" style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-      ${entries.map(e => `<article class="log-entry">
-        <div class="log-entry-top">
-          <span class="log-entry-ts">${esc(fmtDate(e.ts))}</span>
-          ${logLvlBadge(e.level)}
-          <span class="chip" style="font-size:11px">${esc(e.component||'—')}</span>
-          ${e.node_name ? `<span class="mono" style="font-size:11px">${esc(nodeDisplayName(e.node_name))}</span>` : ''}
-          ${e.domain ? `<span class="mono" style="font-size:11px">${esc(e.domain)}</span>` : ''}
-        </div>
-        ${e.message ? `<div class="log-entry-msg" title="${esc(e.message)}">${esc(e.message)}</div>` : ''}
-      </article>`).join('')}
-    </div>
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
-      <button type="button" class="btn btn-secondary btn-sm" id="corr-goto-system" data-corr-domain="${esc(domain)}">${t('logs.see_system')}</button>
-    </div>` : '<p style="color:var(--text3);font-size:13px">' + t('logs.corr_empty') + '<br><span style="font-size:11px">' + t('logs.corr_hint') + '</span></p>';
-    document.getElementById('corr-goto-system')?.addEventListener('click', (ev) => {
-      const d = ev.currentTarget.getAttribute('data-corr-domain') || domain;
-      modal.remove();
-      logsFilters.domain = d;
-      navigate('logs-system');
-      // Réapplique le filtre domaine après le reset partiel de logs-system
-      setTimeout(() => {
-        logsFilters.domain = d;
-        if (typeof logsFilter === 'function') logsFilter();
-      }, 50);
-    });
-  } catch(err) {
-    const el = document.getElementById('corr-result');
-    if (el) el.innerHTML = `<p style="color:var(--red)">${esc(err.message)}</p>`;
-  }
-};
 
 // Réglages de rétention : modale (remplace l'ancien onglet Paramètres). Les deux durées
 // (accès / système) sont celles réellement lues par le backend (GET/PUT /logs/settings) —
@@ -1136,19 +1071,14 @@ function openLogDrawer(en, i) {
   if (!col) return;
   markSelectedLogRow(i);
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-all">${v}</b></div>`;
-  const btn = (act, label, cls = 'btn-secondary', extra = '') => `<button type="button" class="btn ${cls} btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
-  // Hiérarchie façon maquette : action principale pleine largeur en avant, actions
-  // secondaires (filtrer/corréler/copier) groupées à égalité, "Bannir" isolée en bas —
-  // les icônes de corrélation/Prism ont disparu du tableau, tout est ici désormais.
-  const secondary = [
-    en.domain && en.ts ? btn('corr', t('logs.correlate')) : '',
-    en.ip ? btn('fip', t('lg.filter_ip')) : '',
-    en.path ? btn('fpath', t('lg.filter_path')) : '',
-    en.domain ? btn('curl', t('lg.copy_curl')) : '',
-  ].filter(Boolean).join('');
+  const iconBtn = (act, svg, title, extra = '') => `<button type="button" class="btn btn-ghost btn-icon btn-sm" ${extra} data-log-dact="${act}" data-log-di="${i}" title="${esc(title)}">${svg}</button>`;
+  const icoCopy = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+  const icoBan = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
+  const icoPrism = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>`;
   // Badges de sécurité : qui a traité cette requête (WAF / Sentinel), vert quand rien ne
   // s'est déclenché plutôt que de simplement masquer la ligne — l'absence de signal est
-  // une information en soi ("j'ai vérifié, rien à signaler").
+  // une information en soi ("j'ai vérifié, rien à signaler"). Regroupés avec la réputation
+  // IP (chargée juste en dessous) dans une seule section Sécurité, avec l'action Bannir.
   const wafBadge = (en.waf_matches || []).length
     ? `<span class="tag tag-red" style="font-size:11px" title="${esc(t('lg.waf_matches'))}">${esc(t('lg.waf_matches'))}: ${en.waf_matches.map(esc).join(', ')}</span>`
     : `<span class="tag tag-green" style="font-size:11px">${esc(t('lg.waf_clean'))}</span>`;
@@ -1162,91 +1092,53 @@ function openLogDrawer(en, i) {
       <span class="prism-panel-title" style="margin:0">${esc(t('lg.detail'))}</span>
       <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
     </div>
-    <div style="margin-bottom:10px">${en.status ? httpStatusBadge(en.status) : ''} <b>${esc(en.method || '')}</b> <span class="mono" style="word-break:break-all">${esc((en.domain || '') + (en.path || ''))}</span></div>
-    <div style="margin-bottom:12px">
-      <div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.security_badges'))}</div>
+    <div style="margin-bottom:10px">${en.status ? httpStatusBadge(en.status) : ''} <b>${esc(en.method || '')}</b> <span class="mono" style="word-break:break-all">${esc(en.domain || '')}${en.path ? logCellFilter('path', en.path) : ''}</span></div>
+    <div class="logs-security-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <span class="prism-panel-title" style="margin:0">${esc(t('lg.security_badges'))}</span>
+        ${en.ip ? iconBtn('ban', icoBan, t('lg.ban_ip'), 'style="color:var(--red)"') : ''}
+      </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${wafBadge}${sentinelBadge}</div>
+      <div id="log-drawer-scan" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)"></div>
     </div>
     <div class="prism-dstats" style="grid-template-columns:1fr">
       ${row(t('logs.ts'), esc(logsTsPrecise(en.ts)))}
       ${row(t('logs.node'), en.node_name ? esc(nodeDisplayName(en.node_name)) : '')}
       ${row(t('logs.component'), esc(en.component || ''))}
-      ${row(t('logs.ip'), en.ip ? `<span class="mono">${esc(en.ip)}</span>` : '')}
+      ${row(t('logs.ip'), en.ip ? `<span class="mono">${logCellFilter('ip', en.ip)}</span>` : '')}
       ${row(t('logs.country'), en.country ? countryCellHTML(en) : '')}
       ${row(t('lg.latency'), en.latency_ms != null ? esc(String(en.latency_ms)) + ' ms' : '')}
       ${row(t('lg.bytes'), en.bytes ? esc(String(en.bytes)) + ' B' : '')}
       ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
       ${row(t('logs.message'), esc(en.message || ''))}
     </div>
-    <div id="log-drawer-scan" style="margin:14px 0"></div>
-    <div id="log-drawer-corr" style="margin:14px 0"></div>
     <div class="logs-detail-actions">
-      ${btn('prism', t('lg.open_prism'), 'btn-primary')}
-      ${secondary}
-      ${en.ip ? btn('ban', t('lg.ban_ip'), 'btn-secondary', 'style="color:var(--red);border-color:var(--red)"') : ''}
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-primary btn-sm logs-prism-btn" data-log-dact="prism" data-log-di="${i}">${icoPrism}${esc(t('lg.open_prism'))}</button>
+        ${en.domain ? iconBtn('curl', icoCopy, t('lg.copy_curl')) : ''}
+      </div>
     </div>`;
   if (en.ip) {
     api('GET', '/prism/ip-scan?ip=' + encodeURIComponent(en.ip)).then(d => {
       const box = document.getElementById('log-drawer-scan');
       if (!box || !d) return;
       const v = { banned: [t('pz.v_banned'), 'var(--red)'], suspect: [t('pz.v_suspect'), '#f59e0b'], clean: [t('pz.v_clean'), 'var(--green)'] }[d.verdict] || ['—', 'var(--text3)'];
-      box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.scan'))}</div>
+      box.innerHTML = `<div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px">${esc(t('lg.scan'))}</div>
         <span class="prism-verdict" style="--v:${v[1]}">${esc(v[0])}</span>
         <span style="color:var(--text3);font-size:12px;margin-left:8px">${esc(t('pz.past_bans'))} ${d.ban_history || 0} · ${esc(t('pz.threat_decisions'))} ${(d.threats || []).length}</span>`;
     }).catch(() => {});
   }
-  loadDrawerCorrelation(en);
-}
-
-// Charge automatiquement le(s) log(s) système correspondant à cette requête (au lieu de
-// n'afficher qu'un bouton "Corréler" à cliquer) : exact par request_id quand disponible,
-// sinon rapprochement par domaine + fenêtre de ±30s (voir showCorrelate).
-async function loadDrawerCorrelation(en) {
-  const box = document.getElementById('log-drawer-corr');
-  if (!box) return;
-  box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div><div class="spinner" style="margin:6px 0"></div>`;
-  try {
-    const params = en.request_id
-      ? new URLSearchParams({ request_id: en.request_id })
-      : new URLSearchParams({ domain: en.domain || '', ts: en.ts, window: 30 });
-    const entries = await api('GET', '/logs/correlate?' + params) || [];
-    if (!document.getElementById('log-drawer-corr')) return;
-    const sysEntries = entries.filter(se => se.status === 0 || se.status == null);
-    if (!sysEntries.length) {
-      box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div><p class="prism-muted" style="font-size:12px;margin:0">${esc(t('logs.corr_empty'))}</p>`;
-      return;
-    }
-    // Table avec en-tête (comme la page Logs système) plutôt qu'une liste de blocs : la
-    // ligne correspondante se lit dans le même format que sa source.
-    box.innerHTML = `<div class="prism-panel-title" style="margin-bottom:6px">${esc(t('lg.related_system'))}</div>
-      <div style="overflow-x:auto">
-        <table class="prism-table" style="width:100%;font-size:11px">
-          <thead><tr><th>${esc(t('logs.ts'))}</th><th>${esc(t('logs.level'))}</th><th>${esc(t('logs.component'))}</th><th>${esc(t('logs.message'))}</th></tr></thead>
-          <tbody>${sysEntries.slice(0, 5).map(se => `<tr>
-            <td class="mono" style="white-space:nowrap">${esc(fmtDate(se.ts))}</td>
-            <td>${logLvlBadge(se.level)}</td>
-            <td style="white-space:nowrap">${esc(se.component || '—')}${se.node_name ? ' · ' + esc(nodeDisplayName(se.node_name)) : ''}</td>
-            <td style="word-break:break-word;min-width:120px" title="${esc(se.message || '')}">${esc(se.message || '—')}</td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>`;
-  } catch { /* section annexe, échec silencieux */ }
 }
 
 async function logDrawerAction(act, i) {
   const en = logsRows[i];
   if (act === 'close') { closeLogDrawer(); return; }
   if (!en) return;
-  if (act === 'fcomp') { closeLogDrawer(); logsFilters.component = en.component; const c = document.getElementById('lf-comp'); if (c) c.value = en.component; refreshLogsView(); }
-  else if (act === 'fdomain') { closeLogDrawer(); applyLogCellFilter('domain', en.domain, true); }
-  else if (act === 'copymsg' || act === 'copyjson') {
+  if (act === 'copymsg' || act === 'copyjson') {
     const txt = act === 'copymsg' ? (en.message || '') : JSON.stringify(en, null, 2);
     try { await navigator.clipboard.writeText(txt); toast(t('lg.copied'), 'success'); } catch { toast(txt.slice(0, 200), 'info'); }
   }
   else if (act === 'prism') openPrismFromLogs({ proxy: en.domain, ip: en.ip, path: en.path });
-  else if (act === 'corr') showCorrelate(en.domain, en.ts, en.request_id);
-  else if (act === 'fip') { closeLogDrawer(); applyLogCellFilter('ip', en.ip, true); }
-  else if (act === 'fpath') { closeLogDrawer(); applyLogCellFilter('path', en.path, true); }
   else if (act === 'curl') {
     const cmd = `curl -i -X ${en.method || 'GET'} 'https://${en.domain}${en.path || '/'}'`;
     try { await navigator.clipboard.writeText(cmd); toast(t('lg.copied'), 'success'); } catch { toast(cmd, 'info'); }
@@ -1265,26 +1157,25 @@ function openSysLogDrawer(en, i) {
   if (!col) return;
   markSelectedLogRow(i);
   const row = (k, v) => v === '' || v == null ? '' : `<div class="prism-dstat"><span>${esc(k)}</span><b style="font-size:13px;word-break:break-word">${v}</b></div>`;
-  const btn = (act, label) => `<button type="button" class="btn btn-secondary btn-sm" data-log-dact="${act}" data-log-di="${i}">${esc(label)}</button>`;
+  const iconBtn = (act, svg, title) => `<button type="button" class="btn btn-ghost btn-icon btn-sm" data-log-dact="${act}" data-log-di="${i}" title="${esc(title)}">${svg}</button>`;
+  const icoCopy = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+  const icoJson = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H6a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h2M16 3h2a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-2"/></svg>`;
   col.hidden = false;
   col.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <span class="prism-panel-title" style="margin:0">${esc(t('lg.sys_detail'))}</span>
       <button type="button" class="btn btn-ghost btn-sm" data-log-dact="close" data-log-di="${i}">✕</button>
     </div>
-    <div style="margin-bottom:10px">${logLvlBadge(en.level)} <span class="chip" style="font-size:11px">${esc(en.component || '—')}</span></div>
+    <div style="margin-bottom:10px">${logLvlBadge(en.level)} ${en.component ? logCellFilter('component', en.component) : ''}</div>
     <pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:0 0 12px">${esc(en.message || '—')}</pre>
     <div class="prism-dstats" style="grid-template-columns:1fr">
-      ${row(t('logs.ts'), esc(fmtDate(en.ts)))}
+      ${row(t('logs.ts'), esc(logsTsPrecise(en.ts)))}
       ${row(t('logs.node'), en.node_name ? esc(nodeDisplayName(en.node_name)) : '')}
-      ${row(t('logs.domain'), en.domain ? `<span class="mono">${esc(en.domain)}</span>` : '')}
+      ${row(t('logs.domain'), en.domain ? `<span class="mono">${logCellFilter('domain', en.domain)}</span>` : '')}
       ${row(t('lg.request_id'), en.request_id ? `<span class="mono">${esc(en.request_id)}</span>` : '')}
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
-      ${en.component ? btn('fcomp', t('lg.filter_component')) : ''}
-      ${en.domain ? btn('fdomain', t('lg.filter_domain')) : ''}
-      ${en.domain && en.ts ? btn('corr', t('logs.correlate')) : ''}
-      ${btn('copymsg', t('lg.copy_message'))}
-      ${btn('copyjson', t('lg.copy_json'))}
+    <div style="display:flex;gap:6px;margin-top:14px">
+      ${iconBtn('copymsg', icoCopy, t('lg.copy_message'))}
+      ${iconBtn('copyjson', icoJson, t('lg.copy_json'))}
     </div>`;
 }

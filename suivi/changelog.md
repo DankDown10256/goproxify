@@ -9,7 +9,11 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ### Corrigé
 
+- **Admin 0.63.3 — Carte temps réel : point d'attaque trop bref** : le marqueur de pulsation affiché sur la carte à chaque événement (connexion/bannissement) disparaissait après 6s, trop court pour le repérer visuellement sur une carte peu chargée. Porté à 15s. (Admin `0.63.3`)
+
 - **Edge 0.17.2 — Logs d'accès : message façon « combined log format »** : le champ `message` (section « Message » du tiroir de détail) contient désormais une ligne complète façon Apache/nginx combined log — `IP - [horodatage] "MÉTHODE chemin" code octets "referer" "user-agent"` — au lieu d'être vide (`request_id` et le contexte de sécurité voyagent par ailleurs dans leurs propres champs structurés, pas besoin de les dupliquer ici). Référer et User-Agent étaient déjà capturés par requête mais jamais transmis à l'Admin. (Edge `0.17.2`)
+
+- **Admin 0.63.2 — Logs système : tiroir de détail simplifié** : horodatage affiché désormais à la milliseconde (comme le tiroir des logs d'accès), au lieu d'être tronqué à la seconde. Les boutons « Filtrer sur ce domaine » et « Filtrer sur ce composant » sont supprimés au profit d'un clic direct sur le nom du domaine/composant affiché (même mécanique que les logs d'accès). La fonction de corrélation manuelle avec les logs Agent / système (« Corréler ») est retirée : elle faisait doublon avec la corrélation automatique déjà en place dans le tiroir des logs d'accès depuis la 0.62.3. « Copier le message » et « Copier en JSON » deviennent des icônes au lieu de boutons texte. (Admin `0.63.2`)
 
 - **Admin 0.63.1 — Prism : filtre proxy incomplet, les proxies TCP/UDP jamais listés** : `GetProxies` excluait tout proxy sans `config.host` — vrai pour tout proxy TCP/UDP (le routage L4 identifie par port d'écoute, pas par domaine, voir `router.Route.Host`). Ils apparaissent maintenant dans le sélecteur, identifiés par leur nom suivi de « (TCP/UDP) » ; note : Prism reste basé sur `logs.domain` (journal des requêtes HTTP), donc sélectionner un proxy TCP/UDP ne fera remonter aucune donnée tant que le flux L4 n'est pas journalisé par requête — seule sa visibilité dans la liste est corrigée ici. Les proxies découverts par étiquettes Docker n'étaient pas concernés (déjà listés dès qu'activés). (Admin `0.63.1`)
 

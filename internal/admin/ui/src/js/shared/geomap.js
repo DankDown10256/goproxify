@@ -363,7 +363,7 @@ async function gpxGeoMap(el, opts = {}) {
           interactive: false, keyboard: false,
           icon: L.divIcon({ className: 'gm-pulse-wrap', html: `<span class="gm-pulse" style="--c:${color}"></span>`, iconSize: [0, 0] }),
         }).addTo(liveLayer);
-        setTimeout(() => liveLayer.removeLayer(m), 6000);
+        setTimeout(() => liveLayer.removeLayer(m), 15000);
       }
     },
     clearLive() { liveLayer.clearLayers(); },

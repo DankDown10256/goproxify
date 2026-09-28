@@ -3,7 +3,7 @@
 // histogramme (clic sur une barre pour zoomer), vues enregistrées (par navigateur).
 //   Admin (logs-explore)            → toutes les passerelles, facette Passerelle
 //   Passerelle (edge-logs-explore)  → node_name verrouillé, pas de facette Passerelle
-// Réutilise les badges et icônes de logs.js (logLvlBadge, httpStatusBadge, corrIconBtn, prismIconBtn).
+// Réutilise les badges et icônes de logs.js (logLvlBadge, httpStatusBadge, prismIconBtn).
 
 const EXPL_PERIODS = [['15m', 900000], ['1h', 3600000], ['6h', 21600000], ['24h', 86400000], ['7d', 604800000]];
 const EXPL_FACETS = ['level', 'component', 'node_name', 'domain', 'method'];
@@ -214,7 +214,6 @@ async function renderExplorer(scope) {
       renderViews();
     }
     else if (a === 'dclose') explCloseDrawer();
-    else if (a === 'dcorr') { explCloseDrawer(); showCorrelate(act.dataset.domain, act.dataset.ts); }
     else if (a === 'dprism') { explCloseDrawer(); openPrismFromLogs({ proxy: act.dataset.domain, ip: act.dataset.ip }); }
   });
   root.addEventListener('change', ev => { if (ev.target.id === 'expl-kind') { q.kind = ev.target.value; refresh(); } });
@@ -238,7 +237,7 @@ function explRow(e, i) {
     <td class="logs-cell-clip" style="font-size:12px;max-width:420px">${isSys
       ? esc(e.message || '—')
       : `<b>${esc(e.method || '')}</b> ${esc((e.domain || '') + (e.path || ''))} ${httpStatusBadge(e.status)}`}</td>
-    <td style="white-space:nowrap">${corrIconBtn(e.domain, e.ts)}${prismIconBtn(e.domain, e.ip)}</td>
+    <td style="white-space:nowrap">${prismIconBtn(e.domain, e.ip)}</td>
   </tr>`;
 }
 
@@ -279,7 +278,6 @@ function explOpenDrawer(e, i) {
     <pre class="mono" style="white-space:pre-wrap;word-break:break-word;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;margin:12px 0">${esc(e.message || '—')}</pre>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${!isSys ? `<button type="button" class="btn btn-secondary btn-sm" data-expl="dprism" data-domain="${esc(e.domain || '')}" data-ip="${esc(e.ip || '')}">${esc(t('lg.open_prism'))}</button>` : ''}
-      ${e.domain && e.ts ? `<button type="button" class="btn btn-secondary btn-sm" data-expl="dcorr" data-domain="${esc(e.domain)}" data-ts="${esc(e.ts)}">${esc(t('logs.correlate'))}</button>` : ''}
     </div>`;
   document.getElementById('expl-root').appendChild(dr);
 }
