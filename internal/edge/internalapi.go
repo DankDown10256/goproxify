@@ -46,6 +46,7 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("POST /internal/v1/proxies/revisions", s.handleCreateProxyRevision)
 	mux.HandleFunc("GET /internal/v1/proxies/{id}", s.handleGetFileProxy)
 	mux.HandleFunc("DELETE /internal/v1/proxies/{id}", s.handleDeleteFileProxy)
+	mux.HandleFunc("POST /internal/v1/proxies/{id}/cache/purge", s.handlePurgeProxyCache)
 	mux.HandleFunc("GET /internal/v1/proxies/{id}/revisions", s.handleListProxyRevisions)
 	mux.HandleFunc("POST /internal/v1/proxies/{id}/revisions/{rev}/dry-run", s.handleDryRunProxyRevision)
 	mux.HandleFunc("POST /internal/v1/proxies/{id}/revisions/{rev}/promote", s.handlePromoteProxyRevision)

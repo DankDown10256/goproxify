@@ -216,6 +216,18 @@ func (s *Server) invalidateRouteCache(routeID string) {
 	})
 }
 
+// routeCacheDir donne le répertoire de cache disque dédié à une route (un dir
+// par route — voir DiskCache.Purge, qui vide ce répertoire en entier).
+func routeCacheDir(route *router.Route) string {
+	if route.Cache != nil && route.Cache.Dir != "" {
+		return route.Cache.Dir
+	}
+	if route.CachePath != "" {
+		return route.CachePath
+	}
+	return "/tmp/goproxify-cache/" + route.ID
+}
+
 func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handler {
 	gen := s.dispatchGen.Load()
 	key := route.ID + "\x00" + locPath
@@ -227,14 +239,7 @@ func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handl
 
 	h := http.Handler(proxy.NewHandler(route, s.health, s.metrics, s.peers, s.log.Logger()))
 	if route.Cache != nil && route.Cache.Enabled {
-		dir := route.Cache.Dir
-		if dir == "" {
-			dir = route.CachePath
-		}
-		if dir == "" {
-			dir = "/tmp/goproxify-cache/" + route.ID
-		}
-		h = proxy.New(dir).MiddlewareWithConfig(route.Cache)(h)
+		h = proxy.New(routeCacheDir(route)).MiddlewareWithConfig(route.Cache)(h)
 	} else if route.CachePath != "" {
 		h = proxy.New(route.CachePath).Middleware(h)
 	}

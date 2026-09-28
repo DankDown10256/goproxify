@@ -2266,14 +2266,13 @@ article[data-log-i].is-selected{background:color-mix(in srgb,var(--accent) 10%,t
 .pxi-dside{display:flex;flex-direction:column;gap:14px;min-width:0}
 .pxi-panel{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
 .pxi-panel-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
-.pxi-feed-wrap{border-top:1px solid var(--border);padding:12px 0 14px}
-.pxi-feed{max-height:190px;overflow-y:auto;font-size:11px;padding:6px 16px 0}
 .pxi-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .pxi-kpi{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:11px 10px;display:flex;flex-direction:column;gap:4px}
 .pxi-kpi span{font-size:9.5px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
 .pxi-kpi b{font-size:16px;font-weight:700;color:var(--text)}
-.pxi-quick-actions{display:flex;flex-direction:column;gap:8px}
-.pxi-quick-actions .btn{justify-content:flex-start}
+.pxi-quick-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pxi-quick-actions .btn-icon{border:1px solid var(--border);background:var(--bg2)}
+.pxi-quick-actions .btn-icon:hover{background:var(--bg3);border-color:var(--accent)}
 
 .om-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
 .om-kpi{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}

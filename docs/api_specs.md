@@ -166,6 +166,14 @@ Met à jour un proxy manuel (interdit sur `source: "label"`).
 
 Supprime un proxy manuel.
 
+### `PATCH /api/v1/proxies/{id}`
+
+Corps `{"enabled": bool}`. Active/désactive le proxy (republié sur toutes les passerelles qui l'hébergent). Utilisé notamment par la Vue Proxy pour « Mettre en maintenance » / « Réactiver ».
+
+### `POST /api/v1/proxies/{id}/cache/purge`
+
+Vide le cache disque de ce proxy sur toutes les passerelles qui l'hébergent (best-effort, un proxy peut être répliqué sur plusieurs Edges). No-op si le cache n'est pas activé pour ce proxy. Réponse `{"purged": <nombre d'entrées supprimées>}`. Relaie en interne `POST /internal/v1/proxies/{id}/cache/purge` sur chaque Edge (le cache est stocké par route, un répertoire dédié par proxy — voir `router.Route.Cache`).
+
 ### `POST /api/v1/proxies/:domain/enable`
 ### `POST /api/v1/proxies/:domain/disable`
 

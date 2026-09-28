@@ -83,6 +83,8 @@ func (h *ProxiesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.createFiles(w, r)
 	case r.Method == http.MethodGet && id != "" && sub == "revisions/diff":
 		h.revisionsDiff(w, r, id)
+	case r.Method == http.MethodPost && id != "" && sub == "cache/purge":
+		h.purgeCacheFiles(w, r, id)
 	case r.Method == http.MethodGet && id != "":
 		h.getFiles(w, r, id)
 	case r.Method == http.MethodPut && id != "":

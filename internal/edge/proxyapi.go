@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
+	"github.com/vincamok/goproxify/internal/edge/proxy"
 	"github.com/vincamok/goproxify/internal/edge/proxypipeline"
 	"github.com/vincamok/goproxify/internal/edge/proxystore"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -187,6 +188,33 @@ func (s *Server) handleDeleteFileProxy(w http.ResponseWriter, r *http.Request) {
 	metrics.Edge.RouteCount.Set(float64(s.table.Len()))
 	s.saveCache()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handlePurgeProxyCache vide le cache disque d'une route (no-op si le cache n'est
+// pas activé pour cette route : rien à purger).
+func (s *Server) handlePurgeProxyCache(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var route *router.Route
+	for _, rt := range s.table.All() {
+		if rt.ID == id {
+			route = rt
+			break
+		}
+	}
+	if route == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if route.Cache == nil || !route.Cache.Enabled {
+		writeJSON(w, map[string]any{"purged": 0})
+		return
+	}
+	n, err := proxy.New(routeCacheDir(route)).Purge()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"purged": n})
 }
 
 func (s *Server) handleListProxyRevisions(w http.ResponseWriter, r *http.Request) {

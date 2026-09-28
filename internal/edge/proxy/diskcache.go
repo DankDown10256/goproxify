@@ -76,6 +76,31 @@ func (dc *DiskCache) set(key string, entry *cacheEntry) {
 	_ = os.WriteFile(dc.filePath(key), data, 0o644)
 }
 
+// Purge supprime toutes les entrées en cache de ce proxy (son répertoire est
+// dédié : un dir par route, voir dispatch.go). Retourne le nombre de fichiers supprimés.
+func (dc *DiskCache) Purge() (int, error) {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	entries, err := os.ReadDir(dc.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		if err := os.Remove(dc.dir + "/" + e.Name()); err == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // parseMaxAge extrait max-age depuis la valeur d'un header Cache-Control.
 // Retourne -1 si absent ou invalide.
 func parseMaxAge(cc string) int {

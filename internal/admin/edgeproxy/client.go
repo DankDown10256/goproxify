@@ -130,6 +130,18 @@ func (c *Client) Delete(ctx context.Context, t Target, id string) error {
 	return c.do(ctx, t, http.MethodDelete, "/internal/v1/proxies/"+id, nil, nil)
 }
 
+// PurgeCache vide le cache disque d'une route sur cet Edge. Retourne le nombre
+// d'entrées supprimées (0 si le cache n'est pas activé pour cette route).
+func (c *Client) PurgeCache(ctx context.Context, t Target, id string) (int, error) {
+	var out struct {
+		Purged int `json:"purged"`
+	}
+	if err := c.do(ctx, t, http.MethodPost, "/internal/v1/proxies/"+id+"/cache/purge", nil, &out); err != nil {
+		return 0, err
+	}
+	return out.Purged, nil
+}
+
 func (c *Client) ListRevisions(ctx context.Context, t Target, id string) ([]*proxystore.Envelope, error) {
 	var out []*proxystore.Envelope
 	path := fmt.Sprintf("/internal/v1/proxies/%s/revisions", id)

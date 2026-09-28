@@ -1,6 +1,7 @@
 // ── PAGE: Poste de contrôle proxy (Admin + Passerelle) ───────────────────────
-// Remplace l'ancien menu "Explorer" : sélection d'un proxy dans une liste, puis
-// visualisation temps réel (carte, flux de requêtes live, KPIs, sécurité).
+// Menu Observabilité > Vue Proxy : sélection d'un proxy dans une liste, puis
+// visualisation temps réel (carte "Trafic par pays" — même config que Prism —
+// avec flux de connexions en direct intégré, KPIs, anomalies, actions rapides).
 //   Admin (proxy-inspector)      → tous les proxies, toutes passerelles
 //   Passerelle (edge-proxy-inspector) → node_name verrouillé
 // Réutilise gpxGeoMap (shared/geomap.js), obsAnomaliesHtml (shared/obs-widgets.js),
@@ -14,6 +15,9 @@ const PXI_LIVE_INTERVAL_MS = 4000;
 const PXI_LIVE_FEED_MAX = 40;
 
 let pxiScope = { node_name: '', lock: false };
+let pxiGeoMode = 'requests';   // 'requests' | 'error_rate' | 'banned_ips'
+let pxiGeoStyle = 'zones';     // 'zones' | 'cities' | 'regions'
+let pxiHideInternal = true;
 
 function edgePxiNodeName() {
   const c = state.selectedEdge;
@@ -55,7 +59,7 @@ async function renderProxyInspector() {
     const domain = cfg.host || p.host || p.name || p.id || '';
     const backends = (cfg.backends || p.backends || []).map(b => b.url || b).filter(Boolean);
     return {
-      domain, target: backends[0] || '', enabled: p.enabled !== false,
+      id: p.id, domain, target: backends[0] || '', enabled: p.enabled !== false,
       m: byHost.get(domain.toLowerCase()) || null,
     };
   }).filter(p => p.domain);
@@ -127,6 +131,13 @@ async function renderProxyInspector() {
     renderDetail();
   });
 
+  // ── Icônes (actions rapides) ───────────────────────────────────────────────
+  const icoFull = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>`;
+  const icoPurge = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>`;
+  const icoPause = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>`;
+  const icoPlay = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 4l13 8-13 8z"/></svg>`;
+  const icoBan = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`;
+
   async function renderDetail() {
     stopLive();
     const p = proxies.find(x => x.domain === selected);
@@ -138,6 +149,7 @@ async function renderProxyInspector() {
     const rps = p.m ? dashRps(p.m.requests_per_second) : '—';
     const p95 = p.m?.p95_ms ? Math.round(p.m.p95_ms) + ' ms' : '—';
     const er = p.m ? (p.m.error_rate * 100).toFixed(2) + '%' : '—';
+    const maintLabel = p.enabled ? t('pxi.act_maintenance') : t('pxi.act_reactivate');
 
     det.innerHTML = `
       <div class="pxi-dhead">
@@ -156,14 +168,7 @@ async function renderProxyInspector() {
 
       <div class="pxi-dbody">
         <div class="pxi-dcenter">
-          <div class="pxi-panel" style="padding:0;overflow:hidden">
-            <div class="pxi-panel-title" style="padding:14px 16px 0">${esc(t('pxi.map_title'))} <span class="logs-live-dot" style="margin-left:6px"></span></div>
-            <div id="pxi-geo-map" class="prism-mapbox gm-box" style="height:300px;margin:10px 14px 0;width:calc(100% - 28px)"><div class="spinner" style="margin:100px auto"></div></div>
-            <div class="pxi-feed-wrap">
-              <div class="pxi-panel-title" style="padding:0 16px">${esc(t('pxi.feed_title'))}</div>
-              <div id="pxi-live-feed" class="pxi-feed">${spinnerSmall()}</div>
-            </div>
-          </div>
+          <div class="pxi-panel" id="pxi-geo-panel" style="min-height:80px">${spinnerSmall()}</div>
         </div>
         <div class="pxi-dside">
           <div class="pxi-kpis">
@@ -178,29 +183,25 @@ async function renderProxyInspector() {
           <div class="pxi-panel">
             <div class="pxi-panel-title">${esc(t('pxi.actions_title'))}</div>
             <div class="pxi-quick-actions">
-              <button type="button" class="btn btn-secondary btn-sm" data-pxi="bans">${esc(t('pxi.act_bans'))}</button>
-              <button type="button" class="btn btn-secondary btn-sm" data-pxi="prism">${esc(t('pxi.act_analytics'))}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-pxi="purge-cache" title="${esc(t('pxi.act_purge'))}" aria-label="${esc(t('pxi.act_purge'))}">${icoPurge}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-pxi="maintenance" title="${esc(maintLabel)}" aria-label="${esc(maintLabel)}">${p.enabled ? icoPause : icoPlay}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-pxi="bans" title="${esc(t('pxi.act_bans'))}" aria-label="${esc(t('pxi.act_bans'))}">${icoBan}</button>
+              <button type="button" class="btn btn-ghost btn-icon btn-sm" data-pxi="prism" title="${esc(t('pxi.act_analytics'))}" aria-label="${esc(t('pxi.act_analytics'))}">${icoFull}</button>
             </div>
           </div>
         </div>
       </div>`;
 
     det.querySelectorAll('[data-pxi]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const act = btn.getAttribute('data-pxi');
-        if (act === 'logs') {
-          if (typeof openLogsFiltered === 'function') openLogsFiltered({ domain: p.domain, node_name: pxiScope.node_name || '' });
-        } else if (act === 'prism' || act === 'act_analytics') {
-          if (typeof window.openPrismForProxy === 'function') window.openPrismForProxy(p.domain, pxiScope.node_name);
-        } else if (act === 'bans') {
-          navigate(state.selectedEdge ? 'edge-security-bans' : 'security-bans');
-        }
-      });
+      btn.addEventListener('click', () => onDetailAction(btn.getAttribute('data-pxi'), p, btn));
     });
 
     const nodeQS = pxiScope.node_name ? '&node_name=' + encodeURIComponent(pxiScope.node_name) : '';
     const to = new Date(), from = new Date(to - 3600000);
     const q = `proxy=${encodeURIComponent(p.domain)}${nodeQS}&from=${from.toISOString()}&to=${to.toISOString()}`;
+
+    document.getElementById('pxi-geo-panel').innerHTML = geoPanelHtml();
+    wireGeoPanel();
 
     api('GET', '/prism/anomalies?' + q).then(list => {
       const el = document.getElementById('pxi-anoms');
@@ -215,7 +216,102 @@ async function renderProxyInspector() {
     startLive(p.domain);
   }
 
+  async function onDetailAction(act, p, btn) {
+    if (act === 'logs') {
+      if (typeof openLogsFiltered === 'function') openLogsFiltered({ domain: p.domain, node_name: pxiScope.node_name || '' });
+    } else if (act === 'prism') {
+      if (typeof window.openPrismForProxy === 'function') window.openPrismForProxy(p.domain, pxiScope.node_name);
+    } else if (act === 'bans') {
+      navigate(state.selectedEdge ? 'edge-security-bans' : 'security-bans');
+    } else if (act === 'purge-cache') {
+      if (!p.id) return;
+      btn.disabled = true;
+      try {
+        const res = await api('POST', `/proxies/${encodeURIComponent(p.id)}/cache/purge`);
+        toast(t('pxi.purge_done', { n: res?.purged ?? 0 }), 'success');
+      } catch (e) {
+        toast(t('pxi.purge_err') + (e?.message ? ' : ' + e.message : ''), 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    } else if (act === 'maintenance') {
+      if (!p.id) return;
+      const nextEnabled = !p.enabled;
+      btn.disabled = true;
+      try {
+        await api('PATCH', `/proxies/${encodeURIComponent(p.id)}`, { enabled: nextEnabled });
+        p.enabled = nextEnabled;
+        toast(nextEnabled ? t('pxi.reactivate_done') : t('pxi.maintenance_done'), 'success');
+        renderList();
+        renderDetail();
+      } catch (e) {
+        toast(t('pxi.maintenance_err') + (e?.message ? ' : ' + e.message : ''), 'error');
+        btn.disabled = false;
+      }
+    }
+  }
+
+  // ── Carte "Trafic par pays" (même configuration que Prism) + flux live ────
+  function geoPanelHtml() {
+    const liveFeedHtml = `
+      <div id="pxi-live-feed-wrap" style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+          <span class="logs-live-dot"></span>
+          <span style="font-size:11px;font-weight:600;color:var(--text2)">${esc(t('pz.live_conns'))}</span>
+          <label class="logs-toggle-inline" style="margin-left:auto">
+            <span class="toggle"><input type="checkbox" id="pxi-hide-internal" ${pxiHideInternal ? 'checked' : ''} data-pxi-geo="hide-internal"><span class="toggle-slider"></span></span>
+            ${esc(t('logs.hide_internal'))}
+          </label>
+        </div>
+        <div id="pxi-live-feed" style="max-height:220px;overflow-y:auto;font-size:11px">${spinnerSmall()}</div>
+      </div>`;
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.by_country'))} <span class="logs-live-dot" style="margin-left:6px"></span></span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="btn-group" role="group" aria-label="Vue">
+            <button type="button" class="btn btn-xs geo-mode-btn ${pxiGeoMode === 'requests' ? 'active' : ''}" data-pxi-geo="mode" data-mode="requests">${esc(t('prism.requests'))}</button>
+            <button type="button" class="btn btn-xs geo-mode-btn ${pxiGeoMode === 'error_rate' ? 'active' : ''}" data-pxi-geo="mode" data-mode="error_rate">${esc(t('pz.err_rate_short'))}</button>
+            <button type="button" class="btn btn-xs geo-mode-btn ${pxiGeoMode === 'banned_ips' ? 'active' : ''}" data-pxi-geo="mode" data-mode="banned_ips">${esc(t('pz.banned_ips'))}</button>
+          </div>
+          <div class="btn-group" role="group" aria-label="Style">
+            <button type="button" class="btn btn-xs geo-style-btn ${pxiGeoStyle === 'zones' ? 'active' : ''}" data-pxi-geo="style" data-style="zones">${esc(t('sy.atk_zones'))}</button>
+            <button type="button" class="btn btn-xs geo-style-btn ${pxiGeoStyle === 'cities' ? 'active' : ''}" data-pxi-geo="style" data-style="cities">${esc(t('sy.atk_cities'))}</button>
+            <button type="button" class="btn btn-xs geo-style-btn ${pxiGeoStyle === 'regions' ? 'active' : ''}" data-pxi-geo="style" data-style="regions">${esc(t('sy.atk_regions'))}</button>
+          </div>
+        </div>
+      </div>
+      <div id="pxi-geo-map" class="prism-mapbox gm-box" style="min-height:260px"><div class="spinner" style="margin:80px auto"></div></div>
+      ${liveFeedHtml}`;
+  }
+
+  function wireGeoPanel() {
+    const panel = document.getElementById('pxi-geo-panel');
+    if (!panel || panel.dataset.pxiWired) return;
+    panel.dataset.pxiWired = '1';
+    panel.addEventListener('click', e => {
+      const el = e.target.closest('[data-pxi-geo]');
+      if (!el) return;
+      const act = el.getAttribute('data-pxi-geo');
+      if (act === 'mode') { pxiGeoMode = el.dataset.mode || 'requests'; applyGeo(); }
+      else if (act === 'style') { pxiGeoStyle = el.dataset.style || 'zones'; applyGeo(); }
+    });
+    panel.addEventListener('change', e => {
+      const el = e.target.closest('[data-pxi-geo="hide-internal"]');
+      if (!el) return;
+      pxiHideInternal = !!el.checked;
+    });
+  }
+
+  let _pxiLastGeoData = [];
+  function applyGeo() {
+    document.querySelectorAll('#pxi-geo-panel .geo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === pxiGeoMode));
+    document.querySelectorAll('#pxi-geo-panel .geo-style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === pxiGeoStyle));
+    if (_pxiGeoCtl) _pxiGeoCtl.update({ countries: _pxiLastGeoData, points: [], mode: pxiGeoMode, style: pxiGeoStyle, selected: '' });
+  }
+
   async function buildMap(geo) {
+    _pxiLastGeoData = geo;
     const container = document.getElementById('pxi-geo-map');
     if (!container) return;
     if (!geo.length) {
@@ -227,7 +323,7 @@ async function renderProxyInspector() {
       const ctl = await gpxGeoMap(container, {});
       ctl.el = container;
       _pxiGeoCtl = ctl;
-      ctl.update({ countries: geo, points: [], mode: 'requests', style: 'zones', selected: '' });
+      ctl.update({ countries: geo, points: [], mode: pxiGeoMode, style: pxiGeoStyle, selected: '' });
     } catch {
       container.innerHTML = `<p style="color:var(--text3);font-size:12px;padding:16px">${esc(t('pxi.map_unavailable'))}</p>`;
     }
@@ -241,6 +337,8 @@ async function renderProxyInspector() {
     _pxiLiveFeed = [];
     _pxiLiveLastTs = null;
   }
+
+  const isInternalLiveEvent = e => pxiHideInternal && e.country_code === 'LO';
 
   function startLive(domain) {
     _pxiLiveLastTs = new Date().toISOString();
@@ -258,7 +356,8 @@ async function renderProxyInspector() {
       const events = await api('GET', '/prism/live-ips?' + qs.toString()).catch(() => []);
       if (!Array.isArray(events) || !events.length) return;
       _pxiLiveLastTs = events[0].ts || new Date().toISOString();
-      const newEvts = events.filter(e => !_pxiLiveFeed.some(f => f.ip === e.ip && f.ts === e.ts));
+      const visible = events.filter(e => !isInternalLiveEvent(e));
+      const newEvts = visible.filter(e => !_pxiLiveFeed.some(f => f.ip === e.ip && f.ts === e.ts));
       if (!newEvts.length) return;
       _pxiLiveFeed = [...newEvts, ..._pxiLiveFeed].slice(0, PXI_LIVE_FEED_MAX);
       renderFeed();

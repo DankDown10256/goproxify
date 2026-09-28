@@ -175,6 +175,49 @@ func (h *ProxiesHandler) updateFiles(w http.ResponseWriter, r *http.Request, id 
 	jsonOK(w, envelopeToRow(prod))
 }
 
+// purgeCacheFiles vide le cache disque d'un proxy sur toutes les passerelles qui
+// le publient (best-effort, comme publishAll — un proxy peut être répliqué sur
+// plusieurs Edges).
+func (h *ProxiesHandler) purgeCacheFiles(w http.ResponseWriter, r *http.Request, id string) {
+	existing, err := h.fetchProd(r.Context(), id)
+	if err != nil {
+		writeErr(w, r, http.StatusNotFound, "api.err.proxy_not_found")
+		return
+	}
+	userID := auth.UserIDFromContext(r.Context())
+	var route router.Route
+	_ = json.Unmarshal(existing.Config, &route)
+	route.ID = id
+	if !rbac.CanWriteProxy(r.Context(), h.DB, userID, &route) {
+		writeErr(w, r, http.StatusForbidden, "api.err.out_of_scope")
+		return
+	}
+	targets, err := edgeproxy.ListTargets(r.Context(), h.DB)
+	if err != nil || len(targets) == 0 {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.no_edge")
+		return
+	}
+	client := edgeproxy.NewClient()
+	total, ok := 0, 0
+	var lastErr error
+	for _, t := range targets {
+		n, err := client.PurgeCache(r.Context(), t, id)
+		if err != nil {
+			lastErr = err
+			h.Log.Warn("proxies/files: purge cache", "edge", t.NodeName, "err", err)
+			continue
+		}
+		total += n
+		ok++
+	}
+	if ok == 0 {
+		h.writeEdgeErr(w, r, lastErr)
+		return
+	}
+	_ = admindb.WriteAudit(h.DB, userID, "purge_cache", "proxy:"+id, existing.Host)
+	jsonOK(w, map[string]any{"purged": total})
+}
+
 func (h *ProxiesHandler) patchFiles(w http.ResponseWriter, r *http.Request, id string) {
 	var body struct {
 		Enabled *bool `json:"enabled"`
