@@ -11,6 +11,7 @@ let _pxiGeoCtl = null;
 let _pxiLiveTimer = null;
 let _pxiLiveLastTs = null;
 let _pxiLiveFeed = [];
+let _pxiCountryStats = new Map(); // country_code -> {country_code, country_name, requests, errors, bannedIPs:Set}
 const PXI_LIVE_INTERVAL_MS = 4000;
 const PXI_LIVE_FEED_MAX = 40;
 
@@ -202,6 +203,7 @@ async function renderProxyInspector() {
 
     document.getElementById('pxi-geo-panel').innerHTML = geoPanelHtml();
     wireGeoPanel();
+    initMap();
 
     api('GET', '/prism/anomalies?' + q).then(list => {
       const el = document.getElementById('pxi-anoms');
@@ -210,8 +212,6 @@ async function renderProxyInspector() {
       const el = document.getElementById('pxi-anoms');
       if (el) el.innerHTML = obsAnomaliesHtml([]);
     });
-
-    api('GET', '/prism/geo?' + q).then(geo => buildMap(geo || [])).catch(() => buildMap([]));
 
     startLive(p.domain);
   }
@@ -282,6 +282,7 @@ async function renderProxyInspector() {
         </div>
       </div>
       <div id="pxi-geo-map" class="prism-mapbox gm-box" style="min-height:260px"><div class="spinner" style="margin:80px auto"></div></div>
+      <div id="pxi-geo-top" style="margin-top:10px">${spinnerSmall()}</div>
       ${liveFeedHtml}`;
   }
 
@@ -303,30 +304,79 @@ async function renderProxyInspector() {
     });
   }
 
-  let _pxiLastGeoData = [];
-  function applyGeo() {
-    document.querySelectorAll('#pxi-geo-panel .geo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === pxiGeoMode));
-    document.querySelectorAll('#pxi-geo-panel .geo-style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === pxiGeoStyle));
-    if (_pxiGeoCtl) _pxiGeoCtl.update({ countries: _pxiLastGeoData, points: [], mode: pxiGeoMode, style: pxiGeoStyle, selected: '' });
+  // Regroupement des IP publiques par pays — calculé uniquement à partir du flux
+  // live (/prism/live-ips), jamais d'un agrégat historique : la Vue Proxy est un
+  // poste de contrôle temps réel, pas un outil d'analyse a posteriori (→ Prism).
+  function countryStatsList() {
+    const list = [];
+    for (const s of _pxiCountryStats.values()) {
+      const requests = s.requests;
+      list.push({
+        country_code: s.country_code, country_name: s.country_name,
+        requests, errors: s.errors, error_rate: requests ? (s.errors / requests * 100) : 0,
+        banned_ips: s.bannedIPs.size,
+      });
+    }
+    const total = list.reduce((sum, e) => sum + e.requests, 0) || 1;
+    for (const e of list) e.pct = e.requests / total * 100;
+    return list;
   }
 
-  async function buildMap(geo) {
-    _pxiLastGeoData = geo;
+  function accumulateGeo(events) {
+    for (const ev of events) {
+      const cc = ev.country_code || 'XX';
+      let s = _pxiCountryStats.get(cc);
+      if (!s) {
+        s = { country_code: cc, country_name: ev.country_name || cc, requests: 0, errors: 0, bannedIPs: new Set() };
+        _pxiCountryStats.set(cc, s);
+      }
+      s.requests++;
+      if (ev.kind === 'error') s.errors++;
+      if (ev.kind === 'banned' && ev.ip) s.bannedIPs.add(ev.ip);
+    }
+  }
+
+  async function initMap() {
     const container = document.getElementById('pxi-geo-map');
     if (!container) return;
-    if (!geo.length) {
-      container.innerHTML = `<p style="color:var(--text3);font-size:12px;padding:16px">${esc(t('pxi.map_empty'))}</p>`;
-      return;
-    }
     try {
       container.innerHTML = '';
       const ctl = await gpxGeoMap(container, {});
       ctl.el = container;
       _pxiGeoCtl = ctl;
-      ctl.update({ countries: geo, points: [], mode: pxiGeoMode, style: pxiGeoStyle, selected: '' });
+      applyGeo();
     } catch {
       container.innerHTML = `<p style="color:var(--text3);font-size:12px;padding:16px">${esc(t('pxi.map_unavailable'))}</p>`;
     }
+  }
+
+  function applyGeo() {
+    document.querySelectorAll('#pxi-geo-panel .geo-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === pxiGeoMode));
+    document.querySelectorAll('#pxi-geo-panel .geo-style-btn').forEach(b => b.classList.toggle('active', b.dataset.style === pxiGeoStyle));
+    const list = countryStatsList();
+    if (_pxiGeoCtl) _pxiGeoCtl.update({ countries: list, points: [], mode: pxiGeoMode, style: pxiGeoStyle, selected: '' });
+    renderTopCountries(list);
+  }
+
+  function renderTopCountries(list) {
+    const el = document.getElementById('pxi-geo-top');
+    if (!el) return;
+    if (!list.length) { el.innerHTML = spinnerSmall(); return; }
+    const flagOf = cc => (!cc || cc.length !== 2 || cc === 'XX' || cc === 'LO') ? '🌐' : String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
+    const top = geoSortLocalLast(list.filter(e => _geoValue(e, pxiGeoMode) > 0), e => _geoValue(e, pxiGeoMode)).slice(0, 6);
+    if (!top.length) { el.innerHTML = spinnerSmall(); return; }
+    const maxV = Math.max(...top.map(e => _geoValue(e, pxiGeoMode)), 1);
+    el.innerHTML = top.map((e, i) => {
+      const v = _geoValue(e, pxiGeoMode);
+      const label = pxiGeoMode === 'error_rate' ? v.toFixed(1) + '%' : fmtNum(v);
+      const sep = isLocalGeo(e.country_code) && i > 0 && !isLocalGeo(top[i - 1].country_code)
+        ? `<div class="prism-toprow-sep">${esc(t('pz.local_sep'))}</div>` : '';
+      return `${sep}<div class="prism-toprow" style="cursor:default">
+        <span class="prism-toprow-flag">${flagOf(e.country_code)}</span>
+        <span class="prism-toprow-main"><span class="prism-toprow-head"><span>${esc(e.country_name)}</span><b>${label}</b></span>
+        <span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(v / maxV * 100).toFixed(1)}%"></span></span></span>
+      </div>`;
+    }).join('');
   }
 
   function spinnerSmall() { return `<div style="color:var(--text3);font-size:12px;padding:8px 0">${esc(t('pxi.wait_traffic'))}</div>`; }
@@ -340,9 +390,25 @@ async function renderProxyInspector() {
 
   const isInternalLiveEvent = e => pxiHideInternal && e.country_code === 'LO';
 
+  // Fusionne les événements consécutifs identiques (même IP/domaine/kind — scan ou
+  // tentative répétée) en une seule ligne avec un compteur (même logique que Prism).
+  function collapseLiveFeed(events) {
+    const out = [];
+    for (const ev of events) {
+      const last = out[out.length - 1];
+      if (last && last.ip === ev.ip && last.domain === ev.domain && last.kind === ev.kind) {
+        last.count = (last.count || 1) + 1;
+      } else {
+        out.push({ ...ev, count: 1 });
+      }
+    }
+    return out;
+  }
+
   function startLive(domain) {
     _pxiLiveLastTs = new Date().toISOString();
     _pxiLiveFeed = [];
+    _pxiCountryStats = new Map();
     _pxiLiveTimer = setInterval(() => tickLive(domain), PXI_LIVE_INTERVAL_MS);
     tickLive(domain);
   }
@@ -356,10 +422,15 @@ async function renderProxyInspector() {
       const events = await api('GET', '/prism/live-ips?' + qs.toString()).catch(() => []);
       if (!Array.isArray(events) || !events.length) return;
       _pxiLiveLastTs = events[0].ts || new Date().toISOString();
+
+      // Regroupement par pays (carte + Top pays) : sur tous les événements, IP internes incluses.
+      accumulateGeo(events);
+      applyGeo();
+
       const visible = events.filter(e => !isInternalLiveEvent(e));
       const newEvts = visible.filter(e => !_pxiLiveFeed.some(f => f.ip === e.ip && f.ts === e.ts));
       if (!newEvts.length) return;
-      _pxiLiveFeed = [...newEvts, ..._pxiLiveFeed].slice(0, PXI_LIVE_FEED_MAX);
+      _pxiLiveFeed = collapseLiveFeed([...newEvts, ..._pxiLiveFeed]).slice(0, PXI_LIVE_FEED_MAX);
       renderFeed();
       if (_pxiGeoCtl) _pxiGeoCtl.pulse(newEvts);
     } catch { /* ignore */ }
@@ -382,6 +453,7 @@ async function renderProxyInspector() {
         <span class="live-feed-flag">${flag(ev.country_code)}</span>
         <code class="live-feed-ip">${esc(ev.ip)}</code>
         <span class="live-feed-domain" title="${esc(ev.domain || '')}">${esc(ev.domain || '')}</span>
+        ${ev.count > 1 ? `<span class="live-feed-count" title="${ev.count} occurrences">×${ev.count}</span>` : ''}
         <span class="live-feed-ts">${ts}</span>
       </div>`;
     }).join('');

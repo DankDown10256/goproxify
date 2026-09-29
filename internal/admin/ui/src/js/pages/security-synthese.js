@@ -100,6 +100,20 @@ async function synAttackMap(mode) {
   let feed = [];
   let since = new Date().toISOString();
   const isInternalEvent = e => _syn.atkHideInternal && e.country_code === 'LO';
+  // Fusionne les events consécutifs identiques (même IP/domaine/kind — scan ou tentative répétée
+  // bannie) en une seule ligne avec un compteur (même mécanique que le flux live de Prism, 0.63.4).
+  const collapseLiveFeed = events => {
+    const out = [];
+    for (const ev of events) {
+      const last = out[out.length - 1];
+      if (last && last.ip === ev.ip && last.domain === ev.domain && last.kind === ev.kind) {
+        last.count = (last.count || 1) + 1;
+      } else {
+        out.push({ ...ev, count: 1 });
+      }
+    }
+    return out;
+  };
   const renderFeed = () => {
     if (!feedEl) return;
     feedEl.innerHTML = feed.length ? feed.map(ev => `<div class="live-feed-row">
@@ -107,6 +121,7 @@ async function synAttackMap(mode) {
       <span class="live-feed-flag">${esc(ev.country_code || '')}</span>
       <code class="live-feed-ip">${esc(ev.ip)}</code>
       <span class="live-feed-domain" title="${esc(ev.domain)}">${esc(ev.domain)}</span>
+      ${ev.count > 1 ? `<span class="live-feed-count" title="${ev.count} occurrences">×${ev.count}</span>` : ''}
       <span class="live-feed-ts">${esc((ev.ts || '').replace('T', ' ').slice(11, 19))}</span></div>`).join('')
       : `<div style="color:var(--text3);font-size:12px;padding:8px 0">${esc(t('sy.atk_wait'))}</div>`;
   };
@@ -141,7 +156,7 @@ async function synAttackMap(mode) {
     const fresh = visible.filter(e => !feed.some(f => f.ip === e.ip && f.ts === e.ts));
     if (!fresh.length) return;
     ctl.pulse(fresh);
-    feed = [...fresh, ...feed].slice(0, 8);
+    feed = collapseLiveFeed([...fresh, ...feed]).slice(0, 8);
     renderFeed();
   }, 4000);
 }
