@@ -140,8 +140,21 @@ function _asRoleDetail(model, s, h) {
 }
 
 /** Passerelle à laquelle un agent se connecte (cible déclarée, passerelle du même hôte, sinon la première). */
+/** Membres (au sens toile : {s, h}) d'un groupe HA ciblé ("group:<gid>"), ou []. */
+function _asAgentGroupTargets(model, x) {
+  const tid = x.s.targetEdgeId || '';
+  if (!tid.startsWith('group:')) return [];
+  const gid = tid.slice('group:'.length);
+  const g = (model.haGroups || []).find(gr => gr.id === gid);
+  if (!g) return [];
+  const edges = _asAllSvcs(model).filter(y => y.s.type === 'edge');
+  return g.members.map(id => edges.find(y => y.s.id === id)).filter(Boolean);
+}
+
 function _asAgentTarget(model, x) {
   const edges = _asAllSvcs(model).filter(y => y.s.type === 'edge');
+  const groupTargets = _asAgentGroupTargets(model, x);
+  if (groupTargets.length) return groupTargets[0];
   if (x.s.targetEdgeId) {
     const e = edges.find(y => y.s.id === x.s.targetEdgeId);
     if (e) return e;
@@ -482,7 +495,11 @@ function _asPanelHTML(model) {
 
   let sub;
   if (s.type === 'edge') sub = g ? t(g.members[0] === s.id ? 'as.panel.leader_of' : 'as.panel.member_of', { id: g.id }) : t('as.panel.standalone');
-  else if (s.type === 'agent') { const tg = _asAgentTarget(model, x); sub = tg ? t('as.panel.agent_to', { edge: tg.s.name }) : t('arch.svc.agent'); }
+  else if (s.type === 'agent') {
+    const groupTargets = _asAgentGroupTargets(model, x);
+    if (groupTargets.length) sub = t('as.panel.agent_to', { edge: groupTargets.map(g => g.s.name).join(', ') });
+    else { const tg = _asAgentTarget(model, x); sub = tg ? t('as.panel.agent_to', { edge: tg.s.name }) : t('arch.svc.agent'); }
+  }
   else sub = t('as.admin_role');
 
   const hostLine = h ? `<div class="as-pn-host"><span class="as-hd-dot" style="--h:${_asHostColor(model, h)}"></span>${esc(h.name)}${h.region ? ' · ' + esc(h.region) : ''}

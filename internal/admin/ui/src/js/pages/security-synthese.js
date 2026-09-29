@@ -2,9 +2,11 @@
 // ctx = { mode: 'admin'|'edge' }. Admin : agrégat de toutes les passerelles. Passerelle : données
 // filtrées sur ses proxies / domaines (resolveSecurityEdgeCtx), réglages Sentinel propres à la passerelle.
 
-const _syn = { mode: 'admin', tl: 'all', tlN: 8, events: [], atkLive: true, atkStyle: 'zones', atkTimer: null };
+const _syn = { mode: 'admin', tl: 'all', tlN: 8, events: [], atkLive: true, atkStyle: 'zones', atkMode: 'errors', atkHideInternal: true, atkTimer: null };
 
-// Carte des attaques : requêtes en erreur et IPs bannies des 24 dernières heures (couche fixe),
+// Carte des attaques : requêtes en erreur et IPs bannies des 24 dernières heures (couche fixe,
+// mode Erreurs/IPs bannies + styles Zones/Villes/Régions — mêmes fonctionnalités que la carte
+// « Trafic par pays » de Prism : détail pays/ville au clic, top attaquants, masquage du trafic interne),
 // puis flux temps réel des événements « error » / « banned » (pulsations sur la ville source).
 async function synAttackMap(mode) {
   if (_syn.atkTimer) { clearInterval(_syn.atkTimer); _syn.atkTimer = null; }
@@ -18,14 +20,86 @@ async function synAttackMap(mode) {
     api('GET', '/prism/geo?' + q).catch(() => []),
     api('GET', '/prism/geo/points?' + q + '&limit=1000').catch(() => []),
   ]);
+  let lastGeo = Array.isArray(geo) ? geo : [];
+  let lastPts = Array.isArray(pts) ? pts : [];
+
   let ctl;
-  try { ctl = await gpxGeoMap(box, {}); } catch { box.innerHTML = ''; return; }
-  const push = () => ctl.update({ countries: Array.isArray(geo) ? geo : [], points: Array.isArray(pts) ? pts : [], mode: 'errors', style: _syn.atkStyle });
+  try { ctl = await gpxGeoMap(box, { onCountry: cc => openCountry(cc), onPoint: pt => openPoint(pt) }); } catch { box.innerHTML = ''; return; }
+
+  const atkVal = e => _syn.atkMode === 'banned_ips' ? (e.banned_ips || 0) : (e.errors || 0);
+
+  function renderTop() {
+    const topEl = document.getElementById('sy-atk-top');
+    if (!topEl) return;
+    const flagOf = cc => (!cc || cc.length !== 2 || cc === 'XX' || cc === 'LO') ? '🌐' : String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
+    const top = geoSortLocalLast(lastGeo.filter(e => atkVal(e) > 0), atkVal).slice(0, 8);
+    const maxVal = Math.max(...top.map(atkVal), 1);
+    topEl.innerHTML = top.length ? top.map(e => `<button type="button" class="prism-toprow${e.country_code === selCc ? ' sel' : ''}" data-cc="${esc(e.country_code)}" onclick="synAtkOpenCountry('${esc(e.country_code)}')">
+      <span class="prism-toprow-flag">${flagOf(e.country_code)}</span>
+      <span class="prism-toprow-main"><span class="prism-toprow-head"><span>${esc(e.country_name)}</span><b>${fmtNum(atkVal(e))}</b></span>
+      <span class="prism-bar-bg"><span class="prism-bar-fill" style="width:${(atkVal(e) / maxVal * 100).toFixed(1)}%"></span></span></span>
+    </button>`).join('') : `<p class="prism-muted">${esc(t('sy.atk_wait'))}</p>`;
+  }
+
+  let selCc = '';
+  const push = () => {
+    ctl.update({ countries: lastGeo, points: lastPts, mode: _syn.atkMode, style: _syn.atkStyle, selected: selCc });
+    renderTop();
+  };
   push();
+
+  function openCountry(cc) {
+    const e = lastGeo.find(g => g.country_code === cc);
+    const dr = document.getElementById('sy-atk-drawer');
+    if (!e || !dr) return;
+    selCc = cc;
+    push();
+    const flagOf = (!cc || cc.length !== 2 || cc === 'XX' || cc === 'LO') ? '🌐' : String.fromCodePoint(0x1F1E6 + cc.charCodeAt(0) - 65, 0x1F1E6 + cc.charCodeAt(1) - 65);
+    const stat = (l, v, warn) => `<div class="prism-dstat"><span>${l}</span><b${warn ? ' style="color:var(--red)"' : ''}>${v}</b></div>`;
+    dr.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.country_detail'))}</span>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="synAtkCloseDrawer()">✕</button>
+      </div>
+      <div style="font-size:36px;line-height:1">${flagOf}</div>
+      <div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:4px 0">${esc(e.country_name)} <span style="font-size:12px;color:var(--text3);font-weight:500">${esc(cc)}</span></div>
+      <div style="color:var(--text3);margin-bottom:14px">${t('pz.req_share', { n: fmtNum(e.requests), pct: (e.pct || 0).toFixed(1) })}</div>
+      <div class="prism-dstats">
+        ${stat(t('prism.errors'), fmtNum(e.errors || 0))}
+        ${stat(t('prism.error_rate'), (e.error_rate || 0).toFixed(1) + '%', (e.error_rate || 0) >= 10)}
+        ${stat(t('pz.banned_ips'), fmtNum(e.banned_ips || 0), (e.banned_ips || 0) > 0)}
+      </div>`;
+    dr.classList.add('open');
+  }
+
+  function openPoint(pt) {
+    const dr = document.getElementById('sy-atk-drawer');
+    if (!dr) return;
+    const place = [pt.city, pt.region].filter(Boolean).join(', ') || pt.country_name;
+    const stat = (l, v, warn) => `<div class="prism-dstat"><span>${l}</span><b${warn ? ' style="color:var(--red)"' : ''}>${v}</b></div>`;
+    dr.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span class="prism-panel-title" style="margin:0">${esc(t('pz.city_detail'))}</span>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="synAtkCloseDrawer()">✕</button>
+      </div>
+      <div style="font-size:22px;font-weight:700;letter-spacing:-.02em;margin:4px 0">${esc(place)} <span style="font-size:12px;color:var(--text3);font-weight:500">${esc(pt.country_code)}</span></div>
+      <div style="color:var(--text3);margin-bottom:14px">${t('pz.req_ips', { n: fmtNum(pt.requests), ips: fmtNum(pt.ips) })}</div>
+      <div class="prism-dstats">
+        ${stat(t('prism.errors'), fmtNum(pt.errors || 0))}
+        ${stat(t('prism.error_rate'), (pt.error_rate || 0).toFixed(1) + '%', (pt.error_rate || 0) >= 10)}
+        ${stat(t('pz.banned_ips'), fmtNum(pt.banned_ips || 0), (pt.banned_ips || 0) > 0)}
+      </div>
+      <p class="prism-muted" style="margin-top:14px">${t('pz.approx_pos')}</p>`;
+    dr.classList.add('open');
+  }
+
+  window.synAtkOpenCountry = openCountry;
+  window.synAtkCloseDrawer = () => { selCc = ''; document.getElementById('sy-atk-drawer')?.classList.remove('open'); push(); };
 
   const feedEl = document.getElementById('sy-atk-feed');
   let feed = [];
   let since = new Date().toISOString();
+  const isInternalEvent = e => _syn.atkHideInternal && e.country_code === 'LO';
   const renderFeed = () => {
     if (!feedEl) return;
     feedEl.innerHTML = feed.length ? feed.map(ev => `<div class="live-feed-row">
@@ -43,6 +117,12 @@ async function synAttackMap(mode) {
     push();
     document.querySelectorAll('.sy-atk-style').forEach(b => b.classList.toggle('active', b.dataset.style === s));
   };
+  window.synAtkMode = m => {
+    _syn.atkMode = m;
+    push();
+    document.querySelectorAll('.sy-atk-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  };
+  window.synAtkHideInternal = on => { _syn.atkHideInternal = on; };
   window.synAtkLive = () => {
     _syn.atkLive = !_syn.atkLive;
     const b = document.getElementById('sy-atk-live');
@@ -57,7 +137,8 @@ async function synAttackMap(mode) {
     const ev = await api('GET', '/prism/live-ips?' + p).catch(() => []);
     if (!Array.isArray(ev) || !ev.length) return;
     since = ev[0].ts || since;
-    const fresh = ev.filter(e => e.kind !== 'visit' && !feed.some(f => f.ip === e.ip && f.ts === e.ts));
+    const visible = ev.filter(e => e.kind !== 'visit' && !isInternalEvent(e));
+    const fresh = visible.filter(e => !feed.some(f => f.ip === e.ip && f.ts === e.ts));
     if (!fresh.length) return;
     ctl.pulse(fresh);
     feed = [...fresh, ...feed].slice(0, 8);
@@ -221,15 +302,33 @@ async function renderSecuritySynthese(ctx) {
       <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('sy.atk_title'))} <span class="vs-hint" style="font-weight:400">${esc(t('sy.atk_sub'))}</span></h3>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button type="button" id="sy-atk-live" class="btn btn-ghost btn-sm${_syn.atkLive ? ' is-active' : ''}" aria-pressed="${_syn.atkLive}" onclick="synAtkLive()">${esc(t('sy.atk_live'))}</button>
-          <span class="btn-group" role="group">
+          <span class="btn-group" role="group" aria-label="Vue">
+            <button type="button" class="btn btn-xs sy-atk-mode${_syn.atkMode === 'errors' ? ' active' : ''}" data-mode="errors" onclick="synAtkMode('errors')">${esc(t('sy.atk_mode_err'))}</button>
+            <button type="button" class="btn btn-xs sy-atk-mode${_syn.atkMode === 'banned_ips' ? ' active' : ''}" data-mode="banned_ips" onclick="synAtkMode('banned_ips')">${esc(t('sy.atk_mode_ban'))}</button>
+          </span>
+          <span class="btn-group" role="group" aria-label="Style">
             <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'zones' ? ' active' : ''}" data-style="zones" onclick="synAtkStyle('zones')">${esc(t('sy.atk_zones'))}</button>
             <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'cities' ? ' active' : ''}" data-style="cities" onclick="synAtkStyle('cities')">${esc(t('sy.atk_cities'))}</button>
             <button type="button" class="btn btn-xs sy-atk-style${_syn.atkStyle === 'regions' ? ' active' : ''}" data-style="regions" onclick="synAtkStyle('regions')">${esc(t('sy.atk_regions'))}</button>
           </span>
           <a onclick="navigate('${isAdmin ? 'prism' : 'edge-prism'}')">${esc(t('sy.atk_prism'))}</a>
         </span></div>
-        <div id="sy-atk-map" class="prism-mapbox gm-box" style="height:340px"><div class="spinner" style="margin:120px auto"></div></div>
-        <div id="sy-atk-feed" class="live-feed" style="max-height:170px;overflow-y:auto;font-size:11px;margin-top:8px"></div></div>
+        <div class="prism-hero" style="margin-top:8px">
+          <div class="prism-panel prism-mapcard" style="padding:0"><div id="sy-atk-map" class="prism-mapbox gm-box" style="height:340px"><div class="spinner" style="margin:120px auto"></div></div></div>
+          <div class="prism-rail">
+            <div class="prism-panel"><div class="prism-panel-title">${esc(t('sy.atk_top'))}</div><div id="sy-atk-top"><p class="prism-muted">…</p></div></div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <span class="logs-live-dot"></span>
+          <span style="font-size:11px;font-weight:600;color:var(--text2)">${esc(t('pz.live_conns'))}</span>
+          <label class="logs-toggle-inline" style="margin-left:auto">
+            <span class="toggle"><input type="checkbox" id="sy-atk-hide-internal" ${_syn.atkHideInternal ? 'checked' : ''} onchange="synAtkHideInternal(this.checked)"><span class="toggle-slider"></span></span>
+            ${esc(t('logs.hide_internal'))}
+          </label>
+        </div>
+        <div id="sy-atk-feed" class="live-feed" style="max-height:170px;overflow-y:auto;font-size:11px;margin-top:4px"></div>
+        <aside class="prism-drawer" id="sy-atk-drawer"></aside></div>
 
       <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('security.overview_activity_24h'))}</h3></div>${secActivityChartHTML(events)}</div>
 

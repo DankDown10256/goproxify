@@ -7,6 +7,10 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 
 ## [Unreleased]
 
+### Modifié
+
+- **Admin 0.69.0 — Sécurité › Synthèse : carte « Attaques en direct » alignée sur « Trafic par pays »** : la carte de la synthèse Sécurité n'avait qu'un sélecteur de style (Zones/Villes/Régions) et un flux live minimal. Elle reprend désormais les fonctionnalités de la carte « Trafic par pays » de Prism : bascule de mode (Erreurs / IPs bannies), panneau « Top pays attaquants » à côté de la carte, détail pays/ville au clic (tiroir latéral, mêmes informations que Prism), et bascule « Masquer le trafic interne » sur le flux temps réel. Aucun nouvel endpoint : mêmes données `/prism/geo`, `/prism/geo/points` et `/prism/live-ips` déjà utilisées. (Admin `0.69.0`)
+
 ### Corrigé
 
 - **Admin 0.67.0 — Ticket d'installation : la génération échouait toujours** : `_archCreateTickets` utilisait une variable `nodeNames` jamais déclarée (déclaration supprimée par erreur lors de la refonte des hôtes multi-éléments) ; l'erreur était avalée par le `try/catch`, si bien que « Générer un ticket » ne produisait ni commande, ni lien, ni QR code. Les noms des passerelles et agents de l'hôte sont de nouveau transmis (acceptation automatique à la connexion), et un échec est désormais signalé. (Admin `0.67.0`)
@@ -77,6 +81,8 @@ Format : [Semantic Versioning](https://semver.org/) — `MAJOR.MINOR.PATCH`
 - **Admin 0.29.2 — logs d'accès/système d'une passerelle vides** : le filtre par `node_id` excluait les logs sans `node_id` (ingestion HTTP, historique) ; ils sont désormais rattachés via `node_name`.
 
 ### Ajouté
+
+- **Admin 0.68.0 — Infrastructure : un Agent peut être rattaché à un groupe HA entier** : dans l'assistant Infrastructure, quand un Agent a plus d'une passerelle candidate, le sélecteur « Passerelle cible » propose désormais aussi les groupes HA déclarés (2 passerelles ou plus). Choisir un groupe (au lieu d'une passerelle unique) écrit `target_edge: "ha:<id>"` dans la config déclarée de l'Agent : toutes les passerelles du groupe sont alors considérées comme cibles valides, actif/actif ou actif/passif — chacune pouvant recevoir les requêtes qui lui sont destinées. Le schéma (vue Flux) et le panneau de détail affichent le lien vers l'ensemble des membres du groupe plutôt qu'une seule passerelle. (Admin `0.68.0`)
 
 - **Admin 0.67.0 — Infrastructure : panneau « Configuration » d'un hôte refait** : la petite modale à onglets et pastilles devient un panneau large.
   - **En-tête d'identité** de l'hôte (zone, région, rôles) avec son état de conformité, cliquable vers les écarts.

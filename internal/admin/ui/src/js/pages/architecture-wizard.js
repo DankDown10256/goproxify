@@ -187,15 +187,18 @@ function _archHydrateFromExisting(nodes, declared) {
     const cfg = _archParseCfg(d && d.config);
     const placement = (cfg.placement || '').trim();
     const target = (cfg.target_edge || a.target_edge || '').trim();
-    const edgeKey = _archResolveEdgeKey(target, edges)
-      || _archResolveEdgeKey(a.target_edge || '', edges);
+    // Un Agent peut cibler un groupe HA entier ("ha:<gid>") plutôt qu'une passerelle unique :
+    // pas de résolution vers un edge précis, pas d'heuristique de co-location.
+    const groupTarget = target.startsWith('ha:') ? target.slice(3).trim() : '';
+    const edgeKey = groupTarget ? '' : (_archResolveEdgeKey(target, edges)
+      || _archResolveEdgeKey(a.target_edge || '', edges));
     let host;
     // Cas single-stack Docker Compose : 1 passerelle + 1 Agent sans placement déclaré → même hôte.
-    const onlyEdgeKey = edges.length === 1 ? (edges[0].node_name || edges[0].id || '').trim() : '';
-    const effectiveEdgeKey = edgeKey || (edges.length === 1 && agents.length === 1 && !placement ? onlyEdgeKey : '');
-    const colocate = (placement === 'colocated' && effectiveEdgeKey)
+    const onlyEdgeKey = !groupTarget && edges.length === 1 ? (edges[0].node_name || edges[0].id || '').trim() : '';
+    const effectiveEdgeKey = edgeKey || (!groupTarget && edges.length === 1 && agents.length === 1 && !placement ? onlyEdgeKey : '');
+    const colocate = !groupTarget && ((placement === 'colocated' && effectiveEdgeKey)
       || (placement !== 'remote' && effectiveEdgeKey && _archLooksColocatedTarget(cfg.target_edge || '', effectiveEdgeKey))
-      || (edges.length === 1 && agents.length === 1 && !placement && !!effectiveEdgeKey);
+      || (edges.length === 1 && agents.length === 1 && !placement && !!effectiveEdgeKey));
     if (cfg.host) {
       // L'hôte est déclaré dans architecture.json : pas d'heuristique de co-location.
       host = ensureHost('host:' + cfg.host, { name: cfg.host, region: (d && d.region) || a.region || '', internet: !!cfg.internet_exposed });
@@ -219,6 +222,7 @@ function _archHydrateFromExisting(nodes, declared) {
       if (hostEdge) { svc.placement = 'colocated'; svc.targetEdgeId = hostEdge.id; } else if (!svc.placement) svc.placement = 'remote';
     } else if (colocate) svc.placement = 'colocated';
     else if (!svc.placement) svc.placement = 'remote';
+    if (groupTarget && !cfg.host) { svc.targetEdgeId = 'group:' + groupTarget; svc.placement = 'remote'; }
     host.services.push(svc);
   }
 
@@ -290,6 +294,29 @@ function _archNextGroupId() {
   let n = 1;
   while (ids.has('ha-' + n)) n++;
   return 'ha-' + n;
+}
+
+// Un Agent peut être rattaché à un groupe HA entier (tous les membres reçoivent la même
+// config de routage) plutôt qu'à une passerelle unique : targetEdgeId vaut alors 'group:<gid>'.
+function _archGroupById(gid) {
+  return _arch.haGroups.find(g => g.id === gid) || null;
+}
+function _archIsGroupTarget(id) {
+  return typeof id === 'string' && id.startsWith('group:');
+}
+function _archGroupTargetId(id) {
+  return _archIsGroupTarget(id) ? id.slice('group:'.length) : '';
+}
+function _archTargetLabel(targetEdgeId) {
+  if (!targetEdgeId) return '';
+  if (_archIsGroupTarget(targetEdgeId)) {
+    const gid = _archGroupTargetId(targetEdgeId);
+    const g = _archGroupById(gid);
+    const names = g ? g.members.map(id => (_archFindSvc(id) || _archBaseSvc(id) || {}).name).filter(Boolean).join(', ') : '';
+    return t('arch.opt.target_ha_group', { id: gid }) + (names ? ' — ' + names : '');
+  }
+  const s = _archFindSvc(targetEdgeId) || _archBaseSvc(targetEdgeId);
+  return s ? s.name : '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -455,7 +482,7 @@ function _archSig(model) {
   const svc = s => {
     const o = { t: s.type, n: s.name };
     for (const f of Object.keys(_ARCH_CHG_FIELDS)) if (f !== 'portainerKey') o[f] = _archNorm(s[f]);
-    o.targetEdgeId = s.targetEdgeId ? (byId.get(s.targetEdgeId) || {}).name || '' : '';
+    o.targetEdgeId = s.targetEdgeId ? (_archIsGroupTarget(s.targetEdgeId) ? s.targetEdgeId : ((byId.get(s.targetEdgeId) || {}).name || '')) : '';
     return o;
   };
   const hosts = model.hosts.filter(h => (h.services || []).length)
@@ -669,7 +696,7 @@ function _archBefore(svc, field) {
   const b = _archBaseSvc(svc.id);
   if (!b || _archNorm(b[field]) === _archNorm(svc[field])) return '';
   let v = _ARCH_BOOL_FIELDS.has(field) ? t(b[field] ? 'as.ins.on' : 'as.ins.off') : (b[field] || '—');
-  if (field === 'targetEdgeId') v = b[field] ? ((_archFindSvc(b[field]) || _archBaseSvc(b[field]) || {}).name || '—') : t('arch.opt.target_edge_auto');
+  if (field === 'targetEdgeId') v = b[field] ? (_archTargetLabel(b[field]) || '—') : t('arch.opt.target_edge_auto');
   return `<span class="as-before">${esc(t('as.ins.before', { v }))}</span>`;
 }
 
@@ -846,8 +873,12 @@ function _archDeclaredPayload() {
         cfg.portainer_key  = svc.portainerKey || '';
         cfg.placement      = svc.placement || '';
         // Relu par _archHydrateFromExisting (_archResolveEdgeKey) : sans lui, la passerelle cible choisie se perdait.
-        const target = svc.targetEdgeId ? _archFindSvc(svc.targetEdgeId) : null;
-        cfg.target_edge    = target ? (target.nodeName || target.name) : '';
+        if (_archIsGroupTarget(svc.targetEdgeId)) {
+          cfg.target_edge  = 'ha:' + _archGroupTargetId(svc.targetEdgeId);
+        } else {
+          const target = svc.targetEdgeId ? _archFindSvc(svc.targetEdgeId) : null;
+          cfg.target_edge  = target ? (target.nodeName || target.name) : '';
+        }
       }
       // Pour les nœuds live, node_name est la clé d'upsert (pas le display_name) : évite un doublon si display_name ≠ node_name.
       return { svc, host, entry: { role: svc.type, name: svc.nodeName || svc.name, region: host.region || '', environment: '', config: cfg } };
@@ -1096,9 +1127,14 @@ function _archAgentNetHTML(svc, host) {
   let html = `<div class="arch-cap-desc" style="margin-bottom:8px">${esc(t(local ? 'as.ins.colocated' : 'as.ins.remote'))}</div>`;
   if (edges.length > 1) {
     const targetOpts = edges.map(c => `<option value="${esc(c.id)}" ${svc.targetEdgeId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+    const groupOpts = _arch.haGroups.filter(g => g.members.length > 1).map(g => {
+      const gval = 'group:' + g.id;
+      const names = g.members.map(id => (_archFindSvc(id) || {}).name).filter(Boolean).join(', ');
+      return `<option value="${esc(gval)}" ${svc.targetEdgeId === gval ? 'selected' : ''}>${esc(t('arch.opt.target_ha_group', { id: g.id }))}${names ? ' — ' + esc(names) : ''}</option>`;
+    }).join('');
     html += _archField(t('arch.opt.target_edge'),
       `<select class="arch-select" onchange="_archSetField('${svc.id}','targetEdgeId',this.value)">
-        <option value="">${t('arch.opt.target_edge_auto')}</option>${targetOpts}
+        <option value="">${t('arch.opt.target_edge_auto')}</option>${targetOpts}${groupOpts}
       </select>` + _archBefore(svc, 'targetEdgeId'));
   } else if (edges.length === 1) {
     html += `<div class="arch-cap-desc">${esc(t('as.ins.target_only', { name: edges[0].name }))}</div>`;
@@ -1593,11 +1629,22 @@ function _archResolveEdgeEndpoint(agentHost, agentSvc) {
   if (localEdge) return `http://${localEdge.name}:8000`;
 
   if (agentSvc && agentSvc.targetEdgeId) {
-    const target = _archFindSvc(agentSvc.targetEdgeId);
-    if (target && target.type === 'edge') {
-      const host = (target.reachable || '').trim();
-      if (host) return typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
-      return `http://${target.name}:8000`;
+    if (_archIsGroupTarget(agentSvc.targetEdgeId)) {
+      const g = _archGroupById(_archGroupTargetId(agentSvc.targetEdgeId));
+      const members = g ? g.members.map(id => _archFindSvc(id)).filter(s => s && s.type === 'edge') : [];
+      const preferred = members.find(s => (s.reachable || '').trim()) || members[0];
+      if (preferred) {
+        const host = (preferred.reachable || '').trim();
+        if (host) return typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
+        return `http://${preferred.name}:8000`;
+      }
+    } else {
+      const target = _archFindSvc(agentSvc.targetEdgeId);
+      if (target && target.type === 'edge') {
+        const host = (target.reachable || '').trim();
+        if (host) return typeof _wizEdgeEndpoint === 'function' ? _wizEdgeEndpoint(host) : ('http://' + host.replace(/\/$/, '') + (String(host).includes(':') ? '' : ':8000'));
+        return `http://${target.name}:8000`;
+      }
     }
   }
 
