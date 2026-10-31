@@ -42,6 +42,23 @@ func openGeoDB(path string) (*maxminddb.Reader, error) {
 	return db, nil
 }
 
+// CountryLookup rend la fonction IP → code pays de la base MaxMind de dbPath (le même lecteur que le filtre GeoIP). Erreur
+// tant que la base manque : l'appelant réessaie plus tard.
+func CountryLookup(dbPath string) (func(net.IP) string, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil, err
+	}
+	db, err := openGeoDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return func(ip net.IP) string {
+		var record geoRecord
+		_ = db.Lookup(ip, &record)
+		return record.Country.ISOCode
+	}, nil
+}
+
 // GeoIP retourne un middleware de filtrage géographique.
 // dbPath vide = pas de filtre (route sans configuration géographique).
 // Chemin recommandé (volume passerelle) : /etc/goproxify/geoip/GeoLite2-Country.mmdb

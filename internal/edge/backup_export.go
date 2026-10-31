@@ -23,7 +23,7 @@ import (
 
 // backupSkipDirs : dossiers de l'état de la passerelle qu'une sauvegarde ne reprend pas
 // (téléchargeables ou purement runtime).
-var backupSkipDirs = map[string]bool{"geoip": true, "logs": true, "threat-lists": true, "restore-tmp": true}
+var backupSkipDirs = map[string]bool{"geoip": true, "logs": true, "edge-logs": true, "threat-lists": true, "restore-tmp": true}
 
 // logsKept : le dossier des logs est exclu de la sauvegarde pour sa taille (ADR 0012 : la base se reconstitue côté Admin
 // pour ce qui l'intéresse, et les exports légaux se font avant), sauf les gels légaux : le registre et les archives
@@ -54,7 +54,7 @@ func envMB(name string, def int64) int64 {
 
 func backupSkipFile(name string) bool {
 	return strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".mmdb") ||
-		strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") || strings.HasSuffix(name, ".cast.gpx")
+		strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") || strings.HasSuffix(name, ".cast.gpx") || name == "asn-db.gpx"
 }
 
 // backupBundle : fichiers d'état d'une passerelle, chemin relatif → contenu.

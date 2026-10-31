@@ -101,10 +101,10 @@ func ScopeCatalog() []ScopeMeta {
 // la carte scope → outils de /mcp-access sans dupliquer ToolRequiredScope.
 // Doit contenir exactement les outils du serveur MCP (vérifié par un test de internal/admin/mcp).
 var mcpTools = []string{
-	"list_proxies", "get_proxy", "get_proxy_labels", "get_discovered_container", "list_orphan_proxies", "create_proxy", "convert_discovered_container", "update_proxy", "set_proxy_enabled", "delete_proxy", "purge_proxy_cache",
+	"list_proxies", "get_proxy", "get_proxy_labels", "get_discovered_container", "list_orphan_proxies", "create_proxy", "convert_discovered_container", "set_container_route_enabled", "update_proxy", "set_proxy_enabled", "delete_proxy", "purge_proxy_cache",
 	"list_nodes", "list_agents", "list_declared_nodes", "get_topology_live", "get_architecture", "list_discovery_sources",
 	"approve_agent", "revoke_agent", "create_declared_node", "delete_declared_node",
-	"create_bootstrap_ticket", "accept_node", "reject_node",
+	"create_bootstrap_ticket", "list_hosts", "create_host_join_ticket", "accept_node", "reject_node",
 	"list_alerts", "list_alert_events", "list_alert_channels", "list_alert_channel_types", "list_alert_rules",
 	"create_alert_channel", "delete_alert_channel", "create_alert_rule", "delete_alert_rule", "ack_alert_event",
 	"get_metrics", "get_proxy_metrics", "list_backups", "list_users",
@@ -118,6 +118,7 @@ var mcpTools = []string{
 	"list_flows", "get_flow", "list_flow_versions", "list_flow_runs", "get_flow_run", "get_automation_catalog", "list_flow_templates", "list_silences", "export_automation",
 	"create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "list_ban_whitelist", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
 	"create_ip_profile", "delete_ip_profile", "create_auth_provider", "delete_auth_provider",
+	"get_proxy_surface", "get_app_inventory", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
 	"create_flow", "update_flow", "set_flow_enabled", "delete_flow", "run_flow", "simulate_flow", "restore_flow_version", "detach_flow", "update_flow_params", "decide_flow_run", "cancel_flow_run", "replay_flow_run", "install_flow_template", "create_silence", "delete_silence", "import_automation",
 	"get_portal_config", "list_portal_destinations", "preview_portal_destinations", "list_portal_destination_groups",
 	"list_portal_users", "list_portal_groups", "list_portal_audit", "list_portal_sessions", "terminate_portal_session", "list_portal_access_requests", "decide_portal_access_request", "get_portal_policy", "set_portal_policy", "list_portal_recordings", "delete_portal_recording", "list_portal_templates", "get_portal_template",
@@ -224,15 +225,15 @@ func ToolRequiredScope(tool string) string {
 	switch tool {
 	case "list_proxies", "get_proxy", "get_proxy_labels", "get_discovered_container", "list_orphan_proxies":
 		return ScopeProxiesRead
-	case "create_proxy", "convert_discovered_container", "update_proxy", "set_proxy_enabled", "purge_proxy_cache":
+	case "create_proxy", "convert_discovered_container", "set_container_route_enabled", "update_proxy", "set_proxy_enabled", "purge_proxy_cache":
 		return ScopeProxiesWrite
 	case "delete_proxy":
 		return ScopeProxiesDelete
-	case "list_nodes", "list_agents", "list_declared_nodes", "get_topology_live", "get_architecture", "list_discovery_sources":
+	case "list_nodes", "list_agents", "list_declared_nodes", "get_topology_live", "get_architecture", "list_discovery_sources", "list_hosts":
 		return ScopeNodesRead
 	case "approve_agent", "revoke_agent",
 		"create_declared_node", "delete_declared_node",
-		"create_bootstrap_ticket", "accept_node", "reject_node":
+		"create_bootstrap_ticket", "create_host_join_ticket", "accept_node", "reject_node":
 		return ScopeNodesWrite
 	case "list_alerts", "list_alert_events", "list_alert_channels", "list_alert_channel_types", "list_alert_rules":
 		return ScopeAlertsRead
@@ -263,11 +264,11 @@ func ToolRequiredScope(tool string) string {
 		return ScopeTeamsRead
 	case "get_audit_log",
 		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_ban_whitelist",
-		"list_security_threats", "list_security_cves",
+		"list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", 
 		"list_ip_profiles", "list_auth_providers", "list_auth_provider_types",
 		"list_flows", "get_flow", "list_flow_versions", "list_flow_runs", "get_flow_run", "get_automation_catalog", "list_flow_templates", "list_silences", "export_automation":
 		return ScopeAuditRead
-	case "create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
+	case "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface", "create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
 		"create_ip_profile", "delete_ip_profile", "create_auth_provider", "delete_auth_provider",
 		"create_flow", "update_flow", "set_flow_enabled", "delete_flow", "run_flow", "simulate_flow", "restore_flow_version", "detach_flow", "update_flow_params", "decide_flow_run", "cancel_flow_run", "replay_flow_run", "install_flow_template", "create_silence", "delete_silence", "import_automation":
 		return ScopeSecurityWrite
@@ -297,7 +298,7 @@ func ToolRequiresAdmin(tool string) bool {
 	case "list_agents", "approve_agent", "revoke_agent",
 		"get_architecture", "list_discovery_sources", "list_dns_providers", "list_dns_provider_types",
 		"list_backups", "list_users", "list_teams",
-		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_security_threats", "list_security_cves",
+		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
 		"create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "get_siem_status", "simulate_ephor_config", "get_ephor_references", "suggest_ephor_thresholds", "trace_ip", "preview_security_ban", "preview_asn_ban", "list_ban_whitelist", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
 		"list_auth_providers", "list_auth_provider_types", "create_auth_provider", "delete_auth_provider",
 		"list_internal_cas", "list_internal_certs", "get_ech_status", "create_internal_ca", "issue_internal_cert", "revoke_internal_cert",
@@ -327,6 +328,10 @@ func RequiredScopeForRequest(r *http.Request) string {
 	if path == "/api/v1/pairing-secret" {
 		return ScopePairingRead
 	}
+	// Activer ou désactiver la route d'un conteneur est une écriture de proxy, comme la convertir en proxy.
+	if method == http.MethodPut && path == "/api/v1/discovered-containers/enabled" {
+		return ScopeProxiesWrite
+	}
 
 	switch {
 	case strings.HasPrefix(path, "/api/v1/proxies"):
@@ -341,6 +346,7 @@ func RequiredScopeForRequest(r *http.Request) string {
 	case strings.HasPrefix(path, "/api/v1/nodes"),
 		strings.HasPrefix(path, "/api/v1/declared-nodes"),
 		strings.HasPrefix(path, "/api/v1/bootstrap-tickets"),
+		strings.HasPrefix(path, "/api/v1/hosts"),
 		strings.HasPrefix(path, "/api/v1/node-events"),
 		strings.HasPrefix(path, "/api/v1/discovered-containers"),
 		strings.HasPrefix(path, "/api/v1/backends/health"),

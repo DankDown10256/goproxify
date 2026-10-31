@@ -170,7 +170,6 @@ function _wizEdgeOptsFromExisting(edge) {
     const ports = ['80:80', '443:443'];
     if (cfg.http3) ports.push('443:443/udp');
     ports.push('8000:8000');
-    if (cfg.cluster) ports.push('8002:8002');
     return {
       name,
       svcName: name,
@@ -186,8 +185,6 @@ function _wizEdgeOptsFromExisting(edge) {
     wc_name: name,
     wc_restart: cfg.restart || 'unless-stopped',
     wc_log: cfg.log_level || 'info',
-    wc_cluster: !!cfg.cluster,
-    wc_raft_leader: cfg.raft_leader || '',
     wc_http3: !!cfg.http3,
   });
 }
@@ -299,7 +296,7 @@ function _buildAddAgentOpts({ name, edgeURL, docker, dockerSock, portainer, port
     portainer && portainerKey ? { k: 'GPX_PORTAINER_API_KEY',  v: portainerKey }    : null,
   ].filter(Boolean);
   const volumes = [];
-  if (docker) volumes.push(`${sockPath}:${sockPath}:ro`);
+  if (docker) volumes.push(`${sockPath}:${sockPath}`);
   volumes.push(`${name}_data:/etc/goproxify`);
   return { name, svcName: name, image, envVars, ports: [], volumes, netBlock, restart: 'unless-stopped', command: 'agent' };
 }

@@ -88,6 +88,16 @@ func infraTools() []map[string]any {
 			),
 		},
 		{
+			"name":        "list_hosts",
+			"description": "Liste les hôtes déclarés dans architecture.json (adresse, rôles, groupe HA), leur état (pending, partial, joined), leurs nœuds et le ticket d'installation en cours.",
+			"inputSchema": schema(),
+		},
+		{
+			"name":        "create_host_join_ticket",
+			"description": "Crée pour un hôte déclaré un ticket d'installation de 15 minutes (remplace le précédent) : jeton, adresse où le launcher récupère la description de l'hôte, et empreinte du certificat de l'Admin à vérifier. Refusé si l'hôte est déjà intégré.",
+			"inputSchema": schema(req("host", "string", "Nom de l'hôte déclaré")),
+		},
+		{
 			"name":        "accept_node",
 			"description": "Accepte un nœud passerelle/Agent en attente (pending_nodes) après présentation du pairing secret.",
 			"inputSchema": schema(req("id", "string", "ID du nœud pending")),
@@ -112,6 +122,24 @@ func (h *Handler) toolGetArchitecture(args map[string]any) (any, error) {
 		return h.ArchStore.Version(v)
 	}
 	return h.ArchStore.Get()
+}
+
+func (h *Handler) toolListHosts(r *http.Request) (any, error) {
+	if h.Hosts == nil {
+		return nil, fmt.Errorf("hôtes indisponibles")
+	}
+	return h.Hosts.List(r)
+}
+
+func (h *Handler) toolCreateHostJoinTicket(r *http.Request, args map[string]any) (any, error) {
+	if h.Hosts == nil {
+		return nil, fmt.Errorf("hôtes indisponibles")
+	}
+	host := argStr(args, "host")
+	if host == "" {
+		return nil, fmt.Errorf("host requis")
+	}
+	return h.Hosts.CreateTicket(r, host)
 }
 
 func (h *Handler) toolCreateDeclaredNode(r *http.Request, args map[string]any) (any, error) {

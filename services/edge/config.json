@@ -14,13 +14,6 @@
     "internal_api_port": 8000,
     "bind_address": "0.0.0.0"
   },
-  "cluster": {
-    "enabled": false,
-    "group_name": "default",
-    "node_id": "",
-    "raft_port": 8002,
-    "peers": {}
-  },
   "engine": {
     "log_level": "info",
     "log_format": "json",

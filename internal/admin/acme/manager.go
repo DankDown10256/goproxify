@@ -37,7 +37,7 @@ type Manager struct {
 	log      *slog.Logger
 	pusher   CertPusher
 	provider DNSProvider
-	// Providers : fournisseurs DNS nommés (acme-providers.yaml). Nil → seuls les identifiants du
+	// Providers : fournisseurs DNS nommés (state/acme-providers.yaml). Nil → seuls les identifiants du
 	// domaine et le fournisseur par défaut sont utilisables.
 	Providers *ProviderStore
 	email     string

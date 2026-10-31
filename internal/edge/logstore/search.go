@@ -107,6 +107,8 @@ func (s *Store) where(q Query) (string, []any) {
 	eq("domain", q.Domain)
 	eq("method", q.Method)
 	eq("request_id", q.RequestID)
+	// Les lignes qu'une ancienne version a répliquées d'un pair (origin non vide) ne sont plus lues : elles partent avec leur fichier.
+	c = append(c, "origin = ''")
 	if q.IP != "" {
 		canon := ipcrypt.CanonicalIP(q.IP)
 		if s.key != nil {

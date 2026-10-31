@@ -212,7 +212,7 @@ func init() {
 			detField("behavior_window_s", "Behavior window (s)", modules.KindNumber),
 			detField("behavior_threshold", "Behavior threshold", modules.KindNumber),
 			detList("trusted_proxies", "Trusted proxies (CIDR)", "10.0.0.0/8", false),
-			detList("exclude_platforms", "Excluded platforms", "wordpress", false),
+				detList("exclusions", "Path-scoped rule exclusions", "", false),
 			detText("custom_rules_path", "Custom rules file", "", false),
 			detList("waf_whitelist_ips", "Exempt IPs / CIDRs", "", false),
 		},

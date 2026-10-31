@@ -753,17 +753,6 @@ window.wizardNext1 = function() {
 
 function _onbCompose() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minEdges > 1;
-  const clusterGroup = infra.id === 'multi-region' ? 'eu-cluster' : 'cluster-1';
-
-  const clusterEnv = !isCluster ? '' : `
-      - GPX_CLUSTER_ENABLED=true
-      - GPX_CLUSTER_GROUP=${clusterGroup}
-      - GPX_CLUSTER_NODE_ID=edge-1
-      - GPX_CLUSTER_RAFT_PORT=8002
-      - GPX_CLUSTER_PEERS=edge-2:8002,edge-3:8002`;
-
-  const clusterPort = isCluster ? '\n      - "8002:8002"' : '';
 
   const agentService = !onb.withAgent ? '' : `
 
@@ -779,7 +768,7 @@ function _onbCompose() {
       - GPX_AGENT_PAIRING_KEY=\${GPX_AGENT_PAIRING_KEY}
       - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks:
       - goproxify_infra
@@ -845,12 +834,12 @@ services:
     restart: unless-stopped
     command: ["edge"]
     environment:
-      - GPX_PAIRING_SECRET=\${GPX_PAIRING_SECRET}${clusterEnv}
+      - GPX_PAIRING_SECRET=\${GPX_PAIRING_SECRET}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
-      - "8000:8000"${clusterPort}
+      - "8000:8000"
     volumes:
       - goproxify_edge_data:/etc/goproxify
     networks:
@@ -863,7 +852,6 @@ ${agentService}`;
 
 function _onbEnv() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minEdges > 1;
 
   return `# .env
 # 4 variables suffisent pour démarrer. Ne commitez pas ce fichier.
@@ -887,12 +875,7 @@ EDGE_NODE_NAME=goproxify-edge
 # ── IMAGE ─────────────────────────────────────────────────────────────
 GOPROXIFY_REGISTRY=ghcr.io/vincamok/goproxify
 GOPROXIFY_TAG=preview
-${!isCluster ? '' : `
-# ── CLUSTER ───────────────────────────────────────────────────────────
-# Répliquez ce fichier sur chaque nœud Edge en ajustant GPX_CLUSTER_NODE_ID.
-# GPX_CLUSTER_NODE_ID=edge-2
-# GPX_CLUSTER_PEERS=edge-1:8002,edge-3:8002
-`}${(() => {
+${(() => {
     const p = DNS_PROVIDERS.find(p => p.id === onb.dnsProvider);
     if (!p || onb.dnsProvider === 'none') return '';
     return `
@@ -924,8 +907,6 @@ goproxify edge \\
 
 function _onbK8s() {
   const infra = INFRA_TYPES.find(t => t.id === onb.infra) || INFRA_TYPES[0];
-  const isCluster = infra.minEdges > 1;
-  const clusterGroup = infra.id === 'multi-region' ? 'eu-cluster' : 'cluster-1';
 
   return `# Kubernetes — ConfigMap + Secret par service
 # Adaptez les noms de namespace, image et valeurs selon votre cluster.
@@ -967,12 +948,7 @@ metadata:
 data:
   GPX_NETWORK_HTTP_PORT: "80"
   GPX_NETWORK_HTTPS_PORT: "443"
-  GPX_NETWORK_INTERNAL_API_PORT: "8000"${!isCluster ? '' : `
-  GPX_CLUSTER_ENABLED: "true"
-  GPX_CLUSTER_GROUP: "${clusterGroup}"
-  GPX_CLUSTER_NODE_ID: "edge-1"
-  GPX_CLUSTER_RAFT_PORT: "8002"
-  GPX_CLUSTER_PEERS: "edge-2:8002,edge-3:8002"`}
+  GPX_NETWORK_INTERNAL_API_PORT: "8000"
 ${!onb.withAgent ? '' : `
 ---
 # ── ConfigMap Agent ────────────────────────────────────────────────────

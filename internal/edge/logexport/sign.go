@@ -55,8 +55,12 @@ func KeyID(pub ed25519.PublicKey) string {
 
 // Manifest décrit un export. Il ne porte aucune donnée personnelle : l'IP filtrée n'y figure que par son empreinte.
 type Manifest struct {
-	Version   int    `json:"version"`
-	Node      string `json:"node"`
+	Version int    `json:"version"`
+	Node    string `json:"node"`
+	// Nodes : les passerelles que couvre un export de l'Admin (absent pour l'export d'une seule base).
+	Nodes []string `json:"nodes,omitempty"`
+	// Origin : pair dont l'export reprend les lignes répliquées (absent pour les lignes propres de la base).
+	Origin    string `json:"origin,omitempty"`
 	CreatedAt string `json:"created_at"` // heure de la passerelle : sa valeur de preuve dépend de son horloge (NTP)
 	Operator  string `json:"operator"`
 	Reason    string `json:"reason"`

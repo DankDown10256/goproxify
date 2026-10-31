@@ -4,6 +4,7 @@
 package portal
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -174,7 +175,7 @@ func (s *Service) startLocked() error {
 
 	secret := resolveMasterKey()
 	if secret == "" {
-		return fmt.Errorf("portal: master key manquante (GPX_PORTAL_MASTER_KEY ou token passerelle)")
+		return errNoMasterKey
 	}
 	store := NewStore(s.cfg.DBPath, secret)
 	if err := store.Load(); err != nil {
@@ -326,7 +327,11 @@ func resolveMasterKey() string {
 	if k := os.Getenv("GPX_PORTAL_MASTER_KEY"); k != "" {
 		return k
 	}
-	return edgecache.LegacySecret("")
+	if k := edgecache.LegacySecret(""); k != "" {
+		return k
+	}
+	// Une passerelle sans secret d'appairage (ADR 0015) garde ses comptes avec sa clé locale ; hors groupe HA elle suffit.
+	return edgecache.NodeKey()
 }
 
 // SetStoreChangeHook enregistre le rappel déclenché par une modification locale réplicable du magasin
@@ -340,6 +345,8 @@ func (s *Service) SetStoreChangeHook(fn func()) {
 	}
 }
 
+var errNoMasterKey = errors.New("portal: clé maître introuvable (GPX_PORTAL_MASTER_KEY, GPX_NODE_KEY ou node.key)")
+
 // ensureStandbyStoreLocked charge le magasin sans démarrer les écoutes : une passerelle sans portail
 // garde ainsi une copie à jour et peut le reprendre.
 func (s *Service) ensureStandbyStoreLocked() error {
@@ -348,7 +355,7 @@ func (s *Service) ensureStandbyStoreLocked() error {
 	}
 	secret := resolveMasterKey()
 	if secret == "" {
-		return fmt.Errorf("portal: master key manquante (GPX_PORTAL_MASTER_KEY ou token passerelle)")
+		return errNoMasterKey
 	}
 	store := NewStore(s.cfg.DBPath, secret)
 	if err := store.Load(); err != nil {

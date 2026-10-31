@@ -50,6 +50,7 @@ goproxify edge cache export [-output <fichier>]
 goproxify edge cache clear
 
 goproxify edge logs export -reason "<motif>" -from <date> -to <date> -output <base>
+    [-origin <pair>]
     [-kind access|system] [-ip <ip>] [-domain <hôte>] [-format ndjson|csv]
     [-password-file <fichier> | -no-encrypt] [-config <chemin>]
 goproxify edge logs verify -manifest <fichier> [-data <fichier>] [-password-file <fichier>]
@@ -59,6 +60,20 @@ goproxify edge logs hold list
 goproxify edge logs hold release -id <identifiant>
 goproxify edge logs key
 goproxify edge logs audit
+
+goproxify admin logs export -reason "<motif>" -from <date> -to <date> -output <base>
+    [-node <passerelle>|all] [-kind access|system] [-ip <ip>] [-domain <hôte>] [-format ndjson|csv]
+    [-password-file <fichier> | -no-encrypt] [-config <chemin>]
+goproxify admin logs verify -manifest <fichier> [-data <fichier>] [-password-file <fichier>]
+    [-pubkey <base64>] [-decrypt-to <fichier>]
+goproxify admin logs import -node <passerelle> -manifest <fichier> -data <fichier> [-password-file <fichier>]
+    [-pubkey <base64>] [-dry-run]
+goproxify admin logs hold add -reason "<motif>" -from <date> -to <date> [-ip <ip>] [-domain <hôte>]
+goproxify admin logs hold list
+goproxify admin logs hold release -id <identifiant>
+goproxify admin logs nodes
+goproxify admin logs key
+goproxify admin logs audit
 
 goproxify edge token create -name <nom> [-role admin|agent] [-ttl <durée>]
 goproxify edge token list
@@ -78,6 +93,14 @@ Distinct de `goproxify token` qui parle à l'Admin.
 - `hold` pose un **gel légal** sur une plage de dates : sans filtre, aucun fichier de logs (accès ou système) qui la recoupe n'est purgé tant que le gel existe, le fichier entier étant gelé. Avec `-ip` (une IP en clair ou pseudonymisée, retrouvée par son empreinte) et/ou `-domain` *(Edge `0.89.0`)*, seules les lignes visées sont gardées : elles sont copiées tout de suite, et à la purge pour celles qui arrivent ensuite, dans une archive `logs/held/<id>/`, puis le fichier de période disparaît normalement avec les lignes des autres personnes ; ces lignes se lisent par `export` seulement, et un ordre d'effacement `logs delete` les supprime aussi. `hold release` supprime l'archive. L'audit local garde l'empreinte de l'IP, pas l'IP. Le registre est relu à chaque purge, la passerelle en marche en tient compte sans redémarrage ; un registre illisible suspend toute purge. `hold release` le lève, la rétention reprend à la prochaine purge. Un gel ne bloque pas un ordre d'effacement RGPD explicite (`logs delete`).
 - `audit` affiche le journal local des exports et des gels (`log-export-audit.jsonl`), chaque ligne portant l'empreinte de la précédente : une ligne modifiée ou retirée au milieu casse la chaîne, détectée à la lecture. Il ne contient aucune IP.
 - Groupe HA : chaque membre a sa base et sa clé ; on exporte sur chacun, chacun avec son manifeste.
+
+**`admin logs`** *(Admin `0.216.0`, [ADR 0018](adr/0018-logs-geres-par-l-admin.md))* — l'export signé, le gel légal, la clé de signature et le journal d'audit, appliqués à l'**historique complet que l'Admin garde** dans son volume de logs, toutes passerelles confondues. Mêmes règles et mêmes fichiers que `edge logs` : la commande ouvre le volume en **lecture seule** (aucune purge, aucune écriture), serveur éteint ou en marche, et la passerelle n'a plus besoin de garder l'année pour qu'on puisse l'exporter.
+
+- `export` écrit les lignes de la plage de **toutes les passerelles** du volume (`-node all`, défaut) ou d'une seule (`-node <nom ou identifiant>`) ; chaque ligne est identifiée `<passerelle>:<type>:<numéro chez la passerelle>`, l'IP réelle d'une ligne pseudonymisée est déchiffrée avec la clé de l'Admin (celle de `admin.db`), et le manifeste signé nomme les passerelles couvertes (`nodes`). Les passerelles retirées y figurent tant que leur dossier est dans le volume.
+- `verify`, `key` et `audit` se comportent comme ceux de `edge logs`. La clé de signature (`log-sign-key.gpx`) et le journal (`log-export-audit.jsonl`) sont dans `state/` de l'Admin, que sa sauvegarde reprend (`GPX_ADMIN_LOG_SIGN_KEY_PATH`, `GPX_ADMIN_LOG_EXPORT_AUDIT_PATH` pour les déplacer) ; la clé est scellée par le secret d'appairage (`GPX_PAIRING_SECRET`, à défaut le secret JWT). Illisible, elle n'est jamais remplacée.
+- `hold` pose, liste et lève un **gel légal pour tout le volume** : un registre commun (`legal-holds.json` à la racine du volume de logs), relu à chaque purge de chaque passerelle. Sans filtre, aucun fichier de période qui recoupe la plage n'est purgé ; avec `-ip` ou `-domain`, les lignes visées sont copiées dans l'archive `held/<id>/` de **chaque** store avant que la rétention ne supprime leur fichier. Si un store ne peut pas garder ses lignes, le gel est retiré partout. Un gel ne bloque pas un effacement RGPD explicite.
+- `nodes` liste les passerelles qui ont un dossier dans le volume (identifiant et nom).
+- `import` *(Admin `0.218.0`)* reprend dans le store d'une passerelle du volume de logs (`-node`) les lignes d'un export NDJSON signé d'une autre base : le cas visé est celui des **copies qu'une passerelle gardait d'un pair** avant le retrait de la réplication (Edge `0.129.0`), qui ne sont plus lues et partiraient avec leur fichier. Elles s'exportent sur la passerelle qui les détient avec `edge logs export -origin <pair>` (ajouté en Edge `0.130.0`), puis se reprennent ici. La signature du manifeste, l'empreinte du fichier et celle du contenu déchiffré sont contrôlées avant toute écriture ; `-pubkey` fixe la clé attendue ; `-dry-run` compte sans écrire. Les lignes gardent leur numéro d'origine **décalé de 2^60** (une référence de ligne reprise ne se confond pas avec une ligne que la passerelle a envoyée depuis, dont la base, remplacée, repart des mêmes numéros), l'IP réelle d'une ligne pseudonymisée est rechiffrée avec la clé de l'Admin et son IP tronquée reste lisible, et la position du flux de la passerelle n'est pas touchée. Rejouer la reprise n'écrit rien de plus. Un export par type de logs (`-kind access`, puis `-kind system`). La reprise **refuse** un export dont le manifeste n'a pas d'`origin` (export des lignes propres d'une passerelle, ou passerelle encore en Edge 0.129 qui ignore `-origin`) ou dont l'`origin` n'est pas la passerelle visée (Admin `0.218.1`) : contrôlez que le manifeste porte `"origin": "<pair>"` avant de reprendre.
 
 Variables d'environnement :
 
@@ -105,6 +128,99 @@ goproxify agent approve <agent-id> [-admin-url <url>] [-token <token>]
 3. `goproxify agent` → l'Agent se connecte, statut `pending`
 4. `goproxify agent approve <agent-id>` (ou approbation dans l'UI)
 5. L'Agent reçoit son secret HMAC et passe en statut `approved`
+
+### `goproxify launcher`
+
+Installe GoProxify sur l'hôte local (Admin, passerelle, Agent) et déclare les autres hôtes dans l'Admin ([ADR 0019](adr/0019-launcher-bootstrap-multi-hotes.md)). C'est la commande de l'image éphémère `ghcr.io/vincamok/goproxify/launcher` : elle installe puis s'arrête, et `--rm` supprime son conteneur.
+
+```
+goproxify launcher --admin --edge --agent [--addr <ip>] [--name <hôte>] [--group <groupe>]
+                   [--host [nom=]adresse[:rôles][@groupe] ...] [--email <courriel>]
+                   [--registry <registre>] [--tag <étiquette>] [--tz <fuseau>] [--socket <chemin>] [--dry-run]
+goproxify launcher --topology <fichier.json> [--dry-run]
+```
+
+| Option | Rôle |
+|---|---|
+| `--admin`, `--edge`, `--agent` | Ce qui s'installe sur cet hôte. L'Admin doit s'y trouver. |
+| `--addr` | Adresse (IP ou nom) de cet hôte, joignable par les autres. Requise avec `--host` ; `localhost` sinon. |
+| `--host` | Autre hôte, répétable : `[nom=]adresse[:rôles][@groupe]`, ou `adresse=rôles`. Sans rôle : un Agent. Sans nom : `host-192-168-1-50`. Sans `@groupe`, la passerelle de l'hôte forme son propre groupe `ha-<nom de l'hôte>`. |
+| `--group` | Groupe HA de la passerelle de cet hôte. Sans groupe, chaque passerelle forme un groupe d'un seul membre. |
+| `--topology` | Fichier JSON `{"local": "…", "hosts": [{"name", "addr", "roles", "group"}]}` à la place des options ci-dessus. |
+| `--email` | Courriel du premier compte (défaut `admin@goproxify.local`). |
+| `--dry-run` | Valide la topologie et affiche ce qui serait tiré et créé, sans rien créer. |
+
+Le mot de passe du premier compte est lu dans `GPX_FIRST_ADMIN_PASSWORD`, ou généré ; il n'est affiché qu'à la fin de l'installation. Le launcher génère aussi le secret racine, le secret JWT et un certificat TLS auto-signé pour l'Admin, dont il affiche l'empreinte SHA-256. Si une étape échoue, tout ce qu'il a créé est retiré. Exemple :
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview \
+  --admin --edge --agent --addr 192.168.1.10 \
+  --host 192.168.1.50=agent --host nas=192.168.1.60:edge,agent
+```
+
+Les hôtes déclarés avec `--host` apparaissent dans la vue Infrastructure de l'Admin à l'état déclaré, sans acceptation automatique : elle ne vaut que pendant la validité d'un ticket d'installation (`goproxify hosts join-ticket`). Leur installation se fait avec le même launcher, en attente ou par `join` (ci-dessous).
+
+#### Installer un hôte déclaré : attente du QR code, ou `join`
+
+```
+goproxify launcher [--listen :8080] [--window 15m] [--expect-admin https://hôte:port --expect-fingerprint <sha256>]
+goproxify launcher join <spec_url> [--fingerprint <sha256>] [--socket <chemin>]
+```
+
+Sans rôle, sans topologie et sans `--host`, le launcher n'a rien à installer : il **attend** un lien de l'Admin pendant 15 minutes (`--window`), sur le port 8080 (`--listen`, à publier avec `-p 8080:8080`). C'est la même commande pour tous les hôtes :
+
+```bash
+docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview
+```
+
+1. Dans l'Admin, `goproxify hosts join-ticket -host <nom>` (ou la fiche de l'hôte) crée un ticket de 15 minutes et donne le QR code, `trigger_url`, `listen_command` et `join_command`.
+2. Le scan du QR code ouvre, sur le téléphone, la page du launcher de l'hôte. **Un GET n'a jamais d'effet** : la page montre l'Admin visé (adresse et empreinte de son certificat) et ce que le lien annonce de l'hôte (nom, rôles, à titre d'indication), et attend un clic sur « Installer ». Le POST du bouton porte un jeton à usage unique donné par la page, et n'est accepté que de cette page (contrôle de l'origine) : une autre page ouverte sur le réseau ne peut pas le déclencher.
+3. Au clic, le launcher récupère la description de l'hôte auprès de l'Admin **en vérifiant l'empreinte du certificat** (la poignée de main échoue avant que le jeton ne parte si ce n'est pas la bonne), l'applique, et le téléphone affiche l'avancement. Si une étape échoue, ce qui avait été créé est retiré et le même ticket permet de réessayer tant qu'il vaut.
+4. Il se termine quand l'installation est finie (la page reste servie 20 secondes), ou à la fin de la fenêtre sans déclenchement. Un seul déclenchement est accepté.
+
+`--expect-admin` et `--expect-fingerprint` épinglent l'Admin attendu : un lien qui en désigne un autre est refusé. Avec les deux, un lien conforme n'attend pas de clic (la page se valide seule, par un POST). Ce n'est pas le mode par défaut.
+
+`launcher join <spec_url>` fait la même installation **tout de suite**, sans attendre ni QR code : c'est la variante à copier-coller (`join_command` du ticket). Sans `--fingerprint`, le certificat de l'Admin doit être public (Admin derrière un reverse proxy) ; seul https est accepté.
+
+**Interface de conception.** Un launcher en attente sert aussi `http://<hôte>:8080/design` : on y déclare ses hôtes (nom facultatif, adresse, rôles, groupe HA, hôte local) et le courriel du premier compte, on lance une simulation (**Vérifier**) puis l'installation de l'hôte local (**Installer**) ; l'adresse de l'Admin, l'empreinte et le mot de passe s'affichent à la fin, et **Terminer** fait sortir le launcher. Elle équivaut à un accès root sur l'hôte : un **code d'accès** aléatoire (`ABCD-EFGH`) est écrit dans la sortie du launcher (`docker logs`) et demandé à l'ouverture ; cinq essais ratés de suite verrouillent les essais une minute. **Le QR code n'en a pas besoin.** Chaque action dans l'interface prolonge la fenêtre d'écoute. L'interface est en HTTP : le code circule en clair sur le réseau local, publiez le port sur `127.0.0.1` (`-p 127.0.0.1:8080:8080`) si le réseau n'est pas de confiance. La page montre en regard du formulaire le **schéma de l'infrastructure** (hôtes, rôles, pilotage des passerelles par l'Admin, routes des Agents, groupes HA), mis à jour pendant la saisie, y compris pour une sauvegarde lue : un dessin SVG, sans bibliothèque ni ressource externe, et le même schéma en texte **Mermaid** (onglet *Mermaid*, bouton de copie) à coller dans une doc ou un ADR. Elle suit le thème clair ou sombre du système. `--dry-run` imprime ce texte Mermaid.
+
+```
+goproxify launcher --ui [--admin --edge --agent --addr <ip> --host …]
+```
+
+`--ui` ouvre l'interface préremplie avec les indicateurs donnés, au lieu d'installer. Sans `--ui`, une topologie incomplète (pas d'Admin, pas de passerelle) l'ouvre aussi, en disant ce qui manque.
+
+#### Mettre à jour un hôte : `launcher update`
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview update [--dry-run]
+```
+
+Recrée, avec leur image la plus récente, les conteneurs `goproxify-admin`, `goproxify-edge` et `goproxify-agent` **de l'hôte où il tourne** (à lancer sur chaque hôte). Les volumes ne sont pas touchés : comptes, certificats, `architecture.json` et clés restent en place.
+
+- Chaque conteneur est recréé **avec sa configuration complète** (variables d'environnement, secrets compris, ports, montages, réseaux, politique de redémarrage) : seule l'image change. Les variables qu'une version plus récente du launcher ajouterait à une installation neuve ne sont donc pas ajoutées.
+- L'image visée est celle que le conteneur désigne déjà (`registre/composant:étiquette`, par exemple `:preview` ou `:latest`). Toutes les images sont tirées **avant** d'arrêter quoi que ce soit ; un conteneur dont l'image n'a pas changé n'est pas touché. Pour changer de registre ou d'étiquette, il faut réinstaller.
+- Les conteneurs sont recréés un à un, dans l'ordre Admin, passerelle, Agent. Un conteneur qui ne démarre pas ou ne devient pas sain dans les 2 minutes **retrouve son ancienne image** et la commande échoue ; ceux déjà mis à jour le restent.
+- **Registre privé** : le démon Docker n'utilise pas les identifiants de `docker login` pour les tirages demandés par le launcher. Si le tirage échoue mais qu'une image locale existe (tirée à la main avec `docker pull`), c'est elle qui est utilisée, avec un avertissement.
+- `--dry-run` liste les conteneurs et leurs images sans rien tirer ni recréer.
+- Le conteneur `launcher` ne se met pas à jour lui-même : c'est son image qui porte la version de la commande, `docker pull` la rafraîchit avant de relancer.
+
+#### Reconstruire l'Admin depuis une sauvegarde : `launcher --restore`
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $PWD/sauvegarde.gpx-admin-backup:/backup/snapshot:ro \
+  ghcr.io/vincamok/goproxify/launcher:preview --restore /backup/snapshot --name <hôte> --addr <adresse> --backup-key <clé>
+```
+
+Pour un Admin perdu : le launcher lit le fichier d'une sauvegarde faite **avec la clé de sauvegarde** (Admin 0.224.0 ou plus : les sauvegardes plus anciennes n'ont pas le secret racine, et le launcher les refuse) et installe un Admin qui a le même secret racine, le même certificat (donc la même empreinte), la même clé de sauvegarde et le même `architecture.json`, déposé tel quel (domaines, délégations et réglages compris). Les passerelles et Agents déjà en place le reconnaissent donc sans réinstallation.
+
+- `--name` désigne l'hôte de la sauvegarde qui porte cette machine (l'Admin n'est pas un nœud de `architecture.json`, il faut le dire) ; à défaut, `--addr` le retrouve par son adresse, et il remplace alors l'adresse déclarée si la machine en a changé. Sans l'un ni l'autre, la commande liste les hôtes de la sauvegarde.
+- La clé vient de `--backup-key` ou de `GPX_BACKUP_KEY`. Elle devient aussi celle du nouvel Admin.
+- `--restore` prend la topologie de la sauvegarde : il ne se combine pas avec `--admin`, `--edge`, `--agent`, `--group`, `--host`, `--topology` ni `--ui`. `--dry-run`, `--registry`, `--tag`, `--tz` et `--email` s'appliquent.
+- **Les données ne sont pas restaurées par le launcher** (comptes, proxys, règles, secrets de la base). Un compte temporaire `restauration@goproxify.local` est créé : connectez-vous avec, restaurez le même fichier (*Sauvegardes › Restaurer › fichier*, case *Secrets*), redémarrez l'Admin, reconnectez-vous avec vos comptes puis supprimez le compte temporaire. Le launcher le rappelle à la fin.
+- Sans le certificat dans la sauvegarde, un nouveau est généré et l'empreinte change.
+
+**Depuis l'interface de conception** (`http://<hôte>:8080/design`) : la section **Reconstruire depuis une sauvegarde** prend le fichier et la clé de sauvegarde (le fichier part tel quel, 512 Mio au plus ; le launcher le garde en mémoire, jamais sur disque, et l'oublie une fois l'installation faite). La page liste les hôtes de la sauvegarde, demande lequel est cette machine et, si besoin, sa nouvelle adresse, puis remplace l'éditeur d'hôtes : **Vérifier** et **Reconstruire cet hôte** font la même chose que `--restore`. À la fin, le rapport redonne les étapes de restauration des données et **Terminer** renvoie vers l'Admin.
 
 ---
 
@@ -169,7 +285,7 @@ goproxify backup verify <snapshot-id>
 goproxify backup destinations list|add|test|delete
 ```
 
-`status` affiche la clé, le dernier snapshot, les planifications manquées et l'état de chaque destination. `verify` contrôle la somme de contrôle et le déchiffrement d'un snapshot (code retour 1 si invalide). `destinations add -name <n> -type dir|webdav|s3 [-retention N]` prend `-path` (dir), `-url -username -password` (webdav) ou `-endpoint -bucket -access-key -secret-key [-region -prefix -path-style false]` (s3).
+`status` affiche la clé, le dernier snapshot, les planifications manquées, l'état de chaque destination et l'image du launcher à utiliser pour reconstruire l'Admin (`launcher --restore`, voir plus haut). `verify` contrôle la somme de contrôle et le déchiffrement d'un snapshot (code retour 1 si invalide). `destinations add -name <n> -type dir|webdav|s3 [-retention N]` prend `-path` (dir), `-url -username -password` (webdav) ou `-endpoint -bucket -access-key -secret-key [-region -prefix -path-style false]` (s3).
 
 Si le snapshot ou le fichier contient une section `secrets` (créée quand `GPX_BACKUP_KEY` est définie sur l'Admin), la restauration la rejoue aussi — mots de passe, MFA, clés, CA interne, fichiers d'état — à condition que l'Admin ait la même clé et que le token CLI soit celui d'un superadmin ; sinon `secrets_error` est renvoyé et le reste est restauré. Redémarrer l'Admin ensuite. Voir [sauvegardes.md](sauvegardes.md).
 
@@ -223,7 +339,7 @@ goproxify proxy metrics [-admin-url …] [-token …]
 goproxify proxy cache-purge <id> [-tag a,b] [-path /x,/y*] [-admin-url …] [-token …]
   Sans -tag ni -path, tout le cache du proxy est vidé
 goproxify proxy option <id> <option> <json|@fichier|off> [-admin-url …] [-token …]
-  Pose ou retire une option avancée du proxy : split, maintenance, signed_url, graphql, bandwidth, redact_json, html_inject, hedge, static, request_schema, openapi, grpc_transcode, grpc_web, rate_limit, conditions (`off` la retire)
+  Pose ou retire une option avancée du proxy : split, maintenance, signed_url, graphql, bandwidth, redact_json, html_inject, hedge, static, request_schema, openapi, grpc_transcode, grpc_web, rate_limit, conditions, surface, max_body_size, ip_filter, geo_ip, cors, waf (`off` la retire)
 goproxify proxy delete  <id> [-y] [-admin-url …] [-token …]
   -y  Confirmation automatique
   Sur un proxy implicite (marqué « (implicite) » par `proxy list` : portail Access, délégation), retire seulement la surcouche — la route redevient celle que GoProxify génère
@@ -856,6 +972,15 @@ goproxify security threat set  [-edge <id>] -file <threat-config.json> [-admin-u
 goproxify security threat simulate -file <threat-config.json> [-hours N] [-domain <d>] [-edge <id>] [-admin-url …] [-token …]   # dry-run : rejoue les logs, n'enregistre rien
 goproxify security threat suggest [-days N] [-edge <id>] [-admin-url …] [-token …]   # seuils proposés à partir des cumuls par minute (rien n'est appliqué)
 goproxify security threat references [-edge <id>] [-admin-url …] [-token …]   # ce que chaque passerelle a appris (débit normal par route et heure, base ASN)
+goproxify security surface list   [-edge <id>] [-admin-url …] [-token …]   # proxies dont la surface est apprise, par passerelle
+goproxify security surface report -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # méthodes, gabarits de chemin, tailles, paramètres, convergence
+goproxify security surface proposals -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # réglages proposés à partir du profil (rien n'est appliqué)
+goproxify security surface openapi -proxy <id|hôte> [-low] [-out <fichier>] [-edge <id>] [-admin-url …] [-token …]   # politique positive : spécification OpenAPI générée, en detect (rien n'est appliqué)
+goproxify security surface suggestions -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # ajouts suggérés à la politique (chemins et méthodes qui reviennent)
+goproxify security surface accept -proxy <id|hôte> [-all-high] [-keys "<clé>;<clé>"] [-dry-run] [-edge <id>] [-admin-url …] [-token …]   # ajoute ces suggestions à la politique
+goproxify security surface enforce -proxy <id|hôte> -reasons <raison,…> [-dry-run] [-force] [-edge <id>] [-admin-url …] [-token …]   # refuse ces violations, garde-fous compris
+goproxify security surface relax  -proxy <id|hôte> [-admin-url …] [-token …]   # retour en detect : plus rien n'est refusé
+goproxify security surface reset  -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # l'apprentissage repart de zéro
 # -edge : pour une passerelle membre d'un groupe HA, la config lue/écrite est celle du groupe (poussée à tous les membres)
 
 # Interrupteur du WAF d'une passerelle (coupe ou rétablit le WAF de tous ses proxies, sans toucher à leurs réglages)
@@ -873,13 +998,16 @@ goproxify security bans import -file <chemin|-> [-format auto|text|csv|json] [-t
 goproxify security bans delete -id <ban-id> [-admin-url …] [-token …]
 
 # Parcours d'une IP ou d'un CIDR
-goproxify security trace -target <ip|cidr> [-scope ip|asn] [-asn <ASN>] [-from <date>] [-to <date>] [-order asc|desc] [-limit N] [-offset N] [-json] [-admin-url …] [-token …]
+goproxify security trace -target <ip|cidr> [-scope ip|asn] [-asn <ASN>] [-from <date>] [-to <date>] [-order desc|asc] [-limit N] [-offset N] [-json] [-admin-url …] [-token …]
 
 # WAF par proxy
 goproxify security waf get -proxy <proxy-id> [-admin-url …] [-token …]
 goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url …] [-token …]
 
 # SLA de correction des CVE (délai attendu selon la gravité)
+goproxify security cve inventory [-proxy <id|hôte>] [-edge <id>] [-gaps] [-admin-url …] [-token …]   # applications reconnues derrière les proxies ; -gaps : seulement ce que la recherche de CVE ne couvre pas
+goproxify security cve cpe get [-admin-url …] [-token …]   # identifiants CPE donnés aux produits que la table ne couvre pas
+goproxify security cve cpe set -file <overrides.json> [-admin-url …] [-token …]
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 ```
@@ -889,6 +1017,8 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 **`security threat`** — lit ou écrit la configuration du moteur Ephor (fail2ban, seuils, whitelist globale…). Le paramètre `-edge` cible une passerelle spécifique dans un cluster multi-passerelle.
 
 **`security threat suggest`** — seuils proposés à partir des cumuls par minute (`-days`, défaut 7 ; `-edge`) : débit normal par passerelle et limite globale proposée. N'applique rien. Voir `GET /api/v1/security/threat-config/suggestions`.
+
+**`security surface`** — apprentissage de la surface d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md)) : ce que son trafic légitime utilise réellement, sans rien bloquer. `list` donne les proxies en apprentissage par passerelle, `report -proxy <id|hôte>` le rapport complet (gabarits de chemin, méthodes, types de contenu, tailles, paramètres, clients, convergence), `proposals -proxy <id|hôte>` les réglages que le profil permet de proposer (`max_body_size`, `rate_limit`, `geo_ip`, `ip_filter`, `cors`), chacun avec sa justification, ce qu'il aurait refusé et la commande qui le pose (rien n'est appliqué), `openapi -proxy <id|hôte> [-low] [-out openapi.json]` la politique positive : une spécification OpenAPI générée à partir du profil, sous la forme du réglage `openapi` du proxy en mode `detect` (`-low` garde les chemins à confirmer ; `-out` écrit la configuration, à poser avec `goproxify proxy option <id> openapi @openapi.json`), `suggestions -proxy …` les ajouts que le profil suggère à la politique (un chemin ou une méthode hors politique qui revient de plusieurs clients propres sur plusieurs jours ; confiance haute si le backend les sert, basse si le contrôle les refuse), `accept -proxy … -all-high` ou `-keys "unknown_path GET /nouveau/{int};…"` les ajoute à la spécification openapi sans rien retirer (les clés viennent de `suggestions` ; `-dry-run` simule ; un texte YAML est refusé), `enforce -proxy … -reasons unknown_path,invalid_param` fait refuser ces types de violation par le contrôle openapi (`unknown_path`, `unknown_method`, `invalid_param`, `invalid_body`, `unsupported_media`, `too_large`), avec garde-fous : politique active, profil convergé, aucun chemin à ajouter ; `-dry-run` simule, `-force` passe outre les garde-fous qui le permettent (audit) ; un refus des garde-fous affiche `blockers` et sort en erreur, rien n'est modifié ; `relax -proxy …` repasse en detect ; `reset -proxy …` remet l'apprentissage à zéro sur toutes les passerelles (ou `-edge`). L'activation se fait par proxy : `goproxify proxy option <id> surface '{"mode":"learn"}'` (ajoutez `"type":"site"` pour un blog, un CMS ou tout contenu ouvert : pas de politique de chemins ni de suggestions, une convergence qui ne dépend que de l'ancienneté et du volume). Voir `GET /api/v1/security/surface`, `…/surface/report` et `POST …/surface/reset`.
 
 **`security threat references`** — ce que chaque passerelle a appris pour la note commune d'Ephor (`-edge` pour une seule) : références de débit par route et par heure, base ASN, profils. Voir `GET /api/v1/security/threat-references`.
 
@@ -904,7 +1034,15 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 
 `security bans whitelist` gère la **liste blanche des bans** : `list` affiche les entrées (avec le nombre de bans actifs qu'elles neutralisent), `add -ip <ip|cidr> [-comment …]` ajoute une adresse ou une plage (normalisée comme un ban, `/16` IPv4 et `/32` IPv6 au plus larges), `delete -ip <valeur>` la retire. Une adresse en liste blanche n'est atteinte par aucun ban et n'est pas évaluée par Ephor ; les bans existants ne sont pas supprimés.
 
-**`security trace`** (`-scope asn` : tout l'ASN de l'adresse, ou `-asn AS16276` sans adresse ; sans saisir de CIDR, grâce à la base ASN) — reconstitue tout ce qu'une IP ou un CIDR a fait : synthèse (requêtes, bloquées, IP distinctes, épisodes, bans/débans, détections, bans en cours, profils IP) puis les étapes (épisodes d'activité, bans, débans, détections) avec leur date. `-from` / `-to` acceptent une date `AAAA-MM-JJ` ou RFC3339 (défaut : 30 derniers jours) ; `-order desc` met le plus récent en premier ; `-limit` / `-offset` paginent (500 étapes par défaut) ; `-json` renvoie la réponse brute de `GET /api/v1/security/ip-trace`. Exemple : `goproxify security trace -target 198.51.100.0/24 -from 2026-01-01`. Les requêtes remontent aussi loin que la rétention des logs d'accès.
+**`security trace`** (`-scope asn` : tout l'ASN de l'adresse, ou `-asn AS16276` sans adresse ; sans saisir de CIDR, grâce à la base ASN) — reconstitue tout ce qu'une IP ou un CIDR a fait : synthèse (requêtes, bloquées, IP distinctes, épisodes, bans/débans, détections, bans en cours, profils IP) puis les étapes (épisodes d'activité, bans, débans, détections) avec leur date. `-from` / `-to` acceptent une date `AAAA-MM-JJ` ou RFC3339 (défaut : 30 derniers jours) ; les étapes sont du plus récent au plus ancien, `-order asc` pour l'ordre chronologique ; un ban affiche le `User-Agent` qui l'a provoqué sur la ligne suivante ; `-limit` / `-offset` paginent (500 étapes par défaut) ; `-json` renvoie la réponse brute de `GET /api/v1/security/ip-trace`. Exemple : `goproxify security trace -target 198.51.100.0/24 -from 2026-01-01`. Les requêtes remontent aussi loin que la rétention des logs d'accès.
+
+**`security cve inventory`** *(Admin `0.208.0`)* — affiche, par passerelle, les applications reconnues derrière les proxies (produit, version, identifiant CPE, image du conteneur ou réponses du backend lues avant `hide_server`) : ce que le scanner de vulnérabilités cherche dans NVD. `-proxy` limite à un proxy (identifiant ou hôte), `-edge` à une passerelle.
+
+`security cve inventory -gaps` *(Admin `0.210.0`)* n'affiche que le rapport de couverture : les produits, images et logiciels que la recherche de CVE ne traite pas, avec la raison (`no_version`, `no_cpe`, `unknown`), la preuve et les proxys. **`security cve cpe`** lit (`get`) ou remplace (`set -file`) les identifiants CPE donnés par l'administrateur à ces produits :
+
+```json
+{ "overrides": [ { "match": "vaultwarden", "cpe": "dani-garcia:vaultwarden" } ] }
+```
 
 **`security cve sla`** — lit ou écrit le délai de correction attendu des CVE (en jours après détection), par tranche de gravité CVSS ; réglage global (Admin `0.52.3`). Fichier `sla.json` :
 
@@ -925,6 +1063,22 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
   "ephor_whitelist": ["10.0.0.0/8", "192.168.1.5"]
 }
 ```
+
+Le fichier de `security waf set` accepte `waf.exclusions` pour ne retirer des règles que sous un chemin :
+
+```json
+{
+  "waf": {
+    "enabled": true,
+    "mode": "block",
+    "exclusions": [
+      { "paths": ["/wp-admin/"], "platform": "wordpress", "note": "éditeur d'articles" }
+    ]
+  }
+}
+```
+
+Un chemin est un préfixe sur frontière de segment ; `/` est refusé (utilisez `exclude_ids`).
 
 Exemples :
 
@@ -1045,6 +1199,7 @@ Conteneurs découverts par les Agents. Agrège les résultats de toutes les pass
 ```
 goproxify containers [list] [-admin-url …] [-token …]
 goproxify containers convert <hôte|id> [-edge <passerelle>] [-admin-url …] [-token …]
+goproxify containers enable|disable <hôte> [-admin-url …] [-token …]
 goproxify containers show <hôte|id> [-edge <passerelle>] [-format compose|portainer|portainer_inline|docker_run|kubernetes]
 goproxify containers orphans [-admin-url …] [-token …]
 ```
@@ -1054,6 +1209,8 @@ goproxify containers orphans [-admin-url …] [-token …]
 Un conteneur arrêté, en pause ou qui redémarre reste listé : la colonne `BACKENDS` indique `inactif (<état>)` et il n'a ni proxy de remplacement ni conversion possible.
 
 `convert` crée un proxy modifiable à partir de la route issue des labels (`POST /api/v1/proxies/from-discovered`). Le proxy prend la place de la route des labels sur son hôte ; désactivé ou supprimé, il la lui rend. `-edge` n'est utile que si plusieurs passerelles annoncent la même route.
+
+`enable` / `disable` active ou désactive la route issue des labels d'un hôte (`PUT /api/v1/discovered-containers/enabled`) : désactivée, elle ne sert plus de trafic sur aucune passerelle, mais reste listée (`BACKENDS` indique `désactivé`) et se réactive avec `enable`. Le conteneur n'est pas touché. Pour un proxy configuré, voir `goproxify proxy enable`.
 
 `show` affiche le bilan de sécurité de la route (score, TLS / WAF / rate limit) et les **labels à ajouter** (modèle de sécurité : un snippet de l'Admin du bon type s'il existe, sinon WAF en blocage et `100/s:50`). Avec `-format`, il imprime le jeu de labels **corrigé** prêt à coller (Compose, Portainer, `docker run`, Kubernetes) — rien n'est modifié sur le conteneur.
 
@@ -1065,6 +1222,8 @@ Exemples :
 goproxify containers
 goproxify containers list
 goproxify containers convert app.example.fr
+goproxify containers disable app.example.fr
+goproxify containers enable app.example.fr
 goproxify containers show app.example.fr -format compose
 goproxify containers orphans
 ```
@@ -1225,6 +1384,20 @@ Exemples :
 goproxify bootstrap create -host host-1 -edge-endpoint http://192.0.2.10:8000 -node-names edge-main -no-qr
 curl -fsSL "$(goproxify bootstrap create -host h1 -no-qr | jq -r .script_url)" | bash
 ```
+
+---
+
+### `goproxify hosts`
+
+Hôtes déclarés dans `architecture.json` et leur installation par ticket ([ADR 0019](adr/0019-launcher-bootstrap-multi-hotes.md), étape 4).
+
+```
+goproxify hosts list
+goproxify hosts join-ticket -host <nom>
+```
+
+- `list` : adresse, rôles, groupe HA, état (`pending`, `partial`, `joined`), nœuds et ticket en cours de chaque hôte.
+- `join-ticket` : crée pour un hôte un ticket d'installation de 15 minutes (il remplace le précédent) et affiche le jeton, `spec_url` (où le launcher de l'hôte récupère sa description), `fingerprint` (empreinte SHA-256 du certificat de l'Admin), `trigger_url` et `qr_code` (le QR code à scanner, vers le launcher de l'hôte en attente sur son port 8080), `listen_command` (lance ce launcher en attente) et `join_command` (installe l'hôte tout de suite, sans QR code). `-no-qr` omet `qr_code` (base64) de la sortie. Refusé si l'hôte est déjà intégré.
 
 ---
 

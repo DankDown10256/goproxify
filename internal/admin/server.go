@@ -5,6 +5,7 @@
 package admin
 
 import (
+	"github.com/vincamok/goproxify/internal/launcher"
 	"github.com/vincamok/goproxify/internal/pairing"
 	"github.com/vincamok/goproxify/internal/httpx"
 	"context"
@@ -33,6 +34,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/certdeploy"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/edgelogs"
 	"github.com/vincamok/goproxify/internal/admin/edgews"
 	"github.com/vincamok/goproxify/internal/admin/fail2ban"
 	"github.com/vincamok/goproxify/internal/admin/gdpr"
@@ -66,6 +68,8 @@ type Server struct {
 	alertingEngine *alerting.Engine
 	automation     *automation.Service
 	logStore       *logs.Store
+	logKey         []byte           // clé de pseudonymisation de l'Admin, aussi celle du volume de logs
+	logVault       *edgelogs.Vault  // volume de logs de l'Admin (ADR 0018) ; nil sans dossier
 	wsManager      *edgews.Manager // manager WS Admin→Passerelle
 	loginLimit     *loginLimiter
 }
@@ -114,6 +118,7 @@ func New(cfg *config.AdminConfig) (*Server, error) {
 		auditor:        audit.New(db, cfg.App.AuditRetentionDays),
 		alertingEngine: alerting.New(db, log),
 		logStore:       logStore,
+		logKey:         gdprKey,
 		loginLimit:     newLoginLimiter(),
 	}
 
@@ -170,9 +175,13 @@ func (s *Server) Start(ctx context.Context) error {
 				manager.BroadcastApproveAgent(name)
 			}
 			agentStore.Upsert(id, name, version, "approved")
+			// Un Agent n'arrive pas par /internal/v1/pair : c'est ici que le ticket qui le couvre est consommé.
+			api.ConsumeBootstrapTicket(s.db, name)
 			s.log.Info("pair: Agent auto-accepté (declared/bootstrap)", "id", id, "name", name)
 		}
 	})
+	// Une passerelle ne s'enrôle pas, l'Admin la joint : sa première connexion consomme le ticket qui la couvre.
+	manager.SetEdgeConnectedHandler(func(nodeName string) { api.ConsumeBootstrapTicket(s.db, nodeName) })
 	manager.SetLogBatchHandler(func(entries []edgeWS.LogEntryPayload) {
 		batch := make([]logs.Entry, 0, len(entries))
 		for _, item := range entries {
@@ -183,7 +192,7 @@ func (s *Server) Start(ctx context.Context) error {
 	})
 	// Lots numérotés lus dans la base de logs des passerelles : la position de chacune est enregistrée avec ses
 	// lignes et annoncée à sa reconnexion, ce qui comble une coupure de l'Admin (ADR 0012).
-	manager.SetLogStreamIngestor(&edgews.LogStreamIngestor{Store: s.logStore, Log: s.log, })
+	manager.SetLogStreamIngestor(s.newLogIngestor(manager.AnnouncedLast))
 
 	backupSched := backup.New(s.db, s.log)
 	if s.cfg.Storage.BasePath != "" {
@@ -206,7 +215,10 @@ func (s *Server) Start(ctx context.Context) error {
 		s.alertingEngine.Emit(alerting.Event{Trigger: alerting.TriggerBackupFailed, Severity: sev, Component: "admin", Detail: detail})
 	})
 	proxiesH := &api.ProxiesHandler{DB: s.db, Log: s.log, Pusher: manager, Versioner: backupSched}
-	backupH := &api.BackupHandler{DB: s.db, Log: s.log, Scheduler: backupSched, Pusher: manager, Auditor: s.auditor}
+	backupH := &api.BackupHandler{
+		DB: s.db, Log: s.log, Scheduler: backupSched, Pusher: manager, Auditor: s.auditor,
+		LauncherImage: launcher.Env{Registry: os.Getenv("GPX_DEPLOY_REGISTRY"), Tag: os.Getenv("GPX_DEPLOY_TAG")}.Image("launcher"),
+	}
 	if s.cfg.Storage.BasePath != "" {
 		backupH.Keys = backup.NewKeyStore(filepath.Join(s.cfg.Storage.BasePath, "keys"))
 	}
@@ -278,7 +290,7 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		}
 	}
-	acmeProviderStore := acme.NewProviderStore(filepath.Join(s.cfg.Storage.BasePath, "acme-providers.yaml"))
+	acmeProviderStore := acme.NewProviderStore(filepath.Join(s.cfg.Storage.BasePath, "state", "acme-providers.yaml"))
 	buildACMEManager := func(email, directoryURL, dnsType string) *acme.Manager {
 		if !s.cfg.ACME.Enabled && email == "" {
 			return nil
@@ -365,6 +377,13 @@ func (s *Server) Start(ctx context.Context) error {
 			return publicOriginFromRequest(r)
 		},
 	}
+	hostsH := &api.HostsHandler{
+		DB: s.db, Arch: archStore, Nodes: nodesH, Log: s.log,
+		PublicURL: bootstrapH.ResolvePublicURL,
+		Root:      func() string { return pairing.Secret("GPX_PAIRING_SECRET") },
+		CertFile:  func() string { return os.Getenv("GPX_ADMIN_TLS_CERT") },
+		Registry:  os.Getenv("GPX_DEPLOY_REGISTRY"), Tag: os.Getenv("GPX_DEPLOY_TAG"), TZ: os.Getenv("TZ"),
+	}
 	heartbeatH := &api.HeartbeatHandler{DB: s.db, Log: s.log}
 	nodeEventsH := &api.NodeEventsHandler{DB: s.db, Log: s.log, AlertingEngine: s.alertingEngine}
 	healthH := &api.HealthHandler{
@@ -379,6 +398,10 @@ func (s *Server) Start(ctx context.Context) error {
 	channelsH := &api.ChannelsHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
 	rulesH := &api.RulesHandler{DB: s.db, Log: s.log, Engine: s.alertingEngine, OnChange: syncConfig}
 	logsH := &api.LogsHandler{Log: s.log, Store: s.logStore, DB: s.db, Pusher: manager, Live: manager, SIEM: manager, Retention: manager}
+	if s.logVault != nil {
+		logsH.EraseCopy = s.logVault.EraseIP
+		logsH.OnVaultRetention = s.applyVaultRetention
+	}
 	f2bEngine := fail2ban.New(s.db, s.log)
 	vsScanner := vulnscan.New(s.db, s.log, "")
 	csBouncer := crowdsec.New(s.db, s.log)
@@ -446,6 +469,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	prismSrc := &prismedge.Source{DB: s.db}
 	securityH := &api.SecurityHandler{
+		Proxies:      proxiesH,
 		DB:           s.db,
 		Edge:         prismSrc,
 		Log:          s.log,
@@ -566,7 +590,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	teamsH := &api.TeamsHandler{DB: s.db, Log: s.log, OnChange: syncUsers}
 	workspacesH := &api.WorkspacesHandler{DB: s.db, Log: s.log}
-	discoveredH := &api.DiscoveredContainersHandler{DB: s.db, Log: s.log}
+	discoveredH := &api.DiscoveredContainersHandler{DB: s.db, Log: s.log, Pusher: manager}
 	if archStore != nil {
 		discoveredH.Groups = api.NewGroupResolver(archStore, s.db)
 	}
@@ -698,6 +722,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// Tickets bootstrap architecture (QR / lien public)
 	mux.HandleFunc("GET /i/{token}", bootstrapH.ServePublic)
 	mux.HandleFunc("GET /api/v1/bootstrap/{token}", bootstrapH.ServePublic)
+	// Description d'un hôte qui rejoint (launcher) : le ticket de 15 minutes fait foi (ADR 0019).
+	mux.HandleFunc("GET /api/v1/join/{token}", hostsH.ServeSpec)
 	// Routes MFA publiques (challenge pendant le login)
 	mux.HandleFunc("POST /api/v1/auth/mfa/challenge", mfaH.ServeHTTP)
 	mux.HandleFunc("POST /api/v1/auth/mfa/send", mfaH.ServeHTTP)
@@ -787,6 +813,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("GET /api/v1/architecture/groups", protected(architectureH))
 	mux.Handle("/api/v1/architecture/", adminOnly(architectureH))
 	mux.Handle("POST /api/v1/bootstrap-tickets", adminOnly(http.HandlerFunc(bootstrapH.ServeCreate)))
+	mux.Handle("GET /api/v1/hosts", adminOnly(http.HandlerFunc(hostsH.ServeList)))
+	mux.Handle("POST /api/v1/hosts/{name}/join-ticket", adminOnly(http.HandlerFunc(hostsH.ServeCreateTicket)))
 	mux.Handle("/api/v1/node-events", protected(nodeEventsH))
 	mux.Handle("/api/v1/discovered-containers", protected(discoveredH))
 	mux.Handle("/api/v1/discovered-containers/", protected(discoveredH))
@@ -909,6 +937,7 @@ func (s *Server) Start(ctx context.Context) error {
 		DB:           s.db, Log: s.log, Pusher: manager,
 		Access: manager, AccessTemplates: manager,
 		ResolvePublicURL: bootstrapH.ResolvePublicURL,
+		Hosts:            hostsH,
 		ListAgents: func() []mcp.AgentInfo {
 			raw := agentStore.List()
 			out := make([]mcp.AgentInfo, 0, len(raw))
@@ -1005,6 +1034,7 @@ func (s *Server) Stop(ctx context.Context) {
 	if s.srv != nil {
 		s.srv.Shutdown(ctx) //nolint:errcheck
 	}
+	s.closeLogVault()
 	// Avant la base : les étapes en cours enregistrent leur avancement.
 	if s.automation != nil {
 		s.automation.Stop()

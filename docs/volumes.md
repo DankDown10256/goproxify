@@ -15,6 +15,31 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 
 > **Important :** `admin.db` contient tout l'état opérationnel de l'Admin (configuration proxies, utilisateurs, secrets nœuds). Sa perte est irréversible sans snapshot. Utiliser `GPX_BACKUP_KEY` pour chiffrer les snapshots exportés.
 
+## `goproxify_admin_logs` → `GPX_ADMIN_LOG_DIR` (Admin, volume de logs)
+
+[ADR 0018](adr/0018-logs-geres-par-l-admin.md). L'Admin range **toutes** les lignes que chaque passerelle lui envoie dans un volume à part de celui de sa base de gestion. Sans `GPX_ADMIN_LOG_DIR`, le dossier est `edge-logs/` sous la racine de stockage (`/etc/goproxify/edge-logs`), donc dans le volume de l'Admin : monter un volume Docker dédié à cet emplacement les sépare.
+
+| Chemin dans le volume | Contenu |
+|---|---|
+| `<id passerelle>/access-<lundi>.db`, `<id passerelle>/system-<mois>.db` | Un store par passerelle, du même moteur que sa base de logs : un fichier SQLite par semaine pour les accès, par mois pour les logs système. Rétention par suppression du fichier entier (365 jours pour les accès, 90 pour le système, fixes pour l'instant). Un fichier clos ne change plus : sauvegarde incrémentale possible |
+| `<id passerelle>/node.json` | Identifiant et nom de la passerelle, pour reconnaître un dossier dont la passerelle a été retirée ou renommée |
+
+La position de chaque flux est écrite dans le fichier de période, dans la même transaction que les lignes : un volume restauré n'a ni trou ni doublon, et une passerelle renvoie ce qui lui manque. Monter ce volume sur un Admin à la base neuve retrouve l'historique ; la passerelle renvoie son tampon, que le store écarte (déjà reçu).
+
+> **Clé de pseudonymisation :** l'IP réelle d'une ligne pseudonymisée est chiffrée avec la clé de l'Admin, qui est dans `admin.db` (section `secrets` des snapshots, `GPX_BACKUP_KEY`). Restaurer le volume de logs **sans** la clé de l'Admin rend ces IP illisibles : sauvegarder les deux ensemble.
+
+```yaml
+services:
+  admin:
+    environment:
+      GPX_ADMIN_LOG_DIR: /var/lib/goproxify-logs
+    volumes:
+      - goproxify_admin_data:/etc/goproxify
+      - goproxify_admin_logs:/var/lib/goproxify-logs
+volumes:
+  goproxify_admin_logs:
+```
+
 ---
 
 ## `goproxify_edge_data` → `/etc/goproxify` (Passerelle)
@@ -40,7 +65,7 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 | `pushed-journal.gpx` | Dernier document reçu de l'Admin pour chaque type de configuration commun au groupe HA (certificats, snippets, plugins, WAF…), avec sa date de réception : ce qu'un membre propose à ses pairs pour qu'ils rattrapent une poussée manquée ; chiffré par la clé locale du nœud (surchargeable par `GPX_PUSHED_JOURNAL_PATH`) |
 | `waf-config.gpx` | Copie chiffrée de l'interrupteur du WAF reçu de l'Admin, rechargée au démarrage sans l'Admin (surchargeable par `GPX_WAF_CONFIG_PATH`) ; absente ou illisible : WAF actif |
 | `edge-settings.gpx` | Copie chiffrée des réglages runtime reçus de l'Admin (anonymisation / pseudonymisation des IP, journalisation, tracing, URL publique), rechargée au démarrage sans l'Admin (surchargeable par `GPX_EDGE_SETTINGS_PATH`) |
-| `logs/access-<lundi>.db`, `logs/system-<mois>.db` | Base de logs de la passerelle ([ADR 0012](adr/0012-logs-proprietaire-edge.md)) : un fichier SQLite par semaine pour les accès HTTP et par mois pour les logs système. Rétention par suppression du fichier entier : 365 jours pour les accès (`engine.log_retention_days`), 90 jours pour le système (`engine.system_log_retention_days`). Dossier réglable par `engine.log_store_dir` (défaut `/etc/goproxify/logs`). Exclu de la sauvegarde |
+| `logs/access-<lundi>.db`, `logs/system-<mois>.db` | Base de logs de la passerelle ([ADR 0012](adr/0012-logs-proprietaire-edge.md)) : un fichier SQLite par semaine pour les accès HTTP et par mois pour les logs système. Rétention par suppression du fichier entier : 365 jours pour les accès (`engine.log_retention_days`), 90 jours pour le système (`engine.system_log_retention_days`) tant que l'Admin ne range pas les lignes ; dès qu'il les range et les acquitte ([ADR 0018](adr/0018-logs-geres-par-l-admin.md), Edge `0.128.0`), la base est un tampon : une période acquittée est supprimée 7 jours après sa fin (`engine.log_buffer_days`), une période non acquittée après 30 jours (`engine.log_buffer_max_days`). `acks.json` retient les positions acquittées. Dossier réglable par `engine.log_store_dir` (défaut `/etc/goproxify/logs`). Exclu de la sauvegarde |
 | `log-retention.gpx` | Copie locale chiffrée de la conservation des logs imposée par l'Admin (accès et système, en jours ; surchargeable par `GPX_LOG_RETENTION_PATH`) : relue au démarrage avant `edge.json`, Admin éteint ; absente, `edge.json` s'applique |
 | `log-ip-key.gpx` | Clé qui chiffre l'IP réelle des accès en pseudonymisation, copie locale chiffrée (surchargeable par `GPX_LOG_IP_KEY_PATH`), reprise par la sauvegarde d'état. Illisible (secret d'appairage changé sans `PreviousSecretsEnv`) : jamais remplacée, la passerelle journalise sans garder l'IP réelle |
 | `log-sign-key.gpx` | Clé Ed25519 qui signe les exports de logs (`goproxify edge logs export`), copie locale chiffrée (surchargeable par `GPX_LOG_SIGN_KEY_PATH`), créée à la première utilisation et reprise par la sauvegarde d'état. Illisible : jamais recréée, une clé neuve ne vérifierait plus les exports déjà remis |
@@ -72,10 +97,10 @@ Chaque service persiste ses données dans `/etc/goproxify` via un volume Docker 
 ## Bind mount spécial — Agent
 
 ```yaml
-- /var/run/docker.sock:/var/run/docker.sock:ro
+- /var/run/docker.sock:/var/run/docker.sock
 ```
 
-L'Agent monte la socket Docker de l'hôte en lecture seule pour découvrir automatiquement les conteneurs. Ce n'est pas un volume nommé : il pointe directement sur le daemon Docker de la machine hôte.
+L'Agent monte la socket Docker de l'hôte pour découvrir ses conteneurs et les piloter (mises à jour, scaling). Cet accès équivaut à root sur l'hôte : un montage `:ro` n'empêche pas d'y envoyer des requêtes d'écriture, c'est pourquoi il n'est pas utilisé ici. Ce n'est pas un volume nommé : il pointe directement sur le daemon Docker de la machine hôte.
 
 ---
 

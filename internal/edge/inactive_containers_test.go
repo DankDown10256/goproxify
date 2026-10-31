@@ -17,7 +17,8 @@ type listedContainer struct {
 	Source    string   `json:"source"`
 	AgentName string   `json:"agent_name"`
 	Inactive  bool     `json:"inactive"`
-	State     string   `json:"state"`
+	Disabled  bool     `json:"disabled"`
+	State    string   `json:"state"`
 	Name      string   `json:"name"`
 }
 

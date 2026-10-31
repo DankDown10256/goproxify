@@ -51,7 +51,12 @@ func (h Hold) filter() ScanFilter {
 	return ScanFilter{From: h.From, To: h.To, IP: h.IP, Domain: h.Domain}
 }
 
-func (s *Store) holdsPath() string { return filepath.Join(s.opts.Dir, holdsFile) }
+func (s *Store) holdsPath() string {
+	if s.opts.HoldsPath != "" {
+		return s.opts.HoldsPath
+	}
+	return filepath.Join(s.opts.Dir, holdsFile)
+}
 
 // Holds lit les gels. Le registre est relu à chaque purge : une commande locale prend effet sans redémarrer la
 // passerelle.
@@ -247,3 +252,38 @@ func (s *Store) eraseHeld(canon, mac string) (int64, error) {
 	}
 	return total, nil
 }
+
+// ReadHoldsFile lit un registre de gels sans ouvrir de store (liste, contrôle de l'Admin).
+func ReadHoldsFile(path string) ([]Hold, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("logstore: registre des gels illisible: %w", err)
+	}
+	var holds []Hold
+	if err := json.Unmarshal(raw, &holds); err != nil {
+		return nil, fmt.Errorf("logstore: registre des gels illisible: %w", err)
+	}
+	return holds, nil
+}
+
+// PreserveHold copie dans l'archive du gel h les lignes visées qui existent déjà dans ce store, sans toucher au
+// registre : l'Admin pose un gel dans le registre commun une fois, puis demande à chaque store de garder ses lignes.
+func (s *Store) PreserveHold(h Hold) error {
+	if !h.filtered() {
+		return nil
+	}
+	for _, kind := range []Kind{KindAccess, KindSystem} {
+		for _, f := range s.files(kind) {
+			if err := s.preserveFile(h, kind, f.start); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// DropHoldArchive supprime l'archive d'un gel dans ce store (gel levé, ou pose échouée).
+func (s *Store) DropHoldArchive(id string) error { return os.RemoveAll(s.heldPath(id)) }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vincamok/goproxify/internal/admin/api"
 	"github.com/vincamok/goproxify/internal/admin/archstore"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 )
@@ -23,7 +24,7 @@ func TestInfraToolsRegistered(t *testing.T) {
 	}
 	for _, name := range []string{
 		"list_declared_nodes", "get_topology_live", "get_architecture", "create_declared_node", "delete_declared_node",
-		"create_bootstrap_ticket", "accept_node", "reject_node",
+		"create_bootstrap_ticket", "list_hosts", "create_host_join_ticket", "accept_node", "reject_node",
 	} {
 		if !found[name] {
 			t.Fatalf("outil manquant: %s", name)
@@ -134,5 +135,57 @@ func TestGetArchitectureToolReadsCurrentAndVersion(t *testing.T) {
 	}
 	if _, err := h.toolGetArchitecture(map[string]any{"version": "../x"}); err == nil {
 		t.Fatal("un nom de version invalide doit être refusé")
+	}
+}
+
+func TestHostsTools(t *testing.T) {
+	db, err := admindb.Open(filepath.Join(t.TempDir(), "mcp-hosts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+
+	if _, err := (&Handler{DB: db}).toolListHosts(r); err == nil {
+		t.Fatal("sans gestionnaire d'hôtes, l'outil doit échouer")
+	}
+
+	store := archstore.New(t.TempDir())
+	for _, n := range []archstore.NodeEntry{
+		{ID: "dn_e", Role: "edge", Name: "main-edge", Endpoint: "http://main-edge:8000",
+			Config: json.RawMessage(`{"host":"main","reachable_host":"192.168.1.10:8000"}`)},
+		{ID: "dn_a", Role: "agent", Name: "nas-agent",
+			Config: json.RawMessage(`{"host":"nas","reachable_host":"192.168.1.50","target_edge":"main-edge"}`)},
+	} {
+		if err := store.Upsert(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := &Handler{DB: db, Hosts: &api.HostsHandler{
+		DB: db, Arch: store, PublicURL: func(*http.Request) string { return "https://admin.example:9443" },
+	}}
+
+	listed, err := h.toolListHosts(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := listed.([]api.HostRow)
+	if len(rows) != 2 || rows[1].Name != "nas" || rows[1].Status != "pending" {
+		t.Fatalf("hôtes = %+v", rows)
+	}
+
+	if _, err := h.toolCreateHostJoinTicket(r, map[string]any{}); err == nil {
+		t.Fatal("host est requis")
+	}
+	out, err := h.toolCreateHostJoinTicket(r, map[string]any{"host": "nas"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk := out.(*api.JoinTicket)
+	if tk.Host != "nas" || !strings.HasPrefix(tk.SpecURL, "https://admin.example:9443/api/v1/join/") || tk.Token == "" {
+		t.Fatalf("ticket = %+v", tk)
+	}
+	if _, err := h.toolCreateHostJoinTicket(r, map[string]any{"host": "absent"}); err == nil {
+		t.Fatal("un hôte inconnu doit être refusé")
 	}
 }

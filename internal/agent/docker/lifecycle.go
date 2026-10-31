@@ -20,9 +20,18 @@ type RegistryAuth struct {
 	Server   string
 }
 
+// Daemon est la part de l'API Docker dont le gestionnaire a besoin ; *Client la satisfait. Le launcher y branche son
+// propre accès au démon pour recréer les conteneurs d'une installation (ADR 0019).
+type Daemon interface {
+	Get(ctx context.Context, path string, out any) error
+	Post(ctx context.Context, path string, body any, out any) error
+	PostWithHeaders(ctx context.Context, path string, body any, out any, headers map[string]string) error
+	Delete(ctx context.Context, path string) error
+}
+
 // LifecycleManager gère les mises à jour, rollbacks et l'escalade de health.
 type LifecycleManager struct {
-	client       *Client
+	client       Daemon
 	log          *slog.Logger
 	registryAuth *RegistryAuth
 
@@ -33,7 +42,7 @@ type LifecycleManager struct {
 }
 
 // NewLifecycleManager crée un LifecycleManager.
-func NewLifecycleManager(client *Client, log *slog.Logger) *LifecycleManager {
+func NewLifecycleManager(client Daemon, log *slog.Logger) *LifecycleManager {
 	return &LifecycleManager{
 		client:       client,
 		log:          log,
@@ -114,47 +123,68 @@ func (m *LifecycleManager) UpdateContainer(ctx context.Context, containerID stri
 	return m.RecreateContainer(ctx, containerID, image, prune)
 }
 
-// RecreateContainer arrête, supprime et recrée un conteneur avec la même config.
+// RecreateContainer recrée un conteneur avec la même configuration complète (variables, ports, montages, réseaux…)
+// et une autre image. L'ancien est mis de côté sous un autre nom jusqu'à ce que le nouveau tourne : si la création ou
+// le démarrage échoue, il est remis en place et redémarré.
 func (m *LifecycleManager) RecreateContainer(ctx context.Context, containerID, image string, prune bool) error {
-	var inspect ContainerInspect
-	if err := m.client.Get(ctx, "/containers/"+containerID+"/json", &inspect); err != nil {
+	var raw map[string]any
+	if err := m.client.Get(ctx, "/containers/"+containerID+"/json", &raw); err != nil {
 		return err
 	}
-	name := inspect.Name
+	name := trimSlash(fmt.Sprint(raw["Name"]))
+	spec := specFromInspect(raw, image)
+	parked := fmt.Sprintf("%s-gpx-old-%d", name, time.Now().Unix())
 
 	m.log.Info("lifecycle: recreate", "name", name, "image", image)
 
-	// Arrêt
 	if err := m.client.Post(ctx, "/containers/"+containerID+"/stop", nil, nil); err != nil {
 		m.log.Warn("lifecycle: stop container", "name", name, "err", err)
 	}
-	time.Sleep(3 * time.Second)
+	if err := m.client.Post(ctx, "/containers/"+containerID+"/rename?name="+parked, nil, nil); err != nil {
+		return err
+	}
 
-	// Suppression
+	newID, err := m.createAndStart(ctx, name, spec)
+	if err != nil {
+		m.log.Error("lifecycle: recreate échoué, retour à l'ancien conteneur", "name", name, "err", err)
+		if newID != "" {
+			_ = m.client.Delete(ctx, "/containers/"+newID+"?force=true")
+		}
+		if rerr := m.client.Post(ctx, "/containers/"+containerID+"/rename?name="+name, nil, nil); rerr != nil {
+			return fmt.Errorf("%w (remise en place de l'ancien conteneur impossible : %v)", err, rerr)
+		}
+		if rerr := m.client.Post(ctx, "/containers/"+containerID+"/start", nil, nil); rerr != nil {
+			return fmt.Errorf("%w (redémarrage de l'ancien conteneur impossible : %v)", err, rerr)
+		}
+		return err
+	}
+	m.log.Info("lifecycle: conteneur recréé", "name", name, "id", shortID(newID))
+
 	if err := m.client.Delete(ctx, "/containers/"+containerID+"?force=true"); err != nil {
-		return err
+		m.log.Warn("lifecycle: ancien conteneur non supprimé", "name", parked, "err", err)
 	}
-
-	// Recréation
-	body := ContainerCreateBody{
-		Image:  image,
-		Labels: inspect.Config.Labels,
-	}
-	body.HostConfig.RestartPolicy.Name = inspect.HostConfig.RestartPolicy.Name
-
-	var created struct{ ID string `json:"Id"` }
-	if err := m.client.Post(ctx, "/containers/create?name="+trimSlash(name), body, &created); err != nil {
-		return err
-	}
-	if err := m.client.Post(ctx, "/containers/"+created.ID+"/start", nil, nil); err != nil {
-		return err
-	}
-	m.log.Info("lifecycle: conteneur recréé", "name", name, "id", created.ID[:12])
-
 	if prune {
 		_ = m.client.Delete(ctx, "/images/prune")
 	}
 	return nil
+}
+
+// createAndStart crée le conteneur sous son nom, le branche à ses réseaux et le démarre. L'identifiant est renvoyé
+// dès que la création a réussi, même si la suite échoue, pour que l'appelant puisse le retirer.
+func (m *LifecycleManager) createAndStart(ctx context.Context, name string, spec createSpec) (string, error) {
+	var created struct {
+		ID string `json:"Id"`
+	}
+	if err := m.client.Post(ctx, "/containers/create?name="+name, spec.body, &created); err != nil {
+		return "", err
+	}
+	for net, cfg := range spec.extraNets {
+		body := map[string]any{"Container": created.ID, "EndpointConfig": cfg}
+		if err := m.client.Post(ctx, "/networks/"+net+"/connect", body, nil); err != nil {
+			return created.ID, err
+		}
+	}
+	return created.ID, m.client.Post(ctx, "/containers/"+created.ID+"/start", nil, nil)
 }
 
 // Rollback recrée le conteneur avec l'image précédente.

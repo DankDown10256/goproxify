@@ -25,12 +25,13 @@ import (
 	edgeagent "github.com/vincamok/goproxify/internal/edge/agent"
 	"github.com/vincamok/goproxify/internal/edge/bansdb"
 	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
-	"github.com/vincamok/goproxify/internal/edge/cluster"
 	edgecrowdsec "github.com/vincamok/goproxify/internal/edge/crowdsec"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
 	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
 	"github.com/vincamok/goproxify/internal/edge/geoip"
+	"github.com/vincamok/goproxify/internal/edge/lastua"
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
+	"github.com/vincamok/goproxify/internal/edge/logserve"
 	"github.com/vincamok/goproxify/internal/edge/logstore"
 	"github.com/vincamok/goproxify/internal/edge/logthrottle"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
@@ -41,10 +42,11 @@ import (
 	"github.com/vincamok/goproxify/internal/edge/proxyproto"
 	"github.com/vincamok/goproxify/internal/edge/proxystore"
 	edgequic "github.com/vincamok/goproxify/internal/edge/quic"
-	"github.com/vincamok/goproxify/internal/edge/raft"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	edgere "github.com/vincamok/goproxify/internal/edge/rulesengine"
 	"github.com/vincamok/goproxify/internal/edge/siem"
+	"github.com/vincamok/goproxify/internal/edge/fingerprint"
+	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
 	"github.com/vincamok/goproxify/internal/edge/tlsfp"
@@ -60,7 +62,7 @@ import (
 
 // Server est le Data Plane — reverse proxy HTTP/TLS/TCP/UDP.
 type Server struct {
-	logGate      *logSearchGate // plafond des recherches simultanées dans la base de logs
+	logGate      *logserve.Gate // plafond des recherches simultanées dans la base de logs
 	logGateOnce  sync.Once
 	cfg          *config.EdgeConfig
 	log          *edgelog.DynamicLogger
@@ -82,6 +84,7 @@ type Server struct {
 	profileStore    *router.IPProfileStore
 	banStore        *router.BanStore
 	blockLog        *logthrottle.Limiter // regroupe les refus répétés d'une même IP dans le journal
+	lastUA          *lastua.Tracker      // dernier User-Agent par IP, joint aux bans automatiques
 	bansDB          *bansdb.DB
 	threatEngine    *threat.Engine
 	f2bEngine       *edgef2b.Engine
@@ -114,6 +117,7 @@ type Server struct {
 	agentGen       agentGenerations              // dernière génération d'état complet acceptée par (Agent, source, scope)
 	agentStates    agentStateStore               // derniers états complets acceptés, pour les pairs du groupe HA
 	adminDocs      pushedJournal                 // derniers documents poussés par l'Admin, pour les pairs du groupe HA
+	disabledRoutes disabledRoutes                // hôtes dont la route issue d'un conteneur est désactivée
 	groupCard      groupCardHolder               // fiche du groupe HA, déclarée par l'Admin
 	peerSeen       peerLiveness                  // dernier échange réussi avec chaque pair, pour choisir l'exécutant des actions uniques
 	ruleReports    ruleReports                   // déclenchements de notification déjà remontés à l'Admin
@@ -123,11 +127,15 @@ type Server struct {
 	implicitSkeleton sync.Map // ID de route implicite → route telle que générée, sans surcouche
 
 	tracingShutdown func(context.Context) error
-	clusterGroup    *cluster.Group
 	wafEngine       *waf.Engine
 	behavior        *behavior.Store               // magasin comportemental commun à Ephor et au WAF (ADR 0011)
 	asnDB           atomic.Pointer[asncompact.DB] // base IP → ASN poussée par l'Admin (copie chiffrée locale)
 	asnAsm          asnAssembly
+
+	surface       *surface.Collector                  // profils de surface des proxies en apprentissage (ADR 0016)
+	apps          *fingerprint.Store                  // applications que les réponses des backends annoncent (ADR 0017)
+	geoCountry    atomic.Pointer[func(net.IP) string] // pays d'une IP, ouvert quand la base MaxMind existe
+	geoCountryTry atomic.Int64
 
 	mu            sync.Mutex
 	tcpPorts      map[string]interface{ Stop() }
@@ -205,6 +213,7 @@ func New(cfg *config.EdgeConfig) (*Server, error) {
 		profileStore:    router.NewIPProfileStore(),
 		banStore:        router.NewBanStore(),
 		blockLog:        logthrottle.New(blockLogWindow),
+		lastUA:          lastua.New(),
 		bansDB:          bdb,
 		cache:           edgecache.New(cachePath, secret),
 		tcpPorts:        make(map[string]interface{ Stop() }),
@@ -234,6 +243,8 @@ func New(cfg *config.EdgeConfig) (*Server, error) {
 	s.metrics = proxy.NewAgentMetricsStore()
 	s.peers = proxy.NewPeerRegistry()
 	s.behavior = behavior.NewStore(0)
+	s.surface = newSurfaceCollector(s)
+	s.apps = fingerprint.NewStore()
 	s.wafEngine = waf.NewEngine(nil, log.Logger())
 	s.wafEngine.SetBehaviorStore(s.behavior)
 	s.wafEngine.SetBanCallback(waf.BanCallback(s.threatBanCallback()))
@@ -247,6 +258,12 @@ func New(cfg *config.EdgeConfig) (*Server, error) {
 	ts, err := edgetokens.Open(tokensPath)
 	if err != nil {
 		return nil, fmt.Errorf("token store: %w", err)
+	}
+	// Chaque appairage d'un Agent ajoute un jeton et rien ne les retirait : on borne le magasin à chaque démarrage.
+	if n, perr := ts.PruneAll(edgetokens.RoleAgent, edgetokens.KeepAgentTokens); perr != nil {
+		log.Logger().Warn("token store: purge des anciens jetons d'Agent", "err", perr)
+	} else if n > 0 {
+		log.Logger().Info("token store: anciens jetons d'Agent purgés", "supprimés", n, "gardés par Agent", edgetokens.KeepAgentTokens)
 	}
 	// Bootstrap : si aucun token n'existe, créer le token initial depuis la config.
 	if cfg.ControlPlane.AuthToken != "" {
@@ -357,31 +374,6 @@ func New(cfg *config.EdgeConfig) (*Server, error) {
 		return s.tokenStore.HasActiveAgent(agentName)
 	})
 
-	// Cluster Raft (optionnel)
-	if cfg.Cluster.Enabled {
-		nodeID := cfg.Cluster.NodeID
-		if nodeID == "" {
-			nodeID = cfg.Identity.NodeName
-		}
-		raftPort := cfg.Cluster.RaftPort
-		if raftPort == 0 {
-			raftPort = 8002
-		}
-		peers := cfg.Cluster.Peers
-		if len(peers) == 0 {
-			peers = s.loadClusterPeersFromDisk()
-		}
-		grp := cluster.NewGroup(cluster.Config{
-			NodeID:    nodeID,
-			GroupName: cfg.Cluster.GroupName,
-			Peers:     peers,
-			RaftPort:  raftPort,
-			ApplyFunc: func(entry raft.LogEntry) {
-				s.applyClusterCommand(entry)
-			},
-		}, log.Logger())
-		s.clusterGroup = grp
-	}
 	return s, nil
 }
 
@@ -437,13 +429,6 @@ func (s *Server) Start(ctx context.Context) error {
 		s.log.Warn("quic: démarrage échoué (non bloquant)", "err", err)
 	}
 
-	// Cluster Raft
-	if s.clusterGroup != nil {
-		if err := s.clusterGroup.Start(ctx); err != nil {
-			s.log.Warn("cluster: démarrage échoué (non bloquant)", "err", err)
-		}
-	}
-
 	// Heartbeat passerelle → Admin via WebSocket
 	go s.wsHeartbeatLoop(ctx)
 	go s.trafficLoop(ctx)
@@ -463,6 +448,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Sync pools discovery depuis les passerelles pairs (LB cross-passerelle)
 	s.startPeerSyncLoop(ctx)
+	go s.surfaceStatusLoop(ctx)
 	// Écouteurs TCP/UDP des routes L4 : suivent la table, et se rouvrent après un redémarrage sans l'Admin.
 	s.table.SetOnChange(s.scheduleL4Sync)
 	s.scheduleL4Sync()
@@ -470,6 +456,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Restauration du magasin comportemental (notes, historique propre, références apprises) depuis la copie chiffrée locale.
 	s.loadBehaviorStateFromDisk()
+	s.loadSurfaceStateFromDisk()
+	s.loadAppsStateFromDisk()
 
 	// Moteur Fail2Ban — autonome, lit les access logs, bans locaux.
 	s.f2bEngine = edgef2b.New()
@@ -573,9 +561,6 @@ func (s *Server) Stop(ctx context.Context) {
 	if s.tracingShutdown != nil {
 		s.tracingShutdown(ctx) //nolint:errcheck
 	}
-	if s.clusterGroup != nil {
-		s.clusterGroup.Stop()
-	}
 	s.pluginLog.stop()
 	s.l4.stop()
 	s.mu.Lock()
@@ -616,6 +601,8 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	s.saveThreatState()
 	s.saveBehaviorState()
+	s.saveSurfaceState()
+	s.saveAppsState()
 }
 
 // --- Chargement initial ---------------------------------------------------

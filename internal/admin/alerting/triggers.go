@@ -29,6 +29,8 @@ const (
 	TriggerSLOBurn                TriggerType = "slo_burn"                  // budget d'erreur SLO consommé trop vite ou épuisé
 	TriggerAutomationNotify       TriggerType = "automation_notify"         // action « notifier » d'un flux d'automatisation
 	TriggerSIEMExportLag          TriggerType = "siem_export_lag"           // l'export vers un SIEM prend du retard sur des logs qui vont être purgés
+	TriggerSurfaceSuggestion      TriggerType = "surface_suggestion"        // un ajout est suggéré à la politique de surface d'un proxy (ADR 0016)
+	TriggerLogBufferRisk          TriggerType = "log_buffer_risk"           // des logs que l'Admin n'a pas rangés approchent de la borne où la passerelle les supprime (ADR 0018)
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -38,7 +40,7 @@ var AllTriggers = []TriggerType{
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
 	TriggerEphorBan, TriggerBackendDown, TriggerCertDeployFailed, TriggerIPProfileRefreshFailed,
-	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag,
+	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag, TriggerSurfaceSuggestion, TriggerLogBufferRisk,
 }
 
 // TriggerOutputs liste les clés de Detail que porte chaque déclencheur : un flux déclenché par
@@ -60,6 +62,8 @@ var TriggerOutputs = map[TriggerType][]string{
 	TriggerSLOBurn:                {"node_name", "state", "target", "availability", "budget_left", "burn_1h", "burn_6h"},
 	TriggerAutomationNotify:       {"flow_id", "flow_name", "message"},
 	TriggerSIEMExportLag:          {"destination", "node_name", "lag_min", "at_risk", "error"},
+	TriggerLogBufferRisk:          {"node_name", "unacked_days", "max_days"},
+	TriggerSurfaceSuggestion:      {"proxy", "domain", "count", "suggestions", "low_confidence"},
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
@@ -83,6 +87,8 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerSLOBurn:                "Budget d'erreur SLO consommé trop vite",
 	TriggerAutomationNotify:       "Notification d'un flux d'automatisation",
 	TriggerSIEMExportLag:          "Export SIEM en retard",
+	TriggerLogBufferRisk:          "Logs d'une passerelle non rangés par l'Admin, près d'être supprimés",
+	TriggerSurfaceSuggestion:      "Ajout suggéré à la politique de surface d'un proxy",
 }
 
 // Severity classe la sévérité d'une alerte.

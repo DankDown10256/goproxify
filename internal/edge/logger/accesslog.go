@@ -149,6 +149,7 @@ type ShipEntry struct {
 	Bytes        int64    `json:"bytes"`
 	Message      string   `json:"message"`
 	Referrer     string   `json:"referrer,omitempty"`
+	UserAgent    string   `json:"user_agent,omitempty"`
 	RequestID    string   `json:"request_id,omitempty"`
 	WAFMatches   []string `json:"waf_matches,omitempty"`
 	ThreatSignal string   `json:"threat_signal,omitempty"`
@@ -551,7 +552,7 @@ func ShipEntryFromRow(r logstore.Row, kind logstore.Kind, nodeName string) ShipE
 		Ts: r.Ts.UTC().Format(time.RFC3339Nano), Level: r.Level, Component: r.Component, NodeName: nodeName,
 		Domain: r.Domain, Method: r.Method, Path: r.Path, Status: r.Status, IP: r.IP, RealIP: r.RealIP,
 		IPTruncated: r.IPTruncated, LatencyMs: r.LatencyMs, Bytes: r.Bytes, Message: r.Message, Referrer: r.Referrer,
-		RequestID: r.RequestID, WAFMatches: r.WAFMatches, ThreatSignal: r.ThreatSignal, TLSJA3: r.TLSJA3,
+		UserAgent: r.UserAgent, RequestID: r.RequestID, WAFMatches: r.WAFMatches, ThreatSignal: r.ThreatSignal, TLSJA3: r.TLSJA3,
 		TLSJA4: r.TLSJA4, Seq: r.ID,
 	}
 	if kind == logstore.KindAccess {

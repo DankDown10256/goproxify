@@ -92,7 +92,7 @@ func (s *Server) syncBansFromPeer(ctx context.Context, client *http.Client, p pr
 		if t, ok := unbans[r.IP]; ok && !r.CreatedAt.After(t) {
 			continue
 		}
-		list = append(list, router.RuntimeBan{ID: r.ID, IP: r.IP, Reason: r.Reason, Source: r.Source, Scope: r.Scope, ExpiresAt: r.ExpiresAt})
+		list = append(list, router.RuntimeBan{ID: r.ID, IP: r.IP, Reason: r.Reason, Source: r.Source, Scope: r.Scope, UserAgent: r.UserAgent, ExpiresAt: r.ExpiresAt})
 	}
 	if n := s.mergePeerBans(list); n > 0 {
 		s.log.Info("bans: rattrapés auprès d'une passerelle pair", "pair", p.Name, "count", n)

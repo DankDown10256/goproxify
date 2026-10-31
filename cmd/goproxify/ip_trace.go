@@ -15,7 +15,7 @@ import (
 func tracePath(args map[string]string) (string, error) {
 	target := flagValue(args, "-target", flagValue(args, "-ip", ""))
 	if target == "" && flagValue(args, "-asn", "") == "" {
-		return "", fmt.Errorf("usage: goproxify security trace -target <ip|cidr> [-scope ip|asn] [-asn <ASN>] [-from <date>] [-to <date>] [-order asc|desc] [-limit N] [-offset N] [-json]")
+		return "", fmt.Errorf("usage: goproxify security trace -target <ip|cidr> [-scope ip|asn] [-asn <ASN>] [-from <date>] [-to <date>] [-order desc|asc] [-limit N] [-offset N] [-json]")
 	}
 	q := url.Values{}
 	if target != "" {
@@ -105,6 +105,9 @@ func formatTrace(res map[string]any) string {
 			sb.WriteString("\n")
 		default:
 			fmt.Fprintf(&sb, "%s  %-8s  %s %s %s\n", ts, strings.ToUpper(kind), str(m, "ip"), str(m, "source"), str(m, "reason"))
+			if ua := str(m, "user_agent"); ua != "" {
+				fmt.Fprintf(&sb, "%s  User-Agent : %s\n", strings.Repeat(" ", len(ts)), ua)
+			}
 		}
 	}
 	if more, _ := res["has_more"].(bool); more {

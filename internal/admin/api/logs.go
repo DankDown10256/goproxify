@@ -20,6 +20,7 @@ import (
 
 	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/edgelogs"
 	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/admin/logs"
 	"github.com/vincamok/goproxify/internal/admin/rbac"
@@ -41,6 +42,10 @@ type LogsHandler struct {
 	OnUnban func(ip string)
 	// OnEraseIP (optionnel) efface l'IP des passerelles : access log et historique des bans.
 	OnEraseIP func(ip string)
+	// OnVaultRetention (optionnel) applique la conservation du volume de logs de l'Admin (ADR 0018).
+	OnVaultRetention func(accessDays, systemDays int)
+	// EraseCopy (optionnel) efface l'IP du volume de logs de l'Admin (ADR 0018) et rend le nombre de lignes supprimées.
+	EraseCopy func(ip string) (int64, error)
 	// Edges et BulkEdges (optionnels) interrogent la base de logs des passerelles pour `source=edge`.
 	Edges     *edgeproxy.Client
 	BulkEdges *edgeproxy.Client
@@ -320,6 +325,8 @@ func (h *LogsHandler) getSettings(w http.ResponseWriter, r *http.Request) {
 		"retention_ban_days":    parseInt("logs.retention_ban_days", h.Store.BanRetentionDays()),
 		"ip_anonymize":          ipAnonymize,
 		"ip_pseudonymize":       ipPseudonymize,
+		"read_source":           admindb.GetSetting(h.DB, "logs.read_source", edgelogs.SourceAuto),
+		"vault_retention":       h.vaultRetentionView(),
 		"edge_retention":       h.edgeRetentionView(),
 		"defaults": map[string]any{
 			"access_days": logs.DefaultRetentionAccessDays,
@@ -336,6 +343,10 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 		RetentionBanDays    int   `json:"retention_ban_days"`
 		IPAnonymize        *bool `json:"ip_anonymize,omitempty"`
 		IPPseudonymize      *bool `json:"ip_pseudonymize,omitempty"`
+		// ReadSource : d'où l'Admin lit les logs d'accès des passerelles (auto, gateway ou admin), ADR 0018.
+		ReadSource *string `json:"read_source,omitempty"`
+		// VaultRetention : conservation de l'historique du volume de logs de l'Admin ; réduire une durée supprime les lignes les plus anciennes.
+		VaultRetention *VaultRetention `json:"vault_retention,omitempty"`
 		// EdgeRetention : conservation des logs dans les passerelles, qui portent les accès HTTP (365 jours par défaut).
 		EdgeRetention *EdgeRetention `json:"edge_retention,omitempty"`
 	}
@@ -352,6 +363,16 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+	}
+	if body.VaultRetention != nil {
+		if err := body.VaultRetention.validate(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if body.ReadSource != nil && !edgelogs.ValidSource(*body.ReadSource) {
+		http.Error(w, "read_source : auto, gateway ou admin", http.StatusBadRequest)
+		return
 	}
 	prevAnon := admindb.GetSetting(h.DB, "logs.ip_anonymize", "false") == "true"
 	prevPseudo := admindb.GetSetting(h.DB, "logs.ip_pseudonymize", "false") == "true"
@@ -382,6 +403,18 @@ func (h *LogsHandler) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = admindb.WriteAudit(h.DB, adminauth.UserIDFromContext(r.Context()), "logs_edge_retention", "logs",
 			fmt.Sprintf("access=%dj system=%dj exceptions=%d", er.AccessDays, er.SystemDays, len(er.Nodes)))
+	}
+	if vr := body.VaultRetention; vr != nil {
+		if err := h.saveVaultRetention(*vr); err != nil {
+			logsJSONErr(w, err, http.StatusInternalServerError)
+			return
+		}
+		_ = admindb.WriteAudit(h.DB, adminauth.UserIDFromContext(r.Context()), "logs_vault_retention", "logs",
+			fmt.Sprintf("access=%dj system=%dj", vr.AccessDays, vr.SystemDays))
+	}
+	if rs := body.ReadSource; rs != nil && *rs != admindb.GetSetting(h.DB, "logs.read_source", edgelogs.SourceAuto) {
+		admindb.SetSetting(h.DB, "logs.read_source", *rs) //nolint:errcheck
+		_ = admindb.WriteAudit(h.DB, adminauth.UserIDFromContext(r.Context()), "logs_read_source", "logs", "source="+*rs)
 	}
 	h.Store.SetRetention(body.RetentionAccessDays, body.RetentionSystemDays)
 	h.Store.SetBanRetention(body.RetentionBanDays)
@@ -486,6 +519,15 @@ func (h *LogsHandler) deleteByIP(w http.ResponseWriter, r *http.Request, ip stri
 	if h.OnEraseIP != nil {
 		h.OnEraseIP(ip) // mis en file : rejoué aux passerelles qui ne répondent pas maintenant
 	}
+	var copyLines int64
+	if h.EraseCopy != nil {
+		n, err := h.EraseCopy(ip)
+		if err != nil {
+			logsJSONErr(w, err, http.StatusInternalServerError)
+			return
+		}
+		copyLines = n
+	}
 	gateways := h.eraseOnGateways(r.Context(), ip)
 	var gwLines, gwPending int64
 	for _, g := range gateways {
@@ -497,8 +539,8 @@ func (h *LogsHandler) deleteByIP(w http.ResponseWriter, r *http.Request, ip stri
 
 	// Trace de l'effacement sans réinscrire l'IP effacée en clair (audit et logs système).
 	ref := h.Store.IPReference(ip)
-	detail := fmt.Sprintf("ip=%s deleted=%d bans=%d ban_history=%d geoip_cache=%d audit_ip=%d gateway_log_lines=%d gateways_pending=%d reason=%q",
-		ref, res.Logs, res.Bans, res.BanHistory, res.GeoCache, res.AuditIP, gwLines, gwPending, reason)
+	detail := fmt.Sprintf("ip=%s deleted=%d bans=%d ban_history=%d geoip_cache=%d audit_ip=%d gateway_log_lines=%d copy_log_lines=%d gateways_pending=%d reason=%q",
+		ref, res.Logs, res.Bans, res.BanHistory, res.GeoCache, res.AuditIP, gwLines, copyLines, gwPending, reason)
 	_ = admindb.WriteAudit(h.DB, actor, "rgpd_erasure_ip", "logs", detail)
 	h.Store.Write(logs.Entry{
 		Level:     "info",
@@ -514,6 +556,7 @@ func (h *LogsHandler) deleteByIP(w http.ResponseWriter, r *http.Request, ip stri
 		"geoip_cache_deleted": res.GeoCache,
 		"audit_ip_cleared":    res.AuditIP,
 		"gateways":            gateways,
+		"copy_deleted":        copyLines,
 		"ip":                  ip,
 	})
 }

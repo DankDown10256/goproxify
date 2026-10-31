@@ -17,7 +17,7 @@ You have several VPS, Docker containers on different hosts, and you want to rout
 - **HTTP/1.1, HTTP/2, HTTP/3 QUIC, TCP/UDP L4** — one tool covers all protocols
 - **Built-in OWASP CRS-4 WAF** — 13 rule sets (SQLi, XSS, Log4Shell…) with no external plugin
 - **SSH and Docker access from the UI** — web terminal, UUID `ssh` to VMs and `docker exec` to containers, directly from your browser
-- **Automatic service discovery** — the Agent reads `goproxify.*` labels on Docker/Podman containers and Kubernetes services, or tags from Consul, Nomad, etcd and Amazon ECS, and pushes routes in real time; a discovered container can be converted into a regular, editable proxy with one click
+- **Automatic service discovery** — the Agent reads `goproxify.*` labels on Docker/Podman containers and Kubernetes services, or tags from Consul, Nomad, etcd and Amazon ECS, and pushes routes in real time; a discovered container can be converted into a regular, editable proxy with one click, or its route switched off and on without touching the container
 - **WASM plugins** — sandboxed plugins on requests, bodies and TCP/UDP streams; Coraza (SecLang) and ready-made examples installable in one click
 - **Alerting to 10 channels** — Email, Webhook, ntfy.sh, Jira, Linear, GitHub Issues, and more
 
@@ -53,7 +53,7 @@ Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Support: [Discussions](https
                                  │ (heartbeat/metrics/events)
                     ┌────────────┴─────────────────────────┐
                     │  AGENT  (Docker Discovery)           │
-                    │  Reads docker.sock (read-only)       │
+                    │  Uses docker.sock (host access)      │
                     │  Detects goproxify.* labels          │
                     │  Prometheus :9191/metrics            │
                     │  No inbound control-plane port       │
@@ -110,7 +110,17 @@ Step-by-step install for both: [docs/deployment.md](docs/deployment.md).
 
 > Preview only — read [DISCLAIMER.md](DISCLAIMER.md) before any deployment.
 
-### Docker Compose (recommended)
+### Launcher (recommended)
+
+One command, no file to write: the launcher pulls its image, generates the secrets, the admin account, a TLS certificate and a backup key, deploys Admin + Edge + Agent on this machine, then removes itself.
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview --admin --edge --agent
+```
+
+Without options, add `-p 8080:8080` to open its design page (`http://<host>:8080/design`, access code printed in its output): declare your machines and roles and watch the diagram of the infrastructure update (drawing or Mermaid text). Other machines install from a QR code shown by the Admin; `launcher update` updates a host keeping its volumes; `launcher --restore` rebuilds a lost Admin from a backup. See [docs/cli.md](docs/cli.md) and [ADR 0019](docs/adr/0019-launcher-bootstrap-multi-hotes.md).
+
+### Docker Compose (files you can read and edit)
 
 ```bash
 # 1. Run the quickstart script — it generates docker-compose.yml and .env
@@ -208,6 +218,7 @@ Operational commands (talk to Admin via HTTP):
   nodes      Infrastructure nodes (list / accept / reject)
   declared   Architecture wizard declared nodes
   bootstrap  QR tickets / curl|bash host integration
+  launcher   Install Admin / Edge / Agent on this host from one command (ghcr.io/vincamok/goproxify/launcher image)
   update     Update Docker images (via Agent)
 
   version  Binary version
@@ -247,6 +258,8 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - **Infrastructure view & architecture editor** — live flow schema (Internet → Edges → Agents) with a node detail panel and a "to handle" bar; in-place editing (drag-and-drop palette, host cards, changes flagged with their impact, review before save), multi-Edge/HA, QR tickets / `curl|bash` to integrate a host
 - **Bans page** — the same page in the Admin (all Edges) and in each Edge menu: KPIs, 48 h timeline, origin by country, filters, bulk actions and a mobile card layout; every ban records the Edge that reported it
 - **Ephor and the WAF learn** — one risk note per IP, shared by both engines: every request feeds a behavioural store (rate, error spread, missing assets, regular cadence, User-Agent vs TLS fingerprint, whole-ASN failures), compared with the **normal rate learned per route and hour**; every new signal starts in `detect` (explained in the ban it would have caused, counted as a shadow note) and moves to `block` after a log replay; a long clean history raises the ban threshold; works without the Admin — see [docs/security.md](docs/security.md#note-commune-et-signaux-de-comportement-adr-0011)
+- **Surface learning (observe only)** — switch a proxy to `learn` and the gateway builds a profile of what its legitimate traffic really uses: methods, path templates (`/api/users/{int}`), content types, body sizes, parameters, clients. Nothing is blocked, scanners and suspicious IPs teach it nothing, no value or IP is stored, and a convergence check tells you when the profile can be trusted. From that profile it proposes justified settings (body size limit, rate limit, countries, client networks, CORS origins) without applying anything — see [ADR 0016](docs/adr/0016-apprentissage-de-la-surface-d-un-proxy.md); it can also generate that profile as an OpenAPI specification for the existing `openapi` control, in detect mode, and lists the requests that fall outside it. It can then refuse those violations one type at a time (unknown path, unknown method, invalid parameter…), with guard rails against blocking too early and one gesture back to detect. Learning stays on afterwards: paths that keep coming back from clean clients are suggested for addition, and the policy never widens by itself.
+- **WAF exclusions that stay narrow** — a rule that misfires on legitimate traffic (a CMS editor posting HTML, an admin console sending SQL) is excluded **per path** (`waf.exclusions`: `/wp-admin/` only) and stays active on the rest of the proxy; platform auto-recognition only reports what it found and suggests the path, it never changes the protection on its own. Details: [docs/security.md](docs/security.md).
 - **HA groups** — Ephor, the WAF switch, HTTP timeouts and the access portal are configured once per HA group; the portal store (accounts, 2FA, vaults, optional shared web sessions) and Ephor reference lists are replicated between Edges, and bans keep flowing between peers when the Admin is down
 - **Guided first start** — initial configuration wizard
 - ACME DNS-01 wildcard management (OVH, Cloudflare, Gandi, Route 53, Hetzner and 28 more providers through [libdns](https://github.com/libdns): DigitalOcean, Scaleway, Namecheap, GoDaddy, Azure DNS, Google Cloud DNS, Porkbun, deSEC…), plus HTTP-01 and TLS-ALPN-01 validation served by the Edge (no DNS provider needed)
@@ -266,7 +279,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 
 ### Agent (Service Discovery)
 
-- Reads `/var/run/docker.sock` **read-only**
+- Uses `/var/run/docker.sock`: access **equivalent to root on the host** (a read-only mount does not limit it), so run the Agent only on hosts that need it
 - Detects `goproxify.*` labels on containers in real time
 - Also discovers Portainer, Kubernetes `Ingress`/`Service` annotations, and **Consul, Nomad, etcd and Amazon ECS** instances (polled; an unreachable directory never removes a route)
 - Sends routes, metrics and events to the Edge via **persistent WS tunnel** (Agent→Edge)
@@ -297,7 +310,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 
 ## Environment variables
 
-`GPX_*` variables are read when a component first starts, to generate its `admin.json` / `edge.json` / `agent.json`; once the file exists, **the JSON wins** (only `cluster.*`, `engine.metrics_disabled`, `engine.access_log_disabled` and `identity.node_name` can still come from the environment when absent from the JSON).  
+`GPX_*` variables are read when a component first starts, to generate its `admin.json` / `edge.json` / `agent.json`; once the file exists, **the JSON wins** (only `engine.metrics_disabled`, `engine.access_log_disabled` and `identity.node_name` can still come from the environment when absent from the JSON).  
 See `.env.example` for the full list.
 
 | Variable | Component | Description |
@@ -326,7 +339,7 @@ See `.env.example` for the full list.
 | Admin persistence | CGO-free SQLite (`modernc.org/sqlite`) — config, users, tokens — Raft HA option |
 | Edge persistence | Proxies: **YAML** files (`proxies/*.yaml`, `proxies-revisions/*.yaml`) · AES-256-GCM local cache (certs) |
 | Configuration | `GPX_*` environment variables + optional JSON |
-| Discovery | Docker Engine API via Unix socket (read-only), Portainer, Kubernetes, Consul, Nomad, etcd v3, Amazon ECS |
+| Discovery | Docker Engine API via Unix socket, Portainer, Kubernetes, Consul, Nomad, etcd v3, Amazon ECS |
 | Plugins | WebAssembly via `wazero` (no CGO) |
 | Metrics | Prometheus on the Edge internal API (`:8000/metrics`, bearer token; public `/metrics` only with `GPX_METRICS_PUBLIC=1`), OpenTelemetry (OTLP) |
 | Security | OWASP CRS-4 WAF (13 rule sets, request + response inspection), behavioral Ephor, native Fail2Ban, CrowdSec, **automation flows** (rules, schedules, playbooks with approval), step-by-step **IP / CIDR trace** over long periods, rate limiting, Geo-IP, ECDSA P-256 JWT, HMAC-SHA256 WS, CVE scanner with KEV/EPSS enrichment and configurable remediation SLA |

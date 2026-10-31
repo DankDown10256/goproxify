@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -271,6 +272,10 @@ func (d *Discovery) publishState(ctx context.Context, ep Endpoint, specs []*dock
 	res, err := pub.PutState(ctx, edgeEndpoint, token, "portainer", strconv.Itoa(ep.ID), routes, inactive)
 	switch res {
 	case statepub.Sent:
+		if errors.Is(err, statepub.ErrStale) {
+			d.log.Warn("portainer: état complet ignoré par la passerelle", "endpoint", ep.Name, "edge", edgeEndpoint, "err", err)
+			break
+		}
 		d.log.Info("portainer: état complet envoyé", "endpoint", ep.Name, "routes", len(routes), "inactifs", len(inactive))
 	case statepub.Failed:
 		d.log.Warn("portainer: état complet non envoyé", "endpoint", ep.Name, "err", err)
@@ -481,6 +486,7 @@ func (d *Discovery) payload(ep Endpoint, spec *docker.ProxySpec) map[string]any 
 		"passthrough":   spec.Passthrough,
 		"source":        "portainer",
 		"container_id":  spec.ContainerID,
+		"image":         spec.Image,
 		"endpoint_id":   ep.ID,
 		"endpoint_name": ep.Name,
 		"agent_name":    d.agentName,

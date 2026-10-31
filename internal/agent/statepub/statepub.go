@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,10 @@ import (
 
 // Path est l'appel de la passerelle qui reçoit l'état complet.
 const Path = "/internal/v1/agent/state"
+
+// ErrStale accompagne un envoi Sent que la passerelle a ignoré (409) parce qu'elle retient une génération plus récente
+// pour cet Agent : l'état publié n'est pas celui que l'Agent vient de calculer.
+var ErrStale = errors.New("état complet ignoré par la passerelle : génération dépassée")
 
 // Result dit ce qu'est devenu un envoi.
 type Result int
@@ -45,6 +50,8 @@ type Publisher struct {
 
 	mu   sync.Mutex
 	last int64
+	// onUnauthorized : réappairage sur un 401 (SetOnUnauthorized). Nil : un 401 reste un échec.
+	onUnauthorized func(ctx context.Context, stale string) string
 }
 
 // New crée un Publisher. path est le fichier où la dernière génération est conservée : un Agent redémarré ne
@@ -101,23 +108,52 @@ func (p *Publisher) PutState(ctx context.Context, edgeEndpoint, token, source, s
 	if err != nil {
 		return Failed, err
 	}
+	res, status, err := p.send(ctx, edgeEndpoint, token, body)
+	// Un 401 dit que la passerelle ne reconnaît plus ce jeton (son magasin de jetons a été remis à zéro, ou le jeton
+	// révoqué). Le battement de cœur ne le voit pas tant que le WebSocket est connecté : c'est ici qu'il se découvre.
+	// On se réappaire, puis on renvoie une fois avec le jeton neuf.
+	if status == http.StatusUnauthorized {
+		p.mu.Lock()
+		repair := p.onUnauthorized
+		p.mu.Unlock()
+		if repair != nil {
+			if fresh := repair(ctx, token); fresh != "" && fresh != token {
+				res, _, err = p.send(ctx, edgeEndpoint, fresh, body)
+			}
+		}
+	}
+	return res, err
+}
+
+// SetOnUnauthorized enregistre le réappairage appelé sur un 401 de la passerelle. Il reçoit le jeton refusé et rend un
+// jeton neuf, ou vide s'il n'a pas pu s'appairer : l'envoi échoue alors comme avant.
+func (p *Publisher) SetOnUnauthorized(fn func(ctx context.Context, stale string) string) {
+	p.mu.Lock()
+	p.onUnauthorized = fn
+	p.mu.Unlock()
+}
+
+// send fait un PUT et rend le résultat, avec le statut HTTP (0 si la passerelle n'a pas répondu).
+func (p *Publisher) send(ctx context.Context, edgeEndpoint, token string, body []byte) (Result, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.TrimRight(edgeEndpoint, "/")+Path, bytes.NewReader(body))
 	if err != nil {
-		return Failed, err
+		return Failed, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return Failed, err
+		return Failed, 0, err
 	}
 	defer resp.Body.Close()
 	switch {
-	case resp.StatusCode == http.StatusOK, resp.StatusCode == http.StatusConflict:
-		return Sent, nil
+	case resp.StatusCode == http.StatusOK:
+		return Sent, resp.StatusCode, nil
+	case resp.StatusCode == http.StatusConflict:
+		return Sent, resp.StatusCode, ErrStale
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusMethodNotAllowed:
-		return Unsupported, nil
+		return Unsupported, resp.StatusCode, nil
 	}
 	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-	return Failed, fmt.Errorf("état complet refusé : %d %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	return Failed, resp.StatusCode, fmt.Errorf("état complet refusé : %d %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 }

@@ -231,7 +231,7 @@ func TestBanSignalsRoundTrip(t *testing.T) {
 	}
 	defer d.Close()
 	signals := []router.BanSignal{{Name: "path", Points: 6, Value: "/wp-login.php"}, {Name: "error4xx", Points: 2.5}}
-	if err := d.UpsertRuntimeBan(&router.RuntimeBan{ID: "threat-1", IP: "203.0.113.5", Source: "threat", Signals: signals}); err != nil {
+	if err := d.UpsertRuntimeBan(&router.RuntimeBan{ID: "threat-1", IP: "203.0.113.5", Source: "threat", Signals: signals, UserAgent: "sqlmap/1.7"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.UpsertBan("native-1", "203.0.113.6", "", "", "native", nil); err != nil {
@@ -244,12 +244,15 @@ func TestBanSignalsRoundTrip(t *testing.T) {
 	for _, r := range rows {
 		switch r.ID {
 		case "threat-1":
+			if r.UserAgent != "sqlmap/1.7" {
+				t.Fatalf("User-Agent relu : %q", r.UserAgent)
+			}
 			if len(r.Signals) != 2 || r.Signals[0] != signals[0] || r.Signals[1] != signals[1] {
 				t.Fatalf("signaux relus : %+v", r.Signals)
 			}
 		case "native-1":
-			if len(r.Signals) != 0 {
-				t.Fatalf("un ban manuel n'a pas de signaux : %+v", r.Signals)
+			if len(r.Signals) != 0 || r.UserAgent != "" {
+				t.Fatalf("un ban manuel n'a ni signaux ni User-Agent : %+v", r)
 			}
 		}
 	}

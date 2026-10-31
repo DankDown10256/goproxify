@@ -118,4 +118,5 @@ var messagesFR = map[string]string{
 	"api.err.domain_not_found":      "domaine introuvable",
 	"api.err.agent_unreachable":     "agent injoignable",
 	"api.err.edge_unreachable":      "edge injoignable",
+	"api.err.edge_refused":          "la passerelle a refusé l'authentification de l'Admin (clés de canal à vérifier)",
 }

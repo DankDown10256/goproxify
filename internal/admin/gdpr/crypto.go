@@ -43,3 +43,21 @@ func EnsureKey(db *sql.DB) ([]byte, error) {
 	}
 	return key, nil
 }
+
+// LoadKey lit la clé de pseudonymisation sans la créer : une commande locale qui relit des logs ne doit jamais en fabriquer
+// une neuve, qui rendrait silencieusement les IP pseudonymisées illisibles. Absente : (nil, nil).
+func LoadKey(db *sql.DB) ([]byte, error) {
+	var encoded string
+	err := db.QueryRow(`SELECT value FROM gdpr_keys WHERE key = ?`, keyRow).Scan(&encoded)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && encoded == "") {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("gdpr: lecture clé : %w", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("gdpr: décodage clé : %w", err)
+	}
+	return raw, nil
+}

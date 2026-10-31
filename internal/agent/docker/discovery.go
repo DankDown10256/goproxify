@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -268,6 +269,10 @@ func (d *Discovery) publishState(ctx context.Context, specs []*ProxySpec, inacti
 	switch res {
 	case statepub.Sent:
 		d.stateOK.Store(true)
+		if errors.Is(err, statepub.ErrStale) {
+			d.log.Warn("docker: état complet ignoré par la passerelle", "err", err)
+			return true
+		}
 		d.log.Info("docker: état complet envoyé à la passerelle", "routes", len(routes), "inactifs", len(inactive))
 		return true
 	case statepub.Failed:
@@ -436,6 +441,7 @@ func (d *Discovery) payload(spec *ProxySpec) map[string]any {
 		"passthrough":  spec.Passthrough,
 		"source":       "docker",
 		"container_id": spec.ContainerID,
+		"image":        spec.Image,
 		"agent_name":   d.agentName,
 		"role":         spec.Role,
 	}

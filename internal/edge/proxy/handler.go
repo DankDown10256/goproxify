@@ -49,7 +49,17 @@ type Handler struct {
 	subFilterRes []*regexp.Regexp // parallèle à route.SubFilters ; nil si pas regex
 	rpByBackend  sync.Map         // backend URL -> *httputil.ReverseProxy (revue P1 #4)
 	shadowLogAt  atomic.Int64 // dernier échantillon de diff shadow journalisé (ns)
+	observer     ResponseObserver
 }
+
+// ResponseObserver voit chaque réponse du backend avant toute modification, donc avant que hide_server n'en retire les en-têtes.
+// Il ne doit ni la modifier ni attendre : il sert à l'inventaire des applications (ADR 0017).
+type ResponseObserver interface {
+	ObserveResponse(rt *router.Route, backend string, resp *http.Response)
+}
+
+// SetResponseObserver branche l'observateur des réponses ; à appeler avant que le handler ne serve.
+func (h *Handler) SetResponseObserver(o ResponseObserver) { h.observer = o }
 
 type proxyAttemptKey struct{}
 type backendCallStartKey struct{}
@@ -896,6 +906,9 @@ func (h *Handler) reverseProxyFor(b *router.Backend, target *url.URL) *httputil.
 		Transport:  transport,
 		BufferPool: bufferPoolFor(h.route.BufferSize),
 		ModifyResponse: func(resp *http.Response) error {
+			if h.observer != nil {
+				h.observer.ObserveResponse(h.route, b.URL, resp)
+			}
 			if h.route.GRPCWeb {
 				fromGRPCResponse(resp)
 			}

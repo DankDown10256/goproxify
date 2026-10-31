@@ -85,10 +85,10 @@ func runEdgeLogs() {
 		from, to := flagValue(args, "-from", ""), flagValue(args, "-to", "")
 		output := flagValue(args, "-output", "")
 		if reason == "" || from == "" || to == "" || output == "" {
-			edgeLogsFail("usage: goproxify edge logs export -reason \"motif\" -from <date> -to <date> -output <base> [-kind access|system] [-ip <ip>] [-domain <hôte>] [-format ndjson|csv] [-password-file <fichier> | -no-encrypt]")
+			edgeLogsFail("usage: goproxify edge logs export -reason \"motif\" -from <date> -to <date> -output <base> [-kind access|system] [-ip <ip>] [-domain <hôte>] [-origin <pair>] [-format ndjson|csv] [-password-file <fichier> | -no-encrypt]")
 		}
 		req := logexport.Request{Node: nodeName(cfg), Operator: edgeLogsOperator(), Reason: reason, Kind: logstore.Kind(flagValue(args, "-kind", "access")),
-			Domain: flagValue(args, "-domain", ""), IP: flagValue(args, "-ip", ""), Format: flagValue(args, "-format", logexport.FormatNDJSON)}
+			Domain: flagValue(args, "-domain", ""), IP: flagValue(args, "-ip", ""), Origin: flagValue(args, "-origin", ""), Format: flagValue(args, "-format", logexport.FormatNDJSON)}
 		if req.From, err = parseExportTime(from, false); err != nil {
 			edgeLogsFail("%v", err)
 		}
@@ -109,7 +109,7 @@ func runEdgeLogs() {
 			edgeLogsFail("export : %v", err)
 		}
 		detail := map[string]any{"kind": string(req.Kind), "from": res.Manifest.From, "to": res.Manifest.To, "domain": req.Domain, "ip_sha256": res.Manifest.Filters.IPSHA256,
-			"rows": res.Manifest.Rows, "encrypted": res.Manifest.Encrypted, "file": res.Manifest.File, "file_sha256": res.Manifest.FileSHA256, "reason": reason}
+			"rows": res.Manifest.Rows, "encrypted": res.Manifest.Encrypted, "file": res.Manifest.File, "file_sha256": res.Manifest.FileSHA256, "reason": reason, "origin": req.Origin}
 		if err := local.Audit.Append(now(), req.Operator, "export", detail); err != nil {
 			fmt.Fprintf(os.Stderr, "AVERTISSEMENT : journal d'audit non écrit : %v\n", err)
 		}

@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package edgews fournit le client WebSocket persistant Admin→Passerelle.
-// Il remplace progressivement le pusher HTTP (internal/admin/edgepush).
-// Les méthodes publiques ont la même signature que edgepush.Pusher
-// pour permettre une migration transparente.
+// Il a remplacé l'ancien pusher HTTP, retiré depuis.
 package edgews
 
 import (
@@ -329,7 +327,7 @@ func (c *Client) connect() error {
 	return nil
 }
 
-// --- Méthodes de push (même signature que edgepush.Pusher) ---
+// --- Méthodes de push ---
 
 // PushJSON envoie un message de type msgType avec le payload fourni.
 func (c *Client) PushJSON(msgType string, payload any) error {

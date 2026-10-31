@@ -4,6 +4,7 @@
 package edge
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -164,5 +165,50 @@ func TestEdgePair_PreapprovalIsAutomaticUnlessManual(t *testing.T) {
 	}
 	if s.wsHub.IsPreApproved("n1") {
 		t.Fatal("en mode manuel, l'Agent attend l'approbation d'un opérateur")
+	}
+}
+
+// Chaque appairage ajoutait un jeton, jamais retiré : un Agent qui s'appaire à chaque démarrage ou bascule remplissait le
+// magasin (17 457 jetons pour un seul Agent). Au-delà de KeepAgentTokens, les plus anciens de ce nom sont retirés.
+func TestEdgePair_PrunesOldTokensOfTheSameAgent(t *testing.T) {
+	const root = "secret-racine-0123456789abcdef"
+	t.Setenv("GPX_PAIRING_SECRET", root)
+	s := newPairServer(t)
+
+	const pairings = tokens.KeepAgentTokens + 5
+	issued := make([]string, pairings)
+	for i := range issued {
+		req := httptest.NewRequest(http.MethodPost, "/internal/v1/pair",
+			strings.NewReader(`{"secret":"`+pairing.AgentKey(root)+`","node_name":"n1","role":"agent"}`))
+		req.RemoteAddr = "10.0.0.1:1111"
+		rr := httptest.NewRecorder()
+		s.handleEdgePair(rr, req)
+		if rr.Code != http.StatusCreated && rr.Code != http.StatusOK {
+			t.Fatalf("appairage %d : %d", i, rr.Code)
+		}
+		var out struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil || out.Token == "" {
+			t.Fatalf("appairage %d : réponse %q", i, rr.Body.String())
+		}
+		issued[i] = out.Token
+	}
+
+	list, _ := s.tokenStore.List()
+	n := 0
+	for _, tk := range list {
+		if tk.Name == "n1" {
+			n++
+		}
+	}
+	if n != tokens.KeepAgentTokens {
+		t.Errorf("%d jetons gardés pour n1, attendu %d", n, tokens.KeepAgentTokens)
+	}
+	if ok, _ := s.tokenStore.Validate(issued[pairings-1]); !ok {
+		t.Error("le dernier jeton émis doit rester valide")
+	}
+	if ok, _ := s.tokenStore.Validate(issued[0]); ok {
+		t.Error("le plus ancien jeton doit avoir été retiré")
 	}
 }

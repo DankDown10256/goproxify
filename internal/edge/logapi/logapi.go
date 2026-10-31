@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/vincamok/goproxify/internal/appinv"
+	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 	"github.com/vincamok/goproxify/internal/edge/waf/behavior"
 	"github.com/vincamok/goproxify/internal/ipsketch"
@@ -161,6 +163,9 @@ type SearchResponse struct {
 	Next    string  `json:"next"`
 	HasMore bool    `json:"has_more"`
 	Partial bool    `json:"partial"`
+	// Via est l'identifiant de la passerelle qui a répondu, rempli par le client de l'Admin (jamais sur le fil) : les
+	// identifiants de lignes sont ceux de sa base.
+	Via string `json:"-"`
 }
 
 // FacetCount : une valeur d'un champ et son nombre d'entrées.
@@ -352,3 +357,68 @@ type EphorSimResponse struct {
 
 // SimMaxEvents borne les accès rejoués par une passerelle.
 const SimMaxEvents = 200_000
+
+// Surface d'un proxy (ADR 0016). La passerelle tient les profils ; l'Admin les lit et les affiche.
+const (
+	// PathSurface : un résumé par proxy en apprentissage (GET).
+	PathSurface = "/internal/v1/surface"
+	// PathSurfaceReport : rapport complet d'un proxy, ?route=<identifiant ou hôte> (GET).
+	PathSurfaceReport = "/internal/v1/surface/report"
+	// PathSurfaceReset : efface le profil d'un proxy, l'apprentissage repart de zéro (POST).
+	PathSurfaceReset = "/internal/v1/surface/reset"
+	// PathSurfaceProposals : réglages proposés pour un proxy à partir de son profil, ?route=<identifiant ou hôte> (GET).
+	PathSurfaceProposals = "/internal/v1/surface/proposals"
+	// PathSurfaceOpenAPI : politique OpenAPI générée à partir du profil, ?route=<identifiant ou hôte>[&include_low_support=1] (GET).
+	PathSurfaceOpenAPI = "/internal/v1/surface/openapi"
+	// PathSurfaceForget : efface des violations du profil d'un proxy, que la politique couvre désormais (POST).
+	PathSurfaceForget = "/internal/v1/surface/forget"
+	// PathInventory : applications reconnues derrière les proxies de la passerelle, ?route=<identifiant ou hôte> (GET).
+	PathInventory = "/internal/v1/inventory"
+	// PathInventoryExport : empreintes des réponses des backends, que les pairs d'un groupe HA se tirent entre eux (GET).
+	PathInventoryExport = "/internal/v1/inventory/export"
+	// PathSurfaceExport : profils locaux, que les pairs d'un groupe HA se tirent entre eux (GET).
+	PathSurfaceExport = "/internal/v1/surface/export"
+)
+
+// SurfaceListResponse : les proxies dont la passerelle apprend la surface.
+type SurfaceListResponse struct {
+	Proxies []surface.Summary `json:"proxies"`
+}
+
+// SurfaceResetRequest désigne le proxy à remettre à zéro.
+type SurfaceResetRequest struct {
+	Route string `json:"route"`
+}
+
+// SurfaceResetResponse : false si la passerelle n'avait aucun profil pour ce proxy.
+type SurfaceResetResponse struct {
+	Reset bool `json:"reset"`
+}
+
+// SurfaceForgetRequest désigne les violations (« raison MÉTHODE chemin ») à effacer du profil d'un proxy.
+type SurfaceForgetRequest struct {
+	Route string   `json:"route"`
+	Keys  []string `json:"keys"`
+}
+
+// SurfaceForgetResponse : le nombre de violations effacées du profil de la passerelle.
+type SurfaceForgetResponse struct {
+	Forgotten int `json:"forgotten"`
+}
+
+// InventoryEntry : ce que la passerelle sait de l'application servie par un backend d'un proxy (ADR 0017). Product, Version et CPE
+// sont vides quand l'image n'est pas dans la table des produits connus : l'entrée est alors listée « non couverte ».
+type InventoryEntry struct {
+	Route     string `json:"route"`
+	Host      string `json:"host"`
+	Backend   string `json:"backend"`
+	Container string `json:"container,omitempty"`
+	// Coverage : si la recherche de CVE peut traiter l'entrée (covered, no_version, no_cpe, unknown), voir appinv.
+	Coverage string `json:"coverage,omitempty"`
+	appinv.Finding
+}
+
+// InventoryResponse : l'inventaire d'une passerelle.
+type InventoryResponse struct {
+	Entries []InventoryEntry `json:"entries"`
+}

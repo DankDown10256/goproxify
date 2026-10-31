@@ -207,6 +207,8 @@ func (s *Server) exchangeWithPeer(ctx context.Context, p proxy.PeerInfo) {
 
 	// Profils comportementaux WAF
 	s.syncWAFBehaviorFromPeer(ctx, client, p)
+	s.syncSurfaceFromPeer(ctx, client, p)
+	s.syncAppsFromPeer(ctx, client, p)
 	s.syncThreatListsFromPeer(ctx, client, p)
 	s.syncPortalReplicaFromPeer(ctx, client, p)
 	s.syncAgentReplicaFromPeer(ctx, client, p)
@@ -238,13 +240,14 @@ func (s *Server) exchangeWithPeer(ctx context.Context, p proxy.PeerInfo) {
 		TLS       bool     `json:"tls"`
 		Source    string   `json:"source"`
 		AgentName string   `json:"agent_name"`
+		Disabled  bool     `json:"disabled"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return
 	}
 
 	for _, it := range items {
-		if it.Host == "" || len(it.Backends) == 0 {
+		if it.Host == "" || len(it.Backends) == 0 || it.Disabled {
 			continue
 		}
 		if it.Source != "" && it.Source != "docker" {
@@ -362,7 +365,15 @@ func (s *Server) applyGatewayPeers(peers []proxy.PeerInfo) {
 		s.log.Warn("gateway: persistance des pairs échouée", "err", err)
 	}
 	s.peers.Replace(filtered)
+	names := make([]string, 0, len(filtered))
+	for _, p := range filtered {
+		names = append(names, p.Name)
+	}
+	if s.surface != nil {
+		s.surface.RetainPeers(names)
+	}
 	s.log.Info("gateway: peers mis à jour", "count", len(filtered))
+	s.ensurePortalPublicRoute()
 	go s.wsHub.BroadcastEdgeEndpoints()
 }
 

@@ -381,8 +381,8 @@ func (b *builder) waf(r *router.Route) {
 	if len(w.TrustedProxies) > 0 {
 		b.add("waf.trusted_proxies", strings.Join(w.TrustedProxies, ","))
 	}
-	if len(w.CustomRules) > 0 || len(w.ExcludePlatforms) > 0 || w.CustomRulesPath != "" {
-		b.unsupported("waf (règles personnalisées, plateformes exclues)")
+	if len(w.CustomRules) > 0 || len(w.Exclusions) > 0 || w.CustomRulesPath != "" {
+		b.unsupported("waf (règles personnalisées, exclusions par chemin)")
 	}
 }
 

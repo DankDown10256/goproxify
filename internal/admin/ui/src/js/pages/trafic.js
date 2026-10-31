@@ -405,6 +405,8 @@ async function renderTraficPage(ctx) {
     }
 
     const ico = (d, w = 14) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    const ICO_INFO = '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>';
+    const ICO_CONVERT = '<path d="m17 1 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 23-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>';
     const ICO = {
       edit:   '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
       more:   '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
@@ -1450,15 +1452,24 @@ async function renderTraficPage(ctx) {
     }
     const proxyOriginBadges = p => discoveredMatchBadge(p) + orphanBadge(p);
 
-    function buildContainerTile(c) {
+    function containerModel(c) {
       const hosts = (c.hosts && c.hosts.length) ? c.hosts : [c.host || '—'].filter(Boolean);
       const host = hosts[0] || '—';
       const hasTLS  = !!c.tls;
       const type    = hasTLS ? 'https' : 'http';
       const allBackends = (c.backends || []).filter(Boolean);
       const inactive = !!c.inactive;
-      const statusDot = inactive
-        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0;" title="${esc(t('trafic.inactive_hint'))}"></span>`
+      const routesOf = c.routes || [c];
+      // Désactivée depuis l'Admin : la passerelle ne sert plus la route mais la garde listée pour la réactiver.
+      const disabled = !inactive && routesOf.length > 0 && routesOf.every(r => r.disabled);
+      const off = inactive || disabled;
+      const flowKey = c.id || `${c.edge_name || ''}|${c.source || ''}|${hosts.join(',')}|${allBackends.join(',')}`;
+      window._traficContainers = window._traficContainers || {};
+      window._traficContainers[flowKey] = c;
+      const statusDot = (!inactive && Role.canWrite())
+        ? `<label class="toggle" style="flex-shrink:0;margin:0;" title="${esc(t(disabled ? 'trafic.route_enable' : 'trafic.route_disable'))}"><input type="checkbox" ${disabled ? '' : 'checked'} onchange="toggleDiscoveredRoute('${esc(flowKey)}')"><span class="toggle-slider"></span></label>`
+        : off
+        ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0;" title="${esc(t(disabled ? 'trafic.route_disabled_hint' : 'trafic.inactive_hint'))}"></span>`
         : `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0;" title="${esc(t('trafic.discovered'))}"></span>`;
 
       let chips = '';
@@ -1466,9 +1477,12 @@ async function renderTraficPage(ctx) {
         const label = c.state ? `${t('trafic.inactive')} · ${c.state}` : t('trafic.inactive');
         chips += `<span style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap" title="${esc(t('trafic.inactive_hint'))}">${esc(label)}</span>`;
       }
+      if (disabled) {
+        chips += `<span style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap" title="${esc(t('trafic.route_disabled_hint'))}">${esc(t('trafic.route_disabled'))}</span>`;
+      }
       if (isAdmin && discoveredEdgeLabel(c)) {
         const members = (c.members || []).length > 1 ? ` title="${esc(c.members.join(', '))}"` : '';
-        chips = `<span${members} style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(discoveredEdgeLabel(c))}</span>`;
+        chips = `<span${members} style="display:inline-flex;align-items:center;font-size:10px;color:var(--text2);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">⚙ ${esc(discoveredEdgeLabel(c))}</span>` + chips;
       }
 
       const cfg = Object.assign(
@@ -1478,15 +1492,9 @@ async function renderTraficPage(ctx) {
       if (hasTLS) cfg.tls_enabled = true;
       // Pas de faux badge LB : seulement si pool multi-backends + algo adaptive.
       if (allBackends.length < 2) delete cfg.lb;
-      const badges = featureBadges(cfg);
 
-      const domainsHtml = hosts.map((d, i) => domainLink(d, i === 0, hasTLS)).join('');
-
-      const flowKey = c.id || `${c.edge_name || ''}|${c.source || ''}|${hosts.join(',')}|${allBackends.join(',')}`;
-      window._traficContainers = window._traficContainers || {};
-      window._traficContainers[flowKey] = c;
       // Une tuile peut regrouper plusieurs routes (un conteneur, plusieurs hôtes) : chacune se convertit ou est déjà remplacée.
-      const routes = c.routes || [c];
+      const routes = routesOf;
       const convertible = routes.filter(r => !r.shadowed_by);
       const proxyLabel = (p) => proxyDomainsBackends(p).hosts[0] || p.id;
       const related = new Map();
@@ -1513,27 +1521,194 @@ async function renderTraficPage(ctx) {
       if (replacedChips) chips += replacedChips;
       // Contrôles de sécurité absents (TLS, WAF, rate limit), calculés par le serveur snippets compris.
       const missing = [...new Set(routes.flatMap(r => r.missing || []))];
-      chips += missing.map(k => `<span style="display:inline-flex;align-items:center;font-size:10px;color:var(--yellow,#f59e0b);background:var(--bg3);padding:1px 6px;border-radius:4px;border:1px solid var(--border);white-space:nowrap">${esc(t('cdetail.no_' + k))}</span>`).join('');
-      // Un conteneur arrêté n'a ni détail, ni flux, ni conversion possible : sa route n'existe pas.
-      const detailBtn = inactive ? '' : `<button class="btn btn-ghost btn-icon" onclick="openContainerDetail('${esc(flowKey)}')" title="${esc(t('trafic.detail'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></button>`;
-      const convertBtn = (!inactive && Role.canWrite() && convertible.length)
-        ? `<button class="btn btn-ghost btn-icon" onclick="convertDiscoveredContainer('${esc(flowKey)}')" title="${esc(t('trafic.convert_proxy'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 1 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 23-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>` : '';
-      const flowBtn = inactive ? '' : `${detailBtn}${convertBtn}<button class="btn btn-ghost btn-icon" onclick="openTrafficFlowModal('container','${esc(flowKey)}')" title="${esc(t('trafic.flow_title'))}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="6" cy="5" r="2"/><path d="M18 7v4a2 2 0 0 1-2 2H8a2 2 0 0 0-2 2v2"/></svg></button>`;
+      const menuItem = (icon, label, onclick) =>
+        `<button type="button" class="trafic-menu-item" onclick="${onclick}">${ico(icon, 13)}<span>${label}</span></button>`;
+      const id = esc(flowKey);
+      const hostJs = esc(host);
+      const secWarn = missing.length
+        ? `<button class="btn btn-ghost btn-icon" onclick="openContainerDetail('${id}')" title="${esc(t('trafic.security_prefix') + missing.map(k => t('cdetail.no_' + k)).join(', '))}" style="color:var(--yellow,#f59e0b)">${ico(ICO.shieldAlert)}</button>` : '';
+      const detail = !off
+        ? `<button class="btn btn-ghost btn-icon" onclick="openContainerDetail('${id}')" title="${esc(t('trafic.detail'))}">${ico(ICO_INFO)}</button>` : '';
+      // Un conteneur arrêté ou une route désactivée n'a ni route à convertir ni flux à tracer.
+      const items = [
+        !off && Role.canWrite() && convertible.length && menuItem(ICO_CONVERT, esc(t('trafic.convert_proxy')), `convertDiscoveredContainer('${id}')`),
+        menuItem(ICO.logs, esc(t('trafic.access_logs')), `logsFilters.domain='${hostJs}';navigate('logs')`),
+        menuItem(ICO.prism, 'Prism', `openPrismForProxy('${hostJs}','${esc(c.edge_id || c.edge_name || '')}')`),
+        !off && menuItem(ICO.flow, esc(t('trafic.flow_title')), `openTrafficFlowModal('container','${id}')`),
+      ].filter(Boolean).join('');
+      const more = `<button type="button" class="btn btn-ghost btn-icon" title="${esc(t('trafic.more_actions'))}" onclick="traficMenu(event,this)">${ico(ICO.more)}</button><div class="trafic-menu">${items}</div>`;
 
-      return `<div class="trafic-tile" title="${esc(c.name || c.id || '')}"${inactive ? ' style="opacity:.6"' : ''} onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+      // Même forme que proxyModel : les vues des proxies (tuile, état, tableau, détail) s'en servent telles quelles.
+      return {
+        c, id: flowKey, host, hosts, allDomains: hosts, hasTLS, type, allBackends, inactive, disabled, off,
+        enabled: !off, cfg, chips, missing, toggle: statusDot, secWarn, detail, more,
+        pm: _metricsMap[String(host).toLowerCase()],
+        tileAttrs: off ? '' : ` data-edit="openContainerDetail" data-id="${id}" style="cursor:pointer"`,
+      };
+    }
+
+    // Un conteneur arrêté n'a pas de route : sa santé est son état, pas celle de ses backends.
+    function containerHealth(m) {
+      if (m.inactive) return { level: 'off', label: t('trafic.inactive'), up: 0, total: 0 };
+      return proxyHealth(m);
+    }
+
+    // ── Vue tuiles ───────────────────────────────────────────────────────────
+    function buildContainerTile(c) {
+      const m = containerModel(c);
+      const [master, ...aliases] = m.hosts;
+      const met = metricsInline(m.pm);
+      const feats = featureBadges(m.cfg, true);
+      return `<div class="trafic-tile${m.off ? ' is-off' : ''}"${m.tileAttrs}>
         <div class="trafic-tile-head">
-          ${statusDot}
-          ${typeBadge(type)}
-          <div class="trafic-tile-actions">
-            <button class="btn btn-ghost btn-icon" onclick="logsFilters.domain='${esc(host)}';navigate('logs')" title="${esc(t('trafic.access_logs'))}"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg></button>
-            <button class="btn btn-ghost btn-icon" onclick="openPrismForProxy('${esc(host)}','${esc(c.edge_id||c.edge_name||'')}')" title="Prism"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg></button>
-            ${flowBtn}
+          ${m.toggle}
+          <div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>
+          ${typeBadge(m.type)}
+          <div class="trafic-tile-actions">${m.secWarn}${m.detail}${m.more}</div>
+        </div>
+        ${aliasesAndChips(m, aliases, '')}
+        ${backendsInline(m.allBackends, '.trafic-tile')}
+        ${feats || met ? `<div class="trafic-tile-foot"><div class="trafic-feats">${feats}</div>${met ? `<div class="trafic-tile-met">${met}</div>` : ''}</div>` : ''}
+      </div>`;
+    }
+
+    // ── Vue « état » ─────────────────────────────────────────────────────────
+    function buildContainerCard(c) {
+      const m = containerModel(c);
+      const h = containerHealth(m);
+      const [master, ...aliases] = m.hosts;
+      const layers = featureBadges(m.cfg, 'list');
+      return `<div class="trafic-tile trafic-card health-${h.level}${m.off ? ' is-off' : ''}"${m.tileAttrs}>
+        <div class="trafic-tile-head">
+          ${m.toggle}
+          <div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>
+          ${typeBadge(m.type)}
+          <div class="trafic-tile-actions">${m.secWarn}${m.detail}${m.more}</div>
+        </div>
+        ${aliasesAndChips(m, aliases, '')}
+        ${healthLine(h)}
+        <div class="trafic-live" data-host="${esc(m.host)}">${liveBlockHtml(m.host, false)}</div>
+        <div class="trafic-layers">${layers.length
+          ? layers.map(l => `<div><span style="color:${l.color}">${ico(l.svg, 12)}</span>${esc(l.label)}</div>`).join('')
+          : `<div style="color:var(--text3)">${esc(t('trafic.no_layers'))}</div>`}</div>
+        ${backendsInline(m.allBackends, '.trafic-tile')}
+      </div>`;
+    }
+
+    // ── Vue tableau ──────────────────────────────────────────────────────────
+    function buildContainerRow(c) {
+      const m = containerModel(c);
+      const h = containerHealth(m);
+      const [master, ...aliases] = m.hosts;
+      const met = metricsInline(m.pm);
+      const none = '<span style="color:var(--text3);font-size:11px">—</span>';
+      const open = window._trOpen.has(m.id);
+      const layers = featureBadges(m.cfg, 'list');
+      const id = esc(m.id);
+      const host = esc(m.host);
+      return `<tr class="trafic-row${m.off ? ' is-off' : ''}${open ? ' is-open' : ''}">
+        <td style="padding:8px 10px;white-space:nowrap">
+          <div style="display:flex;align-items:center;gap:6px">
+            <button type="button" class="trafic-chev" aria-expanded="${open}" title="${esc(t('trafic.details'))}" onclick="traficRowToggle('${id}')">${ico('<path d="m9 6 6 6-6 6"/>', 13)}</button>
+            ${m.toggle}
+          </div>
+        </td>
+        <td style="padding:8px 10px;max-width:260px">
+          <div style="display:flex;align-items:center;gap:6px;min-width:0"><div class="trafic-tile-host">${domainLink(master, true, m.hasTLS)}</div>${typeBadge(m.type)}</div>
+          ${aliasesAndChips(m, aliases, 'margin-top:3px')}
+        </td>
+        <td style="padding:8px 10px;max-width:280px">${backendsInline(m.allBackends, 'tr')}</td>
+        <td style="padding:8px 10px"><div class="trafic-feats">${featureBadges(m.cfg, true) || none}</div></td>
+        <td style="padding:8px 10px"><div class="trafic-tile-met" style="flex-wrap:wrap">${met || none}</div></td>
+        <td style="padding:8px 10px;white-space:nowrap;text-align:right">${m.secWarn}${m.detail}${m.more}</td>
+      </tr>
+      <tr class="trafic-row-detail"><td colspan="6">
+        <div class="trafic-md-cols" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.domain'))}</h4>
+            ${m.hosts.map((d, i) => domainLink(d, i === 0, m.hasTLS)).join('')}
+            ${m.chips ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${m.chips}</div>` : ''}
+          </div>
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.backends'))} <span>${h.total ? esc(t('trafic.backends_up', { up: h.up, total: h.total })) : ''}</span></h4>
+            <div class="trafic-md-backends">${m.allBackends.length ? m.allBackends.map(b => backendChip(b, 0)).join('') : '—'}</div>
+          </div>
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.layers'))}</h4>
+            <div class="trafic-md-layers">${layers.length
+              ? layers.map(l => `<span class="trafic-md-layer" style="--c:${l.color}">${ico(l.svg, 12)}${esc(l.label)}</span>`).join('')
+              : `<span style="color:var(--text3);font-size:12px">${esc(t('trafic.no_layers'))}</span>`}</div>
+            <div class="trafic-md-quickrow" style="margin-top:10px">
+              <button type="button" class="btn btn-secondary btn-sm trafic-md-quick" onclick="logsFilters.domain='${host}';navigate('logs')">${ico(ICO.logs, 13)}<span>${esc(t('trafic.access_logs'))}</span></button>
+              <button type="button" class="btn btn-secondary btn-sm trafic-md-quick" onclick="openPrismForProxy('${host}','${esc(m.c.edge_id || m.c.edge_name || '')}')">${ico(ICO.prism, 13)}<span>Prism</span></button>
+              ${m.off ? '' : `<button type="button" class="btn btn-secondary btn-sm trafic-md-quick" onclick="openTrafficFlowModal('container','${id}')">${ico(ICO.flow, 13)}<span>${esc(t('trafic.flow_title'))}</span></button>`}
+            </div>
           </div>
         </div>
-        <div style="min-width:0;margin-bottom:7px">${domainsHtml}${chips?`<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">${chips}</div>`:''}</div>
-        ${badges?`<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:7px">${badges}</div>`:''}
-        ${backendsGridHtml(allBackends)}
+      </td></tr>`;
+    }
+
+    // ── Vue maître / détail ──────────────────────────────────────────────────
+    function buildContainerMasterItem(c, activeId) {
+      const m = containerModel(c);
+      const h = containerHealth(m);
+      const first = m.allBackends[0] ? backendURL(m.allBackends[0]) : '';
+      const more = m.allBackends.length > 1 ? ` +${m.allBackends.length - 1}` : '';
+      return `<div class="trafic-md-item${m.id === activeId ? ' is-active' : ''}${m.off ? ' is-off' : ''}" onclick="traficPick('container','${esc(m.id)}')">
+        <span class="trafic-health-dot health-${h.level}" title="${esc(h.label)}"></span>
+        <div style="min-width:0;flex:1">
+          <div class="trafic-md-host">${esc(m.host)}</div>
+          <div class="trafic-md-sub">${esc(first || '—')}${more}</div>
+        </div>
+        ${m.missing.length ? `<span title="${esc(t('trafic.security_prefix') + m.missing.map(k => t('cdetail.no_' + k)).join(', '))}" style="color:var(--yellow,#f59e0b);display:flex">${ico(ICO.shieldAlert, 13)}</span>` : ''}
+        ${typeBadge(m.type)}
       </div>`;
+    }
+
+    function buildContainerDetail(c) {
+      const m = containerModel(c);
+      const h = containerHealth(m);
+      const id = esc(m.id);
+      const host = esc(m.host);
+      const layers = featureBadges(m.cfg, 'list');
+      const quick = (icon, label, onclick) => `<button type="button" class="btn btn-secondary btn-sm trafic-md-quick" onclick="${onclick}">${ico(ICO[icon], 13)}<span>${label}</span></button>`;
+      return `<div class="trafic-md-head">
+          <div style="min-width:0;flex:1">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div class="trafic-md-title">${domainLink(m.hosts[0], true, m.hasTLS)}</div>${typeBadge(m.type)}
+            </div>
+            ${healthLine(h)}
+          </div>
+          <div class="trafic-md-actions">
+            ${m.toggle}
+            ${m.off ? '' : `<button type="button" class="btn btn-primary btn-sm" onclick="openContainerDetail('${id}')">${ico(ICO_INFO, 13)}<span style="margin-left:5px">${esc(t('trafic.detail'))}</span></button>`}
+            ${m.more}
+          </div>
+        </div>
+        <div class="trafic-md-quickrow">
+          ${quick('logs', esc(t('trafic.access_logs')), `logsFilters.domain='${host}';navigate('logs')`)}
+          ${quick('prism', 'Prism', `openPrismForProxy('${host}','${esc(m.c.edge_id || m.c.edge_name || '')}')`)}
+          ${m.off ? '' : quick('flow', esc(t('trafic.flow_title')), `openTrafficFlowModal('container','${id}')`)}
+        </div>
+        ${m.missing.length ? `<div class="trafic-md-alert">${ico(ICO.shieldAlert, 14)}<span>${esc(t('trafic.security_prefix') + m.missing.map(k => t('cdetail.no_' + k)).join(', '))}</span><button type="button" class="btn btn-secondary btn-sm" onclick="openContainerDetail('${id}')">${esc(t('trafic.security'))}</button></div>` : ''}
+        <div class="trafic-live is-big" data-host="${host}" data-big="1">${liveBlockHtml(m.host, true)}</div>
+        <div class="trafic-md-cols">
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.domain'))}</h4>
+            ${m.hosts.map((d, i) => domainLink(d, i === 0, m.hasTLS)).join('')}
+            ${m.chips ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">${m.chips}</div>` : ''}
+          </div>
+          <div class="trafic-md-box">
+            <h4>${esc(t('trafic.backends'))} <span>${h.total ? esc(t('trafic.backends_up', { up: h.up, total: h.total })) : ''}</span></h4>
+            <div class="trafic-md-backends">${m.allBackends.length ? m.allBackends.map(b => backendChip(b, 0)).join('') : '—'}</div>
+          </div>
+        </div>
+        <div class="trafic-md-box">
+          <h4>${esc(t('trafic.layers'))}</h4>
+          <div class="trafic-md-layers">${layers.length
+            ? layers.map(l => `<span class="trafic-md-layer" style="--c:${l.color}">${ico(l.svg, 12)}${esc(l.label)}</span>`).join('')
+            : `<span style="color:var(--text3);font-size:12px">${esc(t('trafic.no_layers'))}</span>`}</div>
+        </div>`;
     }
 
     // ── Conteneurs découverts ────────────────────────────────────────────────
@@ -1547,7 +1722,7 @@ async function renderTraficPage(ctx) {
         const edgeName = edge ? (edge.node_name || edge.display_name || '') : '';
         const raw = edgeName ? all.filter(c => c.edge_name === edgeName) : all;
         // Un conteneur arrêté n'a pas de route : il ne sert pas à rapprocher un proxy d'un conteneur.
-        window._traficDiscovered = raw.filter(c => !c.inactive);
+        window._traficDiscovered = raw.filter(c => !c.inactive && !c.disabled);
         api('GET', '/discovered-containers/orphans').then(list => {
           window._traficOrphans = new Map((list || []).map(o => [o.proxy_id, o]));
           if (typeof window.renderPage === 'function') window.renderPage();
@@ -1562,8 +1737,9 @@ async function renderTraficPage(ctx) {
     function containerMatches(c) {
       const af = window._tf;
       const q = (document.getElementById('trafic-search')?.value || '').toLowerCase();
-      if (af.status === 'actif' && c.inactive) return false;
-      if (af.status === 'inactif' && !c.inactive) return false;
+      const off = !!(c.inactive || c.disabled);
+      if (af.status === 'actif' && off) return false;
+      if (af.status === 'inactif' && !off) return false;
       if (af.type) {
         const stream = af.type === 'tcp' || af.type === 'udp' || af.type === 'both';
         if (stream || af.type !== (c.tls ? 'https' : 'http')) return false;
@@ -1594,17 +1770,54 @@ async function renderTraficPage(ctx) {
       const bySource = {};
       for (const c of items) { (bySource[c.source] = bySource[c.source] || []).push(c); }
       const cols = window._tc || 3;
+      const srcHead = (src, n) => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:12px;font-weight:700;color:${srcColor[src]||'var(--text2)'}">${srcLabel[src]||src}</span><span class="chip">${n}</span></div>`;
       let html = '';
+
+      // Les mêmes quatre vues que les proxies : tuiles, état, tableau, maître / détail.
+      if (window._tv === 'detail') {
+        const cur = items.find(c => containerModel(c).id === window._tdSel.container) || items[0];
+        window._tdSel.container = containerModel(cur).id;
+        const list = Object.entries(bySource).map(([src, group]) =>
+          `<div class="trafic-md-group">${esc(srcLabel[src] || src)} <span>${group.length}</span></div>${group.map(c => buildContainerMasterItem(c, window._tdSel.container)).join('')}`).join('');
+        el.innerHTML = `<div class="trafic-md"><div class="trafic-md-list">${list}</div><div class="trafic-md-detail">${buildContainerDetail(cur)}</div></div>`;
+        return;
+      }
       for (const [src, group] of Object.entries(bySource)) {
-        html += `<div style="margin-bottom:20px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="font-size:12px;font-weight:700;color:${srcColor[src]||'var(--text2)'}">${srcLabel[src]||src}</span><span class="chip">${group.length}</span></div>
-          <div class="trafic-grid" data-cols="${cols}">`;
-        for (const c of group) html += buildContainerTile(c);
-        html += `</div></div>`;
+        html += `<div style="margin-bottom:20px">${srcHead(src, group.length)}`;
+        if (window._tv === 'table') {
+          html += `<div class="card blueprint" style="overflow:hidden"><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="table-wrap"><table class="table"><thead><tr>
+              <th style="width:80px"></th><th>${t('trafic.domain')}</th><th>${t('trafic.backends')}</th><th>${t('trafic.features')}</th><th>${t('trafic.traffic')}</th><th style="text-align:right">${t('trafic.actions')}</th>
+            </tr></thead><tbody>${group.map(buildContainerRow).join('')}</tbody></table></div></div>`;
+        } else {
+          const build = window._tv === 'etat' ? buildContainerCard : buildContainerTile;
+          html += `<div class="trafic-grid" data-cols="${cols}">${group.map(build).join('')}</div>`;
+        }
+        html += `</div>`;
       }
       el.innerHTML = html;
     }
 
     // Convertit les routes encore issues des labels d'une tuile en proxys configurés ; un seul proxy créé s'ouvre dans l'éditeur.
+    // Active ou désactive les routes de la tuile (une par hôte) ; la passerelle retire ou rend la route sans toucher au conteneur.
+    window.toggleDiscoveredRoute = async (flowKey) => {
+      const tile = (window._traficContainers || {})[flowKey];
+      const routes = (tile && tile.routes) || [];
+      if (!routes.length) return;
+      const enable = routes.every(r => r.disabled);
+      const hosts = [...new Set(routes.filter(r => !!r.disabled === enable).map(r => r.host))];
+      try {
+        for (const host of hosts) await api('PUT', '/discovered-containers/enabled', { host, enabled: enable });
+        toast(t(enable ? 'trafic.route_enabled_done' : 'trafic.route_disabled_done', { hosts: hosts.join(', ') }), 'success');
+      } catch (e) {
+        toast(e.message, 'error');
+        window.loadContainers();
+        return;
+      }
+      // La passerelle applique la poussée de l'Admin en quelques instants.
+      setTimeout(() => window.loadContainers(), 1200);
+    };
+
     window.convertDiscoveredContainer = async (flowKey) => {
       const tile = (window._traficContainers || {})[flowKey];
       const routes = ((tile && tile.routes) || []).filter(r => !r.shadowed_by);

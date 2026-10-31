@@ -117,4 +117,5 @@ var messagesDE = map[string]string{
 	"api.err.domain_not_found":      "Domain nicht gefunden",
 	"api.err.agent_unreachable":     "Agent nicht erreichbar",
 	"api.err.edge_unreachable":      "Edge nicht erreichbar",
+	"api.err.edge_refused":          "Edge hat die Authentifizierung des Admin abgelehnt (Kanalschlüssel prüfen)",
 }

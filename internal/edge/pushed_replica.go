@@ -59,6 +59,7 @@ var replicablePushes = map[string]bool{
 	edgews.TypePushAutoRules:       true,
 	edgews.TypePushDelegations:     true,
 	edgews.TypePushGroupCard:       true,
+	edgews.TypePushDisabledRoutes:  true,
 }
 
 type pushedEntry struct {
@@ -213,6 +214,12 @@ func (s *Server) loadPushedJournalFromDisk() {
 	}
 	for _, e := range d.Entries {
 		s.adminDocs.record(e)
+		// Les routes désactivées n'ont pas de copie à part : le journal est leur copie locale.
+		if e.Type == edgews.TypePushDisabledRoutes {
+			if err := s.applyDisabledRoutes(e.Payload); err != nil {
+				s.log.Warn("pushed: routes désactivées illisibles", "err", err)
+			}
+		}
 	}
 	s.log.Info("pushed: journal chargé depuis le disque", "documents", len(d.Entries))
 }

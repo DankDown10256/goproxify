@@ -36,3 +36,15 @@ func TestDefaultProviderConfigAcceptsATypeOrANamedProviderID(t *testing.T) {
 		t.Fatal("un identifiant qui n'existe pas reste inconnu")
 	}
 }
+
+// Le fichier des fournisseurs vit dans state/, dossier repris par la section secrets d'une sauvegarde : il se crée avec lui.
+func TestProviderStoreCreatesItsFolder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "acme-providers.yaml")
+	store := NewProviderStore(path)
+	if _, err := store.Create("OVH", "ovh", map[string]string{"zone": "a.fr"}); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := store.List(); err != nil || len(list) != 1 {
+		t.Fatalf("fournisseur non relu : %v %v", list, err)
+	}
+}

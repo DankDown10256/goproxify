@@ -152,7 +152,7 @@ Bump au merge : **`admin` PATCH** `0.2.11` → `0.2.12`, **`webapp` PATCH** `0.2
 #### Tous les services `0.1.0` (admin, edge, agent, webapp, landing)
 - Structure du projet, binaire unique multi-composants
 - Admin : API REST complète, UI Web (proxies, nœuds, logs, Prism, certificats, alertes, backups, cluster)
-- Passerelle : HTTP/HTTPS/HTTP2/HTTP3, WebSocket, gRPC, TCP/UDP L4, TLS terminaison + passthrough, WAF, rate limiting, cache Prism, mode cluster Raft
+- Passerelle : HTTP/HTTPS/HTTP2/HTTP3, WebSocket, gRPC, TCP/UDP L4, TLS terminaison + passthrough, WAF, rate limiting, cache Prism, groupes HA sans leader
 - Agent : discovery Docker (labels), télémétrie CPU/mémoire, mise à jour automatique, VPN WireGuard
 - Landing : site vitrine statique servi par Nginx (`services/landing/`)
 - Cache local passerelle (autonomie sans Admin), import de configs (nginx, Traefik, Caddy…)

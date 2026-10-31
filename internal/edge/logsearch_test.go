@@ -151,8 +151,8 @@ func TestLogSearchCapsThePageSizeUnlessBulk(t *testing.T) {
 func TestLogSearchGateRefusesATooBusyGateway(t *testing.T) {
 	s := seedSearchGateway(t)
 	g := s.searchGate()
-	r1, ok1 := g.acquire(false)
-	r2, ok2 := g.acquire(false)
+	r1, ok1 := g.Acquire(false)
+	r2, ok2 := g.Acquire(false)
 	if !ok1 || !ok2 {
 		t.Fatal("deux recherches simultanées doivent passer")
 	}
@@ -160,11 +160,11 @@ func TestLogSearchGateRefusesATooBusyGateway(t *testing.T) {
 		t.Fatalf("troisième recherche : code %d, attendu 429 avec Retry-After", rec.Code)
 	}
 	// Un export ne gêne pas les recherches ordinaires, mais il n'y en a qu'un à la fois.
-	rb, okb := g.acquire(true)
+	rb, okb := g.Acquire(true)
 	if !okb {
 		t.Fatal("un export doit passer")
 	}
-	if _, ok := g.acquire(true); ok {
+	if _, ok := g.Acquire(true); ok {
 		t.Fatal("un deuxième export simultané doit être refusé")
 	}
 	r1()

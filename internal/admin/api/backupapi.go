@@ -29,6 +29,9 @@ type BackupHandler struct {
 	Pusher    RoutePusher
 	Keys      *backup.KeyStore // clé de chiffrement des sauvegardes gérée depuis l'interface
 	Auditor   *audit.Logger
+	// LauncherImage est l'image du launcher que l'installation utilise (GPX_DEPLOY_REGISTRY, GPX_DEPLOY_TAG) : la page
+	// Sauvegardes en tire la commande qui reconstruit un Admin perdu.
+	LauncherImage string
 }
 
 func (h *BackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +84,7 @@ func (h *BackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.revealKey(w, r)
 	// Destinations externes et état
 	case r.Method == http.MethodGet && sub == "status":
-		jsonOK(w, h.Scheduler.Status())
+		h.status(w, r)
 	case r.Method == http.MethodGet && sub == "destinations" && id == "":
 		h.listDestinations(w, r)
 	case r.Method == http.MethodPost && sub == "destinations" && id == "":
@@ -102,6 +105,24 @@ func (h *BackupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// status : l'état des sauvegardes, avec l'image du launcher pour la commande de reconstruction de l'Admin.
+func (h *BackupHandler) status(w http.ResponseWriter, _ *http.Request) {
+	raw, err := json.Marshal(h.Scheduler.Status())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if h.LauncherImage != "" {
+		out["launcher_image"] = h.LauncherImage
+	}
+	jsonOK(w, out)
 }
 
 // ── Schedule ──────────────────────────────────────────────────────────────────

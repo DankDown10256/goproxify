@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -20,7 +21,7 @@ import (
 	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
-// RoutePusher est implémenté par edgews.Manager / edgepush.Pusher.
+// RoutePusher est implémenté par edgews.Manager.
 type RoutePusher interface {
 	PushRoutes(ctx context.Context)
 	DeleteRoute(ctx context.Context, id string)
@@ -478,4 +479,53 @@ func jsonOK(w http.ResponseWriter, v any) {
 // À utiliser avant de loguer en ERROR pour éviter le bruit lors des redémarrages Docker.
 func isCtxErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// MutateProxyConfig relit la configuration du proxy (identifiant ou hôte), la fait modifier par mutate, l'enregistre et la pousse
+// aux passerelles, comme une mise à jour par l'API. Une erreur de mutate annule tout.
+func (h *ProxiesHandler) MutateProxyConfig(ctx context.Context, ref, actor string, mutate func(cfg map[string]any) error) (string, error) {
+	var id, cfgText string
+	err := h.DB.QueryRowContext(ctx, `SELECT id, config FROM proxies WHERE id=? OR name=? LIMIT 1`, ref, ref).Scan(&id, &cfgText)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("proxy introuvable : %s", ref)
+	}
+	if err != nil {
+		return "", err
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(cfgText), &cfg); err != nil {
+		return id, err
+	}
+	if err := mutate(cfg); err != nil {
+		return id, err
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return id, err
+	}
+	var route router.Route
+	_ = json.Unmarshal(raw, &route)
+	route.ID, route.UpdatedAt = id, time.Now()
+	if actor != "" {
+		role := rbac.UserRole(ctx, h.DB, actor)
+		grants, _ := rbac.UserEffectiveGrants(ctx, h.DB, actor)
+		if !rbac.CanWriteProxyWithGrants(role, grants, &route) {
+			return id, errors.New("proxy hors de votre périmètre")
+		}
+	}
+	cfgJSON, err := injectRouteFields(raw, id, route.UpdatedAt)
+	if err != nil {
+		return id, err
+	}
+	if _, err := h.DB.ExecContext(ctx, `UPDATE proxies SET name=?, config=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, route.Host, cfgJSON, id); err != nil {
+		return id, err
+	}
+	_ = admindb.WriteAudit(h.DB, actor, "update", "proxy:"+id, route.Host)
+	if h.Versioner != nil {
+		h.Versioner.SaveProxyVersion(h.DB, id, cfgJSON, "politique de surface")
+	}
+	if h.Pusher != nil {
+		go h.pushProxyConfig(context.Background())
+	}
+	return id, nil
 }

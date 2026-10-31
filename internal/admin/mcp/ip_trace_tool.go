@@ -17,7 +17,7 @@ func ipTraceTools() []map[string]any {
 		"description": "Parcours complet d'une IP ou d'un CIDR sur une longue période : requêtes d'accès regroupées en épisodes " +
 			"(domaines, chemins, statuts, catégories WAF, signaux Ephor), détections CrowdSec/Ephor, bans et débans, bans en cours " +
 			"et profils IP qui contiennent la cible. Retourne une synthèse (totaux, première/dernière vue, activité par jour) et les " +
-			"étapes dans l'ordre chronologique. Les requêtes remontent aussi loin que la rétention des logs d'accès ; les IP " +
+			"étapes, le plus récent d'abord par défaut ; chaque ban dit pourquoi (signaux) et quel User-Agent l'a provoqué. Les requêtes remontent aussi loin que la rétention des logs d'accès ; les IP " +
 			"pseudonymisées ou tronquées (RGPD) ne sont pas retrouvées. Si la base ASN est installée, la réponse contient asn_context " +
 			"(ASN de l'adresse) ; avec scope=asn le parcours couvre tout l'ASN, " +
 			"sans avoir à connaître le CIDR.",
@@ -27,7 +27,7 @@ func ipTraceTools() []map[string]any {
 			opt("asn", "string", "Numéro d'ASN (AS16276) à tracer en entier, à la place d'une adresse ; avec scope=asn"),
 			opt("from", "string", "Début (RFC3339 ou AAAA-MM-JJ). Défaut : 30 jours avant `to`"),
 			opt("to", "string", "Fin (RFC3339 ou AAAA-MM-JJ). Défaut : maintenant"),
-			opt("order", "string", "asc (chronologique, défaut) ou desc (plus récent d'abord)"),
+			opt("order", "string", "desc (plus récent d'abord, défaut) ou asc (chronologique)"),
 			opt("limit", "number", "Étapes par page (défaut 500, max 2000)"),
 			opt("offset", "number", "Décalage de pagination des étapes"),
 		),

@@ -32,14 +32,6 @@ type EdgeConfig struct {
 		} `mapstructure:"proxy_protocol"`
 	} `mapstructure:"network"`
 
-	Cluster struct {
-		Enabled   bool              `mapstructure:"enabled"`
-		GroupName string            `mapstructure:"group_name"`
-		NodeID    string            `mapstructure:"node_id"`
-		RaftPort  int               `mapstructure:"raft_port"` // défaut: 8002
-		Peers     map[string]string `mapstructure:"peers"`     // id → "http://host:raft_port"
-	} `mapstructure:"cluster"`
-
 	Engine struct {
 		LogLevel        string `mapstructure:"log_level"`        // info | debug | warn | error
 		LogFormat       string `mapstructure:"log_format"`       // json | text
@@ -48,6 +40,11 @@ type EdgeConfig struct {
 		// LogRetentionDays : conservation des accès HTTP (0 : 365 jours). SystemLogRetentionDays : logs système (0 : 90 jours).
 		LogRetentionDays       int `mapstructure:"log_retention_days"`
 		SystemLogRetentionDays int `mapstructure:"system_log_retention_days"`
+		// LogBufferDays et LogBufferMaxDays : quand l'Admin range et acquitte les lignes (ADR 0018), la base n'est qu'un tampon : une période
+		// entièrement acquittée est supprimée LogBufferDays après sa fin (0 : 7 jours), une période que l'Admin n'a pas tout
+		// acquittée l'est après LogBufferMaxDays (0 : 30 jours). Sans acquittement de l'Admin, LogRetentionDays reste la règle.
+		LogBufferDays    int `mapstructure:"log_buffer_days"`
+		LogBufferMaxDays int `mapstructure:"log_buffer_max_days"`
 		SystemLogPath   string `mapstructure:"system_log_path"`  // Chemin du log système
 		TracingEndpoint string `mapstructure:"tracing_endpoint"` // Endpoint OTLP HTTP (vide = désactivé)
 		// TracingSampleRatio : part des nouvelles traces échantillonnées (0 ou >=1 = toutes ; une trace déjà décidée en amont est respectée).

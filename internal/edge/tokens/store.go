@@ -254,6 +254,65 @@ func (s *Store) HasActiveAgent(agentName string) bool {
 	return count > 0
 }
 
+// KeepAgentTokens est le nombre de jetons d'Agent gardés par nom : chaque appairage en ajoute un, et sans purge le
+// magasin ne fait que grossir (17 457 jetons pour un seul Agent, constatés sur un déploiement). Un Agent n'en présente
+// qu'un, le plus récent ; les précédents servent seulement à un autre exemplaire du même nom pendant un redéploiement.
+const KeepAgentTokens = 20
+
+// PruneNamed supprime les jetons de ce rôle et de ce nom au-delà des keep plus récents (révoqués ou non). Rend le nombre
+// de jetons supprimés. Le plus récent n'est jamais supprimé.
+func (s *Store) PruneNamed(role Role, name string, keep int) (int, error) {
+	if keep < 1 {
+		return 0, fmt.Errorf("tokens: garder au moins un jeton")
+	}
+	res, err := s.db.Exec(
+		`DELETE FROM tokens WHERE role=? AND name=? AND rowid NOT IN (
+		   SELECT rowid FROM tokens WHERE role=? AND name=? ORDER BY created_at DESC, rowid DESC LIMIT ?)`,
+		string(role), name, string(role), name, keep,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// PruneAll applique PruneNamed à chaque nom du rôle qui dépasse keep jetons. Rend le nombre total de jetons supprimés.
+// Un nettoyage important rend aussi au système de fichiers la place libérée (VACUUM).
+func (s *Store) PruneAll(role Role, keep int) (int, error) {
+	if keep < 1 {
+		return 0, fmt.Errorf("tokens: garder au moins un jeton")
+	}
+	rows, err := s.db.Query(`SELECT name FROM tokens WHERE role=? GROUP BY name HAVING COUNT(*) > ?`, string(role), keep)
+	if err != nil {
+		return 0, err
+	}
+	var names []string
+	for rows.Next() {
+		var n string
+		if rows.Scan(&n) == nil {
+			names = append(names, n)
+		}
+	}
+	// La base n'a qu'une connexion : la lecture doit être finie avant les suppressions.
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	total := 0
+	for _, name := range names {
+		n, err := s.PruneNamed(role, name, keep)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	if total >= 1000 {
+		_, _ = s.db.Exec(`VACUUM`)
+	}
+	return total, nil
+}
+
 // --------------------------------------------------------------------------
 
 func (s *Store) insert(name, rawToken string, role Role, exp *time.Time) (string, error) {

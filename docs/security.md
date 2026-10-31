@@ -6,26 +6,36 @@ GoProxify embarque plusieurs moteurs de sécurité indépendants, complémentair
 
 ## Architecture des couches de sécurité
 
-Les moteurs s'appliquent dans cet ordre sur chaque connexion entrante :
+Les moteurs s'appliquent dans cet ordre sur chaque requête entrante :
 
 ```
 Connexion TCP/TLS
       │
       ▼
- [1] Ephor         — avant tout routage : rate limit global, signaux comportementaux, listes IP
+ [1] Ephor, limite globale — débit global de la passerelle dépassé → 503
       │
       ▼
- [2] Bans IP          — IP bannie en base (Ephor, Fail2Ban, CrowdSec, manuel) → 403 immédiat
+ [2] Profils IP            — IP en liste de blocage → 403
       │
       ▼
- [3] Routage / proxy  — résolution de la route, correspondance du proxy
+ [3] Bans IP               — IP bannie (Ephor, WAF, Fail2Ban, CrowdSec, manuel) → 403 ;
+      │                      les profils allow et les IP privées y échappent
+      ▼
+ [4] Ephor, détection      — signaux comportementaux, blocage éventuel ;
+      │                      sauté pour les IP en liste blanche
+      ▼
+ [5] Routage / proxy       — résolution de la route (hôte, snippets, location)
       │
       ▼
- [4] WAF              — inspection de la requête (et de la réponse) par règles OWASP CRS-4
-      │
+ [6] Chaîne de la route    — étapes triées par rang, de la première à la plus proche du backend :
+      │                      WAF (700) → bot (800) → rate limit (1200) → filtre IP (1300)
+      │                      → plugins (1400) → GeoIP (1500) → mTLS (1800) → JWT (1900)
+      │                      → SSO (2000) → OpenAPI / schéma / GraphQL (2100–2300)
       ▼
  Backend applicatif
 ```
+
+Après la réponse, l'apprentissage de la surface observe la requête, puis Ephor la verse à son magasin comportemental (ce qui nourrit les bans suivants). Les rangs sont définis dans `internal/edge/dispatch_stages.go` et `internal/edge/middleware/detector_exec.go`.
 
 ---
 
@@ -79,7 +89,27 @@ Les jeux de règles sont activés par défaut. Chaque catégorie peut être dés
 
 Les cookies (lus bruts, y compris espaces et guillemets) et les corps `x-www-form-urlencoded` (valeurs décodées) sont inspectés par les règles SQLi, injection de commande (`932120` substitution `$(cmd)` / backticks, `932130` `|| cmd`, commandes connues uniquement) et SSTI (`934300`). La règle SQLi `select … from` exige un contexte SQL (guillemet, `;`, commentaire, `*`, liste de colonnes, `distinct`…) : une phrase comme « select an option from the list » passe.
 
-**Exclusions de plateforme** : une application qui accepte des gabarits saisis par l'utilisateur (jinja, twig, handlebars, mustache, EJS, éditeur d'e-mails) doit exclure `934300` (`exclude_ids`) sur la route concernée. `{{variable}}` seul n'est de toute façon pas bloqué ; seules les expressions (`{{7*7}}`, `{{config.x}}`) le sont.
+**Exclusions de plateforme** : une application qui accepte des gabarits saisis par l'utilisateur (jinja, twig, handlebars, mustache, EJS, éditeur d'e-mails) doit exclure `934300` sur la route concernée. `{{variable}}` seul n'est de toute façon pas bloqué ; seules les expressions (`{{7*7}}`, `{{config.x}}`) le sont. Voir la section suivante : préférez une exclusion **par chemin**.
+
+#### Exclure des règles sans désarmer le proxy
+
+Certaines applications envoient légitimement ce que les règles arrêtent : l'éditeur de WordPress poste du HTML à `/wp-admin/`, Adminer envoie du SQL, les nœuds de code de n8n envoient du JavaScript. En mode `block` l'application devient inutilisable (un 403 à chaque enregistrement). Deux outils, du plus sûr au plus large :
+
+| Outil | Portée | Quand |
+|-------|--------|-------|
+| `waf.exclusions` | **Sous des chemins seulement** ; les règles restent actives partout ailleurs | Le cas général : l'administration d'un CMS, une console, un endpoint de recherche |
+| `waf.exclude_ids` | Tout le proxy | Une règle qui se trompe sur l'ensemble de l'application, sans chemin à isoler |
+
+```json
+{ "waf": { "enabled": true, "mode": "block",
+  "exclusions": [ { "paths": ["/wp-admin/", "/wp-json/"], "platform": "wordpress", "note": "éditeur d'articles" } ] } }
+```
+
+- Un chemin est un préfixe sur une frontière de segment (`/wp-admin/` couvre `/wp-admin/post.php` ; `/api/search` couvre `/api/search/x`, pas `/api/searchx`). `/` est refusé : ce serait `exclude_ids`.
+- **Une exclusion peut nommer une plateforme** (`"platform": "wordpress"`) : ce sont alors ses règles habituelles (celles qui se trompent d'ordinaire sur elle) qui sont retirées **sous ses chemins**, et nulle part ailleurs. La passerelle ne devine jamais la plateforme d'un proxy, et il n'existe plus de choix de plateforme valable pour tout le proxy (Admin `0.211.0`) : retirer les règles d'injection de tout un site pour qu'un éditeur enregistre ses articles le laisse sans défense, et savoir quelle application tourne ne change rien à ce qu'un WAF doit bloquer.
+- Le reste du proxy garde toutes ses règles. **Sous un chemin exclu** la protection baisse : réservez-le à une zone déjà protégée autrement (authentification, filtre d'IP, Access, forward-auth).
+- Pas de chemin net (application dont les requêtes problématiques sont dispersées) : n'excluez pas la règle pour tout le proxy. Relevez d'abord `anomaly_threshold` (10 : une règle seule ne suffit plus à refuser, plusieurs concordantes si), et en dernier recours passez le WAF en `detect` (il journalise sans refuser). L'[apprentissage de la surface](adr/0016-apprentissage-de-la-surface-d-un-proxy.md) fait cette proposition à partir du trafic réel.
+- Pas de label Docker pour `exclusions` : proxy option, API, CLI ou modale.
 
 ### Inspection de la réponse (CRS 951xxx)
 
@@ -234,6 +264,7 @@ Avec `ip_score.enabled` et `ip_score.errors.enabled`, chaque réponse 4xx verse 
 | `asn_aggregate` | 4 | 8 IP ou plus du même ASN, 30 requêtes ou plus, 60 % en erreur, sur dix fenêtres (attaque distribuée « lente ») |
 | `rate_deviation` | 3 | débit de l'IP sur la route au-dessus du normal appris pour l'heure (voir plus bas) |
 | `fail2ban`, `crowdsec` | 5 | une décision de ces moteurs, valable le temps du ban |
+| `surface_violation` | 3 | une requête hors de la politique de surface du proxy (contrôle `openapi` appris, voir plus bas) que le backend a refusée (4xx autre que 401), valable 10 minutes |
 
 Les cinq premiers nouveaux signaux, et `rate_deviation`, **ne comptent pas dans le score du WAF**. Limites à connaître avant de les passer en `block` : `no_assets` voit aussi un robot d'indexation légitime (qui ne charge pas les images) ; `regular_interval` voit un client qui interroge à cadence fixe (supervision, lecteur de flux) ; `ua_tls_mismatch` voit un proxy d'entreprise qui inspecte le TLS ; `asn_aggregate` voit un gros opérateur mobile derrière un NAT. Les listes blanches d'Ephor les exemptent tous.
 
@@ -283,6 +314,68 @@ goproxify.ephor.whitelist.self: "true"     # IP actuelle du conteneur
 goproxify.ephor.whitelist.network: "true"  # sous-réseau Docker du conteneur
 ```
 
+
+## Apprentissage de la surface d'un proxy
+
+*(Admin `0.197.0`, Edge `0.111.0`, [ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md), étape 1)* Les listes (WAF, Ephor, IP) disent ce qui est mauvais. Pour fermer un proxy à ce qui n'est pas utilisé, il faut d'abord savoir ce qu'il utilise. Le mode `learn` le mesure sur le trafic réel, **sans rien bloquer**.
+
+- **Type de proxy** *(Admin `0.204.0`, Edge `0.118.0`)* : `surface.type` vaut `api` (surface fermée : une liste de chemins a un sens), `site` (blog, CMS, contenu créé par les utilisateurs : des milliers de chemins qui changent chaque jour) ou vide (traité comme une API). Pour un **site**, la convergence ne dépend que de l'ancienneté et du volume (ni nouveaux gabarits, ni débordement), la politique de chemins et les suggestions d'ajout ne sont pas produites, et les propositions de tailles, réseaux, pays, CORS, débit et exclusions du WAF le restent. Le rapport dit à quoi le trafic ressemble (`type_hint` : un niveau de chemin avec plus de 64 valeurs distinctes ou des chemins non retenus, c'est un site) et décrit le proxy entier : méthodes, types de contenu des requêtes et des réponses, tailles de corps.
+- **Activation** : par proxy, `surface.mode` = `learn` (carte *Apprentissage de la surface* de l'onglet Avancé, ou `goproxify proxy option <id> surface '{"mode":"learn"}'`). `off` par défaut ; `detect` et `enforce` sont refusés tant que la politique positive n'existe pas.
+- **Ce qui est appris** : méthodes ; gabarits de chemin (`/api/users/{int}` : entiers, UUID, dates, empreintes hexadécimales, jetons longs et adresses électroniques deviennent des classes ; au-delà de 64 valeurs littérales sous un même parent, le niveau devient `{var}`) ; par gabarit, méthodes, statuts, types de contenu, taille des corps (maximum, 99ᵉ centile), noms et types des paramètres de requête, clients distincts et jours de présence ; noms des en-têtes ; protocole et version TLS ; pays et AS.
+- **Ce qui n'est jamais gardé** : une valeur de paramètre ou d'en-tête, une IP, un segment de chemin variable. Les clients distincts sont comptés par un estimateur (HyperLogLog) qui ne permet pas de retrouver une adresse : il n'y a rien à effacer lors d'un effacement RGPD.
+- **Qui enseigne** : une requête n'entre dans le profil que si son statut montre que la route existe (2xx, 3xx, 401) **et** si son IP est propre (aucun signal d'Ephor, aucune règle du WAF déclenchée, aucune note de risque). Un scanner qui sonde `/.env` ne l'inscrit donc pas ; ses requêtes sont comptées à part (*exclues*, *en échec*). Un gabarit vu par moins de 3 clients ou sur moins de 2 jours est marqué *à confirmer*.
+- **Convergence** : le profil est fiable après 7 jours (un cycle complet, week-end compris), 1 000 requêtes apprises et 48 h sans nouveau gabarit. Tant que ce n'est pas le cas, le rapport dit lequel de ces critères manque.
+- **Mémoire bornée** : 2 000 nœuds de chemin, 64 en-têtes, 32 paramètres par gabarit, 200 AS par proxy, 1 000 proxies par passerelle. Au-delà, le profil signale un *débordement* au lieu de grossir. Coût mesuré : ≈ 0,7 µs et aucune allocation par requête.
+- **Sans l'Admin** : le profil est copié chiffré sur la passerelle (`surface-state.gpx`, `GPX_SURFACE_STATE_PATH`) et relu au démarrage. Les membres d'un groupe HA se tirent leurs profils locaux et chacun affiche le profil fusionné ; un échange répété ne compte jamais deux fois.
+- **Lire et remettre à zéro** : `GET /api/v1/security/surface[/report]`, `POST /api/v1/security/surface/reset`, `goproxify security surface list|report|reset`, outils MCP `get_proxy_surface` et `reset_proxy_surface`. Remettre à zéro quand l'application change.
+- **Réglages proposés** *(étape 2, Admin `0.198.0`, Edge `0.112.0`)* : le profil sait proposer `max_body_size` (le double du plus gros corps vu, arrondi), `rate_limit` (le double du seuil d'Ephor le plus haut parmi les heures fiables), `geo_ip` (les pays qui couvrent 99,5 % du trafic, au plus 15), `ip_filter` (les réseaux /24 ou /48 d'où vient tout le trafic, au plus 16) et `cors` (les origines inter-origines vues, au plus 10). Chaque proposition dit ce que le profil a vu, ce qu'elle aurait refusé sur le trafic appris (`would_refuse`) et ses limites, avec la commande `goproxify proxy option` qui la pose. **Rien n'est appliqué** ; un réglage déjà posé n'est jamais remplacé ; un réglage non proposé dit pourquoi (service public, corps de taille inconnue, base GeoIP absente…). `GET /api/v1/security/surface/proposals`, `goproxify security surface proposals`, outil MCP `get_proxy_surface_proposals`. - **Exclusion de règles du WAF** *(Admin `0.202.0`, Edge `0.116.0`)* : une règle du WAF qui se déclenche de façon répétée sur des clients ordinaires est probablement un faux positif. Le profil compte, par règle, les déclenchements des IP **propres si l'on met de côté le WAF** (ni signal d'Ephor, ni score d'Ephor, ni autre signal de comportement que l'accumulation du WAF), ceux que le backend a servis, ceux que le WAF a refusés, les clients distincts, les jours et les chemins. Une règle est proposée pour `waf.exclude_ids` si **chaque client recommence** (3 déclenchements par client au moins) : 10 requêtes servies, 3 clients propres, 2 jours ; ou, si le WAF bloque, 10 refus, 5 clients, 3 jours. La proposition est la configuration `waf` complète avec `exclude_ids` augmenté. **Une attaque lente ressemble à un faux positif**, et l'exclusion vaut pour tout le proxy : pour une règle d'injection, de chemin ou de commande, corrigez plutôt le champ qui la déclenche ou écrivez une règle personnalisée sur un seul chemin. Jamais proposé pour une règle déjà exclue, une règle personnalisée, un WAF défini par un snippet ou un proxy sans WAF. Le rapport liste les règles déclenchées.
+- Le profil garde pour cela les **réseaux** /24 et /48 des clients (jamais l'adresse exacte, 256 au plus) et les valeurs de l'en-tête `Origin` (50 au plus).
+
+### Politique positive générée *(étape 3, Admin `0.199.0`, Edge `0.113.0`)*
+
+Le profil sait aussi s'écrire comme une **spécification OpenAPI 3.1** pour le contrôle `openapi` que le proxy a déjà, posée en mode `detect` avec `unknown_paths: block`. Rien n'est refusé : tout ce qui sort de la politique est compté.
+
+- **Contenu** : les chemins appris (`/api/users/{users_id}` ; les paramètres sont nommés d'après le segment qui les précède et typés : entier, UUID, date, empreinte hexadécimale, sinon texte), les méthodes vues par chemin, les paramètres de requête typés (jamais obligatoires), les types de contenu de requête des méthodes à corps. **Pas les corps** : le profil ne les apprend pas. Le contrôle openapi ne refuse pas un paramètre de requête inconnu.
+- **Écarté** : les chemins vus par moins de 3 clients ou sur moins de 2 jours (*à confirmer*, gardés par `include_low_support`), plus profonds que 12 segments, ou contenant une accolade. Deux gabarits qui se recouvrent (`/u/{int}` et `/u/{var}`) sont fusionnés en un chemin à paramètre texte, sans quoi le contrôle refuserait à tort.
+- **Poser la politique** : bouton *Générer la politique (OpenAPI)* puis *Pré-remplir la validation OpenAPI* (la carte du même nom est remplie en `detect`, la politique s'applique à l'enregistrement du proxy) ; ou `goproxify security surface openapi -proxy … -out openapi.json` puis `goproxify proxy option <id> openapi @openapi.json` ; ou l'outil MCP `get_proxy_surface_openapi` puis `update_proxy`. Un contrôle openapi déjà actif est signalé (`replaces`), jamais écrasé sans confirmation dans l'interface.
+- **Lire les violations** : tant que le mode `learn` est actif, le verdict du contrôle openapi remonte au profil, même en `detect`. Le rapport de surface liste, par raison (chemin inconnu, méthode inconnue, paramètre invalide, corps invalide, type de contenu, corps trop gros), méthode et **chemin normalisé** (les identifiants deviennent `{int}`, `{uuid}`…), le nombre de requêtes, de clients distincts et de réussites depuis une IP propre. Un chemin hors politique qui réussit le plus souvent depuis plusieurs clients propres est marqué *à ajouter ?* : c'est un chemin légitime que la politique ignore. 100 violations distinctes au plus par proxy ; aucune IP, aucun identifiant dans l'état.
+- **Note d'Ephor** : le signal `surface_violation` (3 points, 10 minutes, `detect` par défaut) ne concerne qu'une violation que le backend a refusée ; une violation servie ne pèse pas.
+- **Avant de bloquer** : le profil doit être convergé (`ready`), les violations *à ajouter ?* traitées, et les chemins exclus relus.
+
+#### Refuser, type de violation par type de violation *(étape 4, Admin `0.200.0`, Edge `0.114.0`)*
+
+Le réglage `openapi` du proxy accepte `block_reasons` : en mode `detect`, le contrôle refuse quand même les violations de ces types et laisse passer, en les comptant, les autres. En mode `block` la liste est sans effet (tout est refusé).
+
+| Type | Réponse | Ce que c'est |
+|---|---|---|
+| `unknown_path` | 404 | chemin absent de la politique (exige `unknown_paths: block`) |
+| `unknown_method` | 405 (+ `Allow`) | méthode absente pour ce chemin (idem) |
+| `invalid_param` | 400 | paramètre de chemin ou de requête qui n'a pas le bon type |
+| `invalid_body` | 422 | corps qui ne respecte pas son schéma (aucun, dans une politique apprise) |
+| `unsupported_media` | 415 | type de contenu de la requête non déclaré |
+| `too_large` | 413 | corps trop gros pour être validé |
+
+- **Garde-fous** (Admin, `POST /api/v1/security/surface/enforce`) : une politique openapi **active** et un profil (jamais passés outre) ; un profil **convergé** ; aucun chemin *à ajouter ?* pour les types demandés ; un profil qui n'a pas débordé. Un refus renvoie `409` et `blockers`, sans rien modifier. `force` passe outre les trois derniers et le consigne à l'audit (`surface_enforce_forced`) ; `dry_run` calcule sans écrire.
+- **Avant de cocher** : pour chaque type, le panneau et la réponse disent combien de requêtes ont été vues hors de la politique et **combien ont réussi depuis des IP propres** : ce sont des clients légitimes que le refus couperait.
+- **Refuser des types, pas tout** : on commence par ce qui ne coûte rien (`unknown_method`, `unsupported_media`, `too_large`), puis `invalid_param`, enfin `unknown_path`, une fois les chemins *à ajouter ?* traités.
+- **Retour en un geste** : `POST /api/v1/security/surface/relax` (bouton *Repasser en detect*, `goproxify security surface relax`) remet `mode: detect` et retire `block_reasons` ; la spécification reste. Consigné (`surface_relax`).
+- **Journal des refus** : le rapport de surface compte les violations refusées (`blocked_totals`, `blocked` par violation).
+- **Limite** : ces garde-fous sont ceux de l'assistant ; poser `block_reasons` ou `mode: block` à la main reste possible sans eux.
+
+#### Ajouts suggérés à la politique *(étape 5, Admin `0.201.0`, Edge `0.115.0`)*
+
+Le mode `learn` reste actif une fois la politique posée. Un chemin (`unknown_path`) ou une méthode (`unknown_method`) hors politique qui revient de plusieurs clients ordinaires sur plusieurs jours est proposé à l'ajout.
+
+| Confiance | Le profil a vu | Seuils |
+|---|---|---|
+| **haute** | le backend a **servi** ces requêtes | 5 réussites au moins et au moins la moitié des requêtes hors politique, 3 clients propres, 2 jours |
+| **basse** | le contrôle les **refuse** ; seuls des clients propres reviennent | 5 clients propres, 3 jours, 70 % de requêtes propres, la moitié au moins refusées |
+
+- **Pourquoi deux niveaux** : une violation refusée n'a jamais de réussite à citer, et c'est précisément celle qu'on voudrait voir revenir quand la politique est en `block`. La confiance basse dit seulement que des clients ordinaires reviennent ; un scanner distribué ressemble à cela, d'où « à examiner ».
+- **Jamais suggérés** : les chemins que visent les scanners (`.env`, `.git`, `wp-login`, `wp-admin`, `xmlrpc.php`, `phpmyadmin`, `cgi-bin`, `passwd`…), quel que soit le nombre d'IP. Les autres types de violation (paramètre, corps, type de contenu) restent dans le rapport : le profil n'y retient pas de quoi écrire un ajout.
+- **Accepter** (`POST /api/v1/security/surface/accept`, panneau du rapport, `goproxify security surface accept`, outil MCP `accept_proxy_surface_suggestions`) **ajoute** à la spécification, sans rien retirer. Un chemin de même forme reçoit la méthode ; si le type de son paramètre diffère, il est élargi en texte. Seules les suggestions actuelles du profil sont acceptables, la spécification doit être en JSON (un texte YAML est refusé), l'ajout est consigné (`surface_accept`) et les violations acceptées sont effacées des profils de toutes les passerelles.
+- **La politique ne s'élargit jamais seule.** Le nombre d'ajouts en attente figure dans la liste des proxies (`suggestions`), et le déclencheur d'alerte `surface_suggestion` prévient quand l'un apparaît.
+- **Alerte `surface_suggestion`** *(Admin `0.203.0`, Edge `0.117.0`)* : dans les règles d'alerte (Admin → Alerting → Règles). Chaque passerelle envoie à l'Admin l'état de ses suggestions toutes les 5 minutes ; l'Admin alerte **une fois par proxy et par lot** de suggestions nouvelles de **confiance haute**. Les suggestions de confiance basse n'alertent pas (leur nombre est dans le message). Une suggestion réglée est oubliée, une suggestion qui revient alerte de nouveau ; un groupe HA n'alerte qu'une fois. Détail de l'événement : `proxy`, `domain`, `count`, `suggestions`, `low_confidence` ; gravité `info`, périmètre filtrable par domaine. L'Admin retient ce qu'il a signalé en mémoire : après son redémarrage, les suggestions en attente alertent une fois de plus.
 
 ## Cache disque : isolation entre utilisateurs
 
@@ -425,7 +518,7 @@ Bouncer LAPI en mode stream : les décisions CrowdSec sont poussées en temps r�
 
 **Raccourci** : une loupe « Analyser l'IP » à côté des IP publiques (page Bans, menaces, Ephor, Prism, tiroir des logs) ouvre directement le parcours de l'IP ; l'élargissement à l'ASN se fait depuis l'en-tête (voir ci-dessus), ou à une plage par les boutons « Élargir à » (`/24`, `/16` ; `/64`, `/48` en IPv6). Les adresses privées, pseudonymisées ou tronquées n'ont pas de bouton.
 
-Quand le ban en cours ou l'étape de ban vient d'Ephor ou du WAF, la trace affiche aussi **pourquoi** : les signaux qui l'ont causé, avec leurs points et la valeur observée.
+La chronologie va du **plus récent au plus ancien** (bouton « Plus ancien d'abord » pour l'inverser). Quand le ban en cours ou l'étape de ban vient d'Ephor ou du WAF, la trace affiche aussi **pourquoi** : les signaux qui l'ont causé, avec leurs points et la valeur observée, et le **User-Agent** que la passerelle a vu en dernier pour l'IP — celui du client qui a provoqué le ban. Cela vaut pour tous les bans automatiques d'une passerelle : Ephor et WAF, Fail2Ban, plugins de détection, règles automatiques. Les bans manuels, importés ou CrowdSec n'en ont pas (aucune requête vue par la passerelle). La page Bans l'affiche aussi sous la raison du ban.
 
 API : `GET /api/v1/security/ip-trace` ; CLI : `goproxify security trace` ; MCP : `trace_ip`.
 
@@ -624,12 +717,13 @@ L'endpoint `GET /api/v1/security/bans/countries` retourne le nombre de bans acti
 
 ## Webhooks sur événements de sécurité
 
-Deux déclencheurs sont disponibles dans les règles d'alerte (Admin → **Alerting → Règles**) :
+Ces déclencheurs sont disponibles dans les règles d'alerte (Admin → **Alerting → Règles**) :
 
 | Déclencheur | Événement |
 |-------------|-----------|
 | `ephor_ban` | Nouvelle IP bannie par l'Ephor (automatique ou signal comportemental) |
 | `backend_down` | Un backend passe de `healthy` à `unhealthy` (callback `OnDown` du health-check) |
+| `surface_suggestion` | Un ajout est suggéré à la politique de surface d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md)) : un chemin ou une méthode hors politique revient de plusieurs clients ordinaires sur plusieurs jours |
 
 Le payload du webhook `backend_down` contient :
 ```json
@@ -647,6 +741,10 @@ Analyse les backends HTTP configurés à la recherche de vulnérabilités connue
 - Refuse par défaut les cibles sur IPs privées (RFC1918, localhost, metadata cloud) — protection anti-SSRF
 - Option **Autoriser les backends IP privées** (toggle admin) : permet de scanner des backends Docker/LAN
   - Configurable aussi via `GPX_VULNSCAN_ALLOW_PRIVATE=true` sur l'Admin
+- **Couverture et surcharges de CPE** *(Admin `0.210.0`)* : seuls les produits dont l'identifiant CPE de NVD est connu sont cherchés. Le rapport (`coverage` de `GET /api/v1/security/inventory`, page Vulnérabilités, `goproxify security cve inventory -gaps`) dit pour chaque entrée si elle est cherchée (`covered`), sans version (`no_version`), sans CPE sûr (`no_cpe`) ou absente de la table (`unknown`). L'administrateur donne un identifiant avec `PUT /api/v1/security/cpe-overrides` (`goproxify security cve cpe set`) : il complète la table sans jamais la corriger, et vit sur l'Admin, qui seul interroge NVD.
+- **Empreinte des réponses du backend** *(Admin `0.209.0`, tous les proxys)* : la passerelle lit, **avant** `hide_server`, les en-têtes `Server`, `X-Powered-By`, `X-AspNet-Version`, `X-Generator` et le `<meta name="generator">` du début des pages HTML (échantillonné, la page n'est pas modifiée). Elle ne fait aucune requête de plus. Les entrées (produit, version, source `headers` ou `html`) sont copiées chiffrées (`apps-state.gpx`, `GPX_APPS_STATE_PATH`), relues au démarrage, partagées entre les membres d'un groupe HA et expirent après 30 jours sans nouvelle observation. Le scanner les traite comme celles de l'image : un serveur sur un réseau privé que l'Admin n'atteint pas est scanné d'après ce que la passerelle a vu. Si l'image et les réponses divergent, l'image l'emporte et une note le dit.
+- **Inventaire par image** *(Admin `0.208.0`)* : pour un proxy créé par labels, l'Agent annonce l'image du conteneur et la passerelle la garde sur le backend. Le scanner lit cet inventaire (`GET /api/v1/security/inventory`) : un produit connu (table d'images, avec son identifiant CPE NVD) et une version lue dans l'étiquette (`wordpress:6.4.2-apache` donne 6.4.2) suffisent à interroger NVD **sans sonder le backend** (donc aussi pour un conteneur sur un réseau Docker privé). Une étiquette qui n'est pas une version (`latest`, `stable`, condensat), un produit inconnu ou une passerelle injoignable laissent le backend à la sonde d'en-têtes. Un produit sans CPE sûr est listé « non couvert », jamais cherché en texte libre. Les CVE sont rattachées à un proxy, un produit, une version et une source (`image` ou `headers`) ; un résultat est **à vérifier, pas une preuve**, car une distribution peut rétroporter un correctif sans changer la version. À la mise à jour d'un conteneur, les CVE de l'ancienne version qui ne concernent pas la nouvelle passent à `fixed`. L'inventaire sert uniquement les vulnérabilités : le WAF n'en reçoit rien.
+- Le **certificat TLS du backend n'est pas vérifié** par la sonde (expiré, auto-signé, mauvais nom : le backend est scanné quand même). Elle ne lit que des en-têtes de réponse. Les appels à NVD, KEV et EPSS vérifient les certificats.
 - Déclenchable manuellement ; intégrable aux alertes (notification sur CVE détectée)
 
 ### Exploitation active (KEV), probabilité d'exploitation (EPSS) et SLA de correction
@@ -714,3 +812,12 @@ Les locations `prefix`/`exact` portant `auth`, `ip_filter` ou `rate_limit` sont 
 ## WebSocket : contrôle d'Origin (CSWSH)
 
 Quand une route définit `cors.allowed_origins` (liste non vide), l'upgrade WebSocket est refusé en `403` si l'en-tête `Origin` est présent et absent de la liste, y compris `Origin: null`. Une origine listée, ou une requête sans `Origin` (client non navigateur), passe. Le joker `*` n'est pas accepté (comme pour CORS) : une liste réduite à `*` refuse donc toute origine. Sans `cors.allowed_origins`, aucun contrôle n'est appliqué : à renseigner dès que l'authentification repose sur un cookie.
+
+## Socket Docker de l'Agent
+
+L'Agent crée, arrête, renomme et supprime des conteneurs (mises à jour d'image, retour arrière, escalade de santé, scaling). Son accès au socket Docker (`/var/run/docker.sock`) équivaut donc à **root sur l'hôte** : qui peut y envoyer des requêtes peut lancer un conteneur privilégié monté sur `/`.
+
+- **Un montage `:ro` ne limite rien.** Il protège le fichier du socket, pas ce qu'on envoie au démon par ce socket. Les exemples de déploiement ne l'emploient plus, pour ne pas laisser croire le contraire.
+- **Seul le code de l'Agent borne ce qu'il fait du socket.** Il ne modifie que les conteneurs qu'il gère et recrée un conteneur avec sa configuration d'origine, mais Docker ne l'impose pas : un Agent compromis obtient l'hôte.
+- **L'Admin et la passerelle n'ont pas besoin du socket** et ne le montent pas. Ne déployez l'Agent que sur les hôtes dont vous voulez découvrir ou piloter les conteneurs (sous Kubernetes, `agent.config.runtime: none` par défaut et `agent.nodeSelector`).
+- **Recréation d'un conteneur** : l'ancien est mis de côté sous un autre nom jusqu'à ce que le nouveau tourne ; en cas d'échec il est remis en place et redémarré. Variables, ports, montages (volumes anonymes compris), réseaux avec leurs alias et IP fixes, santé et ressources sont repris tels quels, seule l'image change.

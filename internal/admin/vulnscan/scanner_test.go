@@ -87,3 +87,30 @@ func TestLoadBackends_ReadsBackendsArray(t *testing.T) {
 		t.Fatalf("loadBackends() = %v, want %v", got, want)
 	}
 }
+
+func TestProbeServer_IgnoresCertificateErrors(t *testing.T) {
+	t.Setenv("GPX_VULNSCAN_ALLOW_PRIVATE", "1")
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := admindb.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "nginx/1.25.3")
+	}))
+	t.Cleanup(srv.Close)
+
+	s := New(db, slog.Default(), "")
+	if _, err := s.client.Get(srv.URL); err == nil {
+		t.Fatal("le client NVD doit refuser un certificat auto-signé")
+	}
+	tokens, errMsg := s.probeServer(srv.URL)
+	if errMsg != "" {
+		t.Fatalf("la sonde doit passer outre le certificat, erreur : %s", errMsg)
+	}
+	if !slices.Equal(tokens, []string{"nginx 1.25.3"}) {
+		t.Fatalf("tokens = %v", tokens)
+	}
+}

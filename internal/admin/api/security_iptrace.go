@@ -39,7 +39,9 @@ type TraceStep struct {
 	Source string     `json:"source,omitempty"`
 	Reason string     `json:"reason,omitempty"`
 	// Signals : pourquoi un ban automatique a été posé (signal, points, valeur observée).
-	Signals     []router.BanSignal   `json:"signals,omitempty"`
+	Signals []router.BanSignal `json:"signals,omitempty"`
+	// UserAgent : le client qui a provoqué le ban, tel que la passerelle l'a vu en dernier avant de bannir.
+	UserAgent   string               `json:"user_agent,omitempty"`
 	Occurrences int                  `json:"occurrences,omitempty"`
 	Burst       *security.TraceBurst `json:"burst,omitempty"`
 }
@@ -58,6 +60,7 @@ type traceBan struct {
 	Source    string             `json:"source"`
 	ExpiresAt string             `json:"expires_at,omitempty"`
 	Signals   []router.BanSignal `json:"signals,omitempty"`
+	UserAgent string             `json:"user_agent,omitempty"`
 }
 
 type traceProfile struct {
@@ -87,7 +90,7 @@ type TraceQuery struct {
 }
 
 // ParseTraceQuery lit target (ou ip), from, to (RFC3339 ou AAAA-MM-JJ, défaut : 30 derniers jours),
-// limit (défaut 500, max 2000) et offset ; order vaut asc (défaut) ou desc.
+// limit (défaut 500, max 2000) et offset ; order vaut desc (défaut, plus récent d'abord) ou asc.
 func ParseTraceQuery(get func(string) string) (TraceQuery, error) {
 	raw := get("target")
 	if raw == "" {
@@ -112,7 +115,7 @@ func ParseTraceQuery(get func(string) string) (TraceQuery, error) {
 	if !from.Before(to) {
 		return TraceQuery{}, errBadTraceRange
 	}
-	qy := TraceQuery{Target: target, From: from, To: to, Desc: get("order") == "desc", Limit: 500, Scope: get("scope"), ASN: get("asn"), Node: get("node")}
+	qy := TraceQuery{Target: target, From: from, To: to, Desc: get("order") != "asc", Limit: 500, Scope: get("scope"), ASN: get("asn"), Node: get("node")}
 	if v, _ := strconv.Atoi(get("limit")); v > 0 && v <= 2000 {
 		qy.Limit = v
 	}
@@ -122,7 +125,7 @@ func ParseTraceQuery(get func(string) string) (TraceQuery, error) {
 	return qy, nil
 }
 
-// ipTrace : GET /api/v1/security/ip-trace?target=<ip|cidr>&from=&to=&order=asc|desc&limit=&offset=
+// ipTrace : GET /api/v1/security/ip-trace?target=<ip|cidr>&from=&to=&order=desc|asc&limit=&offset=
 func (h *SecurityHandler) ipTrace(w http.ResponseWriter, r *http.Request) {
 	qy, err := ParseTraceQuery(r.URL.Query().Get)
 	if err != nil {
@@ -272,13 +275,13 @@ func TraceIP(ctx context.Context, db *sql.DB, edge *prismedge.Source, qy TraceQu
 
 	// ── Bans et débans ────────────────────────────────────────────────────────
 	if hr, err := db.QueryContext(ctx,
-		`SELECT ip, domain, action, reason, source, created_at, signals FROM security_ban_history
+		`SELECT ip, domain, action, reason, source, created_at, signals, user_agent FROM security_ban_history
 		 WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`,
 		sqltime.Format(from), sqltime.Format(to)); err == nil {
 		defer hr.Close()
 		for hr.Next() {
-			var ip, domain, action, reason, source, ts, signals string
-			if hr.Scan(&ip, &domain, &action, &reason, &source, &ts, &signals) != nil || !qy.matcher.overlap(target, ip) {
+			var ip, domain, action, reason, source, ts, signals, ua string
+			if hr.Scan(&ip, &domain, &action, &reason, &source, &ts, &signals, &ua) != nil || !qy.matcher.overlap(target, ip) {
 				continue
 			}
 			t, err := sqltime.Parse(ts)
@@ -294,7 +297,7 @@ func TraceIP(ctx context.Context, db *sql.DB, edge *prismedge.Source, qy TraceQu
 			}
 			seen(t)
 			steps = append(steps, TraceStep{Kind: kind, Ts: t.UTC(), IP: ip, Domain: domain, Source: source, Reason: reason,
-				Signals: security.DecodeBanSignals(signals)})
+				Signals: security.DecodeBanSignals(signals), UserAgent: ua})
 		}
 	}
 
@@ -325,13 +328,13 @@ func TraceIP(ctx context.Context, db *sql.DB, edge *prismedge.Source, qy TraceQu
 
 	// ── État actuel : bans en cours et profils IP qui contiennent la cible ───────
 	if br, err := db.QueryContext(ctx,
-		`SELECT id, ip, domain, reason, source, COALESCE(expires_at,''), signals FROM security_bans
+		`SELECT id, ip, domain, reason, source, COALESCE(expires_at,''), signals, user_agent FROM security_bans
 		 WHERE expires_at IS NULL OR expires_at = '' OR datetime(expires_at) > CURRENT_TIMESTAMP`); err == nil {
 		defer br.Close()
 		for br.Next() {
 			var b traceBan
 			var signals string
-			if br.Scan(&b.ID, &b.IP, &b.Domain, &b.Reason, &b.Source, &b.ExpiresAt, &signals) == nil && qy.matcher.overlap(target, b.IP) {
+			if br.Scan(&b.ID, &b.IP, &b.Domain, &b.Reason, &b.Source, &b.ExpiresAt, &signals, &b.UserAgent) == nil && qy.matcher.overlap(target, b.IP) {
 				b.Signals = security.DecodeBanSignals(signals)
 				sum.ActiveBans = append(sum.ActiveBans, b)
 			}

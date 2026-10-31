@@ -732,6 +732,7 @@ window.openProxyModal = async function(id, initialTab, secTab, opts = {}) {
     ['Statique', '#94a3b8', 'avance', cfg.static?.enabled],
     ['Schéma requête', '#fb923c', 'avance', cfg.request_schema?.enabled],
     ['OpenAPI', '#fb923c', 'avance', cfg.openapi?.enabled],
+    ['Surface', '#2dd4bf', 'avance', cfg.surface?.mode === 'learn'],
     ['gRPC REST', '#60a5fa', 'avance', cfg.grpc_transcode?.enabled],
   ].filter(f => on(f[3]));
   const score = typeof computeProxyHeaderScore === 'function' && id ? computeProxyHeaderScore(cfg) : null;
@@ -1331,11 +1332,13 @@ window.openProxyModal = async function(id, initialTab, secTab, opts = {}) {
   const modeSwitch = id ? '' : `<div class="pm-mode"><button type="button" data-mode="simple" onclick="pmSetMode('simple')">Simple</button><button type="button" data-mode="advanced" onclick="pmSetMode('advanced')">Avancé</button></div>`;
   const pmTools = `<div class="pm-srch"><input id="pm-q" class="input" placeholder="Aller à un réglage…" autocomplete="off" aria-label="Rechercher un réglage"><kbd>Ctrl K</kbd><div id="pm-pop" class="pm-pop" hidden></div></div>
     <div class="pm-view"><button type="button" class="on" data-view="flow">Parcours</button><button type="button" data-view="yaml">YAML</button></div>`;
-  const headerRight = modeSwitch + pmTools + `<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;cursor:pointer;">
+  const headerRight = modeSwitch + pmTools + Expert.switchHtml() + `<label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;cursor:pointer;">
     <label class="toggle"><input type="checkbox" id="p-enabled" ${existing?.enabled!==false?'checked':''}><span class="toggle-slider"></span></label>
     <span style="color:var(--text2);">Activé</span>
   </label>`;
-  modal(cloning ? 'Dupliquer le proxy' : id ? 'Modifier le proxy' : 'Nouveau proxy', body, footer, true, headerRight);
+  const editedHost = id ? (cfg.host || existing?.host || '') : '';
+  const title = cloning ? 'Dupliquer le proxy' : id ? 'Modifier le proxy' : 'Nouveau proxy';
+  modal(editedHost ? `${title} <span style="font-weight:400;color:var(--text2);font-family:ui-monospace,monospace;font-size:.85em;margin-left:6px;">${esc(editedHost)}</span>` : title, body, footer, true, headerRight);
   document.querySelector('#modal-overlay .dialog')?.classList.add('pm-dialog');
   window._pmMount({ active, score, gradeColor });
   if (!id) {
@@ -2266,6 +2269,7 @@ window.pmSetMode = function(mode) {
   if (mode === 'simple') _pmSimpleRefresh(); else _pmSimpleApply();
   shell.classList.toggle('is-simple', mode === 'simple');
   document.querySelectorAll('.pm-mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  document.querySelectorAll('.expert-switch').forEach(el => { el.style.display = mode === 'simple' ? 'none' : ''; });
   try { localStorage.setItem('gpx_proxy_mode', mode); } catch {}
   if (mode !== 'simple') switchProxyTab(window._pmCurId || 'general');
 };

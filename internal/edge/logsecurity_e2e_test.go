@@ -27,50 +27,10 @@ func (g *streamGateway) addAccess(prefix string, n int, flagged bool) {
 	g.logStore.Flush()
 }
 
-// L'Admin ne reçoit que les événements de sécurité : les accès ordinaires restent dans la base de la passerelle, le
-// curseur avance quand même, et rien ne se perd ni ne se double à travers une coupure.
-func TestSecurityOnlyStreamKeepsOrdinaryAccessOnTheGateway(t *testing.T) {
-	dir := t.TempDir()
-	gw := newStreamGateway(t, filepath.Join(dir, "gw"))
-	admin := newAdminSide(t, dir)
-	t.Cleanup(admin.stop)
 
-	gw.addAccess("ordinaire", 300, false)
-	gw.addAccess("attaque", 5, true)
-	gw.addAccess("ordinaire2", 100, false)
-	admin.start(t, gw.url)
-	waitUntil(t, "les 5 événements de sécurité", func() bool { return admin.count(t, `path LIKE '/attaque/%'`) == 5 })
-	waitUntil(t, "le curseur à la fin de la base", func() bool {
-		c, _ := admin.store.StreamCursor(streamEdgeID, "access")
-		return c == gw.logStore.LastID(logstore.KindAccess)
-	})
-	if n := admin.count(t, `path LIKE '/ordinaire%'`); n != 0 {
-		t.Fatalf("%d accès ordinaires reçus", n)
-	}
-
-	// Une coupure : des événements arrivent pendant ce temps, les accès ordinaires aussi.
-	admin.stop()
-	waitUntil(t, "déconnexion de l'Admin", func() bool { return !gw.wsHub.HasAdmin(streamEdgeID) })
-	gw.addAccess("ordinaire3", 50, false)
-	gw.addAccess("attaque2", 3, true)
-	admin.start(t, gw.url)
-	waitUntil(t, "les 3 événements de la coupure", func() bool { return admin.count(t, `path LIKE '/attaque2/%'`) == 3 })
-	if n := admin.count(t, `path LIKE '/attaque/%'`); n != 5 {
-		t.Errorf("%d événements d'avant la coupure, attendu 5 (doublons ou pertes)", n)
-	}
-	if n := admin.count(t, `path LIKE '/ordinaire%'`); n != 0 {
-		t.Errorf("%d accès ordinaires reçus après la reprise", n)
-	}
-
-	// Le curseur a dépassé les lignes écartées, c'est voulu : elles restent consultables sur la passerelle.
-	if n, _ := gw.logStore.Search(t.Context(), logstore.Query{Kinds: []logstore.Kind{logstore.KindAccess}, Path: "/ordinaire", Limit: 1000}); len(n.Rows) != 450 {
-		t.Errorf("la passerelle garde %d accès ordinaires, attendu 450", len(n.Rows))
-	}
-}
-
-// Une vue Live ouverte fait envoyer par la passerelle ses nouvelles lignes, sans qu'elles soient enregistrées ;
-// sans vue ouverte, la passerelle n'envoie rien.
-func TestLiveViewReceivesGatewayRowsOnDemand(t *testing.T) {
+// Avec le volume de logs de l'Admin, la vue Live est alimentée par les lignes qui arrivent : la passerelle n'a pas de
+// suivi de sa base à faire pour elle, et les lignes ne sont pas enregistrées dans la table logs de l'Admin.
+func TestLiveViewReceivesGatewayRowsAsTheyArrive(t *testing.T) {
 	dir := t.TempDir()
 	gw := newStreamGateway(t, filepath.Join(dir, "gw"))
 	admin := newAdminSide(t, dir)
@@ -80,20 +40,8 @@ func TestLiveViewReceivesGatewayRowsOnDemand(t *testing.T) {
 
 	_, ch, cancel := admin.store.Subscribe()
 	defer cancel()
-	gw.addAccess("sans-vue", 5, false)
-	select {
-	case e := <-ch:
-		t.Fatalf("ligne reçue sans vue Live : %s", e.Path)
-	case <-time.After(700 * time.Millisecond):
-	}
-
 	release := admin.manager.AcquireLive()
 	defer release()
-	waitUntil(t, "l'abonnement de la passerelle", func() bool {
-		gw.logLive.mu.Lock()
-		defer gw.logLive.mu.Unlock()
-		return len(gw.logLive.subs) == 1
-	})
 	gw.addAccess("en-direct", 6, false)
 	seen := map[string]bool{}
 	deadline := time.After(10 * time.Second)
@@ -106,11 +54,15 @@ func TestLiveViewReceivesGatewayRowsOnDemand(t *testing.T) {
 		}
 	}
 	if n := admin.count(t, `path LIKE '/en-direct/%'`); n != 0 {
-		t.Errorf("%d lignes Live enregistrées : elles ne doivent que passer", n)
+		t.Errorf("%d lignes Live enregistrées dans la table logs : elles ne doivent que passer", n)
 	}
-	if seen["/sans-vue/1"] {
-		t.Error("une ligne d'avant l'ouverture de la vue est arrivée")
+	gw.logLive.mu.Lock()
+	n := len(gw.logLive.subs)
+	gw.logLive.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d suivis de la base ouverts sur la passerelle : le flux suffit", n)
 	}
+	waitUntil(t, "les lignes dans le volume de logs", func() bool { return admin.vaultCount(t, streamEdgeID, "/en-direct") == 6 })
 }
 
 // La passerelle annonce son débit récent à l'Admin, qui le sert à la carte de topologie.

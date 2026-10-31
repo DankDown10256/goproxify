@@ -77,7 +77,7 @@ type BanCallback func(ip, reason string, expires time.Time, signals []router.Ban
 // Engine est le moteur WAF.
 type Engine struct {
 	mu      sync.RWMutex
-	rules   []Rule   // règles par défaut + custom compilées
+	rules   []Rule // règles par défaut + custom compilées
 	exclude map[int]bool
 	log     *slog.Logger
 
@@ -158,16 +158,16 @@ var platformExcludeIDs = map[string][]int{
 	"ghost":      {941100, 941110, 941120},
 	"strapi":     {941100, 942100, 942110},
 	// Frameworks
-	"nextjs":   {942100, 942110, 934200, 934210},
-	"laravel":  {942100, 942110, 942120},
-	"symfony":  {942100, 942110, 942120},
-	"django":   {942100, 942110},
+	"nextjs":  {942100, 942110, 934200, 934210},
+	"laravel": {942100, 942110, 942120},
+	"symfony": {942100, 942110, 942120},
+	"django":  {942100, 942110},
 	// Collaboration & fichiers
-	"nextcloud":   {941100, 930100, 930110},
-	"dokuwiki":    {941100, 941110},
-	"mattermost":  {941100, 942100},
-	"discourse":   {941100, 941110, 941120},
-	"rocketchat":  {941100, 942100},
+	"nextcloud":  {941100, 930100, 930110},
+	"dokuwiki":   {941100, 941110},
+	"mattermost": {941100, 942100},
+	"discourse":  {941100, 941110, 941120},
+	"rocketchat": {941100, 942100},
 	// DevOps & Infra
 	"gitea":     {941100, 941110, 942100, 930100},
 	"forgejo":   {941100, 941110, 942100, 930100},
@@ -193,11 +193,6 @@ func (e *Engine) reload(cfg *router.WAFConfig) {
 	if cfg != nil {
 		for _, id := range cfg.ExcludeIDs {
 			exclude[id] = true
-		}
-		for _, p := range cfg.ExcludePlatforms {
-			for _, id := range platformExcludeIDs[p] {
-				exclude[id] = true
-			}
 		}
 		if len(cfg.CustomRules) > 0 {
 			custom, err := CompileCustomRules(cfg.CustomRules)
@@ -374,11 +369,13 @@ func (e *Engine) inspectResponse(body string, routeRules []Rule, excludeIDs []in
 func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handler {
 	maxBody := int64(DefaultMaxBodyBytes)
 	var excludeIDs []int
+	var pathExcl []pathExclusion
 	if cfg != nil {
 		if cfg.MaxBodyMB > 0 {
 			maxBody = int64(cfg.MaxBodyMB) << 20
 		}
 		excludeIDs = cfg.ExcludeIDs
+		pathExcl = compileExclusions(cfg.Exclusions)
 	}
 	block := cfg == nil || cfg.Mode != "detect"
 	anomalyThreshold := 0
@@ -446,13 +443,17 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 		}
 
 		// ── Étape 2 : inspection WAF requête ─────────────────────────────
+		// Les exclusions par chemin ne valent que sous leurs chemins : partout ailleurs la règle reste active.
+		excludeIDs := excludeForPath(excludeIDs, pathExcl, r.URL.Path)
 		matches := e.inspect(r, maxBody, routeRules, excludeIDs)
 
 		wafScore := 0
 		for _, m := range matches {
 			wafScore += m.AnomalyScore
 		}
-		behavior.ObservationFrom(r.Context()).NoteWAFScore(wafScore)
+		obs := behavior.ObservationFrom(r.Context())
+		obs.NoteWAFScore(wafScore)
+		obs.NoteWAFHits(wafHits(matches)...)
 
 		triggered := false
 		if len(matches) > 0 {
@@ -492,6 +493,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			}
 
 			if triggered && block {
+				obs.NoteWAFBlocked()
 				if behaviorEnabled {
 					e.postRecord(host, ip, r, wafScore, http.StatusForbidden, behaviorWindowSec, behaviorThreshold, block)
 				}
@@ -514,6 +516,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			next.ServeHTTP(rc, r)
 
 			respMatches := e.inspectResponse(rc.buf.String(), routeRules, excludeIDs)
+			obs.NoteWAFHits(wafHits(respMatches)...)
 			for _, m := range respMatches {
 				action := "detect"
 				if block {
@@ -531,6 +534,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			}
 			if len(respMatches) > 0 && block {
 				// La réponse n'a pas encore été envoyée : on peut encore bloquer.
+				obs.NoteWAFBlocked()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				if behaviorEnabled {
 					e.postRecord(host, ip, r, wafScore+respMatches[0].AnomalyScore, rc.status, behaviorWindowSec, behaviorThreshold, block)
@@ -950,4 +954,13 @@ func (e *Engine) WatchCustomRulesFile(ctx context.Context, path string) {
 			reload()
 		}
 	}
+}
+
+// wafHits convertit des correspondances en règles consignées sur l'observation de la requête.
+func wafHits(ms []Match) []behavior.WAFHit {
+	out := make([]behavior.WAFHit, len(ms))
+	for i, m := range ms {
+		out[i] = behavior.WAFHit{RuleID: m.RuleID, Category: m.Category, Message: m.Message, Target: m.Target}
+	}
+	return out
 }

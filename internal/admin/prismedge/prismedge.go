@@ -66,8 +66,15 @@ var ErrNoGateway = errors.New("prismedge: aucune passerelle à interroger")
 
 // ErrUnsupported : toutes les passerelles interrogées sont d'une version qui ne sait pas faire ce calcul.
 var ErrUnsupported = errors.New("prismedge: passerelles trop anciennes pour ce calcul")
-
+// targets désigne les passerelles à interroger pour des lignes de logs : toutes, ou celle du filtre.
 func (s *Source) targets(ctx context.Context, p analytics.Params) ([]edgeproxy.Target, error) {
+	return s.memberTargets(ctx, p)
+}
+// targets désigne les passerelles à interroger pour des lignes de logs : toutes, ou celle du filtre.func (s *Source) targets(ctx context.Context, p analytics.Params) ([]edgeproxy.Target, error) {	return s.memberTargets(ctx, p)}
+
+// memberTargets désigne les passerelles une à une : pour ce que chaque passerelle fait de son propre trafic (simulation
+// Ephor, références apprises), où un pair ne répond pas à sa place.
+func (s *Source) memberTargets(ctx context.Context, p analytics.Params) ([]edgeproxy.Target, error) {
 	all, err := edgeproxy.ListTargets(ctx, s.DB)
 	if err != nil {
 		return nil, err
@@ -580,7 +587,8 @@ func (s *Source) fetchLines(ctx context.Context, lp logapi.Params, node string, 
 				}
 				partials[i] = partials[i] || r.Partial
 				for _, e := range r.Entries {
-					results[i] = append(results[i], Line{Node: targets[i].NodeName, Entry: e})
+					node := targets[i].NodeName
+					results[i] = append(results[i], Line{Node: node, Entry: e})
 				}
 				if !r.HasMore {
 					return
@@ -669,7 +677,7 @@ type EphorSim struct {
 
 // SimulateEphor rejoue les accès récents de chaque passerelle contre la configuration actuelle et la candidate.
 func (s *Source) SimulateEphor(ctx context.Context, current, candidate threat.Config, hours int, domain string) (EphorSim, error) {
-	targets, err := s.targets(ctx, analytics.Params{})
+	targets, err := s.memberTargets(ctx, analytics.Params{})
 	if err != nil {
 		return EphorSim{}, err
 	}
@@ -725,7 +733,7 @@ type GatewayReferences struct {
 
 // EphorReferences demande à chaque passerelle (ou à celle de nodeName) ce qu'elle a appris pour la note commune d'Ephor.
 func (s *Source) EphorReferences(ctx context.Context, nodeName string) ([]GatewayReferences, Meta, error) {
-	targets, err := s.targets(ctx, analytics.Params{NodeName: nodeName})
+	targets, err := s.memberTargets(ctx, analytics.Params{NodeName: nodeName})
 	if err != nil {
 		return nil, Meta{}, err
 	}

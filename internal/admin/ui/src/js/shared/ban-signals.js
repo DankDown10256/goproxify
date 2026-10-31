@@ -25,6 +25,12 @@ function banSignalsHTML(signals) {
   return `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px" title="${esc(t('bansig.total', { n: banSignalPoints(total) }))}">${chips}</div>`;
 }
 
+// Le User-Agent que la passerelle a vu en dernier pour l'IP au moment du ban automatique.
+function banUserAgentHTML(ua) {
+  if (!ua) return '';
+  return `<div class="tr-mono" style="margin-top:4px;font-size:10.5px;color:var(--text3);word-break:break-all" title="${esc(t('trace.ua'))}">${esc(ua)}</div>`;
+}
+
 // Une ligne par signal : nom, points et valeur observée en clair.
 function banSignalsDetailHTML(signals) {
   if (!Array.isArray(signals) || !signals.length) return '';

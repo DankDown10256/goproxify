@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,5 +94,40 @@ func TestHandleThreatBanStoresAndRelaysTheSignals(t *testing.T) {
 	list, _ = m.loadActiveBans(context.Background(), nil)
 	if len(list) != 1 || len(list[0].Signals) != 1 || list[0].Signals[0].Name != "rate" {
 		t.Fatalf("explication non remplacée : %+v", list)
+	}
+}
+
+func TestHandleBansStoreTheUserAgentThatCausedThem(t *testing.T) {
+	db, err := admindb.Open(filepath.Join(t.TempDir(), "admin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	m := NewManager("", db, slog.Default())
+	exp := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+
+	raw, _ := json.Marshal(edgeWS.ThreatBanPayload{IP: "203.0.113.1", Reason: "threat: ua", ExpiresAt: exp, NodeName: "paris",
+		UserAgent: "sqlmap/1.7\r\n" + strings.Repeat("x", 500)})
+	m.handleThreatBan(raw)
+	raw, _ = json.Marshal(edgeWS.F2BBanPayload{ID: "f2b-1", IP: "203.0.113.2", Reason: "trop d'erreurs", ExpiresAt: exp, NodeName: "paris", UserAgent: "curl/8.0"})
+	m.handleF2BBan(raw)
+
+	for ip, want := range map[string]string{"203.0.113.1": "sqlmap/1.7??" + strings.Repeat("x", 300-len("sqlmap/1.7??")), "203.0.113.2": "curl/8.0"} {
+		var inBans, inHistory string
+		db.QueryRow(`SELECT user_agent FROM security_bans WHERE ip = ?`, ip).Scan(&inBans)
+		db.QueryRow(`SELECT user_agent FROM security_ban_history WHERE ip = ?`, ip).Scan(&inHistory)
+		if inBans != want || inHistory != want {
+			t.Errorf("%s : bans=%q historique=%q, attendu %q", ip, inBans, inHistory, want)
+		}
+	}
+
+	list, err := m.loadActiveBans(context.Background(), nil)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("%v %+v", err, list)
+	}
+	for _, b := range list {
+		if b.IP == "203.0.113.2" && b.UserAgent != "curl/8.0" {
+			t.Errorf("le ban renvoyé à la passerelle perd son User-Agent : %+v", b)
+		}
 	}
 }

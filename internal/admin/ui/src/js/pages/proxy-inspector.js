@@ -66,9 +66,10 @@ async function renderProxyInspector() {
   const proxiesPath = pxiScope.lock && pxiScope.node_name
     ? `/proxies?edge=${encodeURIComponent(pxiScope.node_name)}`
     : '/proxies';
-  const [proxiesRaw, metrics0] = await Promise.all([
+  const [proxiesRaw, metrics0, containersRaw] = await Promise.all([
     api('GET', proxiesPath).catch(() => []),
     api('GET', '/metrics/proxies?points=30').catch(() => null),
+    api('GET', '/discovered-containers').catch(() => []),
   ]);
   if (seq !== _pxiLoadSeq || !document.getElementById('content')) return;
 
@@ -81,8 +82,24 @@ async function renderProxyInspector() {
     const cfg = getCfg(p);
     const domain = cfg.host || p.host || p.name || p.id || '';
     const backends = (cfg.backends || p.backends || []).map(b => b.url || b).filter(Boolean);
-    return { id: p.id, domain, name: p.name || '', backends, enabled: p.enabled !== false };
+    return { id: p.id, domain, name: p.name || '', backends, enabled: p.enabled !== false, aliases: cfg.aliases || [] };
   }).filter(p => p.domain);
+
+  // Les routes issues des labels d'un conteneur sont des domaines servis comme les proxies. Un hôte déjà servi
+  // par un proxy configuré reste celui du proxy ; un conteneur arrêté n'a pas de route.
+  const served = new Set(proxies.flatMap(p => [p.domain, ...p.aliases]).map(h => String(h).trim().toLowerCase()));
+  const edgeFilter = pxiScope.lock ? pxiScope.node_name : '';
+  for (const c of Array.isArray(containersRaw) ? containersRaw : []) {
+    if (c.inactive || c.shadowed_by) continue;
+    if (edgeFilter && (c.edge_name || c.edge_label) !== edgeFilter) continue;
+    const backends = (c.backends || []).map(b => b.url || b).filter(Boolean);
+    for (const host of [c.host, ...(c.aliases || [])]) {
+      const key = String(host || '').trim().toLowerCase();
+      if (!key || served.has(key)) continue;
+      served.add(key);
+      proxies.push({ id: '', domain: host, name: c.name || '', backends, enabled: !c.disabled, container: true });
+    }
+  }
   const byDomain = new Map(proxies.map(p => [p.domain, p]));
   pxiSelected = pxiSelected.filter(d => byDomain.has(d));
 
@@ -223,6 +240,7 @@ async function renderProxyInspector() {
       return `<button type="button" class="pxi-sg${i === sgHl ? ' hl' : ''}" data-pxi-add="${esc(p.domain)}">
         <span class="pxi-dot" style="background:${dot.c}"></span>
         <span class="pxi-sg-main"><span class="pxi-sg-name">${esc(p.domain)}</span><span class="pxi-sg-sub mono">${esc(p.backends[0] || '—')}</span></span>
+        ${p.container ? `<span class="chip">${esc(t('pxi.container'))}</span>` : ''}
       </button>`;
     }).join('');
   }
@@ -260,11 +278,12 @@ async function renderProxyInspector() {
         btn.disabled = false;
       }
     } else if (act === 'maintenance') {
-      if (!p.id) return;
+      if (!p.id && !p.container) return;
       const nextEnabled = !p.enabled;
       btn.disabled = true;
       try {
-        await api('PATCH', `/proxies/${encodeURIComponent(p.id)}`, { enabled: nextEnabled });
+        if (p.container) await api('PUT', '/discovered-containers/enabled', { host: p.domain, enabled: nextEnabled });
+        else await api('PATCH', `/proxies/${encodeURIComponent(p.id)}`, { enabled: nextEnabled });
         p.enabled = nextEnabled;
         toast(nextEnabled ? t('pxi.reactivate_done') : t('pxi.maintenance_done'), 'success');
         renderBar();
@@ -298,6 +317,7 @@ async function renderProxyInspector() {
         <div class="pxi-tile-head">
           <span class="pxi-dot" style="background:${dot.c}" title="${esc(dot.label)}"></span>
           <span class="pxi-tile-name" title="${esc(d)}">${esc(d)}</span>
+          ${p.container ? `<span class="chip">${esc(t('pxi.container'))}</span>` : ''}
           <button type="button" class="chip-x" data-pxi-remove="${esc(d)}" aria-label="${esc(t('pxi.remove'))}" title="${esc(t('pxi.remove'))}">×</button>
         </div>
         <div class="pxi-tile-sub mono" title="${esc(p.backends.join(', '))}">${esc((p.backends[0] || '—') + extra)}${pxiScope.node_name ? ' · ' + esc(pxiScope.node_name) : ''}</div>
@@ -310,7 +330,7 @@ async function renderProxyInspector() {
         <div class="pxi-tile-actions">
           ${btn('logs', icoLogs, t('pxi.act_logs'))}
           ${btn('prism', icoFull, t('pxi.act_full'))}
-          ${btn('purge-cache', icoPurge, t('pxi.act_purge'))}
+          ${p.container ? '' : btn('purge-cache', icoPurge, t('pxi.act_purge'))}
           ${btn('maintenance', p.enabled ? icoPause : icoPlay, maintLabel)}
           ${btn('bans', icoBan, t('pxi.act_bans'))}
         </div>

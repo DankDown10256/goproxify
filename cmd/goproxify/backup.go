@@ -138,6 +138,7 @@ func runBackup() {
 		}
 		var st struct {
 			KeySet         bool       `json:"key_set"`
+			LauncherImage  string     `json:"launcher_image"`
 			LastSnapshotAt *time.Time `json:"last_snapshot_at"`
 			LastVerifiedAt *time.Time `json:"last_verified_at"`
 			Stale          []string   `json:"stale"`
@@ -155,6 +156,9 @@ func runBackup() {
 			os.Exit(1)
 		}
 		fmt.Printf("Clé GPX_BACKUP_KEY (secrets inclus) : %v\n", st.KeySet)
+		if st.LauncherImage != "" {
+			fmt.Printf("Image du launcher (reconstruction de l'Admin) : %s\n", st.LauncherImage)
+		}
 		fmt.Printf("Dernier snapshot : %s\n", fmtOptTime(st.LastSnapshotAt))
 		fmt.Printf("Dernière vérification : %s\n", fmtOptTime(st.LastVerifiedAt))
 		for _, n := range st.Stale {

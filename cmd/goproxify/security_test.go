@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,5 +90,15 @@ func TestTracePath(t *testing.T) {
 	}
 	if p != "/api/v1/security/ip-trace?from=2026-01-01&order=desc&target=203.0.113.0%2F24" {
 		t.Errorf("chemin : %s", p)
+	}
+}
+
+func TestFormatTraceShowsTheUserAgentOfABan(t *testing.T) {
+	out := formatTrace(map[string]any{
+		"target": "203.0.113.7", "kind": "ip", "summary": map[string]any{},
+		"steps": []any{map[string]any{"kind": "ban", "ts": "2026-10-25T10:00:00Z", "ip": "203.0.113.7", "source": "threat", "reason": "threat: ua", "user_agent": "sqlmap/1.7"}},
+	})
+	if !strings.Contains(out, "User-Agent : sqlmap/1.7") {
+		t.Errorf("User-Agent absent :\n%s", out)
 	}
 }

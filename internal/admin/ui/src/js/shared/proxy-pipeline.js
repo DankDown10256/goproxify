@@ -90,6 +90,7 @@
   prout('graphql', 'sec', 'Garde-fous GraphQL', 'introspection profondeur alias');
   prout('request_schema', 'sec', 'Validation JSON Schema', 'schema json requête');
   prout('openapi', 'sec', 'Validation OpenAPI', 'swagger spécification');
+  prout('surface', 'sec', 'Apprentissage de la surface', 'surface profil chemins méthodes apprentissage learn');
 
   item('locations', 'route', 'Locations — routage par chemin', '#p-locations-list', {
     kw: 'chemin path prefix regex rewrite réécriture', on: () => count('.p-loc-row') > 0, short: 'Locations',
@@ -210,11 +211,19 @@
 
   const byId = Object.fromEntries(items.map(i => [i.id, i]));
   const stageOf = id => STAGES.find(s => s.id === byId[id].stage);
+  // Réglages rarement utilisés, masqués hors mode expert (core/expert.js) — sauf s'ils sont configurés ou ouverts.
+  ['limit_conn', 'signed_url', 'graphql', 'request_schema', 'openapi', 'surface',
+    'conditions', 'split', 'static', 'grpc_web', 'grpc_transcode',
+    'redirects', 'cookies', 'subfilters', 'reqvars', 'cache_adv', 'redact_json', 'html_inject',
+    'backpressure', 'bandwidth', 'slowstart', 'canary', 'hedge', 'quickerr',
+  ].forEach(id => { byId[id].expert = true; });
+
   const flow = STAGES.flatMap(s => items.filter(i => i.stage === s.id));
   const last = {};
   let cur = null, timer = 0, poppedHits = [], hi = 0;
 
   const isOn = it => !!(it.on ? it.on() : it.always);
+  const shown = it => !!it.card && (!it.expert || Expert.on || isOn(it) || it.id === cur);
   const shortOf = it => { const s = typeof it.short === 'function' ? it.short() : it.short; return s || it.title };
   const esc2 = s => (typeof esc === 'function' ? esc(s) : String(s ?? ''));
 
@@ -243,10 +252,11 @@
     const list = $('pm-list');
     if (!list || !cur) return;
     const s = stageOf(cur);
-    list.innerHTML = `<div class="pm-ls-h"><h2>${s.label}</h2><p>${s.desc}</p></div>` + items.filter(i => i.stage === s.id && i.card).map(i => {
+    const hidden = items.filter(i => i.stage === s.id && i.card && !shown(i)).length;
+    list.innerHTML = `<div class="pm-ls-h"><h2>${s.label}</h2><p>${s.desc}</p></div>` + items.filter(i => i.stage === s.id && shown(i)).map(i => {
       const tg = i.toggle?.();
       return `<div class="pm-li${i.id === cur ? ' sel' : ''}${isOn(i) ? ' on' : ''}" data-pm-sel="${i.id}"><span class="pm-li-dot"></span><div class="pm-li-m"><div class="pm-li-t">${esc2(i.title)}</div><div class="pm-li-s">${esc2(i.sum ? i.sum() : '')}</div></div>${tg ? `<label class="toggle pm-lt"><input type="checkbox" data-pm-tg="${i.id}" ${tg.checked ? 'checked' : ''}><span class="toggle-slider"></span></label>` : ''}</div>`;
-    }).join('');
+    }).join('') + (hidden ? `<button type="button" class="pm-more" data-pm-expert>${hidden} réglage${hidden > 1 ? 's' : ''} avancé${hidden > 1 ? 's' : ''} masqué${hidden > 1 ? 's' : ''} — afficher (mode expert)</button>` : '');
     list.querySelector('.sel')?.scrollIntoView({ block: 'nearest' });
   }
 
@@ -255,7 +265,7 @@
     if (!it?.card || !detail) return;
     if (cur && byId[cur].card) stash.appendChild(byId[cur].card);
     cur = id; last[it.stage] = id; window._pmCurId = id;
-    const s = stageOf(id), k = flow.indexOf(it), p = flow[k - 1], n = flow[k + 1];
+    const seq = flow.filter(shown), s = stageOf(id), k = seq.indexOf(it), p = seq[k - 1], n = seq[k + 1];
     detail.className = 'pm-detail' + (it.full ? ' is-full' : '');
     document.querySelector('.pm-shell')?.classList.toggle('has-full', !!it.full);
     detail.innerHTML = '';
@@ -305,7 +315,7 @@
   function renderPop() {
     const pop = $('pm-pop');
     pop.innerHTML = poppedHits.length
-      ? poppedHits.map((i, k) => `<button type="button" class="pm-r${k === hi ? ' h' : ''}" data-pm-sel="${i.id}">${esc2(i.title)}<small>${stageOf(i.id).label} · ${esc2(i.sum ? i.sum() : '')}</small></button>`).join('')
+      ? poppedHits.map((i, k) => `<button type="button" class="pm-r${k === hi ? ' h' : ''}" data-pm-sel="${i.id}">${esc2(i.title)}${shown(i) ? '' : '<span class="pm-x">expert</span>'}<small>${stageOf(i.id).label} · ${esc2(i.sum ? i.sum() : '')}</small></button>`).join('')
       : '<div class="pm-none">Aucun réglage ne correspond.</div>';
     pop.hidden = false;
   }
@@ -322,6 +332,7 @@
 
     root.addEventListener('click', e => {
       if (e.target.closest('.toggle')) return;
+      if (e.target.closest('[data-pm-expert]')) { Expert.set(true); return; }
       const st = e.target.closest('[data-pm-stage]');
       if (st) { show(last[st.dataset.pmStage]); return; }
       const sel = e.target.closest('[data-pm-sel]');
@@ -354,6 +365,7 @@
 
   if (!window._pmKeys) {
     window._pmKeys = true;
+    document.addEventListener('gpx:expert', refresh);
     document.addEventListener('keydown', e => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && $('pm-q')) { e.preventDefault(); $('pm-q').focus(); }
     });

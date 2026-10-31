@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GoProxify — concevoir l'infrastructure</title>
+<style>{{.CSS}}</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="top">
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 38 38" aria-hidden="true"><rect width="38" height="38" rx="10" fill="var(--accent)"/><path d="M11 25V13l8 6 8-6v12" fill="none" stroke="var(--accent-fg)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><h1>GoProxify</h1><p class="muted">Concevoir et installer l'infrastructure</p></div>
+  </div>
+  <span class="pill pill-warn" title="Cette page installe des conteneurs sur ce serveur">Accès root</span>
+</header>
+
+<div class="callout warn" role="note"><b>Cette page installe des conteneurs sur ce serveur.</b> Le code d'accès circule en clair sur le réseau local (HTTP) : ne l'ouvrez que depuis un réseau de confiance, ou publiez le port sur <code>127.0.0.1</code> et passez par un tunnel. <b>L'Admin est unique et se trouve sur l'hôte de ce launcher</b> : c'est lui qui référence les autres hôtes.</div>
+<p id="note" class="muted"></p>
+
+<div class="layout">
+<div class="col-form">
+
+  <section class="card" aria-labelledby="t-source">
+    <h2 id="t-source"><span class="num">1</span> Point de départ</h2>
+    <div class="seg" role="tablist" aria-label="Point de départ">
+      <button type="button" role="tab" id="src-new" aria-selected="true">Nouvelle installation</button>
+      <button type="button" role="tab" id="src-restore" aria-selected="false">Depuis une sauvegarde</button>
+    </div>
+    <div id="restore-form" hidden>
+      <p class="muted">Pour un Admin perdu dont les passerelles tournent encore : le launcher reprend de la sauvegarde le secret racine, le certificat et la topologie, et installe un Admin que les hôtes en place reconnaissent. Les données (comptes, proxys, règles) se restaurent ensuite dans l'Admin.</p>
+      <div class="grid" style="margin-top:10px">
+        <label class="f">Fichier de sauvegarde<input type="file" id="bk-file"></label>
+        <label class="f">Clé de sauvegarde<input type="password" id="bk-key" autocomplete="off"></label>
+      </div>
+      <p><button type="button" class="sec" id="bk-load">Lire la sauvegarde</button></p>
+    </div>
+    <div id="restore-info"></div>
+  </section>
+
+  <section class="card" id="hostsbox" aria-labelledby="t-hosts">
+    <h2 id="t-hosts"><span class="num">2</span> Hôtes</h2>
+    <p class="muted">Déclarez les machines et leurs rôles. Ce launcher installe celle sur laquelle il tourne ; les autres sont déclarées dans l'Admin, qui affichera pour chacune un QR code d'installation.</p>
+    <div id="hosts"></div>
+    <button type="button" class="ghost" id="add">+ Ajouter un hôte</button>
+  </section>
+
+  <section class="card" aria-labelledby="t-account">
+    <h2 id="t-account"><span class="num">3</span> <span id="email-title">Premier compte administrateur</span></h2>
+    <label class="f">Courriel<input type="email" id="email" autocomplete="off"></label>
+    <p><small id="email-hint">Le mot de passe est généré et affiché une seule fois à la fin.</small></p>
+  </section>
+
+  <div class="actions">
+    <button type="button" class="sec" id="check">Vérifier (simulation)</button>
+    <button type="button" class="btn-main" id="install">Installer cet hôte</button>
+  </div>
+
+  <div id="msg" role="status" aria-live="polite"></div>
+  <div id="plan"></div>
+  <div id="progress"></div>
+  <div id="report"></div>
+</div>
+
+<aside class="col-diagram" aria-label="Schéma de l'infrastructure">
+  <section class="card diagram">
+    <div class="diagram-head">
+      <h2>Schéma</h2>
+      <div class="tabs" role="tablist" aria-label="Format du schéma">
+        <button type="button" role="tab" id="dg-tab-img" aria-selected="true">Dessin</button>
+        <button type="button" role="tab" id="dg-tab-src" aria-selected="false">Mermaid</button>
+      </div>
+    </div>
+    <div id="dg-view"><div class="empty">Ajoutez un hôte pour voir le schéma.</div></div>
+    <div id="dg-src" hidden>
+      <pre id="mm-src" tabindex="0"></pre>
+      <p style="margin-top:10px"><button type="button" class="sec" id="mm-copy">Copier le texte Mermaid</button>
+      <small id="mm-hint"> À coller dans une doc, un ADR ou <span class="mono">mermaid.live</span>.</small></p>
+    </div>
+    <ul class="legend" aria-label="Légende">
+      <li><i style="--c:var(--admin)"></i>Admin</li>
+      <li><i style="--c:var(--edge)"></i>Passerelle</li>
+      <li><i style="--c:var(--agent)"></i>Agent</li>
+      <li><i class="ln dash" style="--c:var(--admin)"></i>pilote</li>
+      <li><i class="ln" style="--c:var(--agent)"></i>annonce ses routes</li>
+      <li><i class="ln dash" style="--c:var(--edge)"></i>pair HA</li>
+    </ul>
+  </section>
+</aside>
+</div>
+</div>
+
+<script nonce="{{.Nonce}}">
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var hostsEl = $("hosts"), msg = $("msg");
+  var ROLES = [["admin", "Admin"], ["edge", "Passerelle"], ["agent", "Agent"]];
+  var defaultEmail = "", restoreEmail = "";
+  var restore = null; // {hosts: [...]} une fois une sauvegarde lue : la topologie est la sienne, on ne dit que laquelle est cette machine
+  var mermaidSrc = "";
+
+  function el(tag, attrs, children) {
+    var e = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === "text") e.textContent = attrs[k]; else e.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { e.appendChild(c); });
+    return e;
+  }
+
+  function say(text, cls) {
+    msg.textContent = text || "";
+    msg.className = cls || "";
+  }
+
+  function call(method, url, body) {
+    var opt = { method: method, headers: {}, credentials: "same-origin" };
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(url, opt).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ("erreur " + r.status));
+        return j;
+      });
+    });
+  }
+
+  function list(items) {
+    var ul = el("ul", { "class": "plain" });
+    items.forEach(function (t) { ul.appendChild(el("li", { text: t })); });
+    return ul;
+  }
+
+  function copy(text, done) {
+    function fallback() {
+      var ta = el("textarea", { "aria-hidden": "true" });
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      done(ok);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else { fallback(); }
+  }
+
+  function busy(on) {
+    ["check", "install", "add", "bk-load"].forEach(function (id) { $(id).disabled = on; });
+  }
+
+  // ── Schéma ────────────────────────────────────────────────────────────────
+  var dgTimer = null, dgSeq = 0;
+  function scheduleDiagram() {
+    clearTimeout(dgTimer);
+    dgTimer = setTimeout(refreshDiagram, 220);
+  }
+  function refreshDiagram() {
+    var seq = ++dgSeq;
+    call("POST", "/design/api/diagram", collect()).then(function (j) {
+      if (seq !== dgSeq) return;
+      var view = $("dg-view");
+      if (j.svg) { view.innerHTML = j.svg; }
+      else { view.textContent = ""; view.appendChild(el("div", { "class": "empty", text: "Ajoutez un hôte pour voir le schéma." })); }
+      mermaidSrc = j.mermaid || "";
+      $("mm-src").textContent = mermaidSrc;
+    }).catch(function () { /* on garde le dernier schéma : la saisie est peut-être incomplète */ });
+  }
+  function dgTab(src) {
+    $("dg-tab-img").setAttribute("aria-selected", String(!src));
+    $("dg-tab-src").setAttribute("aria-selected", String(src));
+    $("dg-view").hidden = src;
+    $("dg-src").hidden = !src;
+  }
+  $("dg-tab-img").addEventListener("click", function () { dgTab(false); });
+  $("dg-tab-src").addEventListener("click", function () { dgTab(true); });
+  $("mm-copy").addEventListener("click", function () {
+    var b = $("mm-copy"), old = b.textContent;
+    copy(mermaidSrc, function (ok) {
+      b.textContent = ok ? "Copié" : "Copie impossible : sélectionnez le texte";
+      setTimeout(function () { b.textContent = old; }, 1800);
+    });
+  });
+
+  // ── Hôtes ─────────────────────────────────────────────────────────────────
+  var localGroup = "launcher-local";
+  function labelled(label, name, value, placeholder) {
+    var input = el("input", { type: "text", "data-f": name, autocomplete: "off", placeholder: placeholder || "" });
+    input.value = value || "";
+    return el("label", { "class": "f", text: label }, [input]);
+  }
+
+  function addHost(h) {
+    h = h || { roles: ["edge", "agent"] };
+    var row = el("div", { "class": "host" });
+    var local = el("input", { type: "radio", name: localGroup, "data-f": "local" });
+    local.checked = !!h.local;
+    var rm = el("button", { type: "button", "class": "danger", text: "Retirer" });
+    rm.addEventListener("click", function () { row.remove(); syncAdmin(); scheduleDiagram(); });
+    row.appendChild(el("div", { "class": "host-head" }, [
+      el("label", { "class": "local-pick" }, [local, el("span", { text: "Cette machine (ce launcher)" })]), rm]));
+    row.appendChild(el("div", { "class": "grid" }, [
+      labelled("Nom (facultatif)", "name", h.name, "déduit de l'adresse"),
+      labelled("Adresse IP ou nom DNS", "addr", h.addr, "192.168.1.50"),
+      labelled("Groupe HA (passerelles)", "group", h.group, "vide = son propre groupe")]));
+    var chips = el("div", { "class": "chips" });
+    ROLES.forEach(function (r) {
+      var cb = el("input", { type: "checkbox", "data-role": r[0] });
+      cb.checked = (h.roles || []).indexOf(r[0]) >= 0;
+      chips.appendChild(el("label", { "class": "chip r-" + r[0] }, [cb, el("span", { text: r[1] })]));
+    });
+    row.appendChild(chips);
+    hostsEl.appendChild(row);
+    syncAdmin();
+  }
+
+  // Un seul Admin, et il est sur l'hôte où tourne ce launcher : sans lui, aucun autre hôte ne pourrait s'inscrire.
+  function syncAdmin() {
+    var rows = Array.prototype.slice.call(hostsEl.children);
+    if (!rows.length) return;
+    if (!rows.some(function (r) { return r.querySelector('[data-f="local"]').checked; })) {
+      rows[0].querySelector('[data-f="local"]').checked = true;
+    }
+    rows.forEach(function (row) {
+      var admin = row.querySelector('[data-role="admin"]');
+      admin.checked = row.querySelector('[data-f="local"]').checked;
+      admin.disabled = true;
+    });
+  }
+  hostsEl.addEventListener("change", function () { syncAdmin(); scheduleDiagram(); });
+  hostsEl.addEventListener("input", scheduleDiagram);
+  $("add").addEventListener("click", function () { addHost(); scheduleDiagram(); });
+
+  function collect() {
+    if (restore) {
+      var sel = $("rs-local"), picked = restore.hosts[sel.selectedIndex] || {};
+      var addr = $("rs-addr").value.trim();
+      return { restore: { local: sel.value, addr: addr && addr !== picked.addr ? addr : "" }, email: $("email").value.trim() };
+    }
+    var hosts = [];
+    Array.prototype.forEach.call(hostsEl.children, function (row) {
+      var v = function (n) { return row.querySelector('[data-f="' + n + '"]').value.trim(); };
+      var roles = [];
+      Array.prototype.forEach.call(row.querySelectorAll("[data-role]"), function (cb) {
+        if (cb.checked) roles.push(cb.getAttribute("data-role"));
+      });
+      hosts.push({ name: v("name"), addr: v("addr"), roles: roles, group: v("group"),
+        local: row.querySelector('[data-f="local"]').checked });
+    });
+    return { hosts: hosts, email: $("email").value.trim() };
+  }
+
+  // ── Point de départ : nouvelle installation ou sauvegarde ───────────────────
+  function setSource(fromBackup) {
+    $("src-new").setAttribute("aria-selected", String(!fromBackup));
+    $("src-restore").setAttribute("aria-selected", String(fromBackup));
+    $("restore-form").hidden = !fromBackup || !!restore;
+    $("hostsbox").hidden = fromBackup;
+    $("install").textContent = fromBackup ? "Reconstruire cet hôte" : "Installer cet hôte";
+    $("email").placeholder = fromBackup ? restoreEmail : defaultEmail;
+    $("email-title").textContent = fromBackup ? "Compte temporaire" : "Premier compte administrateur";
+    $("email-hint").textContent = fromBackup
+      ? "Il sert à vous connecter pour restaurer les données, puis se supprime. Son mot de passe est généré et affiché une seule fois à la fin."
+      : "Le mot de passe est généré et affiché une seule fois à la fin.";
+    if (!fromBackup && restore) { forgetBackup(); }
+    scheduleDiagram();
+  }
+  $("src-new").addEventListener("click", function () { setSource(false); });
+  $("src-restore").addEventListener("click", function () { setSource(true); });
+
+  // Lit le fichier d'une sauvegarde avec sa clé : il part tel quel (pas de JSON, il peut peser une centaine de Mo) et la
+  // clé dans un en-tête ; le launcher les garde en mémoire, jamais sur disque.
+  $("bk-load").addEventListener("click", function () {
+    var file = $("bk-file").files[0], key = $("bk-key").value;
+    if (!file) { say("Choisissez le fichier de la sauvegarde.", "err"); return; }
+    if (!key.trim()) { say("Entrez la clé de sauvegarde.", "err"); return; }
+    say("Lecture de la sauvegarde…"); busy(true);
+    fetch("/design/api/restore", { method: "POST", credentials: "same-origin", body: file,
+      headers: { "Content-Type": "application/octet-stream", "X-Backup-Key": key } }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ("erreur " + r.status));
+        return j;
+      });
+    }).then(function (info) {
+      say("Sauvegarde lue.", "ok");
+      showRestore(info);
+    }).catch(function (e) { say(e.message, "err"); }).then(function () { busy(false); });
+  });
+
+  function forgetBackup() {
+    restore = null;
+    $("restore-info").textContent = "";
+    call("POST", "/design/api/restore/clear", {}).catch(function () {});
+  }
+
+  function showRestore(info) {
+    restore = info;
+    $("restore-form").hidden = true;
+    $("bk-key").value = "";
+    var box = $("restore-info");
+    box.textContent = "";
+    box.appendChild(el("p", { "class": "muted", text: "Hôtes de la sauvegarde :" }));
+    box.appendChild(list(info.hosts.map(function (h) { return h.name + " (" + h.addr + ") : " + h.roles.join(", "); })));
+    box.appendChild(el("p", { "class": info.has_cert ? "ok" : "muted", text: info.has_cert
+      ? "Le certificat de l'Admin est repris : même empreinte (" + info.fingerprint + ")."
+      : "La sauvegarde n'a pas le certificat de l'Admin : un nouveau sera généré, avec une nouvelle empreinte." }));
+    var sel = el("select", { id: "rs-local" });
+    info.hosts.forEach(function (h) { sel.appendChild(el("option", { value: h.name, text: h.name + " (" + h.addr + ")" })); });
+    var addr = el("input", { type: "text", id: "rs-addr", autocomplete: "off" });
+    function sync() { addr.value = info.hosts[sel.selectedIndex].addr; scheduleDiagram(); }
+    sel.addEventListener("change", sync);
+    addr.addEventListener("input", scheduleDiagram);
+    box.appendChild(el("div", { "class": "grid" }, [
+      el("label", { "class": "f", text: "Cette machine est l'hôte…" }, [sel]),
+      el("label", { "class": "f", text: "Son adresse (à changer si elle n'est plus la même)" }, [addr])]));
+    var other = el("button", { type: "button", "class": "sec", text: "Choisir une autre sauvegarde" });
+    other.addEventListener("click", function () {
+      forgetBackup();
+      $("restore-form").hidden = false;
+      say(""); scheduleDiagram();
+    });
+    box.appendChild(el("p", {}, [other]));
+    sync();
+  }
+
+  // ── Simulation, installation, rapport ─────────────────────────────────────
+  $("check").addEventListener("click", function () {
+    $("plan").textContent = ""; say("Vérification…");
+    busy(true);
+    call("POST", "/design/api/plan", collect()).then(function (p) {
+      say("La simulation est passée : rien n'a été créé.", "ok");
+      var box = el("div", { "class": "card" });
+      box.appendChild(el("h2", { text: "Ce qui serait fait sur cet hôte" }));
+      box.appendChild(el("p", { text: "Admin : " + p.admin_url }));
+      box.appendChild(el("p", { text: "Images à télécharger : " + (p.pull.length ? p.pull.join(", ") : "aucune") }));
+      box.appendChild(el("p", { text: "Réseaux : " + (p.networks.length ? p.networks.join(", ") : "aucun") + " — volumes : " + (p.volumes.length ? p.volumes.join(", ") : "aucun") }));
+      if (p.pending.length) {
+        box.appendChild(el("p", { text: "Hôtes déclarés, à installer ensuite depuis l'Admin :" }));
+        box.appendChild(list(p.pending.map(function (h) { return h.name + " (" + h.addr + ") : " + h.roles.join(", "); })));
+      }
+      $("plan").appendChild(box);
+    }).catch(function (e) { say(e.message, "err"); }).then(function () { busy(false); });
+  });
+
+  function poll() {
+    call("GET", "/design/api/status").then(function (s) {
+      var pg = $("progress");
+      pg.textContent = "";
+      var card = el("div", { "class": "card" });
+      card.appendChild(el("h2", { text: "Installation" }));
+      card.appendChild(list(s.steps));
+      pg.appendChild(card);
+      if (s.error) {
+        say("Échec : " + s.error + " Ce qui avait été créé a été retiré ; corrigez puis relancez.", "err");
+        busy(false); return;
+      }
+      if (s.done) { showReport(s.report); return; }
+      setTimeout(poll, 1000);
+    }).catch(function (e) { say(e.message, "err"); busy(false); });
+  }
+
+  function kv(rows, copyable) {
+    var dl = el("dl", { "class": "kv" });
+    rows.forEach(function (p) {
+      var dd = el("dd");
+      if (p[0] === "Admin") {
+        dd.appendChild(el("a", { href: p[1], target: "_blank", rel: "noopener", text: p[1] }));
+      } else {
+        dd.appendChild(el("span", { text: p[1] }));
+        if (copyable.indexOf(p[0]) >= 0) {
+          var b = el("button", { type: "button", "class": "sec", text: "Copier" });
+          b.addEventListener("click", function () {
+            copy(p[1], function (ok) { b.textContent = ok ? "Copié" : "Copie impossible"; setTimeout(function () { b.textContent = "Copier"; }, 1500); });
+          });
+          dd.appendChild(b);
+        }
+      }
+      dl.appendChild(el("dt", { text: p[0] })); dl.appendChild(dd);
+    });
+    return dl;
+  }
+
+  function showReport(r) {
+    say("Installation terminée.", "ok");
+    var box = $("report");
+    box.textContent = "";
+    var card = el("div", { "class": "card" });
+    card.appendChild(el("h2", { text: "À conserver maintenant" }));
+    card.appendChild(kv([["Admin", r.admin_url], ["Empreinte", r.fingerprint], ["Compte", r.email],
+      ["Mot de passe", r.password], ["Clé de sauvegarde", r.backup_key]], ["Mot de passe", "Clé de sauvegarde", "Empreinte"]));
+    card.appendChild(el("p", { "class": "muted", text: "Le certificat de l'Admin est auto-signé : comparez son empreinte à celle que le navigateur affiche. Le mot de passe n'est affiché qu'ici et dans la sortie du conteneur. La clé de sauvegarde chiffre les secrets des sauvegardes de l'Admin : notez-la ailleurs que sur cet hôte, sans elle une sauvegarde ne se relit pas." }));
+    box.appendChild(card);
+    if (r.restored) {
+      var rc = el("div", { "class": "card" });
+      rc.appendChild(el("h2", { text: "Il reste à restaurer les données" }));
+      rc.appendChild(el("p", { text: "L'Admin a le secret racine, la topologie et la clé de sauvegarde de l'ancien" + (r.kept_certificate ? ", et son certificat (même empreinte)" : "") + ". Les passerelles et Agents en place se reconnectent d'eux-mêmes." }));
+      var ol = el("ol", { "class": "steps" });
+      [
+        "Connectez-vous à l'Admin avec le compte temporaire ci-dessus.",
+        "Sauvegardes › Restaurer › fichier : choisissez le même fichier et cochez « Secrets ».",
+        "Redémarrez l'Admin (docker restart goproxify-admin), connectez-vous avec vos comptes habituels, puis supprimez le compte temporaire."
+      ].forEach(function (t) { ol.appendChild(el("li", { text: t })); });
+      rc.appendChild(ol);
+      box.appendChild(rc);
+    }
+    if (r.pending.length) {
+      var pc = el("div", { "class": "card" });
+      pc.appendChild(el("p", { text: "Hôtes à installer ensuite : ouvrez l'Admin, fiche de l'hôte, section « Launcher (QR code) »." }));
+      pc.appendChild(list(r.pending.map(function (h) { return h.name + " (" + h.addr + ") : " + h.roles.join(", "); })));
+      box.appendChild(pc);
+    }
+    var fin = el("button", { type: "button", text: "Terminer et ouvrir l'Admin" });
+    fin.addEventListener("click", function () {
+      call("POST", "/design/api/finish", {}).then(function () {
+        fin.disabled = true;
+        say("Le launcher s'arrête : redirection vers l'Admin (https, port " + new URL(r.admin_url).port + ")…", "ok");
+        setTimeout(function () { location.href = r.admin_url; }, 1500);
+      }).catch(function (e) { say(e.message, "err"); });
+    });
+    box.appendChild(el("p", {}, [fin]));
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  $("install").addEventListener("click", function () {
+    $("plan").textContent = ""; $("report").textContent = ""; say("");
+    busy(true);
+    call("POST", "/design/api/deploy", collect()).then(function () {
+      say("Installation en cours…");
+      poll();
+    }).catch(function (e) { say(e.message, "err"); busy(false); });
+  });
+
+  call("GET", "/design/api/state").then(function (s) {
+    defaultEmail = s.default_email; restoreEmail = s.restore_email;
+    $("email").value = s.request.email || "";
+    $("email").placeholder = defaultEmail;
+    $("note").textContent = s.message || "";
+    var hosts = s.request.hosts || [];
+    if (!hosts.length) {
+      var here = location.hostname;
+      hosts = [{ addr: here === "localhost" ? "" : here, roles: ["admin", "edge", "agent"], local: true }];
+    }
+    hosts.forEach(addHost);
+    refreshDiagram();
+  }).catch(function (e) { say(e.message, "err"); });
+})();
+</script>
+</body>
+</html>

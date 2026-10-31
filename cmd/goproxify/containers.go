@@ -62,6 +62,9 @@ func runContainers() {
 			if shadowed == "" {
 				shadowed = "-"
 			}
+			if disabled, _ := c["disabled"].(bool); disabled {
+				backends = "désactivé"
+			}
 			if inactive, _ := c["inactive"].(bool); inactive {
 				state, _ := c["state"].(string)
 				backends = "inactif"
@@ -98,6 +101,34 @@ func runContainers() {
 			os.Exit(1)
 		}
 		fmt.Printf("Proxy %s créé pour %s (modifiable avec « goproxify proxy »).\n", out.ID, out.Name)
+
+	case "enable", "disable":
+		enabled := sub == "enable"
+		args := parseFlags(os.Args[3:])
+		pos := positionalArgs(os.Args[3:])
+		host := flagValue(args, "-host", "")
+		if host == "" && len(pos) > 0 {
+			host = pos[0]
+		}
+		if host == "" {
+			fmt.Fprintf(os.Stderr, "usage: goproxify containers %s <hôte>\n", sub)
+			os.Exit(1)
+		}
+		client, err := newAdminClient(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/discovered-containers/enabled",
+			map[string]any{"host": host, "enabled": enabled}, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "containers %s : %v\n", sub, err)
+			os.Exit(1)
+		}
+		word := "activée"
+		if !enabled {
+			word = "désactivée"
+		}
+		fmt.Printf("Route de %s %s.\n", host, word)
 
 	case "show":
 		args := parseFlags(os.Args[3:])
@@ -234,12 +265,17 @@ Agrège les résultats de toutes les passerelles connectées.
 goproxify containers list [-admin-url …] [-token …]
 goproxify containers      [-admin-url …] [-token …]
 goproxify containers convert <id> [-edge <passerelle>] [-admin-url …] [-token …]
+goproxify containers enable|disable <hôte> [-admin-url …] [-token …]
 goproxify containers show <hôte|id> [-edge <passerelle>] [-format compose|portainer|portainer_inline|docker_run|kubernetes]
 goproxify containers orphans [-admin-url …] [-token …]
 
   show affiche le bilan de sécurité (score, TLS / WAF / rate limit) et les labels à ajouter ;
   avec -format, le jeu de labels corrigé prêt à coller (Compose, Portainer, docker run, Kubernetes).
   orphans liste les proxys convertis dont le conteneur d'origine n'est plus annoncé.
+
+  enable / disable réactive ou désactive la route issue des labels d'un hôte (Docker, Portainer, Podman,
+  Kubernetes, annuaires) : désactivée, elle ne sert plus de trafic sur aucune passerelle mais reste listée.
+  Un proxy configuré s'active avec « goproxify proxy enable ».
 
   convert crée un proxy modifiable à partir de la route issue des labels (<id> : l'hôte,
   ex. app.example.fr, ou l'id de l'API). Le proxy prend la place de la route des labels

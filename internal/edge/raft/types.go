@@ -1,8 +1,8 @@
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package raft implémente l'algorithme de consensus Raft utilisé par les passerelles
-// (élection de coordinateur de groupe) et l'Administration (HA multi-nœuds).
+// Package raft implémente l'algorithme de consensus Raft utilisé par l'Administration
+// (HA multi-nœuds). Les passerelles ne l'utilisent pas : un groupe de passerelles n'a pas de leader (ADR 0014).
 package raft
 
 import "time"
@@ -41,6 +41,9 @@ type RequestVoteArgs struct {
 	CandidateID  string `json:"candidate_id"`
 	LastLogIndex uint64 `json:"last_log_index"`
 	LastLogTerm  uint64 `json:"last_log_term"`
+	// PreVote : sondage sans effet de bord (ni terme, ni vote consommé) pour
+	// savoir si une élection au terme Term aurait une chance d'aboutir.
+	PreVote bool `json:"pre_vote,omitempty"`
 }
 
 // RequestVoteReply est la réponse à RequestVote.

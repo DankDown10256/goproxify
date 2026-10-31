@@ -98,7 +98,9 @@ type Row struct {
 	Entry
 	// Pseudonymized : l'IP réelle est chiffrée dans la ligne (voir RevealIP).
 	Pseudonymized bool
-	kind          Kind // renseigné par Search, pour fusionner les types
+	// SourceID : numéro de la ligne chez la passerelle qui l'a envoyée, pour une ligne reçue (store de l'Admin, ADR 0018) ; 0 sinon.
+	SourceID int64
+	kind   Kind // renseigné par Search, pour fusionner les types
 }
 
 // Options règle la base.
@@ -113,6 +115,9 @@ type Options struct {
 	// OnError reçoit les échecs d'écriture, au plus un par minute.
 	OnError func(error)
 	Now     func() time.Time
+	// HoldsPath : registre des gels légaux, quand plusieurs stores en partagent un (l'Admin en a un par passerelle, ADR 0018).
+	// Vide : legal-holds.json dans Dir.
+	HoldsPath string
 	// ReadOnly : ouvre pour lire seulement (export local), sans goroutine d'écriture ni purge.
 	ReadOnly bool
 }
@@ -138,6 +143,9 @@ type Store struct {
 	closed  atomic.Bool
 	dropped atomic.Uint64
 
+	buf     bufferState // tampon (voir buffer.go)
+	shipMu  sync.Mutex // sérialise la réception des lignes d'une passerelle (voir shipped.go)
+	ship    shipState
 	retMu   sync.RWMutex // protège opts.Retention, que SetRetention change
 	mu      sync.Mutex
 	handles map[string]*handle
@@ -202,6 +210,7 @@ func Open(opts Options) (*Store, error) {
 		close(s.done)
 		return s, nil
 	}
+	s.loadAcks()
 	s.scanMinuteMax()
 	go s.run()
 	return s, nil
@@ -378,21 +387,7 @@ func (s *Store) insert(kind Kind, start time.Time, entries []Entry) error {
 	}
 	defer stmt.Close()
 	for _, e := range entries {
-		var enc, mac string
-		if e.RealIP != "" && s.key != nil {
-			if c, err := ipcrypt.Encrypt(s.key, ipcrypt.CanonicalIP(e.RealIP)); err == nil {
-				enc, mac = c, ipcrypt.IPIndex(s.key, e.RealIP)
-			}
-		}
-		waf := ""
-		if len(e.WAFMatches) > 0 {
-			if b, err := json.Marshal(e.WAFMatches); err == nil {
-				waf = string(b)
-			}
-		}
-		if _, err := stmt.Exec(e.Ts.UTC().Format(tsLayout), e.Level, e.Component, e.Domain, e.Method, e.Path,
-			e.Status, e.Bytes, e.LatencyMs, ipcrypt.CanonicalIP(e.IP), enc, mac, boolInt(e.IPTruncated),
-			e.UserAgent, e.Referrer, e.RequestID, waf, e.ThreatSignal, e.TLSJA3, e.TLSJA4, e.Message); err != nil {
+		if _, err := stmt.Exec(s.entryArgs(e)...); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -420,6 +415,26 @@ func (s *Store) insert(kind Kind, start time.Time, entries []Entry) error {
 		s.noteIPErrorsMax(path, ipMax)
 	}
 	return nil
+}
+
+// entryArgs rend les valeurs d'une ligne dans l'ordre d'insertSQL. L'IP réelle est chiffrée avec la clé de cette
+// passerelle, jamais écrite en clair.
+func (s *Store) entryArgs(e Entry) []any {
+	var enc, mac string
+	if e.RealIP != "" && s.key != nil {
+		if c, err := ipcrypt.Encrypt(s.key, ipcrypt.CanonicalIP(e.RealIP)); err == nil {
+			enc, mac = c, ipcrypt.IPIndex(s.key, e.RealIP)
+		}
+	}
+	waf := ""
+	if len(e.WAFMatches) > 0 {
+		if b, err := json.Marshal(e.WAFMatches); err == nil {
+			waf = string(b)
+		}
+	}
+	return []any{e.Ts.UTC().Format(tsLayout), e.Level, e.Component, e.Domain, e.Method, e.Path,
+		e.Status, e.Bytes, e.LatencyMs, ipcrypt.CanonicalIP(e.IP), enc, mac, boolInt(e.IPTruncated),
+		e.UserAgent, e.Referrer, e.RequestID, waf, e.ThreatSignal, e.TLSJA3, e.TLSJA4, e.Message}
 }
 
 func boolInt(b bool) int {
@@ -551,13 +566,21 @@ const schema = `CREATE TABLE IF NOT EXISTS entries (
 	threat_signal TEXT NOT NULL DEFAULT '',
 	tls_ja3      TEXT NOT NULL DEFAULT '',
 	tls_ja4      TEXT NOT NULL DEFAULT '',
-	message      TEXT NOT NULL DEFAULT ''
+	message      TEXT NOT NULL DEFAULT '',
+	origin       TEXT NOT NULL DEFAULT '',
+	origin_id    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_entries_ts ON entries (ts);
 CREATE INDEX IF NOT EXISTS idx_entries_domain_ts ON entries (domain, ts);
 CREATE INDEX IF NOT EXISTS idx_entries_ip ON entries (ip) WHERE ip != '';
 CREATE INDEX IF NOT EXISTS idx_entries_ip_hmac ON entries (ip_hmac) WHERE ip_hmac != '';
 CREATE INDEX IF NOT EXISTS idx_entries_request_id ON entries (request_id) WHERE request_id != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_shipped ON entries (origin_id, ts) WHERE origin = '' AND origin_id > 0;
+CREATE TABLE IF NOT EXISTS ship_cursor (
+	kind       TEXT    PRIMARY KEY,
+	seq        INTEGER NOT NULL,
+	updated_us INTEGER NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS minute (
 	minute         TEXT    NOT NULL,
 	domain         TEXT    NOT NULL DEFAULT '',
@@ -597,12 +620,31 @@ func (s *Store) open(kind Kind, start time.Time) (*sql.DB, error) {
 		return nil, fmt.Errorf("logstore: open %s: %w", filepath.Base(path), err)
 	}
 	db.SetMaxOpenConns(4)
-	if _, err := db.Exec(schema); err != nil {
+	if err := prepareSchema(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("logstore: schéma %s: %w", filepath.Base(path), err)
 	}
 	s.handles[path] = &handle{db: db, last: s.opts.Now()}
 	return db, nil
+}
+
+// prepareSchema crée le schéma d'un fichier de période. Un fichier écrit avant la réplication entre pairs n'a pas les
+// colonnes d'origine : elles sont ajoutées avant les index qui s'en servent.
+func prepareSchema(db *sql.DB) error {
+	var cols, hasOrigin int
+	if err := db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(name = 'origin'), 0) FROM pragma_table_info('entries')`).Scan(&cols, &hasOrigin); err != nil {
+		return err
+	}
+	if cols > 0 && hasOrigin == 0 {
+		if _, err := db.Exec(`ALTER TABLE entries ADD COLUMN origin TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := db.Exec(`ALTER TABLE entries ADD COLUMN origin_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec(schema)
+	return err
 }
 
 func closeHandle(h *handle) error {
@@ -625,7 +667,7 @@ func (s *Store) closeIdle(now time.Time) {
 // --- Lecture --------------------------------------------------------------------------------------------
 
 const selectCols = `id, ts, level, component, domain, method, path, status, bytes, latency_ms, ip, ip_enc, ip_truncated,
-	user_agent, referrer, request_id, waf_matches, threat_signal, tls_ja3, tls_ja4, message`
+	user_agent, referrer, request_id, waf_matches, threat_signal, tls_ja3, tls_ja4, message, origin_id`
 
 // ReadAfter retourne jusqu'à limit lignes d'identifiant supérieur à after, dans l'ordre : le curseur d'un
 // consommateur (rejeu vers l'Admin, SIEM). after = 0 : depuis le début.
@@ -704,7 +746,9 @@ func (s *Store) readAfter(kind Kind, after int64, limit int, reveal, securityOnl
 		if err != nil {
 			return out, after, err
 		}
-		query, args := `SELECT `+selectCols+` FROM entries WHERE id > ?`, []any{la}
+		// Les lignes répliquées d'un pair ne sortent pas d'ici : l'Admin, le SIEM et les pairs lisent ce que cette
+		// passerelle a écrit, sans quoi une ligne serait comptée et exportée une fois par membre du groupe.
+		query, args := `SELECT `+selectCols+` FROM entries WHERE origin = '' AND id > ?`, []any{la}
 		if securityOnly {
 			if f.index == upTo>>idShift {
 				query += ` AND id <= ?`
@@ -757,7 +801,7 @@ func scanRow(rows *sql.Rows, index int64) (Row, string, error) {
 	var trunc int
 	if err := rows.Scan(&local, &ts, &r.Level, &r.Component, &r.Domain, &r.Method, &r.Path, &r.Status, &r.Bytes,
 		&r.LatencyMs, &r.IP, &enc, &trunc, &r.UserAgent, &r.Referrer, &r.RequestID, &waf, &r.ThreatSignal,
-		&r.TLSJA3, &r.TLSJA4, &r.Message); err != nil {
+		&r.TLSJA3, &r.TLSJA4, &r.Message, &r.SourceID); err != nil {
 		return r, "", err
 	}
 	r.ID = index<<idShift | local
@@ -852,6 +896,10 @@ func (s *Store) Purge(now time.Time) {
 		return
 	}
 	for _, kind := range []Kind{KindAccess, KindSystem} {
+		if s.BufferActive() {
+			s.purgeBuffer(now, kind, holds)
+			continue
+		}
 		cutoff := now.Add(-s.Retention(kind))
 		for _, f := range s.files(kind) {
 			if frozen(holds, kind, f.start) {

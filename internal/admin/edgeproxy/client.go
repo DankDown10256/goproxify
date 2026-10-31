@@ -195,12 +195,18 @@ func (e *HTTPError) Error() string {
 
 func (c *Client) do(ctx context.Context, t Target, method, path string, body any, out any) error {
 	var rdr io.Reader
+	var raw []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
+		raw = b
 		rdr = bytes.NewReader(b)
+	}
+	// Une lecture de logs que le volume de logs de l'Admin peut servir ne passe pas par la passerelle (ADR 0018).
+	if status, data, ok := serveLocal(ctx, t, method, path, raw); ok {
+		return decodeResult(status, data, out)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, t.Endpoint+path, rdr)
 	if err != nil {
@@ -223,10 +229,15 @@ func (c *Client) do(ctx context.Context, t Target, method, path string, body any
 	defer resp.Body.Close()
 	edgeLiveness.ok(t.Endpoint)
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &HTTPError{Status: resp.StatusCode, Body: string(data)}
+	return decodeResult(resp.StatusCode, data, out)
+}
+
+// decodeResult interprète la réponse d'une passerelle ou du volume de logs : une erreur HTTP, ou le JSON attendu.
+func decodeResult(status int, data []byte, out any) error {
+	if status < 200 || status >= 300 {
+		return &HTTPError{Status: status, Body: string(data)}
 	}
-	if out == nil || resp.StatusCode == http.StatusNoContent || len(data) == 0 {
+	if out == nil || status == http.StatusNoContent || len(data) == 0 {
 		return nil
 	}
 	return json.Unmarshal(data, out)

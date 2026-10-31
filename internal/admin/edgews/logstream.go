@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/vincamok/goproxify/internal/admin/edgelogs"
 	"github.com/vincamok/goproxify/internal/admin/logs"
 	edgeWS "github.com/vincamok/goproxify/internal/edge/ws"
 )
@@ -45,6 +46,12 @@ func LogEntryFromPayload(item edgeWS.LogEntryPayload) logs.Entry {
 type LogStreamIngestor struct {
 	Store *logs.Store
 	Log   *slog.Logger
+	// Vault est le volume de logs de l'Admin (ADR 0018) : toutes les lignes y sont rangées, une par passerelle, et sa
+	// position fait foi. Sans lui, les lignes vont dans la table logs de l'Admin, comme avant.
+	Vault *edgelogs.Vault
+	// SecurityOnly : sans volume de logs, la table logs ne reçoit que les événements de sécurité et les logs système ; la position
+	// avance sur les autres. Évite qu'un volume indisponible ne remplisse la base de l'Admin de tous les accès.
+	SecurityOnly bool
 }
 
 // Cursors retourne les positions enregistrées pour la passerelle nodeID, à envoyer dans un TypeLogResume.
@@ -55,7 +62,7 @@ func (g *LogStreamIngestor) Cursors(nodeID string) map[string]int64 {
 		if err != nil {
 			g.Log.Warn("edgews: lecture de la position d'un flux de logs", "edge", nodeID, "stream", stream, "err", err)
 		}
-		out[stream] = seq
+		out[stream] = g.shipCursor(nodeID, stream, seq)
 	}
 	return out
 }
@@ -66,6 +73,9 @@ func (g *LogStreamIngestor) Cursors(nodeID string) map[string]int64 {
 func (g *LogStreamIngestor) Handle(nodeID, nodeName string, p edgeWS.LogStreamPayload) (resume bool) {
 	if p.Stream != edgeWS.LogStreamAccess && p.Stream != edgeWS.LogStreamSystem {
 		return false
+	}
+	if g.Vault != nil {
+		return g.handleVault(nodeID, nodeName, p)
 	}
 	cursor, err := g.Store.StreamCursor(nodeID, p.Stream)
 	if err != nil {
@@ -91,6 +101,10 @@ func (g *LogStreamIngestor) Handle(nodeID, nodeName string, p edgeWS.LogStreamPa
 	var last int64
 	for _, item := range p.Entries {
 		if item.Seq <= cursor {
+			continue
+		}
+		if g.SecurityOnly && !isSecurityEvent(item, p.Stream) {
+			last = max(last, item.Seq)
 			continue
 		}
 		item.NodeID = nodeID
@@ -121,7 +135,7 @@ func (m *Manager) sendLogResume(e *edgeEntry) {
 	if m.logStream == nil || e.client == nil {
 		return
 	}
-	if err := e.client.PushJSON(edgeWS.TypeLogResume, edgeWS.LogResumePayload{Cursors: m.logStream.Cursors(e.id)}); err != nil {
+	if err := e.client.PushJSON(edgeWS.TypeLogResume, edgeWS.LogResumePayload{Cursors: m.logStream.Cursors(e.id), Stored: m.logStream.Vault != nil}); err != nil {
 		m.log.Warn("edgews: envoi de la reprise des logs", "edge", e.nodeName, "err", err)
 	}
 }
@@ -147,6 +161,8 @@ func (m *Manager) handleAggStream(e *edgeEntry, raw json.RawMessage) {
 	}
 	if m.logStream.HandleMinutes(e.id, e.nodeName, p) {
 		m.scheduleResume(e)
+	} else {
+		m.scheduleAck(e)
 	}
 }
 
@@ -160,6 +176,7 @@ func (m *Manager) handleLogStream(e *edgeEntry, raw json.RawMessage) {
 		return
 	}
 	if !m.logStream.Handle(e.id, e.nodeName, p) {
+		m.scheduleAck(e)
 		return
 	}
 	// Un seul renvoi en attente : la passerelle a déjà d'autres lots en route, refusés de la même façon.
@@ -246,6 +263,8 @@ func (m *Manager) handleIPStream(e *edgeEntry, raw json.RawMessage) {
 	}
 	if m.logStream.HandleIPErrors(e.id, e.nodeName, p) {
 		m.scheduleResume(e)
+	} else {
+		m.scheduleAck(e)
 	}
 }
 

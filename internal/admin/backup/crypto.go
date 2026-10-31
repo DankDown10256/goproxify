@@ -61,6 +61,10 @@ func openSnapshotConsume(data []byte) ([]byte, error) {
 	return plain, err
 }
 
+// OpenSnapshot déchiffre le fichier d'un snapshot (enveloppe `GPXBK1:`) avec les clés connues d'importer ; un snapshot
+// sans enveloppe est rendu tel quel. C'est ce qu'il faut pour lire un fichier de sauvegarde hors de l'Admin.
+func OpenSnapshot(data []byte) ([]byte, error) { return openSnapshot(data) }
+
 func openSnapshot(data []byte) ([]byte, error) {
 	if !bytes.HasPrefix(data, []byte(backupEncPrefix)) {
 		return data, nil

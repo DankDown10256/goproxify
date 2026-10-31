@@ -125,9 +125,6 @@ func BootstrapEdge(path string) error {
 			"auto_download": true,
 			"db_path":       filepath.Join(basePath, "geoip", "GeoLite2-Country.mmdb"),
 		},
-		"cluster": map[string]any{
-			"enabled": envBoolOr("GPX_CLUSTER_ENABLED", false),
-		},
 	}
 
 	if err := writeJSON(path, cfg); err != nil {

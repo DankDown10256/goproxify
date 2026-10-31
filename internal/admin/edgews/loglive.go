@@ -83,7 +83,9 @@ func (m *Manager) pushLiveToAll() {
 
 // sendLiveSubscribe demande à la passerelle d'envoyer ses nouvelles lignes, si une vue Live est ouverte.
 func (m *Manager) sendLiveSubscribe(e *edgeEntry) {
-	if e.client == nil || !m.liveWanted() {
+	// Avec le volume de logs, la vue Live est alimentée par les lignes qui arrivent (voir handleVault) : la passerelle n'a rien
+	// à lui envoyer en plus.
+	if e.client == nil || !m.liveWanted() || (m.logStream != nil && m.logStream.Vault != nil) {
 		return
 	}
 	if err := e.client.PushJSON(edgeWS.TypeLogLive, edgeWS.LogLivePayload{TTLSec: liveTTL}); err != nil {

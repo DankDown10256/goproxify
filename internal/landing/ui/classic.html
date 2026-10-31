@@ -1711,31 +1711,30 @@
     <div class="inst-panel active" id="inst-home">
     <div class="install-wrapper fade-in">
       <div class="tabs-nav">
-        <button class="tab-btn active" data-tab="script" data-i18n="install.tab.script">Script</button>
+        <button class="tab-btn active" data-tab="launcher" data-i18n="install.tab.launcher">Launcher</button>
         <button class="tab-btn" data-tab="docker" data-i18n="install.tab.docker">Docker Compose</button>
         <button class="tab-btn" data-tab="portainer" data-i18n="install.tab.portainer">Portainer</button>
         <button class="tab-btn" data-tab="helm" data-i18n="install.tab.helm">Helm Kubernetes</button>
         <button class="tab-btn" data-tab="binary" data-i18n="install.tab.binary">Binary</button>
       </div>
 
-      <div class="tab-panel active" id="tab-script">
+      <div class="tab-panel active" id="tab-launcher">
         <div style="padding:20px 24px 8px">
-          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.script.note">
-            Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Edge + Agent.
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.launcher.note">
+            One command, no file to write: the launcher pulls its image, generates the secrets, the admin account and a TLS certificate, deploys Admin + Edge + Agent on this machine, then removes itself.
           </p>
           <div class="code-block">
             <div class="code-block-header">
               <span class="code-block-name">shell</span>
-              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-script')">Copy</button>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-launcher')">Copy</button>
             </div>
-            <div class="code-block-body" id="cb-script">
-              <div><span class="comment"># Download then run (inspect before execute)</span></div>
-              <div><span class="prompt">$ </span><span class="cmd">curl -fsSL https://github.com/Vincamok/goproxify/raw/public/main/scripts/quickstart.sh -o quickstart.sh</span></div>
-              <div><span class="prompt">$ </span><span class="cmd">bash quickstart.sh</span></div>
+            <div class="code-block-body" id="cb-launcher">
+              <div><span class="comment"># Needs Docker on this machine (the image is pulled from GHCR)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview --admin --edge --agent</span></div>
             </div>
           </div>
-          <p style="font-size:0.85rem;color:var(--text-muted);margin:12px 0 0;line-height:1.6" data-i18n="install.script.options">
-            Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:12px 0 0;line-height:1.6" data-i18n="install.launcher.options">
+            Admin UI → https://localhost:9443 (self-signed certificate: compare the fingerprint printed by the launcher). Without options, add -p 8080:8080 to get a design page on port 8080, protected by an access code printed in the output.
           </p>
         </div>
       </div>
@@ -1870,7 +1869,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=${AGENT_NODE_NAME:-goproxify-agent}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]</pre>
@@ -1980,7 +1979,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]</pre>
@@ -2102,10 +2101,21 @@ agent:
           <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:20px;line-height:1.6" data-i18n="install.ent.intro">One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).</p>
 
           <h3 class="inst-step" data-i18n="install.ent.s1">1. Admin + Gateway 1</h3>
-          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Edge.</p>
+          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Launcher or Docker Compose): it starts the Admin and the first Edge.</p>
 
           <h3 class="inst-step" data-i18n="install.ent.s2">2. Second Edge</h3>
           <p class="inst-step-body" data-i18n="install.ent.s2.body">On a second machine, run an Edge with its own node name, then register it in the Admin (Infrastructure → Edit architecture): it goes from declared to online.</p>
+          <p class="inst-step-body" data-i18n="install.ent.launcher.note">Declare the machine in the Admin (Infrastructure), open its sheet and show the Launcher QR code (valid 15 minutes). On the new machine, start the launcher, then scan the code and click Install: no file to copy, and the launcher removes itself once done.</p>
+          <div class="code-block" style="margin-bottom:16px">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-ent-launcher')">Copy</button>
+            </div>
+            <div class="code-block-body" id="cb-ent-launcher">
+              <div><span class="comment"># On each new machine (waits 15 minutes for the Admin's link)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview</span></div>
+            </div>
+          </div>
           <div class="file-block">
             <div class="file-block-header">
               <span class="file-block-name">docker-compose.yml — edge 2</span>
@@ -2151,7 +2161,7 @@ volumes:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<span class="v">&lt;admin-ip&gt;</span>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=<span class="v">agent-host-1</span>
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - agent_data:/etc/goproxify
 
 volumes:
@@ -2399,7 +2409,7 @@ volumes:
                 Docker Engine API
               </div>
             </td>
-            <td class="tech-desc">Read-only via <code style="font-size:0.8em">docker.sock</code>. Real-time container events (start/stop/update)</td>
+            <td class="tech-desc">Via <code style="font-size:0.8em">docker.sock</code> (access equivalent to root on the host). Real-time container events (start/stop/update)</td>
             <td style="color:var(--text-muted);font-size:0.8rem">Agent</td>
           </tr>
           <tr>
@@ -2639,13 +2649,14 @@ volumes:
       'preview.banner': 'Preview (0.x) — not production-ready. Use at your own risk.',
       'preview.disclaimer': 'Disclaimer',
       'hero.badge': 'Open Source · Preview',
-      'install.tab.script': 'Script',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'One command, no file to write: the launcher pulls its image, generates the secrets, the admin account and a TLS certificate, deploys Admin + Edge + Agent on this machine, then removes itself.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (self-signed certificate: compare the fingerprint printed by the launcher). Without options, add -p 8080:8080 to get a design page on port 8080, protected by an access code printed in the output.',
+      'install.ent.launcher.note': 'Declare the machine in the Admin (Infrastructure), open its sheet and show the Launcher QR code (valid 15 minutes). On the new machine, start the launcher, then scan the code and click Install: no file to copy, and the launcher removes itself once done.',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binary',
-      'install.script.note': 'Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Edge + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Official GHCR images with floating :preview tag (0.x). Optional SemVer pin via versions.json.',
       'install.helm.note': 'Chart in the repo (helm/goproxify). Requires global.authToken. Generate secrets in your browser, then helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Pick a model, paste the compose, deploy. Admin on port 9443.',
@@ -2688,7 +2699,7 @@ volumes:
       'install.scn.ent': 'Enterprise · redundant',
       'install.ent.intro': 'One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).',
       'install.ent.s1': '1. Admin + Gateway 1',
-      'install.ent.s1.body': 'On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Edge.',
+      'install.ent.s1.body': 'On the first machine, follow the Home lab method (Launcher or Docker Compose): it starts the Admin and the first Edge.',
       'install.ent.s2': '2. Second Edge',
       'install.ent.s2.body': 'On a second machine, run an Edge with its own node name, then register it in the Admin (Infrastructure → Edit architecture): it goes from declared to online.',
       'install.ent.s3': '3. One Agent per host',
@@ -2827,13 +2838,14 @@ volumes:
       'preview.banner': 'Préversion (0.x) — non production. Usage à vos risques.',
       'preview.disclaimer': 'Avertissement',
       'hero.badge': 'Open Source · Préversion',
-      'install.tab.script': 'Script',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Une seule commande, aucun fichier à écrire : le launcher télécharge son image, génère les secrets, le compte administrateur et un certificat TLS, déploie Admin + Passerelle + Agent sur cette machine, puis disparaît.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (certificat auto-signé : comparez l’empreinte affichée par le launcher). Sans options, ajoutez -p 8080:8080 pour obtenir une page de conception sur le port 8080, protégée par un code d’accès affiché dans la sortie.',
+      'install.ent.launcher.note': 'Déclarez la machine dans l’Admin (Infrastructure), ouvrez sa fiche et affichez le QR code du Launcher (valable 15 minutes). Sur la nouvelle machine, lancez le launcher, puis scannez le code et cliquez sur Installer : aucun fichier à copier, et le launcher disparaît une fois fini.',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binaire',
-      'install.script.note': 'Génère les secrets hex-32, écrit le .env (chmod 600), vérifie Docker / ports, puis démarre Admin + Passerelle + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (à lancer seules, jamais collées avec le bloc ci-dessus) : bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Images GHCR officielles en tag flottant :preview (0.x). Pin SemVer optionnel via versions.json.',
       'install.helm.note': 'Chart dans le dépôt (helm/goproxify). global.authToken requis. Générez les secrets dans le navigateur, puis helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Choisissez un modèle, collez le compose, déployez. Admin sur le port 9443.',
@@ -2876,7 +2888,7 @@ volumes:
       'install.scn.ent': 'Entreprise · redondant',
       'install.ent.intro': 'Un rôle par machine, mêmes images. Utilisez le même GPX_PAIRING_SECRET partout et ouvrez le port 8000 entre les machines (pare-feu : uniquement depuis vos propres hôtes).',
       'install.ent.s1': '1. Admin + Passerelle 1',
-      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Script ou Docker Compose) : elle démarre l’Admin et la premiÃ¨re passerelle.',
+      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Launcher ou Docker Compose) : elle démarre l’Admin et la premiÃ¨re passerelle.',
       'install.ent.s2': '2. Passerelle 2 (seconde passerelle)',
       'install.ent.s2.body': 'Sur une seconde machine, lancez une passerelle avec son propre nom de nœud, puis enregistrez-le dans l’Admin (Infrastructure → Modifier l’architecture) : il passe de declared à online.',
       'install.ent.s3': '3. Un Agent par hôte',
@@ -3015,13 +3027,14 @@ volumes:
       'preview.banner': 'Vista previa (0.x) — no listo para producción. Úselo bajo su propio riesgo.',
       'preview.disclaimer': 'Aviso legal',
       'hero.badge': 'Open Source · Vista previa',
-      'install.tab.script': 'Script',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Un solo comando, sin archivos que escribir: el launcher descarga su imagen, genera los secretos, la cuenta de administrador y un certificado TLS, despliega Admin + Edge + Agent en esta máquina y luego desaparece.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (certificado autofirmado: compara la huella que muestra el launcher). Sin opciones, añade -p 8080:8080 para obtener una página de diseño en el puerto 8080, protegida por un código de acceso que aparece en la salida.',
+      'install.ent.launcher.note': 'Declara la máquina en el Admin (Infraestructura), abre su ficha y muestra el código QR del Launcher (válido 15 minutos). En la máquina nueva, inicia el launcher, escanea el código y pulsa Instalar: sin archivos que copiar, y el launcher desaparece al terminar.',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binario',
-      'install.script.note': 'Genera secretos hex-32, escribe .env (chmod 600), comprueba Docker / puertos y arranca Admin + Edge + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (ejecutar solas, no pegar con el bloque de arriba): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Imágenes GHCR oficiales con etiqueta flotante :preview (0.x). Pin SemVer opcional vía versions.json.',
       'install.helm.note': 'Chart en el repo (helm/goproxify). Requiere global.authToken. Genere secretos en el navegador y luego helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Elija un modelo, pegue el compose y despliegue. Admin en el puerto 9443.',
@@ -3064,7 +3077,7 @@ volumes:
       'install.scn.ent': 'Empresa · redundante',
       'install.ent.intro': 'Un rol por máquina, mismas imágenes. Usa el mismo GPX_PAIRING_SECRET en todas partes y abre el puerto 8000 entre máquinas (firewall: solo desde tus propios hosts).',
       'install.ent.s1': '1. Admin + Pasarela 1',
-      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Script o Docker Compose): arranca el Admin y el primer Edge.',
+      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Launcher o Docker Compose): arranca el Admin y el primer Edge.',
       'install.ent.s2': '2. Pasarela 2 (segundo Edge)',
       'install.ent.s2.body': 'En una segunda máquina, lanza un Edge con su propio nombre de nodo y regístralo en el Admin (Infraestructura → Editar la arquitectura): pasa de declared a online.',
       'install.ent.s3': '3. Un Agent por host',
@@ -3203,13 +3216,14 @@ volumes:
       'preview.banner': 'Vorschau (0.x) — nicht produktionsreif. Nutzung auf eigene Gefahr.',
       'preview.disclaimer': 'Haftungsausschluss',
       'hero.badge': 'Open Source · Vorschau',
-      'install.tab.script': 'Skript',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Ein einziger Befehl, keine Datei zu schreiben: Der Launcher lädt sein Image, erzeugt die Secrets, das Admin-Konto und ein TLS-Zertifikat, stellt Admin + Edge + Agent auf dieser Maschine bereit und entfernt sich dann selbst.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (selbstsigniertes Zertifikat: Fingerabdruck mit der Ausgabe des Launchers vergleichen). Ohne Optionen mit -p 8080:8080 starten, um eine Entwurfsseite auf Port 8080 zu erhalten, geschützt durch einen in der Ausgabe angezeigten Zugangscode.',
+      'install.ent.launcher.note': 'Die Maschine im Admin deklarieren (Infrastruktur), ihr Blatt öffnen und den Launcher-QR-Code anzeigen (15 Minuten gültig). Auf der neuen Maschine den Launcher starten, den Code scannen und auf Installieren klicken: keine Datei zu kopieren, und der Launcher entfernt sich danach selbst.',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binär',
-      'install.script.note': 'Erzeugt hex-32-Secrets, schreibt .env (chmod 600), prüft Docker / Ports und startet Admin + Edge + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Varianten (einzeln ausführen, nie mit dem Block oben einfügen): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
       'install.docker.note': 'Offizielle GHCR-Images mit Floating-Tag :preview (0.x). Optionales SemVer-Pin über versions.json.',
       'install.helm.note': 'Chart im Repo (helm/goproxify). global.authToken erforderlich. Secrets im Browser erzeugen, dann helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Modell wählen, Compose einfügen, deployen. Admin auf Port 9443.',
@@ -3252,7 +3266,7 @@ volumes:
       'install.scn.ent': 'Unternehmen · redundant',
       'install.ent.intro': 'Eine Rolle pro Maschine, dieselben Images. Überall dasselbe GPX_PAIRING_SECRET verwenden und Port 8000 zwischen den Maschinen öffnen (Firewall: nur von Ihren eigenen Hosts).',
       'install.ent.s1': '1. Admin + Gateway 1',
-      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Skript oder Docker Compose): Sie startet den Admin und den ersten Edge.',
+      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Launcher oder Docker Compose): Sie startet den Admin und den ersten Edge.',
       'install.ent.s2': '2. Gateway 2 (zweiter Edge)',
       'install.ent.s2.body': 'Auf einer zweiten Maschine einen Edge mit eigenem Node-Namen starten und im Admin registrieren (Infrastruktur → Architektur bearbeiten): er wechselt von declared auf online.',
       'install.ent.s3': '3. Ein Agent pro Host',

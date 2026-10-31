@@ -15,6 +15,8 @@ import (
 	"github.com/vincamok/goproxify/internal/edge/proxyproto"
 	"github.com/vincamok/goproxify/internal/edge/proxystore"
 	"github.com/vincamok/goproxify/internal/edge/router"
+	"github.com/vincamok/goproxify/internal/edge/surface"
+	"github.com/vincamok/goproxify/internal/edge/waf"
 )
 
 // DryRunOptions configures optional checks (certs/snippets existence).
@@ -91,6 +93,15 @@ func validateRouteBasics(route *router.Route) []string {
 	errs = append(errs, validateTrafficSettings(route)...)
 	errs = append(errs, middleware.ValidateRequestSchemaConfig(route.RequestSchema)...)
 	errs = append(errs, middleware.ValidateOpenAPIConfig(route.OpenAPI)...)
+	errs = append(errs, waf.ValidateConfig(route.WAF)...)
+	if route.Surface != nil {
+		if err := surface.ValidateMode(route.Surface.Mode); err != nil {
+			errs = append(errs, err.Error())
+		}
+		if err := surface.ValidateType(route.Surface.Type); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
 	if gerrs, _ := grpctrans.Validate(route.GRPCTranscode); len(gerrs) > 0 {
 		errs = append(errs, gerrs...)
 	}

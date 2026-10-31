@@ -50,11 +50,11 @@ func TestIPTraceFollowsACIDRAcrossSources(t *testing.T) {
 	logRow(ago(2*time.Hour), "203.0.113.5", 200, "")
 	logRow(ago(2*time.Hour), "203.0.114.5", 200, "")
 	logRow(ago(2*time.Hour), "198.51.100.1", 200, "")
-	exec(`INSERT INTO security_ban_history (ip, action, reason, source, created_at) VALUES ('203.0.113.5', 'banned', 'scan', 'fail2ban', ?)`, sqltime.Format(ago(41*24*time.Hour)))
+	exec(`INSERT INTO security_ban_history (ip, action, reason, source, user_agent, created_at) VALUES ('203.0.113.5', 'banned', 'scan', 'fail2ban', 'sqlmap/1.7', ?)`, sqltime.Format(ago(41*24*time.Hour)))
 	exec(`INSERT INTO security_ban_history (ip, action, reason, source, created_at) VALUES ('203.0.113.0/24', 'unbanned', '', 'native', ?)`, sqltime.Format(ago(40*24*time.Hour)))
 	exec(`INSERT INTO security_ban_history (ip, action, source, created_at) VALUES ('198.51.100.1', 'banned', 'native', ?)`, sqltime.Format(ago(time.Hour)))
 	exec(`INSERT INTO security_threats (ip, scenario, origin, occurrences, created_at, last_seen_at) VALUES ('203.0.113.6', 'http-probing', 'crowdsec', 3, ?, ?)`, sqltime.Format(ago(41*24*time.Hour)), sqltime.Format(ago(41*24*time.Hour)))
-	exec(`INSERT INTO security_bans (id, ip, reason, source) VALUES ('b1', '203.0.113.5', 'scan', 'native')`)
+	exec(`INSERT INTO security_bans (id, ip, reason, source, user_agent) VALUES ('b1', '203.0.113.5', 'scan', 'native', 'sqlmap/1.7')`)
 	exec(`INSERT INTO ip_profiles (id, name, profile_type, mode, cidrs, enabled) VALUES ('p1', 'Scanners', 'custom', 'deny', '["203.0.113.0/25"]', 1)`)
 
 	get := func(path string) map[string]any {
@@ -80,7 +80,8 @@ func TestIPTraceFollowsACIDRAcrossSources(t *testing.T) {
 		t.Errorf("30 jours : %v requêtes, attendu 1", n)
 	}
 
-	res := get("/api/v1/security/ip-trace?target=203.0.113.0/24&from=" + ago(60*24*time.Hour).Format("2006-01-02"))
+	from60 := ago(60*24*time.Hour).Format("2006-01-02")
+	res := get("/api/v1/security/ip-trace?order=asc&target=203.0.113.0/24&from=" + from60)
 	sum := res["summary"].(map[string]any)
 	if sum["requests"].(float64) != 3 || sum["blocked"].(float64) != 1 || sum["ip_count"].(float64) != 2 || sum["episodes"].(float64) != 2 {
 		t.Errorf("synthèse : %v", sum)
@@ -109,6 +110,25 @@ func TestIPTraceFollowsACIDRAcrossSources(t *testing.T) {
 	}
 	if kinds[len(kinds)-1] != "activity" || kinds[len(kinds)-2] != "unban" {
 		t.Errorf("ordre des étapes : %v", kinds)
+	}
+
+	// Par défaut, le plus récent d'abord ; le ban et le ban en cours disent quel User-Agent les a provoqués.
+	newest := get("/api/v1/security/ip-trace?target=203.0.113.0/24&from=" + from60)
+	steps := newest["steps"].([]any)
+	if steps[0].(map[string]any)["kind"] != "activity" || steps[len(steps)-1].(map[string]any)["kind"] == "unban" {
+		t.Errorf("ordre par défaut : le plus récent d'abord, obtenu %v", steps[0])
+	}
+	var banUA string
+	for _, s := range steps {
+		if step := s.(map[string]any); step["kind"] == "ban" {
+			banUA, _ = step["user_agent"].(string)
+		}
+	}
+	if banUA != "sqlmap/1.7" {
+		t.Errorf("User-Agent du ban dans la chronologie : %q", banUA)
+	}
+	if ab := newest["summary"].(map[string]any)["active_bans"].([]any); ab[0].(map[string]any)["user_agent"] != "sqlmap/1.7" {
+		t.Errorf("User-Agent du ban en cours : %v", ab[0])
 	}
 
 	// Une IP seule ne remonte pas le reste du /24, mais voit le ban posé sur le /24.

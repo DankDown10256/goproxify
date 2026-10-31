@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -88,7 +89,7 @@ func (c *Client) Get(ctx context.Context, path string, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("docker: GET %s → %d: %s", path, resp.StatusCode, b)
+		return &APIError{Method: http.MethodGet, Path: path, Status: resp.StatusCode, Body: string(b)}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -120,7 +121,7 @@ func (c *Client) Post(ctx context.Context, path string, body any, out any) error
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("docker: POST %s → %d: %s", path, resp.StatusCode, b)
+		return &APIError{Method: http.MethodPost, Path: path, Status: resp.StatusCode, Body: string(b)}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -155,7 +156,7 @@ func (c *Client) PostWithHeaders(ctx context.Context, path string, body any, out
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("docker: POST %s → %d: %s", path, resp.StatusCode, b)
+		return &APIError{Method: http.MethodPost, Path: path, Status: resp.StatusCode, Body: string(b)}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
@@ -176,9 +177,74 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("docker: DELETE %s → %d: %s", path, resp.StatusCode, b)
+		return &APIError{Method: http.MethodDelete, Path: path, Status: resp.StatusCode, Body: string(b)}
 	}
 	return nil
+}
+
+// PostStream lance un POST sans corps dont la réponse est un flux de lignes JSON (pull d'image) et le lit jusqu'au
+// bout : fermer la connexion avant la fin interrompt l'opération côté démon. Pas de délai global, un pull peut durer.
+func (c *Client) PostStream(ctx context.Context, path string, headers map[string]string, fn func([]byte)) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), nil)
+	if err != nil {
+		return err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := (&http.Client{Transport: c.http.Transport}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return &APIError{Method: http.MethodPost, Path: path, Status: resp.StatusCode, Body: string(b)}
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		fn(sc.Bytes())
+	}
+	return sc.Err()
+}
+
+// PutArchive extrait une archive tar dans le système de fichiers d'un conteneur (PUT /containers/{id}/archive),
+// volumes montés compris, y compris avant son démarrage.
+func (c *Client) PutArchive(ctx context.Context, path string, tarBody io.Reader) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url(path), tarBody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(resp.Body)
+		return &APIError{Method: http.MethodPut, Path: path, Status: resp.StatusCode, Body: string(b)}
+	}
+	return nil
+}
+
+// APIError est une réponse d'erreur du démon ; le texte reste celui d'avant le type.
+type APIError struct {
+	Method string
+	Path   string
+	Status int
+	Body   string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("docker: %s %s → %d: %s", e.Method, e.Path, e.Status, e.Body)
+}
+
+// IsNotFound dit si err est un 404 du démon (conteneur, réseau, volume ou image absent).
+func IsNotFound(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Status == http.StatusNotFound
 }
 
 // StreamLines ouvre un flux (events, logs) et appelle fn pour chaque ligne JSON brute.

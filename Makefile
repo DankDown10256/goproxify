@@ -34,8 +34,8 @@ DOCKER_ARGS := \
 REGISTRY := ghcr.io/vincamok/goproxify
 
 .PHONY: all build build-dev up up-build down restart \
-        docker-admin docker-edge docker-agent docker-landing docker-all \
-        push-admin push-edge push-agent push-landing push-all \
+        docker-admin docker-edge docker-agent docker-launcher docker-landing docker-all \
+        push-admin push-edge push-agent push-launcher push-landing push-all \
         test test-prebuild lint clean version sync-versions
 
 # -----------------------------------------------------------------------------
@@ -110,6 +110,12 @@ docker-agent:
 		-t $(REGISTRY)/agent:latest \
 		-f services/agent/Dockerfile .
 
+docker-launcher:
+	docker build $(DOCKER_ARGS) \
+		-t $(REGISTRY)/launcher:$(VERSION_AGENT) \
+		-t $(REGISTRY)/launcher:latest \
+		-f services/launcher/Dockerfile .
+
 docker-landing:
 	docker build \
 		--build-arg VERSION_LANDING=$(VERSION_LANDING) \
@@ -119,7 +125,7 @@ docker-landing:
 		-t $(REGISTRY)/landing:latest \
 		-f services/landing/Dockerfile services/landing
 
-docker-all: docker-admin docker-edge docker-agent docker-landing
+docker-all: docker-admin docker-edge docker-agent docker-launcher docker-landing
 
 # -----------------------------------------------------------------------------
 # Push vers le registry
@@ -137,11 +143,15 @@ push-agent: docker-agent
 	docker push $(REGISTRY)/agent:$(VERSION_AGENT)
 	docker push $(REGISTRY)/agent:latest
 
+push-launcher: docker-launcher
+	docker push $(REGISTRY)/launcher:$(VERSION_AGENT)
+	docker push $(REGISTRY)/launcher:latest
+
 push-landing: docker-landing
 	docker push $(REGISTRY)/landing:$(VERSION_LANDING)
 	docker push $(REGISTRY)/landing:latest
 
-push-all: push-admin push-edge push-agent push-landing
+push-all: push-admin push-edge push-agent push-launcher push-landing
 
 # -----------------------------------------------------------------------------
 # Qualité
@@ -176,4 +186,5 @@ clean:
 	docker rmi $(REGISTRY)/admin:$(VERSION_ADMIN) \
 	           $(REGISTRY)/edge:$(VERSION_EDGE) \
 	           $(REGISTRY)/agent:$(VERSION_AGENT) \
+	           $(REGISTRY)/launcher:$(VERSION_AGENT) \
 	           $(REGISTRY)/landing:$(VERSION_LANDING) 2>/dev/null || true

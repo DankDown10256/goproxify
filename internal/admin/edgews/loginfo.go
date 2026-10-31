@@ -20,6 +20,8 @@ type logInfoState struct {
 	mu     sync.Mutex
 	byNode map[string]api.EdgeLogInfo
 	at     map[string]time.Time
+	last   map[string][2]int64 // derniers identifiants annoncés (accès, système)
+	alerted map[string]time.Time // dernière alerte « logs non rangés » de chaque passerelle
 }
 
 func (m *Manager) handleLogInfo(raw json.RawMessage) {
@@ -33,8 +35,16 @@ func (m *Manager) handleLogInfo(raw json.RawMessage) {
 	if m.logInfo.byNode == nil {
 		m.logInfo.byNode, m.logInfo.at = map[string]api.EdgeLogInfo{}, map[string]time.Time{}
 	}
-	m.logInfo.byNode[p.NodeName] = api.EdgeLogInfo{NodeName: p.NodeName, AccessDays: p.AccessDays, SystemDays: p.SystemDays, ReportedAt: now.UTC().Format(time.RFC3339)}
+	m.logInfo.byNode[p.NodeName] = api.EdgeLogInfo{NodeName: p.NodeName, AccessDays: p.AccessDays, SystemDays: p.SystemDays, ReportedAt: now.UTC().Format(time.RFC3339),
+		BufferActive: p.BufferActive, UnackedDays: p.UnackedDays, BufferMaxDays: p.BufferMaxDays}
 	m.logInfo.at[p.NodeName] = now
+	m.logInfo.setLast(p.NodeName, p.AccessLast, p.SystemLast)
+	if m.logInfo.alerted == nil {
+		m.logInfo.alerted = map[string]time.Time{}
+	}
+	if ev := logBufferEvent(p.NodeName, p.BufferActive, p.UnackedDays, p.BufferMaxDays, m.logInfo.alerted, now); ev != nil && m.alertEngine != nil {
+		go m.alertEngine.Emit(*ev)
+	}
 }
 
 // LogInfo rend la conservation des logs que chaque passerelle a annoncé appliquer.

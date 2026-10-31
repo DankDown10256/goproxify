@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	"github.com/vincamok/goproxify/internal/admin/analytics"
+	adminauth "github.com/vincamok/goproxify/internal/admin/auth"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/admin/logs"
@@ -162,9 +162,10 @@ func mergeSearch(results []nodeResult, prev map[string]string, limit int) merged
 			moreFromNode = true
 		}
 		for _, e := range r.Resp.Entries {
+			via, owner := r.T, r.T
 			all = append(all, item{node: r.T.ID, e: remoteEntry{
-				ID: remoteRef(r.T.ID, e.Kind, e.ID), Kind: e.Kind, Ts: e.Ts, Level: e.Level, Component: e.Component,
-				NodeName: r.T.NodeName, NodeID: r.T.ID, Domain: e.Domain, Method: e.Method, Path: e.Path, Status: e.Status,
+				ID: remoteRef(via.ID, e.Kind, e.ID), Kind: e.Kind, Ts: e.Ts, Level: e.Level, Component: e.Component,
+				NodeName: owner.NodeName, NodeID: owner.ID, Domain: e.Domain, Method: e.Method, Path: e.Path, Status: e.Status,
 				IP: e.IP, LatencyMs: e.LatencyMs, Bytes: e.Bytes, Message: e.Message, Referrer: e.Referrer,
 				RequestID: e.RequestID, WAFMatches: e.WAFMatches, ThreatSignal: e.ThreatSignal, TLSJA3: e.TLSJA3,
 				TLSJA4: e.TLSJA4, IPTruncated: e.IPTruncated, Pseudonymized: e.Pseudonymized,

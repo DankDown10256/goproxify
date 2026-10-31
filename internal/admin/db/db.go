@@ -438,6 +438,9 @@ func migrate(db *sql.DB) error {
 		// Signaux (JSON) qui expliquent un ban automatique d'Ephor ou du WAF : nom, points, valeur observée
 		`ALTER TABLE security_bans ADD COLUMN signals TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE security_ban_history ADD COLUMN signals TEXT NOT NULL DEFAULT ''`,
+		// Dernier User-Agent vu pour l'IP quand une passerelle l'a bannie : dit quel client a provoqué le ban
+		`ALTER TABLE security_bans ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE security_ban_history ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
 		// Carte Prism : position approximative (ville) des IPs, renseignée par GeoResolver.
 		`ALTER TABLE snippets ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE geoip_cache ADD COLUMN lat REAL`,
@@ -545,8 +548,6 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE audit_log ADD COLUMN severity      TEXT NOT NULL DEFAULT 'info'`,
 		`ALTER TABLE audit_log ADD COLUMN resource_type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE audit_log ADD COLUMN resource_id   TEXT NOT NULL DEFAULT ''`,
-		// raft_endpoint pour la topologie cluster poussée depuis Admin
-		`ALTER TABLE tokens ADD COLUMN raft_endpoint TEXT`,
 	}
 	for _, s := range auditAlters {
 		db.Exec(s) //nolint:errcheck — duplicate column errors are expected and safe to ignore
@@ -736,6 +737,13 @@ func migrate(db *sql.DB) error {
 
 	// Vulnérabilités (CVE) — passerelle d'origine, pour affichage côté Admin (vue agrégée multi-passerelle).
 	db.Exec(`ALTER TABLE security_cves ADD COLUMN edge_name TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+
+	// Vulnérabilités (CVE) — le proxy, le produit et la version sur lesquels la CVE a été trouvée, et d'où ils viennent
+	// (« image » : inventaire des conteneurs de la passerelle ; « headers » : en-têtes du backend). ADR 0017.
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN host TEXT NOT NULL DEFAULT ''`)    //nolint:errcheck
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN product TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN version TEXT NOT NULL DEFAULT ''`) //nolint:errcheck
+	db.Exec(`ALTER TABLE security_cves ADD COLUMN source TEXT NOT NULL DEFAULT ''`)  //nolint:errcheck
 
 	// Vulnérabilités (CVE) — exploitation active (catalogue CISA KEV) et probabilité d'exploitation
 	// (score EPSS, FIRST.org), rafraîchis en fin de scan (internal/admin/vulnscan). Le SLA de correction

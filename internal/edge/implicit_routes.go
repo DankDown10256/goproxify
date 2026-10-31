@@ -50,6 +50,27 @@ func withGeneratedFields(overlay, gen *router.Route) *router.Route {
 	return &out
 }
 
+// effectiveImplicitEnvelope rend l'enveloppe d'une route implicite avec les champs que le générateur impose (hôte, backends, TLS)
+// tels que la table les sert : le fichier de surcouche peut en garder une ancienne copie, ignorée au routage, que l'Admin
+// ne doit pas présenter comme la configuration en vigueur.
+func (s *Server) effectiveImplicitEnvelope(env *proxystore.Envelope) *proxystore.Envelope {
+	live, ok := s.table.ByID(env.ID)
+	if !ok {
+		return env
+	}
+	var overlay router.Route
+	if json.Unmarshal(env.Config, &overlay) != nil {
+		return env
+	}
+	cfg, err := json.Marshal(withGeneratedFields(&overlay, live))
+	if err != nil {
+		return env
+	}
+	cp := *env
+	cp.Config = cfg
+	return &cp
+}
+
 // implicitOverlay lit la surcouche d'une route implicite ; nil si elle n'en a pas.
 func (s *Server) implicitOverlay(id string) (route *router.Route, enabled bool) {
 	if s.proxyStore == nil {
@@ -83,6 +104,14 @@ func (s *Server) upsertImplicitRoute(gen *router.Route) {
 
 // refreshImplicitRoute rejoue la surcouche d'une route implicite après l'écriture ou la suppression de son fichier.
 func (s *Server) refreshImplicitRoute(id string) {
+	if strings.HasPrefix(id, portalPublicRouteID) {
+		if hosts, _ := s.portalRoutes(); hosts[id] == "" {
+			s.table.Delete(id)
+			s.implicitSkeleton.Delete(id)
+			s.invalidateRouteCache(id)
+			return
+		}
+	}
 	skel, _ := s.implicitSkeleton.Load(id)
 	base, _ := skel.(*router.Route)
 	if cur, ok := s.table.ByID(id); ok {

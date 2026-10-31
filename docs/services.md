@@ -25,7 +25,7 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 | **Alerting** | Envoie des notifications (webhook, email, Slack) quand un seuil ou une règle est franchi. |
 | **ACME / Let's Encrypt** | Renouvelle automatiquement les certificats TLS via DNS-01 ou HTTP-01. |
 | **Backup Scheduler** | Crée des snapshots SQLite selon le cron configuré, les stocke dans `basePath/backups/`. |
-| **HA / Raft** | Coordonne l'élection du leader en mode multi-nœuds (Raft) et relaie les requêtes vers le leader. |
+| **HA / Raft** | Coordonne l'élection du leader de l'Admin en mode multi-nœuds (Raft) et relaie les requêtes vers le leader. Les passerelles n'utilisent pas Raft. |
 | **Analytics** | Agrège les logs en métriques de trafic (requêtes/h, top IPs, top domaines) pour le dashboard. |
 | **MCP Server** | Expose les ressources GoProxify comme outils pour les LLMs via le protocole MCP. |
 

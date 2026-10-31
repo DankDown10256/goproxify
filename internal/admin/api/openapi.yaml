@@ -930,6 +930,46 @@ paths:
         "201":
           description: Créé
 
+  /api/v1/hosts:
+    get:
+      tags: [nodes]
+      summary: Hôtes déclarés dans architecture.json, leur état et leur ticket d'installation en cours
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/hosts/{name}/join-ticket:
+    post:
+      tags: [nodes]
+      summary: Créer le ticket d'installation de 15 minutes d'un hôte (jeton, spec_url, empreinte du certificat de l'Admin)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Créé (remplace le ticket précédent de l'hôte)
+        "404":
+          description: Hôte inconnu dans l'architecture
+        "409":
+          description: Hôte déjà intégré
+
+  /api/v1/join/{token}:
+    get:
+      tags: [nodes]
+      summary: Description structurée d'un hôte qui rejoint (publique, le ticket fait foi)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Description de l'hôte, clés dérivées comprises (Cache-Control no-store)
+        "404":
+          description: Ticket inconnu, expiré ou d'une autre nature
+
   /api/v1/pairing-secret:
     get:
       tags: [nodes]

@@ -12,7 +12,7 @@ Un incident sur une installation à deux passerelles (un frontal et un backup) a
 - **Une route découverte n'existe que sur la passerelle où l'Agent l'a publiée.** La synchronisation entre pairs ignore tout ce qui n'est pas Docker (`internal/edge/gateway_peers.go`, `it.Source != "docker"`) et, pour Docker, n'enrichit qu'un pool déjà présent. Les routes Portainer, Kubernetes, Podman et du catalogue ne sont jamais copiées.
 - **L'Agent reste sur la passerelle où il a basculé.** `edgeset.Rotate` passe au membre suivant, rien ne le ramène ; les retraits d'une route ne partent que vers la passerelle courante, donc l'autre garde des routes obsolètes.
 - **L'Admin présente des passerelles, pas des groupes.** Les tuiles regroupent par `edge_name` (le nom de connexion, par exemple l'ancien `goproxify-core`), pas par groupe ni par nom d'affichage ; la même route apparaît une fois par passerelle.
-- **La configuration poussée par l'Admin n'est pas répliquée entre pairs.** L'Admin envoie edge par edge, filtré par rôle et périmètre (`internal/admin/edgepush/pusher.go`) ; un edge absent pendant un changement reste obsolète jusqu'à ce que l'Admin l'atteigne. Seuls le portail, les HMAC des Agents, les clés ECH, les bans, les listes de menaces, les profils WAF, les scores du LB et les quotas `shared` sont échangés entre pairs.
+- **La configuration poussée par l'Admin n'est pas répliquée entre pairs.** L'Admin envoie edge par edge, filtré par rôle et périmètre (`internal/admin/edgews/manager.go`) ; un edge absent pendant un changement reste obsolète jusqu'à ce que l'Admin l'atteigne. Seuls le portail, les HMAC des Agents, les clés ECH, les bans, les listes de menaces, les profils WAF, les scores du LB et les quotas `shared` sont échangés entre pairs.
 - **Raft ne réplique rien.** `ProposeRoutes` et `ProposeCert` ne sont appelés nulle part ; Raft ne sert qu'à élire un leader, et il exige une majorité : dans un groupe de deux, la chute d'un membre prive l'autre de leader.
 - **`architecture.json` n'est connu que de l'Admin.** Aucune ligne de `internal/edge` ni de `internal/agent` ne le lit ; chaque passerelle ne reçoit que des listes séparées (pairs, groupe, Raft).
 - **Un bug indépendant aggrave l'ensemble.** `isAgentRoute` (`internal/edge/internalapi.go`) ne préserve pas les routes `portainer:` et `podman:` : chaque envoi de routes de l'Admin (`table.Replace`) les efface jusqu'au scan suivant de l'Agent.
@@ -88,7 +88,7 @@ La configuration du groupe l'emporte sur la configuration propre d'un edge, pour
 
 Le renouvellement d'un certificat, une action d'automatisation (ban, notification) ne doivent partir qu'une fois. Raft ne convient pas : il exige une majorité, donc un groupe de deux perd son leader à la chute d'un membre. L'exécutant est le **premier membre de la fiche vu vivant** ; les actions sont idempotentes. Dans une partition réseau, deux membres peuvent exécuter la même action : c'est acceptable pour un ban ou un renouvellement, un doublon rare est possible pour une notification.
 
-Raft n'élit donc plus rien d'utile. Son devenir (suppression ou usage futur) est un point ouvert.
+Raft n'élit donc plus rien d'utile. **Retiré des passerelles en Edge 0.110.0** : plus de leader, plus de port Raft, plus de topologie Raft ; n'importe quel membre du groupe, quelle que soit sa taille, prend le relais d'un autre par le mécanisme ci-dessus. Raft ne subsiste que pour la HA de l'Admin.
 
 ### 8. Composition du groupe, clé du groupe et reconstitution de l'Admin
 
@@ -160,7 +160,6 @@ Chaque étape est livrable seule.
 ## Points ouverts
 
 - Les enregistrements de session du portail (locaux ou répliqués) et la purge du cache de contenu.
-- Le devenir de Raft une fois les actions uniques confiées au premier membre vivant.
 - Les services marqués « déduit » : à confirmer en les lisant à l'implémentation (automatisation, configuration serveur, purge du cache, jetons de jointure à usage unique, commandes d'Agent).
 - Les actions uniques non idempotentes (notifications) : un doublon rare est accepté, ou un jeton de déduplication partagé est ajouté.
 - L'éviction complète d'un membre malgré le secret d'appairage commun : traitée par l'ADR-0015 (clé de canal dérivée par passerelle, rotation avec recouvrement, jetons des pairs renouvelés). Limite restante : un membre sorti qui reste enregistré comme passerelle dans l'Admin reçoit les nouveaux jetons ; pour l'évincer, supprimer le nœud.

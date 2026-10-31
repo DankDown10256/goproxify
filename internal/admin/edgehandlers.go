@@ -291,8 +291,7 @@ func (s *Server) handleEdgeRoutes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEdgeRegister(mgr *edgews.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Endpoint     string `json:"endpoint"`
-			RaftEndpoint string `json:"raft_endpoint"`
+			Endpoint string `json:"endpoint"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Endpoint == "" {
 			http.Error(w, "endpoint requis", http.StatusBadRequest)
@@ -325,8 +324,8 @@ func (s *Server) handleEdgeRegister(mgr *edgews.Manager) http.HandlerFunc {
 		}
 
 		res, err := s.db.ExecContext(r.Context(),
-			`UPDATE tokens SET node_endpoint=?, raft_endpoint=? WHERE (token_hash=? OR token=?) AND role='edge' AND revoked=0`,
-			req.Endpoint, req.RaftEndpoint, auth.HashNodeToken(token), token,
+			`UPDATE tokens SET node_endpoint=? WHERE (token_hash=? OR token=?) AND role='edge' AND revoked=0`,
+			req.Endpoint, auth.HashNodeToken(token), token,
 		)
 		if err != nil {
 			s.log.Error("edge register: update endpoint", "err", err)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/vincamok/goproxify/internal/edge/tlsfp"
@@ -18,7 +19,56 @@ import (
 type Observation struct {
 	waf      atomic.Int32
 	recorded atomic.Bool
+	blocked  atomic.Bool
+	mu       sync.Mutex
+	hits     []WAFHit
 }
+
+// WAFHit est une règle du WAF déclenchée par la requête : de quoi, plus tard, dire quelles règles se déclenchent sur des clients
+// ordinaires (apprentissage de la surface, ADR 0016).
+type WAFHit struct {
+	RuleID   int
+	Category string
+	Message  string
+	Target   string
+}
+
+// maxWAFHits borne ce qu'une requête retient : une charge qui déclenche tout le jeu de règles n'allonge pas l'observation.
+const maxWAFHits = 16
+
+// NoteWAFHits consigne les règles déclenchées par la requête ou sa réponse.
+func (o *Observation) NoteWAFHits(hits ...WAFHit) {
+	if o == nil || len(hits) == 0 {
+		return
+	}
+	o.mu.Lock()
+	for _, h := range hits {
+		if len(o.hits) < maxWAFHits {
+			o.hits = append(o.hits, h)
+		}
+	}
+	o.mu.Unlock()
+}
+
+// WAFHits rend les règles consignées.
+func (o *Observation) WAFHits() []WAFHit {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]WAFHit(nil), o.hits...)
+}
+
+// NoteWAFBlocked consigne que le WAF a refusé la requête.
+func (o *Observation) NoteWAFBlocked() {
+	if o != nil {
+		o.blocked.Store(true)
+	}
+}
+
+// WAFBlocked dit si le WAF a refusé la requête.
+func (o *Observation) WAFBlocked() bool { return o != nil && o.blocked.Load() }
 
 type obsKey struct{}
 

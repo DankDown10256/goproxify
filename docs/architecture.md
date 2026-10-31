@@ -23,7 +23,7 @@ GoProxify deploys as a **single Go binary**. The instance personality is determi
                            │  JOIN_TOKEN → rotating HMAC
   ┌──────────────────────────────────────────────────────────┐
   │  AGENT  (Service Discovery)                              │
-  │  Reads docker.sock · goproxify.* labels                  │
+  │  Uses docker.sock · goproxify.* labels                   │
   │  K8s · Portainer · Consul · Nomad · etcd · Amazon ECS    │
   │  Streams CPU/mem/disk IO metrics via WS (adaptive LB)    │
   │  Prometheus :9191/metrics                                │

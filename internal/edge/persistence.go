@@ -5,18 +5,15 @@ package edge
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"time"
 
 	"github.com/vincamok/goproxify/internal/agent/telemetry"
 	"github.com/vincamok/goproxify/internal/buildinfo"
 	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
-	"github.com/vincamok/goproxify/internal/edge/cluster"
 	"github.com/vincamok/goproxify/internal/edge/ipprofiles"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
 	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
-	"github.com/vincamok/goproxify/internal/edge/raft"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	"github.com/vincamok/goproxify/internal/edge/portal"
 	edgere "github.com/vincamok/goproxify/internal/edge/rulesengine"
@@ -334,45 +331,6 @@ func (s *Server) loadTunnelConfigFromDisk() {
 	s.log.Info("tunnel: pairs chargés depuis le disque", "count", len(payload.Peers))
 }
 
-// clusterPeersPath est la copie locale chiffrée de la topologie Raft poussée par l'Admin.
-func clusterPeersPath() string {
-	if p := os.Getenv("GPX_CLUSTER_PEERS_PATH"); p != "" {
-		return p
-	}
-	return "/etc/goproxify/cluster-peers.gpx"
-}
-
-// applyClusterPeers persiste la topologie Raft reçue de l'Admin puis l'applique. Une config locale
-// (cluster.peers) reste prioritaire et n'est jamais écrasée.
-func (s *Server) applyClusterPeers(peers map[string]string) {
-	if len(s.cfg.Cluster.Peers) > 0 || len(peers) == 0 {
-		return
-	}
-	if err := s.cache.SaveFile(clusterPeersPath(), peers); err != nil {
-		s.log.Warn("cluster: persistance de la topologie échouée", "err", err)
-	}
-	if s.clusterGroup != nil {
-		s.clusterGroup.UpdatePeers(peers)
-		s.log.Info("cluster: topologie reçue depuis Admin", "peers", len(peers))
-	}
-}
-
-// loadClusterPeersFromDisk retourne la dernière topologie Raft connue, pour qu'un redémarrage sans
-// Admin retrouve ses pairs.
-func (s *Server) loadClusterPeersFromDisk() map[string]string {
-	var peers map[string]string
-	ok, err := s.cache.LoadFile(clusterPeersPath(), &peers)
-	if err != nil {
-		s.log.Warn("cluster: copie locale illisible — en attente de l'Admin", "err", err)
-		return nil
-	}
-	if !ok {
-		return nil
-	}
-	s.log.Info("cluster: topologie chargée depuis le disque", "peers", len(peers))
-	return peers
-}
-
 // pushedServerConfig est la configuration serveur HTTP poussée par l'Admin (0 = non défini).
 type pushedServerConfig struct {
 	ReadHeaderSeconds int `json:"read_header_seconds"`
@@ -588,49 +546,9 @@ func (s *Server) autosaveLoop(ctx context.Context) {
 			s.saveCacheNow()
 			s.saveThreatState()
 			s.saveBehaviorState()
+			s.saveSurfaceState()
+			s.saveAppsState()
 		}
-	}
-}
-
-func (s *Server) applyClusterCommand(entry raft.LogEntry) {
-	cmd, err := cluster.DecodeCommand(entry)
-	if err != nil {
-		s.log.Warn("cluster: commande invalide", "err", err)
-		return
-	}
-	switch cmd.Type {
-	case cluster.CmdPushRoutes:
-		var payload cluster.RoutesPayload
-		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
-			s.log.Warn("cluster: décode routes", "err", err)
-			return
-		}
-		var routes []*router.Route
-		for _, raw := range payload.Routes {
-			var r router.Route
-			if err := json.Unmarshal(raw, &r); err == nil {
-				routes = append(routes, &r)
-			}
-		}
-		s.table.Replace(routes) //nolint:errcheck
-		metrics.Edge.RouteCount.Set(float64(s.table.Len()))
-		s.saveCache()
-		s.log.Info("cluster: routes appliquées", "count", len(routes))
-
-	case cluster.CmdPushCert:
-		var payload cluster.CertPayload
-		if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
-			s.log.Warn("cluster: décode cert", "err", err)
-			return
-		}
-		if err := s.certStore.StorePEM(payload.Name, payload.CertPEM, payload.KeyPEM); err != nil {
-			s.log.Warn("cluster: store cert", "err", err)
-			return
-		}
-		s.writeCertToDisk(payload.Name, payload.CertPEM, payload.KeyPEM)
-		metrics.Edge.CertCount.Set(float64(s.certStore.Len()))
-		metrics.UpdateCertExpiries(s.certStore.CertExpiries())
-		s.log.Info("cluster: certificat appliqué", "name", payload.Name)
 	}
 }
 
@@ -653,8 +571,6 @@ func (s *Server) wsHeartbeatLoop(ctx context.Context) {
 			Version:  buildinfo.Edge,
 			CPUPct:   cpuPct,
 			MemPct:   memPct,
-
-			ClusterPeers: s.cfg.Cluster.Peers,
 		})
 		s.wsHub.BroadcastToAdmins(msg)
 	}

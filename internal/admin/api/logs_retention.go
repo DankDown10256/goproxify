@@ -45,6 +45,11 @@ type EdgeLogInfo struct {
 	AccessDays int    `json:"access_days"`
 	SystemDays int    `json:"system_days"`
 	ReportedAt string `json:"reported_at"`
+	// BufferActive, UnackedDays, BufferMaxDays : la base de la passerelle est un tampon que l'Admin acquitte (ADR 0018) ; âge de
+	// la plus ancienne ligne non acquittée et âge où elle est supprimée.
+	BufferActive  bool `json:"buffer_active,omitempty"`
+	UnackedDays   int  `json:"unacked_days,omitempty"`
+	BufferMaxDays int  `json:"buffer_max_days,omitempty"`
 	Stale      bool   `json:"stale,omitempty"`
 }
 

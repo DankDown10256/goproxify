@@ -290,6 +290,52 @@ function _archGroupOfSvc(svcId) {
 function _archInHA(svcId) {
   return _arch.haGroups.some(g => g.members.includes(svcId));
 }
+/**
+ * Toute passerelle appartient à un groupe (ADR 0014) : son groupe HA, sinon un groupe d'un seul membre. Dans le modèle
+ * du wizard ce groupe reste implicite, mais l'enregistrement l'écrit (`_archSoloGroupId`) : l'Admin ne voit un groupe
+ * que si architecture.json le déclare.
+ */
+function _archEffectiveGroup(svcId) {
+  return _archGroupOfSvc(svcId) || { id: '', solo: true, members: [svcId] };
+}
+/** Nom du groupe d'une passerelle seule, comme le launcher : `ha-<hôte>`, ou `ha-<passerelle>` si l'hôte en porte plusieurs. */
+function _archSoloGroupId(host, svc) {
+  const edges = (host.services || []).filter(s => s.type === 'edge');
+  return 'ha-' + (edges.length > 1 ? (svc.nodeName || svc.name) : host.name);
+}
+/** Passerelles du groupe de `svcId` (lui compris). */
+function _archGroupEdges(svcId) {
+  return _archEffectiveGroup(svcId).members.map(_archFindSvc).filter(s => s && s.type === 'edge');
+}
+/** Propriétés du groupe : réglées une fois, communes à tous les membres. Les autres (adresse, région, hôte…) restent celles du membre. */
+const _ARCH_GROUP_FIELDS = ['access', 'domains', 'acme', 'acmeEmail', 'dnsProvider'];
+function _archSetGroupField(svcId, key, val) {
+  for (const m of _archGroupEdges(svcId)) m[key] = val;
+}
+/** Un membre qui rejoint un groupe prend les réglages du groupe (ceux d'un membre déjà présent). */
+function _archInheritGroup(svcId) {
+  const ref = _archGroupEdges(svcId).find(m => m.id !== svcId);
+  const me = _archFindSvc(svcId);
+  if (!ref || !me) return;
+  for (const k of _ARCH_GROUP_FIELDS) me[k] = ref[k];
+}
+/** Aligne les membres d'un groupe sur un réglage commun : actif si l'un l'est, domaines réunis, premier e-mail et fournisseur renseignés. */
+function _archNormalizeGroups(fields) {
+  for (const g of _arch.haGroups) {
+    const edges = g.members.map(_archFindSvc).filter(s => s && s.type === 'edge');
+    if (edges.length < 2) continue;
+    const set = (k, v) => { for (const m of edges) m[k] = v; };
+    if (fields.includes('access')) set('access', edges.some(m => m.access));
+    if (fields.includes('acme')) set('acme', edges.some(m => m.acme));
+    if (fields.includes('domains')) {
+      const seen = new Map();
+      for (const m of edges) for (const d of _archDomainList(m.domains)) if (!seen.has(d.toLowerCase())) seen.set(d.toLowerCase(), d);
+      set('domains', [...seen.values()].join(', '));
+    }
+    if (fields.includes('acmeEmail')) set('acmeEmail', (edges.find(m => m.acmeEmail) || {}).acmeEmail || '');
+    if (fields.includes('dnsProvider')) set('dnsProvider', (edges.find(m => m.dnsProvider && m.dnsProvider !== 'none') || {}).dnsProvider || 'none');
+  }
+}
 function _archNextGroupId() {
   const ids = new Set(_arch.haGroups.map(g => g.id));
   let n = 1;
@@ -458,7 +504,11 @@ function _archLoad() {
       });
     }
     _arch.loading = false;
+    // Domaines, ACME et DNS viennent de la table /domains, par passerelle : le groupe les affiche en commun, sans
+    // changement à enregistrer. Access est un état réel de chaque passerelle : un écart devient une modification à valider.
+    _archNormalizeGroups(['domains', 'acme', 'acmeEmail', 'dnsProvider']);
     _archSnapshot();
+    _archNormalizeGroups(['access']);
     if (state.page === 'architecture') _archDraftRestore();
     _archRender();
   });
@@ -861,8 +911,8 @@ function _archDeclaredPayload() {
       if (svc.type === 'edge') {
         const g = _archGroupOfSvc(svc.id);
         cfg.portal        = !!svc.access;
-        cfg.cluster       = !!g;
-        cfg.cluster_group = g ? g.id : '';
+        cfg.cluster       = true;
+        cfg.cluster_group = g ? g.id : _archSoloGroupId(host, svc);
         cfg.domains       = svc.domains || '';
         cfg.acme          = !!svc.acme;
         cfg.acme_email    = svc.acmeEmail || '';
@@ -1044,7 +1094,11 @@ function _archEdgeCapsHTML(svc) {
   const curGroup = _archGroupOfSvc(svc.id);
   const bTls = !!(b && (b.domains || b.acme));
   const tls = !!(svc.domains || svc.acme);
-  return _archCapRow(!!svc.access, t('arch.svc.access') + _archImpactBadge('restart', svc.existing && svc.status !== 'online'), t('arch.cap.access_desc'),
+  const mates = _archGroupEdges(svc.id).filter(m => m.id !== svc.id).map(m => m.name);
+  const groupLine = curGroup
+    ? `<div class="arch-cap-desc" style="margin-bottom:6px;">${esc(t('arch.ha.group'))} <b>${esc(curGroup.id)}</b> — ${esc(t('arch.ha.shared_hint', { names: mates.join(', ') }))}</div>`
+    : `<div class="arch-cap-desc" style="margin-bottom:6px;">${esc(t('arch.ha.solo'))}</div>`;
+  return groupLine + _archCapRow(!!svc.access, t('arch.svc.access') + _archImpactBadge('restart', svc.existing && svc.status !== 'online'), t('arch.cap.access_desc'),
       `_archSetOpt('${svc.id}','access',this.checked)`, '', _archBefore(svc, 'access')) +
     _archCapRow(!!curGroup, t('arch.svc.ha') + _archImpactBadge('redeploy', svc.existing), t('arch.cap.ha_desc'),
       `_archSetHAGroup('${svc.id}',this.checked,'')`,
@@ -1081,9 +1135,10 @@ function _archDomainList(str) {
 function _archDomainPickerHTML(svc) {
   const mine = new Set(_archDomainList(svc.domains).map(d => d.toLowerCase()));
   const owner = new Map();
+  const sameGroup = new Set(_archEffectiveGroup(svc.id).members);
   for (const h of _arch.hosts) {
     for (const s of h.services || []) {
-      if (s.type !== 'edge' || s.id === svc.id) continue;
+      if (s.type !== 'edge' || sameGroup.has(s.id)) continue;
       for (const d of _archDomainList(s.domains)) owner.set(d.toLowerCase(), { name: d, edge: s.name });
     }
   }
@@ -1109,7 +1164,7 @@ function _archToggleDomain(id, domain) {
   if (!s) return;
   const key = domain.toLowerCase();
   const list = _archDomainList(s.domains);
-  s.domains = (list.some(d => d.toLowerCase() === key) ? list.filter(d => d.toLowerCase() !== key) : [...list, domain]).join(', ');
+  _archSetGroupField(id, 'domains', (list.some(d => d.toLowerCase() === key) ? list.filter(d => d.toLowerCase() !== key) : [...list, domain]).join(', '));
   _archRender();
 }
 
@@ -1122,7 +1177,7 @@ function _archAddDomain(id) {
     const host = d.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     if (host && !list.some(x => x.toLowerCase() === host)) list.push(host);
   }
-  s.domains = list.join(', ');
+  _archSetGroupField(id, 'domains', list.join(', '));
   _archRender();
 }
 
@@ -1185,6 +1240,11 @@ function _archAgentNetHTML(svc, host) {
   const edges = _arch.hosts.flatMap(h => (h.services || []).filter(s => s.type === 'edge'));
   const local = host && (host.services || []).find(s => s.type === 'edge');
   let html = `<div class="arch-cap-desc" style="margin-bottom:8px">${esc(t(local ? 'as.ins.colocated' : 'as.ins.remote'))}</div>`;
+  // Sur un hôte qui porte une passerelle, c'est son adresse qui fait foi ; sans passerelle, celle de l'Agent est la seule.
+  if (!local) {
+    html += _archField(t('arch.opt.reachable'), `<input class="arch-input" value="${esc(svc.reachable || '')}" placeholder="192.168.1.50" oninput="_archSetField('${svc.id}','reachable',this.value)">` + _archBefore(svc, 'reachable')) +
+      `<div class="arch-cap-desc" style="margin-bottom:8px">${esc(t('as.ins.agent_addr_hint'))}</div>`;
+  }
   if (edges.length > 1) {
     const targetOpts = edges.map(c => `<option value="${esc(c.id)}" ${svc.targetEdgeId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
     const groupOpts = _arch.haGroups.filter(g => g.members.length > 1).map(g => {
@@ -1501,23 +1561,26 @@ function _archSetTLS(id, on) {
   const s = _archFindSvc(id);
   if (!s) return;
   if (!on) {
-    s.domains = '';
-    s.acme = false;
+    _archSetGroupField(id, 'domains', '');
+    _archSetGroupField(id, 'acme', false);
   } else if (!s.acme) {
-    s.acme = true;
+    _archSetGroupField(id, 'acme', true);
   }
   _archRender();
 }
 
 function _archSetOpt(id, key, val) {
   const s = _archFindSvc(id);
-  if (s) s[key] = !!val;
+  if (!s) return;
+  if (s.type === 'edge' && _ARCH_GROUP_FIELDS.includes(key)) _archSetGroupField(id, key, !!val);
+  else s[key] = !!val;
   _archRender();
 }
 
 function _archSetField(id, key, val) {
   const s = _archFindSvc(id);
-  if (s) s[key] = val;
+  if (s && s.type === 'edge' && _ARCH_GROUP_FIELDS.includes(key)) _archSetGroupField(id, key, val);
+  else if (s) s[key] = val;
   if (s && key === 'domains') {
     const box = document.getElementById('arch-dom-picker-' + id);
     if (box) box.innerHTML = _archDomainPickerHTML(s);
@@ -1540,6 +1603,7 @@ function _archSetHAGroup(id, on, groupId) {
       if (g) g.members.push(id);
       else _arch.haGroups.push({ id: groupId, members: [id] });
     }
+    _archInheritGroup(id);
   }
   _archRender();
 }
@@ -1583,30 +1647,6 @@ function _archValidate() {
   return '';
 }
 
-function _archHAPeerHost(svc) {
-  if (!svc) return '';
-  const r = (svc.reachable || '').trim();
-  if (r) {
-    // host:port ou host seul → host pour peers Raft :8002
-    return r.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
-  }
-  return svc.name;
-}
-
-function _archHAPeersCSV(selfId) {
-  const g = _archGroupOfSvc(selfId);
-  if (!g) return '';
-  const parts = [];
-  for (const id of g.members) {
-    if (id === selfId) continue;
-    const s = _archFindSvc(id);
-    if (!s) continue;
-    const host = _archHAPeerHost(s);
-    parts.push(`${s.name}=http://${host}:8002`);
-  }
-  return parts.join(',');
-}
-
 function _archHALeaderOf(svcId) {
   const g = _archGroupOfSvc(svcId);
   if (!g || !g.members.length) return null;
@@ -1643,7 +1683,7 @@ function _archNetworkFlows() {
     flows.push({ from: 'Agent', to: 'Edge :8000', dir: t('arch.flow.outbound'), why: 'WS + discovery' });
   }
   if (_arch.haGroups.some(g => g.members.length >= 2)) {
-    flows.push({ from: 'Edge', to: 'Edge :8000 / :8002', dir: t('arch.flow.peer'), why: 'Peers HA / Raft' });
+    flows.push({ from: 'Edge', to: 'Edge :8000', dir: t('arch.flow.peer'), why: 'Peers HA' });
   }
   if (multiHost) {
     flows.push({ from: t('arch.flow.bootstrap'), to: t('arch.flow.reachable'), dir: t('arch.flow.outbound'), why: t('arch.flow.qr_why') });
@@ -1737,16 +1777,8 @@ function _archBuildPacks() {
     const admins = svcs.filter(s => s.type === 'admin');
 
     const edgeOpts = edges.map(c => {
-      const cGroup = _archGroupOfSvc(c.id);
-      const inHA = !!cGroup && cGroup.members.length >= 2;
-      const haLeader = inHA ? _archFindSvc(cGroup.members[0]) : null;
       return _buildEdgeOpts({
         wc_name: c.name,
-        wc_cluster: inHA,
-        wc_cluster_node_id: c.name,
-        wc_cluster_group: cGroup ? cGroup.id : 'ha-1',
-        wc_cluster_peers: inHA ? _archHAPeersCSV(c.id) : '',
-        wc_raft_leader: inHA && haLeader && haLeader.id !== c.id ? haLeader.name : '',
         wc_portal: !!c.access,
         wc_http3: false,
       });

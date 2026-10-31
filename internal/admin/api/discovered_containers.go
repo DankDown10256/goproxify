@@ -25,6 +25,8 @@ type DiscoveredContainersHandler struct {
 	Log *slog.Logger
 	// Groups donne le groupe HA d'une passerelle ; nil : aucune passerelle n'est groupée.
 	Groups GroupResolver
+	// Pusher publie la liste des routes désactivées ; nil : la modification n'est enregistrée que côté Admin.
+	Pusher DisabledRoutesPusher
 }
 
 type DiscoveredContainer struct {
@@ -53,9 +55,16 @@ type DiscoveredContainer struct {
 	Inactive bool   `json:"inactive,omitempty"`
 	State    string `json:"state,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// Disabled : la route a été désactivée depuis l'Admin ; la passerelle ne la sert plus mais la garde pour qu'on puisse
+	// la réactiver. Elle ne peut pas être convertie en proxy.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 func (h *DiscoveredContainersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut && strings.TrimPrefix(r.URL.Path, "/api/v1/discovered-containers") == "/enabled" {
+		h.setEnabled(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeErr(w, r, http.StatusMethodNotAllowed, "api.err.method")
 		return
@@ -73,7 +82,7 @@ func (h *DiscoveredContainersHandler) ServeHTTP(w http.ResponseWriter, r *http.R
 }
 
 func (h *DiscoveredContainersHandler) list(w http.ResponseWriter, r *http.Request) {
-	result := h.FetchFromEdges(r.Context())
+	result := withDisabled(h.FetchFromEdges(r.Context()), LoadDisabledRoutes(h.DB))
 	store, _ := loadSnippetStore(r.Context(), h.DB)
 	for i := range result {
 		if route := routeOf(result[i].ProxyConfig); route != nil {

@@ -1103,7 +1103,7 @@ function asAct(kind, id) {
 
 // ── Modale Configuration d'un hôte : déployer (Compose, .env, CLI, ticket) · vérifier (écarts, flux, déclaration) · historique ──
 
-const _asM = { hostId: null, sec: 'compose', mask: true, versions: null, vLoading: false, current: null, verName: null, verData: null, ticket: null, raw: '', file: '' };
+const _asM = { hostId: null, sec: 'compose', mask: true, versions: null, vLoading: false, current: null, verName: null, verData: null, join: null, raw: '', file: '' };
 
 // Anciens onglets (f/e/v) acceptés par les appelants existants.
 const _AS_CFG_TAB = { f: 'compose', e: 'drift', v: 'versions' };
@@ -1112,7 +1112,7 @@ const _AS_CFG_SECS = [
   { g: 'deploy', id: 'compose', icon: 'file', k: 'as.fmt.compose' },
   { g: 'deploy', id: 'env', icon: 'vars', k: 'as.fmt.env' },
   { g: 'deploy', id: 'cli', icon: 'term', k: 'as.fmt.cli' },
-  { g: 'deploy', id: 'ticket', icon: 'qr', k: 'as.fmt.ticket' },
+  { g: 'deploy', id: 'launcher', icon: 'qr', k: 'as.fmt.launcher' },
   { g: 'check', id: 'drift', icon: 'diff', k: 'as.tab.drift' },
   { g: 'check', id: 'flows', icon: 'net', k: 'as.fmt.flows' },
   { g: 'check', id: 'declared', icon: 'json', k: 'as.cfg.s.declared' },
@@ -1153,11 +1153,12 @@ function _asIcon(name, size) {
 }
 
 function asOpenConfig(hostId, tab) {
-  Object.assign(_asM, { hostId: hostId || null, sec: _AS_CFG_TAB[tab] || tab || (hostId ? 'compose' : 'versions'), mask: true, versions: null, current: null, verName: null, verData: null, ticket: null });
+  Object.assign(_asM, { hostId: hostId || null, sec: _AS_CFG_TAB[tab] || tab || (hostId ? 'compose' : 'versions'), mask: true, versions: null, current: null, verName: null, verData: null, ticket: null, join: null });
   asRenderConfig();
 }
 
 function asCfgGo(sec) {
+  if (sec !== 'launcher') _asM.join = null;
   _asM.sec = sec;
   asRenderConfig();
 }
@@ -1341,28 +1342,53 @@ function _asCfgCodeSec(title, desc, text, lang, file, emptyText, emptyAction) {
   return _asCfgHead(title, desc) + (text ? _asCodePanel(text, lang, file) : _asCfgEmpty(emptyText || t('as.no_config'), emptyAction));
 }
 
-function _asCfgTicketHTML(host, d) {
-  const head = _asCfgHead(t('as.fmt.ticket'), t('as.cfg.d.ticket'));
-  if (!d.pack) return head + _asCfgEmpty(t('as.tk.no_pack'));
-  const tk = _asM.ticket;
-  if (!tk) {
-    return head + `<ol class="as-tk-steps">
-        <li><span>1</span>${esc(t('as.tk.s1'))}</li>
-        <li><span>2</span>${esc(t('as.tk.s2'))}</li>
-        <li><span>3</span>${esc(t('as.tk.s3'))}</li>
-      </ol>
-      <div class="as-tk-cta"><button type="button" class="btn btn-primary" id="as-tk-btn" onclick="asMakeTicket('${host.id}')">${_asIcon('qr', 15)}${esc(t('as.ticket.generate'))}</button>
-        <small>${esc(t('as.ticket.hint'))}</small></div>`;
-  }
-  const field = (label, value, btn) => `<div class="as-tk-f"><span class="as-tk-l">${esc(label)}</span><div class="as-tk-cmd"><code>${esc(value)}</code>${btn}</div></div>`;
+function _asTkField(label, value, btn) {
+  return `<div class="as-tk-f"><span class="as-tk-l">${esc(label)}</span><div class="as-tk-cmd"><code>${esc(value)}</code>${btn}</div></div>`;
+}
+
+// Le ticket du launcher (ADR 0019) est créé à l'affichage de la section : valable 15 minutes, il remplace le précédent.
+function _asJoinLoad(name) {
+  _asM.join = { host: name, loading: true };
+  api('POST', '/hosts/' + encodeURIComponent(name) + '/join-ticket')
+    .then(ticket => { _asM.join = { host: name, ticket }; })
+    .catch(e => { _asM.join = { host: name, error: e.message }; })
+    .finally(() => { if (document.getElementById('as-overlay') && _asM.sec === 'launcher') asRenderConfig(); });
+}
+
+function asJoinAgain() {
+  if (_asM.join) _asJoinLoad(_asM.join.host);
+  asRenderConfig();
+}
+
+function asCopyJoin(field) {
+  const tk = _asM.join && _asM.join.ticket;
+  if (tk) _asClip(tk[field] || '');
+}
+
+function _asCfgLauncherHTML(host) {
+  const head = _asCfgHead(t('as.fmt.launcher'), t('as.cfg.d.launcher'));
+  let j = _asM.join && _asM.join.host === host.name ? _asM.join : null;
+  if (!j) { _asJoinLoad(host.name); j = _asM.join; }
+  if (j.loading) return head + `<p class="as-tk-exp">${_asIcon('clock', 14)}${esc(t('as.tk.generating'))}</p>`;
+  const again = `<button type="button" class="btn btn-ghost btn-sm" onclick="asJoinAgain()">${_asIcon('refresh', 14)}${esc(t('as.lj.again'))}</button>`;
+  if (j.error) return head + _asCfgEmpty(j.error, again);
+  const tk = j.ticket;
+  const copy = field => `<button type="button" class="as-cv-b" onclick="asCopyJoin('${field}')">${_asIcon('copy', 14)}${esc(t('as.copy'))}</button>`;
   return head + `<div class="as-tk">
       <div class="as-tk-main">
-        ${field(t('as.tk.cmd'), tk.installCmd, `<button type="button" class="as-cv-b" onclick="asCopyTicket('installCmd')">${_asIcon('copy', 14)}${esc(t('as.copy'))}</button>`)}
-        ${field(t('as.tk.page'), tk.url, `<a class="as-cv-b" href="${esc(tk.url)}" target="_blank" rel="noopener">${_asIcon('external', 14)}${esc(t('as.tk.open'))}</a>`)}
-        ${tk.expiresAt ? `<p class="as-tk-exp">${_asIcon('clock', 14)}${esc(t('as.tk.expires', { date: fmtDate(tk.expiresAt) }))}</p>` : ''}
-        <button type="button" class="btn btn-ghost btn-sm" onclick="asMakeTicket('${host.id}')">${_asIcon('refresh', 14)}${esc(t('as.tk.again'))}</button>
+        <ol class="as-lj-steps">
+          <li><span>1</span>${esc(t('as.lj.s1'))}</li>
+          <li><span>2</span>${esc(t('as.lj.s2'))}</li>
+          <li><span>3</span>${esc(t('as.lj.s3'))}</li>
+        </ol>
+        ${_asTkField(t('as.lj.listen'), tk.listen_command, copy('listen_command'))}
+        ${tk.trigger_url ? _asTkField(t('as.lj.link'), tk.trigger_url, copy('trigger_url')) : ''}
+        ${_asTkField(t('as.lj.join'), tk.join_command, copy('join_command'))}
+        ${tk.warning ? `<p class="as-tk-exp">${_asIcon('alert', 14)}${esc(tk.warning)}</p>` : ''}
+        ${tk.expires_at ? `<p class="as-tk-exp">${_asIcon('clock', 14)}${esc(t('as.tk.expires', { date: fmtDate(tk.expires_at) }))}</p>` : ''}
+        ${again}
       </div>
-      ${tk.qr ? `<figure class="as-tk-qr"><img src="${esc(tk.qr)}" alt="${esc(t('as.tk.qr'))}" width="180" height="180"><figcaption>${esc(t('as.tk.qr'))}</figcaption></figure>` : ''}
+      ${tk.qr_code ? `<figure class="as-tk-qr"><img src="${esc(tk.qr_code)}" alt="${esc(t('as.lj.qr'))}" width="180" height="180"><figcaption>${esc(t('as.lj.qr'))}</figcaption></figure>` : ''}
     </div>`;
 }
 
@@ -1456,7 +1482,7 @@ function _asCfgNavHTML(d) {
     compose: d.pack ? t('as.cfg.m.services', { n: d.services }) : '—',
     env: !d.pack ? '—' : d.vars ? t('as.cfg.m.vars', { n: d.vars }) : t('as.cfg.m.inline'),
     cli: 'docker run',
-    ticket: _asM.ticket ? t('as.cfg.m.ticket_ready') : t('as.cfg.m.ticket'),
+    launcher: t('as.cfg.m.launcher'),
     drift: d.connected ? '' : t('as.cfg.st.none'),
     flows: t('as.cfg.m.flows', { n: d.flows.length }),
     declared: 'architecture.json',
@@ -1488,7 +1514,7 @@ function asRenderConfig() {
       env: () => _asCfgCodeSec(t('as.fmt.env'), t('as.cfg.d.env'), p && p.envText, 'env', '.env',
         p ? t('as.env_inline') : '', p ? `<button type="button" class="btn btn-secondary btn-sm" onclick="asCfgGo('compose')">${esc(t('as.dr.see_compose'))}</button>` : ''),
       cli: () => _asCfgCodeSec(t('as.fmt.cli'), t('as.cfg.d.cli'), p && p.cliText, 'sh', slug + '-docker-run.sh'),
-      ticket: () => _asCfgTicketHTML(host, d),
+      launcher: () => _asCfgLauncherHTML(host),
       drift: () => _asCfgDriftHTML(host, d),
       flows: () => _asCfgFlowsHTML(d),
       declared: () => _asCfgCodeSec(t('as.cfg.s.declared'), t('as.cfg.d.declared'),
@@ -1547,30 +1573,11 @@ function asRestoreVersion(name) {
   });
 }
 
-async function asMakeTicket(hostId) {
-  const pack = _archBuildPacks().find(p => p.hostId === hostId);
-  if (!pack) return;
-  const btn = document.getElementById('as-tk-btn');
-  if (btn) { btn.disabled = true; btn.textContent = t('as.tk.generating'); }
-  await _archCreateTickets([pack]);
-  if (!pack.installCmd) {
-    toast(t('as.tk.failed'), 'error');
-    asRenderConfig();
-    return;
-  }
-  _asM.ticket = { installCmd: pack.installCmd, url: pack.bootstrapUrl, qr: pack.qrCode, expiresAt: pack.ticketExpires };
-  asRenderConfig();
-}
-
 function _asClip(text) {
   navigator.clipboard.writeText(text).then(() => toast(t('common.copied') || 'Copié', 'success'));
 }
 
 function asCopy() { _asClip(_asM.raw); }
-
-function asCopyTicket(field) {
-  if (_asM.ticket) _asClip(_asM.ticket[field] || '');
-}
 
 function asDownload() {
   const host = _asM.hostId ? _arch.hosts.find(h => h.id === _asM.hostId) : null;

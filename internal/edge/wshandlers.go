@@ -387,15 +387,11 @@ func (s *Server) applyAdminMessage(connID string, msg edgews.Message) error {
 		}
 		return s.revokeStaleAdminTokens(p.Token)
 
-	case edgews.TypePushClusterPeers:
-		var peers map[string]string
-		if err := json.Unmarshal(msg.Payload, &peers); err != nil {
-			return err
-		}
-		s.applyClusterPeers(peers)
-
 	case edgews.TypePushGatewayPeers:
 		return s.applyGatewayPeersWS(msg.Payload)
+
+	case edgews.TypePushDisabledRoutes:
+		return s.applyDisabledRoutes(msg.Payload)
 
 	case edgews.TypePushAutoRules:
 		var rules []edgere.Rule
@@ -415,6 +411,9 @@ func (s *Server) applyAdminMessage(connID string, msg edgews.Message) error {
 
 	case edgews.TypeLogResume:
 		return s.handleLogResume(connID, msg.Payload)
+
+	case edgews.TypeLogAck:
+		return s.handleLogAck(msg.Payload)
 
 	case edgews.TypeLogLive:
 		return s.handleLogLive(connID, msg.Payload)

@@ -26,10 +26,11 @@ const (
 	SignalScanBreadth      = "scan_breadth"
 	SignalASNAggregate     = "asn_aggregate"
 	SignalRateDeviation    = "rate_deviation"
-	SignalHAPeer           = "ha_peer"  // note reçue d'une passerelle du groupe HA
-	SignalRestored         = "restored" // note relue du disque au démarrage
-	SignalFail2Ban         = "fail2ban" // décision de Fail2Ban prise en entrée
-	SignalCrowdSec         = "crowdsec" // décision de CrowdSec prise en entrée
+	SignalHAPeer           = "ha_peer"           // note reçue d'une passerelle du groupe HA
+	SignalRestored         = "restored"          // note relue du disque au démarrage
+	SignalFail2Ban         = "fail2ban"          // décision de Fail2Ban prise en entrée
+	SignalCrowdSec         = "crowdsec"          // décision de CrowdSec prise en entrée
+	SignalSurface          = "surface_violation" // requête hors de la politique de surface du proxy (ADR 0016), refusée par le backend
 	minPagesNoAssets       = 25
 	minIntervals           = 12
 	minRegularMean         = 100 * time.Millisecond
@@ -47,7 +48,7 @@ var AllSignals = []string{
 	SignalHigh4xxRate, SignalPathScanning, SignalWAFAccumulation, SignalUARotation, SignalRequestBurst,
 	SignalHighPostRatio, SignalHighPathEntropy, SignalDistributedScan,
 	SignalUATLSMismatch, SignalNoAssets, SignalRegularInterval, SignalScanBreadth, SignalASNAggregate, SignalRateDeviation,
-	SignalFail2Ban, SignalCrowdSec,
+	SignalFail2Ban, SignalCrowdSec, SignalSurface,
 }
 
 // legacyExt : les signaux venus d'ailleurs qui comptent dans le score du WAF (ils remplacent l'ancien événement synthétique).

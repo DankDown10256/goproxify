@@ -6,6 +6,7 @@ package edge
 import (
 	"os"
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -19,9 +20,11 @@ import (
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
+	"github.com/vincamok/goproxify/internal/edge/middleware"
 	"github.com/vincamok/goproxify/internal/edge/grpctrans"
 	"github.com/vincamok/goproxify/internal/edge/proxy"
 	"github.com/vincamok/goproxify/internal/edge/static"
+	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
 	"github.com/vincamok/goproxify/internal/edge/threat"
@@ -150,6 +153,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	// Vérification globale des profils IP (deny lists) avant le routage.
 	// Utilise CF-Connecting-IP / X-Forwarded-For si disponible (Cloudflare, reverse proxy).
 	remoteIP := edgelog.RealIP(r)
+	s.lastUA.Note(remoteIP, r.UserAgent())
 	if blocked, reason := s.profileStore.CheckBlocked(remoteIP); blocked {
 		if ok, n := s.blockLog.Allow("profil|" + remoteIP); ok {
 			s.log.Warn("ip bloquée par profil", blockedAttrs(n, "ip", remoteIP, "profile", reason)...)
@@ -222,11 +226,36 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Now()
 	rw := &statusCapture{ResponseWriter: w}
+	learn := s.surface != nil && route.Surface != nil && surface.Learning(route.Surface.Mode)
+	var reqPath, reqQuery string
+	var verdict *middleware.OpenAPIOutcome
+	if learn {
+		reqPath, reqQuery = r.URL.Path, r.URL.RawQuery
+		var ctx context.Context
+		ctx, verdict = middleware.WithOpenAPIOutcome(r.Context())
+		r = r.WithContext(ctx)
+	}
 	h.ServeHTTP(rw, r)
 	if metricsOn {
 		recordRequestMetrics(host, r, rw, time.Since(start))
 	}
 
+	// Avant Ephor : la note de l'IP ne doit pas contenir ce que cette requête vient d'y ajouter.
+	if learn {
+		obs := surface.Observed{
+			Route: route.ID, Host: route.Host, Request: r, Path: reqPath, RawQuery: reqQuery, IP: remoteIP,
+			Status: rw.status, ResponseType: rw.Header().Get("Content-Type"), Violation: verdict.Reason, Blocked: verdict.Blocked, Type: route.Surface.Type,
+			Clean: s.surfaceClean(r, remoteIP),
+		}
+		if hits := surfaceWAFHits(behavior.ObservationFrom(r.Context())); len(hits) > 0 {
+			obs.WAFHits, obs.WAFBlocked = hits, behavior.ObservationFrom(r.Context()).WAFBlocked()
+			obs.CleanApartFromWAF = s.surfaceCleanApartFromWAF(r, remoteIP)
+		}
+		s.surface.Observe(obs)
+		if verdict.Reason != "" && !whitelisted {
+			s.surfaceNoteViolation(remoteIP, rw.status)
+		}
+	}
 	if s.threatEngine != nil && !whitelisted {
 		s.threatEngine.Observe(r, remoteIP, route.Host, rw.status)
 	}
@@ -302,7 +331,11 @@ func (s *Server) handlerForRoute(route *router.Route, locPath string) http.Handl
 	if route.Static != nil && route.Static.Enabled {
 		h = static.Handler(route.Static)
 	} else {
-		h = proxy.NewHandler(route, s.health, s.metrics, s.peers, s.log.Logger())
+		ph := proxy.NewHandler(route, s.health, s.metrics, s.peers, s.log.Logger())
+		if s.apps != nil {
+			ph.SetResponseObserver(s.apps)
+		}
+		h = ph
 		h = grpctrans.Middleware(route.Host, route.GRPCTranscode)(h)
 	}
 	if route.Cache != nil && route.Cache.Enabled {

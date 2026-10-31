@@ -61,18 +61,10 @@ func Load[T AdminConfig | EdgeConfig | AgentConfig | LandingConfig](configPath s
 	// Les env vars ne surchargent que les clés absentes du JSON (pas de AutomaticEnv global).
 	// On bind uniquement les clés qui peuvent légitimement manquer dans le JSON
 	// pour permettre à l'utilisateur avancé de les passer en env var.
-	// cluster.peers est intentionnellement omis ici : GPX_CLUSTER_PEERS est une chaîne CSV
-	// incompatible avec map[string]string pour viper. Géré par applyClusterPeersEnv après Unmarshal.
 	// GPX_IDENTITY_EDGE_NODE_NAME pour compatibilité avec les variables de bootstrap passerelle.
 	if !v.IsSet("identity.node_name") {
 		_ = v.BindEnv("identity.node_name", "GPX_IDENTITY_EDGE_NODE_NAME", "GPX_IDENTITY_NODE_NAME")
 	}
-	bindIfMissing(v, "cluster.enabled")
-	if !v.IsSet("cluster.group_name") {
-		_ = v.BindEnv("cluster.group_name", "GPX_CLUSTER_GROUP_NAME", "GPX_CLUSTER_GROUP")
-	}
-	bindIfMissing(v, "cluster.node_id")
-	bindIfMissing(v, "cluster.raft_port")
 	bindIfMissing(v, "engine.metrics_disabled")
 	bindIfMissing(v, "engine.access_log_disabled")
 
@@ -106,62 +98,7 @@ func AdminConfigPath() string { return adminConfigPath }
 
 // LoadEdge charge edge.json → EdgeConfig.
 func LoadEdge(path string) (*EdgeConfig, error) {
-	cfg, err := Load[EdgeConfig](path)
-	if err != nil {
-		return nil, err
-	}
-	applyClusterPeersEnv(cfg)
-	return cfg, nil
-}
-
-// applyClusterPeersEnv parse GPX_CLUSTER_PEERS si la map Peers est vide.
-// Formats acceptés (séparés par virgule) :
-//   - id=http://host:8002
-//   - id:8002  → http://id:8002
-//   - host:8002 → clé = host
-func applyClusterPeersEnv(cfg *EdgeConfig) {
-	if cfg == nil || len(cfg.Cluster.Peers) > 0 {
-		return
-	}
-	raw := unquote(strings.TrimSpace(os.Getenv("GPX_CLUSTER_PEERS")))
-	if raw == "" {
-		return
-	}
-	peers := parseClusterPeersCSV(raw)
-	if len(peers) > 0 {
-		cfg.Cluster.Peers = peers
-	}
-}
-
-func parseClusterPeersCSV(raw string) map[string]string {
-	out := make(map[string]string)
-	for _, part := range strings.Split(raw, ",") {
-		part = unquote(strings.TrimSpace(part))
-		if part == "" {
-			continue
-		}
-		id, url := "", ""
-		if i := strings.IndexByte(part, '='); i > 0 {
-			id = unquote(strings.TrimSpace(part[:i]))
-			url = unquote(strings.TrimSpace(part[i+1:]))
-		} else if i := strings.LastIndexByte(part, ':'); i > 0 {
-			host := unquote(strings.TrimSpace(part[:i]))
-			port := unquote(strings.TrimSpace(part[i+1:]))
-			host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
-			id = host
-			url = "http://" + host + ":" + port
-		} else {
-			continue
-		}
-		if id == "" || url == "" {
-			continue
-		}
-		if !strings.Contains(url, "://") {
-			url = "http://" + url
-		}
-		out[id] = url
-	}
-	return out
+	return Load[EdgeConfig](path)
 }
 
 // unquote retire une paire de guillemets (simples ou doubles) englobant s.

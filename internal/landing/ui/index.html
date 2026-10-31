@@ -382,6 +382,7 @@
     <a class="opt" href="#capacites" data-t="n.caps">Capabilities</a>
     <a class="opt" href="#apercu" data-t="n.product">Product</a>
     <a class="opt" href="#installation" data-t="n.install">Install</a>
+    <a class="opt" href="#launcher" data-t="n.launcher">Launcher</a>
     <a class="opt" href="#docs" data-t="n.docs">Docs</a>
     <select class="lang" id="lang" aria-label="Language">
       <option value="en">EN</option><option value="fr">FR</option><option value="es">ES</option><option value="de">DE</option>
@@ -650,31 +651,30 @@
     <div class="inst-panel active" id="inst-home">
     <div class="install-wrapper fade-in">
       <div class="tabs-nav">
-        <button class="tab-btn active" data-tab="script" data-i18n="install.tab.script">Script</button>
+        <button class="tab-btn active" data-tab="launcher" data-i18n="install.tab.launcher">Launcher</button>
         <button class="tab-btn" data-tab="docker" data-i18n="install.tab.docker">Docker Compose</button>
         <button class="tab-btn" data-tab="portainer" data-i18n="install.tab.portainer">Portainer</button>
         <button class="tab-btn" data-tab="helm" data-i18n="install.tab.helm">Helm Kubernetes</button>
         <button class="tab-btn" data-tab="binary" data-i18n="install.tab.binary">Binary</button>
       </div>
 
-      <div class="tab-panel active" id="tab-script">
+      <div class="tab-panel active" id="tab-launcher">
         <div style="padding:20px 24px 8px">
-          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.script.note">
-            Generates hex-32 secrets, writes .env (chmod 600), checks Docker / ports, then starts Admin + Edge + Agent.
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.launcher.note">
+            One command, no file to write: the launcher pulls its image, generates the secrets, the admin account and a TLS certificate, deploys Admin + Edge + Agent on this machine, then removes itself.
           </p>
           <div class="code-block">
             <div class="code-block-header">
               <span class="code-block-name">shell</span>
-              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-script')">Copy</button>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-launcher')">Copy</button>
             </div>
-            <div class="code-block-body" id="cb-script">
-              <div><span class="comment"># Download then run (inspect before execute)</span></div>
-              <div><span class="prompt">$ </span><span class="cmd">curl -fsSL https://github.com/Vincamok/goproxify/raw/public/main/scripts/quickstart.sh -o quickstart.sh</span></div>
-              <div><span class="prompt">$ </span><span class="cmd">bash quickstart.sh</span></div>
+            <div class="code-block-body" id="cb-launcher">
+              <div><span class="comment"># Needs Docker on this machine (the image is pulled from GHCR)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview --admin --edge --agent</span></div>
             </div>
           </div>
-          <p style="font-size:0.85rem;color:var(--text-muted);margin:12px 0 0;line-height:1.6" data-i18n="install.script.options">
-            Admin UI → http://localhost:9443. Variants (run alone, never paste with the block above): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only
+          <p style="font-size:0.85rem;color:var(--text-muted);margin:12px 0 0;line-height:1.6" data-i18n="install.launcher.options">
+            Admin UI → https://localhost:9443 (self-signed certificate: compare the fingerprint printed by the launcher). Without options, add -p 8080:8080 to get a design page on port 8080, protected by an access code printed in the output.
           </p>
         </div>
       </div>
@@ -809,7 +809,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=${AGENT_NODE_NAME:-goproxify-agent}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]</pre>
@@ -919,7 +919,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]</pre>
@@ -1041,19 +1041,20 @@ agent:
           <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:20px;line-height:1.6" data-i18n="install.ent.intro">One role per machine, same images. Use the same GPX_PAIRING_SECRET everywhere and open port 8000 between machines (firewall: only from your own hosts).</p>
 
           <h3 class="inst-step" data-i18n="install.ent.s1">1. Admin + Gateway 1</h3>
-          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Script or Docker Compose): it starts the Admin and the first Edge.</p>
+          <p class="inst-step-body" data-i18n="install.ent.s1.body">On the first machine, follow the Home lab method (Launcher or Docker Compose): it starts the Admin and the first Edge.</p>
 
           <p style="font-size:0.85rem;color:var(--text-muted);margin:4px 0 0;line-height:1.6" data-i18n="install.ent.formats">For steps 2 and 3, pick a method for each machine — they can differ from one machine to the next.</p>
         </div>
 
         <div class="tabs-nav">
-          <button class="tab-btn active" data-tab="ent-docker" data-i18n="install.tab.docker">Docker Compose</button>
+          <button class="tab-btn active" data-tab="ent-launcher" data-i18n="install.tab.launcher">Launcher</button>
+          <button class="tab-btn" data-tab="ent-docker" data-i18n="install.tab.docker">Docker Compose</button>
           <button class="tab-btn" data-tab="ent-portainer" data-i18n="install.tab.portainer">Portainer</button>
           <button class="tab-btn" data-tab="ent-helm" data-i18n="install.tab.helm">Helm Kubernetes</button>
           <button class="tab-btn" data-tab="ent-binary" data-i18n="install.tab.binary">Binary</button>
         </div>
 
-        <div class="tab-panel active" id="tab-ent-docker">
+        <div class="tab-panel" id="tab-ent-docker">
         <div style="padding:20px 24px 8px">
           <h3 class="inst-step" data-i18n="install.ent.s2">2. Second Edge</h3>
           <p class="inst-step-body" data-i18n="install.ent.s2.body">On a second machine, run an Edge with its own node name, then register it in the Admin (Infrastructure → Edit architecture): it goes from declared to online.</p>
@@ -1102,11 +1103,27 @@ volumes:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<span class="v">&lt;admin-ip&gt;</span>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=<span class="v">agent-host-1</span>
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - agent_data:/etc/goproxify
 
 volumes:
   agent_data:</pre>
+          </div>
+        </div>
+        </div>
+
+        <div class="tab-panel active" id="tab-ent-launcher">
+        <div style="padding:20px 24px">
+          <p style="font-size:0.9rem;color:var(--text-muted);margin-bottom:16px;line-height:1.6" data-i18n="install.ent.launcher.note">Declare the machine in the Admin (Infrastructure), open its sheet and show the Launcher QR code (valid 15 minutes). On the new machine, start the launcher, then scan the code and click Install: no file to copy, and the launcher removes itself once done.</p>
+          <div class="code-block" style="margin-bottom:0">
+            <div class="code-block-header">
+              <span class="code-block-name">shell</span>
+              <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-ent-launcher')">Copy</button>
+            </div>
+            <div class="code-block-body" id="cb-ent-launcher">
+              <div><span class="comment"># On each new machine (waits 15 minutes for the Admin's link)</span></div>
+              <div><span class="prompt">$ </span><span class="cmd">docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview</span></div>
+            </div>
           </div>
         </div>
         </div>
@@ -1162,7 +1179,7 @@ volumes:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<span class="v">&lt;admin-ip&gt;</span>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=<span class="v">agent-host-1</span>
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - agent_data:/etc/goproxify
 
 volumes:
@@ -1248,6 +1265,46 @@ agent:
   </div>
 </div></section>
 
+<!-- ======================= LAUNCHER ======================= -->
+<section class="sec" id="launcher"><div class="wrap">
+  <div class="eyebrow" data-t="l.eyebrow">Launcher</div>
+  <h2 data-t="h2.launcher">One tool to install, <span>update and rebuild.</span></h2>
+  <p class="sec-intro" data-t="l.intro">The launcher is a short-lived container: it installs, updates or rebuilds, then removes itself. It is the same command on every machine.</p>
+  <div class="sec-body rv">
+    <div class="caps">
+      <div class="cap"><h3 data-t="l1t">First machine, one command</h3><p data-t="l1">It generates the secrets, the admin account, a TLS certificate and a backup key, deploys Admin, gateway and Agent, undoes everything if a step fails, and prints the fingerprint to compare with your browser.</p></div>
+      <div class="cap"><h3 data-t="l2t">Design it, see it</h3><p data-t="l2">Start it without arguments and open its design page: declare your machines and their roles and watch the diagram of your infrastructure update as you type, as a drawing or as Mermaid text to paste in your docs.</p></div>
+      <div class="cap"><h3 data-t="l3t">Next machines: a QR code</h3><p data-t="l3">Declare a machine in the Admin, show its QR code (valid 15 minutes), scan it with your phone, check the Admin’s fingerprint and press Install. Nothing to copy, and nothing is installed until you press.</p></div>
+      <div class="cap"><h3 data-t="l4t">Update in place</h3><p data-t="l4">One command pulls the latest images and recreates only the containers that changed, with their volumes, variables and secrets. A container that does not get healthy goes back to its previous image.</p></div>
+      <div class="cap"><h3 data-t="l5t">Backups you can rebuild from</h3><p data-t="l5">The backup key is generated for you. Snapshots carry the root secret and the Admin certificate, encrypted: a snapshot and its key are enough to bring an infrastructure back.</p></div>
+      <div class="cap"><h3 data-t="l6t">Rebuild a lost Admin</h3><p data-t="l6">Give the launcher a snapshot and its key: it installs an Admin that the gateways and Agents still running recognise, with the same root secret, certificate and architecture. You then restore the data from the Admin.</p></div>
+    </div>
+
+    <div class="code-block" style="margin-top:22px">
+      <div class="code-block-header">
+        <span class="code-block-name">shell · update</span>
+        <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-launcher-update')">Copy</button>
+      </div>
+      <div class="code-block-body" id="cb-launcher-update">
+        <div><span class="comment"># On each machine: pull the latest images, recreate what changed, keep volumes</span></div>
+        <div><span class="prompt">$ </span><span class="cmd">docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview update</span></div>
+      </div>
+    </div>
+    <div class="code-block" style="margin-top:14px">
+      <div class="code-block-header">
+        <span class="code-block-name">shell · rebuild</span>
+        <button type="button" class="file-block-copy" data-i18n="copy" onclick="copyCodeBlock('cb-launcher-restore')">Copy</button>
+      </div>
+      <div class="code-block-body" id="cb-launcher-restore">
+        <div><span class="comment"># A lost Admin, on a new machine, from a snapshot and its backup key</span></div>
+        <div><span class="prompt">$ </span><span class="cmd">docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $PWD/backup.gpx-admin-backup:/backup/snapshot:ro ghcr.io/vincamok/goproxify/launcher:preview --restore /backup/snapshot --name &lt;host&gt; --backup-key &lt;key&gt;</span></div>
+      </div>
+    </div>
+
+    <p class="pull" data-t="l.pull"><b>The launcher mounts the Docker socket, which is root access to that machine.</b> Its design page asks for an access code printed in its output, and it stops as soon as it is done.</p>
+  </div>
+</div></section>
+
 <!-- ======================= ALERTES ======================= -->
 <section class="sec" id="alerting"><div class="wrap">
   <div class="eyebrow" data-t="al.eyebrow">Alerting</div>
@@ -1286,7 +1343,7 @@ agent:
 <tr><td>Cache AES-256-GCM</td><td>Encrypted routes &amp; certs on disk. Edge starts autonomously even if Admin is unreachable</td><td class="m">Edge</td></tr>
 <tr><td>Prometheus</td><td><code>/metrics</code> endpoint on every component — drop-in Grafana integration</td><td class="m">Admin · Edge · Agent</td></tr>
 <tr><td>OpenTelemetry</td><td>Distributed request tracing. Configurable OTLP exporters (Jaeger, Tempo…)</td><td class="m">Edge · Admin</td></tr>
-<tr><td>Docker Engine API</td><td>Read-only via <code>docker.sock</code>. Real-time container events (start/stop/update)</td><td class="m">Agent</td></tr>
+<tr><td>Docker Engine API</td><td>Via <code>docker.sock</code> (access equivalent to root on the host). Real-time container events (start/stop/update)</td><td class="m">Agent</td></tr>
 <tr><td>Service directories</td><td>Kubernetes, Portainer, Consul, Nomad, etcd v3 and Amazon ECS — same options as Docker labels; an unreachable directory never removes a route</td><td class="m">Agent</td></tr>
 <tr><td>WebAssembly (wazero)</td><td>Sandboxed plugins on requests, bodies and TCP/UDP streams, without CGO. Signed packages, plugin repositories, Coraza (SecLang) bundled</td><td class="m">Edge · Admin</td></tr>
 <tr><td>JWT + PAT</td><td>UI session (JWT). User API tokens <code>gpx_pat_*</code> with scopes for REST &amp; MCP. Separate Edge/Agent pairing tokens</td><td class="m">Admin</td></tr>
@@ -1384,13 +1441,14 @@ agent:
     fr: {
       'preview.banner': 'Préversion (0.x) — non production. Usage à vos risques.',
       'preview.disclaimer': 'Avertissement',
-      'install.tab.script': 'Script',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binaire',
-      'install.script.note': 'Génère les secrets hex-32, écrit le .env (chmod 600), vérifie Docker / ports, puis démarre Admin + Passerelle + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (à lancer seules, jamais collées avec le bloc ci-dessus) : bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Une seule commande, aucun fichier à écrire : le launcher télécharge son image, génère les secrets, le compte administrateur et un certificat TLS, déploie Admin + Passerelle + Agent sur cette machine, puis disparaît.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (certificat auto-signé : comparez l’empreinte affichée par le launcher). Sans options, ajoutez -p 8080:8080 pour obtenir une page de conception sur le port 8080, protégée par un code d’accès affiché dans la sortie.',
+      'install.ent.launcher.note': 'Déclarez la machine dans l’Admin (Infrastructure), ouvrez sa fiche et affichez le QR code du Launcher (valable 15 minutes). Sur la nouvelle machine, lancez le launcher, puis scannez le code et cliquez sur Installer : aucun fichier à copier, et le launcher disparaît une fois fini.',
       'install.docker.note': 'Images GHCR officielles en tag flottant :preview (0.x). Pin SemVer optionnel via versions.json.',
       'install.helm.note': 'Chart dans le dépôt (helm/goproxify). global.authToken requis. Générez les secrets dans le navigateur, puis helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Choisissez un modèle, collez le compose, déployez. Admin sur le port 9443.',
@@ -1427,7 +1485,7 @@ agent:
       'install.scn.ent': 'Entreprise · redondé',
       'install.ent.intro': 'Un rôle par machine, mêmes images. Utilisez le même GPX_PAIRING_SECRET partout et ouvrez le port 8000 entre les machines (pare-feu : uniquement depuis vos propres hôtes).',
       'install.ent.s1': '1. Admin + Passerelle 1',
-      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Script ou Docker Compose) : elle démarre l’Admin et la premiÃ¨re passerelle.',
+      'install.ent.s1.body': 'Sur la première machine, suivez la méthode Home lab (Launcher ou Docker Compose) : elle démarre l’Admin et la première passerelle.',
       'install.ent.s2': '2. Passerelle 2 (seconde passerelle)',
       'install.ent.s2.body': 'Sur une seconde machine, lancez une passerelle avec son propre nom de nœud, puis enregistrez-le dans l’Admin (Infrastructure → Modifier l’architecture) : il passe de declared à online.',
       'install.ent.s3': '3. Un Agent par hôte',
@@ -1467,13 +1525,14 @@ agent:
     es: {
       'preview.banner': 'Vista previa (0.x) — no listo para producción. Úselo bajo su propio riesgo.',
       'preview.disclaimer': 'Aviso legal',
-      'install.tab.script': 'Script',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binario',
-      'install.script.note': 'Genera secretos hex-32, escribe .env (chmod 600), comprueba Docker / puertos y arranca Admin + Edge + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Variantes (ejecutar solas, no pegar con el bloque de arriba): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Un solo comando, sin archivos que escribir: el launcher descarga su imagen, genera los secretos, la cuenta de administrador y un certificado TLS, despliega Admin + Edge + Agent en esta máquina y luego desaparece.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (certificado autofirmado: compara la huella que muestra el launcher). Sin opciones, añade -p 8080:8080 para obtener una página de diseño en el puerto 8080, protegida por un código de acceso que aparece en la salida.',
+      'install.ent.launcher.note': 'Declara la máquina en el Admin (Infraestructura), abre su ficha y muestra el código QR del Launcher (válido 15 minutos). En la máquina nueva, inicia el launcher, escanea el código y pulsa Instalar: sin archivos que copiar, y el launcher desaparece al terminar.',
       'install.docker.note': 'Imágenes GHCR oficiales con etiqueta flotante :preview (0.x). Pin SemVer opcional vía versions.json.',
       'install.helm.note': 'Chart en el repo (helm/goproxify). Requiere global.authToken. Genere secretos en el navegador y luego helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Elija un modelo, pegue el compose y despliegue. Admin en el puerto 9443.',
@@ -1510,7 +1569,7 @@ agent:
       'install.scn.ent': 'Empresa · redundante',
       'install.ent.intro': 'Un rol por máquina, mismas imágenes. Usa el mismo GPX_PAIRING_SECRET en todas partes y abre el puerto 8000 entre máquinas (firewall: solo desde tus propios hosts).',
       'install.ent.s1': '1. Admin + Pasarela 1',
-      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Script o Docker Compose): arranca el Admin y el primer Edge.',
+      'install.ent.s1.body': 'En la primera máquina, sigue el método Home lab (Launcher o Docker Compose): arranca el Admin y el primer Edge.',
       'install.ent.s2': '2. Pasarela 2 (segundo Edge)',
       'install.ent.s2.body': 'En una segunda máquina, lanza un Edge con su propio nombre de nodo y regístralo en el Admin (Infraestructura → Editar la arquitectura): pasa de declared a online.',
       'install.ent.s3': '3. Un Agent por host',
@@ -1550,13 +1609,14 @@ agent:
     de: {
       'preview.banner': 'Vorschau (0.x) — nicht produktionsreif. Nutzung auf eigene Gefahr.',
       'preview.disclaimer': 'Haftungsausschluss',
-      'install.tab.script': 'Skript',
       'install.tab.docker': 'Docker Compose',
       'install.tab.portainer': 'Portainer',
       'install.tab.helm': 'Helm Kubernetes',
       'install.tab.binary': 'Binär',
-      'install.script.note': 'Erzeugt hex-32-Secrets, schreibt .env (chmod 600), prüft Docker / Ports und startet Admin + Edge + Agent.',
-      'install.script.options': 'Admin UI → http://localhost:9443. Varianten (einzeln ausführen, nie mit dem Block oben einfügen): bash quickstart.sh --print-secrets · bash quickstart.sh --env-only',
+      'install.tab.launcher': 'Launcher',
+      'install.launcher.note': 'Ein einziger Befehl, keine Datei zu schreiben: Der Launcher lädt sein Image, erzeugt die Secrets, das Admin-Konto und ein TLS-Zertifikat, stellt Admin + Edge + Agent auf dieser Maschine bereit und entfernt sich dann selbst.',
+      'install.launcher.options': 'Admin UI → https://localhost:9443 (selbstsigniertes Zertifikat: Fingerabdruck mit der Ausgabe des Launchers vergleichen). Ohne Optionen mit -p 8080:8080 starten, um eine Entwurfsseite auf Port 8080 zu erhalten, geschützt durch einen in der Ausgabe angezeigten Zugangscode.',
+      'install.ent.launcher.note': 'Die Maschine im Admin deklarieren (Infrastruktur), ihr Blatt öffnen und den Launcher-QR-Code anzeigen (15 Minuten gültig). Auf der neuen Maschine den Launcher starten, den Code scannen und auf Installieren klicken: keine Datei zu kopieren, und der Launcher entfernt sich danach selbst.',
       'install.docker.note': 'Offizielle GHCR-Images mit Floating-Tag :preview (0.x). Optionales SemVer-Pin über versions.json.',
       'install.helm.note': 'Chart im Repo (helm/goproxify). global.authToken erforderlich. Secrets im Browser erzeugen, dann helm install.',
       'install.portainer.intro': 'Stacks → Add stack → Web editor. Modell wählen, Compose einfügen, deployen. Admin auf Port 9443.',
@@ -1593,7 +1653,7 @@ agent:
       'install.scn.ent': 'Unternehmen · redundant',
       'install.ent.intro': 'Eine Rolle pro Maschine, dieselben Images. Überall dasselbe GPX_PAIRING_SECRET verwenden und Port 8000 zwischen den Maschinen öffnen (Firewall: nur von Ihren eigenen Hosts).',
       'install.ent.s1': '1. Admin + Gateway 1',
-      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Skript oder Docker Compose): Sie startet den Admin und den ersten Edge.',
+      'install.ent.s1.body': 'Auf der ersten Maschine der Home-Lab-Methode folgen (Launcher oder Docker Compose): Sie startet den Admin und den ersten Edge.',
       'install.ent.s2': '2. Gateway 2 (zweiter Edge)',
       'install.ent.s2.body': 'Auf einer zweiten Maschine einen Edge mit eigenem Node-Namen starten und im Admin registrieren (Infrastruktur → Architektur bearbeiten): er wechselt von declared auf online.',
       'install.ent.s3': '3. Ein Agent pro Host',
@@ -1815,6 +1875,21 @@ agent:
     'c.agent.small': ['découverte', 'descubrimiento', 'Erkennung'],
     'c.agent': ['Surveille vos conteneurs (Docker, Portainer, Kubernetes, Consul, Nomad…) et dit à la passerelle ce qui tourne.', 'Vigila tus contenedores (Docker, Portainer, Kubernetes, Consul, Nomad…) y le dice a la pasarela qué se está ejecutando.', 'Beobachtet Ihre Container (Docker, Portainer, Kubernetes, Consul, Nomad …) und teilt dem Gateway mit, was läuft.'],
     'c.agent.keeps': ['volatil', 'volátil', 'flüchtig'],
+    'h2.launcher': ['Un seul outil pour installer, <span>mettre à jour et reconstruire.</span>', 'Una sola herramienta para instalar, <span>actualizar y reconstruir.</span>', 'Ein Werkzeug zum Installieren, <span>Aktualisieren und Wiederherstellen.</span>'],
+    'l.intro': ['Le launcher est un conteneur éphémère : il installe, met à jour ou reconstruit, puis se supprime. C’est la même commande sur toutes les machines.', 'El launcher es un contenedor efímero: instala, actualiza o reconstruye y luego se elimina. Es el mismo comando en todas las máquinas.', 'Der Launcher ist ein kurzlebiger Container: Er installiert, aktualisiert oder baut neu auf und entfernt sich dann selbst. Auf jeder Maschine derselbe Befehl.'],
+    'l1t': ['Première machine, une commande', 'Primera máquina, un comando', 'Erste Maschine, ein Befehl'],
+    'l1': ['Il génère les secrets, le compte administrateur, un certificat TLS et une clé de sauvegarde, déploie l’Admin, la passerelle et l’Agent, défait tout si une étape échoue, et affiche l’empreinte à comparer avec votre navigateur.', 'Genera los secretos, la cuenta de administrador, un certificado TLS y una clave de copia, despliega el Admin, la pasarela y el Agent, lo deshace todo si falla un paso y muestra la huella para comparar con tu navegador.', 'Er erzeugt die Secrets, das Admin-Konto, ein TLS-Zertifikat und einen Backup-Schlüssel, stellt Admin, Gateway und Agent bereit, macht alles rückgängig, wenn ein Schritt scheitert, und zeigt den Fingerabdruck zum Vergleich mit Ihrem Browser.'],
+    'l2t': ['Le concevoir, le voir', 'Diseñarlo, verlo', 'Entwerfen und sehen'],
+    'l2': ['Lancez-le sans argument et ouvrez sa page de conception : déclarez vos machines et leurs rôles, et regardez le schéma de votre infrastructure se mettre à jour pendant la saisie, en dessin ou en texte Mermaid à coller dans votre documentation.', 'Lánzalo sin argumentos y abre su página de diseño: declara tus máquinas y sus roles y mira cómo se actualiza el esquema de tu infraestructura mientras escribes, como dibujo o como texto Mermaid para pegar en tu documentación.', 'Starten Sie ihn ohne Argumente und öffnen Sie seine Entwurfsseite: Maschinen und Rollen deklarieren und zusehen, wie sich das Schema Ihrer Infrastruktur beim Tippen aktualisiert, als Zeichnung oder als Mermaid-Text für Ihre Doku.'],
+    'l3t': ['Machines suivantes : un QR code', 'Máquinas siguientes: un código QR', 'Weitere Maschinen: ein QR-Code'],
+    'l3': ['Déclarez une machine dans l’Admin, affichez son QR code (valable 15 minutes), scannez-le avec votre téléphone, vérifiez l’empreinte de l’Admin et appuyez sur Installer. Rien à copier, et rien n’est installé avant votre clic.', 'Declara una máquina en el Admin, muestra su código QR (válido 15 minutos), escanéalo con el móvil, comprueba la huella del Admin y pulsa Instalar. Nada que copiar, y no se instala nada hasta que pulsas.', 'Eine Maschine im Admin deklarieren, ihren QR-Code anzeigen (15 Minuten gültig), mit dem Smartphone scannen, den Fingerabdruck des Admin prüfen und Installieren drücken. Nichts zu kopieren, und nichts wird installiert, bevor Sie drücken.'],
+    'l4t': ['Mise à jour sur place', 'Actualización in situ', 'Aktualisierung vor Ort'],
+    'l4': ['Une commande télécharge les dernières images et ne recrée que les conteneurs qui ont changé, avec leurs volumes, variables et secrets. Un conteneur qui ne devient pas sain retrouve son image précédente.', 'Un comando descarga las últimas imágenes y solo recrea los contenedores que cambiaron, con sus volúmenes, variables y secretos. Un contenedor que no se vuelve sano vuelve a su imagen anterior.', 'Ein Befehl lädt die neuesten Images und erstellt nur die geänderten Container neu, mit ihren Volumes, Variablen und Secrets. Ein Container, der nicht gesund wird, kehrt zu seinem vorherigen Image zurück.'],
+    'l5t': ['Des sauvegardes dont on peut repartir', 'Copias de las que se puede partir', 'Backups, aus denen sich neu starten lässt'],
+    'l5': ['La clé de sauvegarde est générée pour vous. Les snapshots portent le secret racine et le certificat de l’Admin, chiffrés : un snapshot et sa clé suffisent à remettre une infrastructure sur pied.', 'La clave de copia se genera por ti. Las instantáneas llevan el secreto raíz y el certificado del Admin, cifrados: una instantánea y su clave bastan para levantar de nuevo una infraestructura.', 'Der Backup-Schlüssel wird für Sie erzeugt. Snapshots enthalten das Root-Secret und das Zertifikat des Admin, verschlüsselt: Ein Snapshot und sein Schlüssel genügen, um eine Infrastruktur wieder aufzubauen.'],
+    'l6t': ['Reconstruire un Admin perdu', 'Reconstruir un Admin perdido', 'Einen verlorenen Admin wiederherstellen'],
+    'l6': ['Donnez au launcher un snapshot et sa clé : il installe un Admin que les passerelles et Agents encore en place reconnaissent, avec le même secret racine, le même certificat et la même architecture. Vous restaurez ensuite les données depuis l’Admin.', 'Dale al launcher una instantánea y su clave: instala un Admin que las pasarelas y los Agents que siguen funcionando reconocen, con el mismo secreto raíz, certificado y arquitectura. Después restauras los datos desde el Admin.', 'Geben Sie dem Launcher einen Snapshot und seinen Schlüssel: Er installiert einen Admin, den die noch laufenden Gateways und Agents erkennen, mit demselben Root-Secret, Zertifikat und derselben Architektur. Die Daten stellen Sie danach im Admin wieder her.'],
+    'l.pull': ['<b>Le launcher monte le socket Docker, ce qui équivaut à un accès root à la machine.</b> Sa page de conception demande un code d’accès affiché dans sa sortie, et il s’arrête dès qu’il a fini.', '<b>El launcher monta el socket de Docker, lo que equivale a acceso root a la máquina.</b> Su página de diseño pide un código de acceso que aparece en su salida, y se detiene en cuanto termina.', '<b>Der Launcher bindet den Docker-Socket ein, was Root-Zugriff auf die Maschine bedeutet.</b> Seine Entwurfsseite verlangt einen Zugangscode aus seiner Ausgabe, und er beendet sich, sobald er fertig ist.'],
     'h2.auto': ['Si l’un tombe, <span>seul ce qu’il fait lui-même s’arrête.</span>', 'Si uno cae, <span>solo se detiene lo que él mismo hace.</span>', 'Fällt einer aus, <span>stoppt nur, was er selbst erledigt.</span>'],
     'a.h1': ['Injoignable', 'Inaccesible', 'Nicht erreichbar'],
     'a.h2': ['S’arrête', 'Se detiene', 'Stoppt'],

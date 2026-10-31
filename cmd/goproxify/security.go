@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +33,8 @@ func runSecurity() {
 		runSecurityCVE()
 	case "engines":
 		runSecurityEngines()
+	case "surface":
+		runSecuritySurface()
 	case "help", "":
 		fmt.Print(`Usage: goproxify security <sous-commande> [options]
 
@@ -44,6 +47,7 @@ Sous-commandes :
   (règles, planifications et playbooks : goproxify automation)
   cve      SLA de correction des CVE (délai attendu selon la gravité)
   engines  Moteurs globaux (Ephor, Fail2Ban, CrowdSec, WAF) et leurs champs de configuration
+  surface  Apprentissage de la surface d'un proxy : ce que son trafic légitime utilise (aucun blocage)
 
 goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
 goproxify security threat set  [-edge <id>] -file <config.json> [-admin-url …] [-token …]
@@ -52,6 +56,17 @@ goproxify security threat suggest [-days N] [-edge <id>]   # seuils proposés à
 goproxify security threat references [-edge <id>]   # ce que chaque passerelle a appris : débit normal par route et par heure, base ASN
 
 goproxify security engines [-admin-url …] [-token …]
+
+goproxify security surface list   [-edge <id>] [-admin-url …] [-token …]   # proxies en apprentissage, par passerelle
+goproxify security surface report -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # méthodes, gabarits de chemin, tailles, paramètres, convergence
+goproxify security surface proposals -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # réglages proposés à partir du profil (rien n'est appliqué)
+goproxify security surface openapi -proxy <id|hôte> [-low] [-out <fichier>] [-edge <id>] [-admin-url …] [-token …]   # politique positive : spécification OpenAPI générée, en detect (rien n'est appliqué)
+goproxify security surface suggestions -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # ajouts suggérés à la politique (chemins et méthodes qui reviennent)
+goproxify security surface accept -proxy <id|hôte> [-all-high] [-keys "<clé>;<clé>"] [-dry-run] [-edge <id>] [-admin-url …] [-token …]   # ajoute ces suggestions à la politique
+goproxify security surface enforce -proxy <id|hôte> -reasons <raison,…> [-dry-run] [-force] [-edge <id>] [-admin-url …] [-token …]   # refuse ces violations (unknown_path, unknown_method, invalid_param, invalid_body, unsupported_media, too_large), garde-fous compris
+goproxify security surface relax  -proxy <id|hôte> [-admin-url …] [-token …]   # retour en detect : plus rien n'est refusé
+goproxify security surface reset  -proxy <id|hôte> [-edge <id>] [-admin-url …] [-token …]   # l'apprentissage repart de zéro
+  (activer : goproxify proxy option <id> surface '{"mode":"learn"}')
 
 goproxify security bans list   [-admin-url …] [-token …]
 goproxify security bans add    -ip <ip|cidr> [-reason <raison>] [-ttl <durée>] [-scope <passerelle|group:nom>] [-admin-url …] [-token …]
@@ -70,6 +85,9 @@ goproxify security waf-engine get [-edge <id>] [-admin-url …] [-token …]
 goproxify security waf-engine set -enabled <true|false> [-edge <id>] [-admin-url …] [-token …]
 goproxify security waf-engine activity [-hours N] [-edge <id>] [-admin-url …] [-token …]
 
+goproxify security cve inventory [-proxy <id|hôte>] [-edge <id>] [-gaps] [-admin-url …] [-token …]   # applications reconnues derrière les proxies ; -gaps : seulement ce que la recherche de CVE ne couvre pas
+goproxify security cve cpe get [-admin-url …] [-token …]   # identifiants CPE donnés par l'administrateur aux produits que la table ne couvre pas
+goproxify security cve cpe set -file <overrides.json> [-admin-url …] [-token …]
 goproxify security cve sla get [-admin-url …] [-token …]
 goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 `)
@@ -78,6 +96,152 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 		fmt.Fprintln(os.Stderr, "utilisez : goproxify security help")
 		os.Exit(1)
 	}
+}
+
+// ── Surface d'un proxy (ADR 0016) ──────────────────────────────────────────
+
+func runSecuritySurface() {
+	sub := subcommand(os.Args, 3)
+	args := parseFlags(os.Args[4:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	q := url.Values{}
+	if edgeID := flagValue(args, "-edge", ""); edgeID != "" {
+		q.Set("edge", edgeID)
+	}
+	method, path := "GET", "/api/v1/security/surface"
+	var body any
+	switch sub {
+	case "list", "":
+	case "report", "proposals", "openapi", "reset", "enforce", "relax", "suggestions", "accept":
+		proxy := flagValue(args, "-proxy", "")
+		if proxy == "" {
+			fmt.Fprintf(os.Stderr, "surface %s : -proxy requis (identifiant ou hôte)\n", sub)
+			os.Exit(1)
+		}
+		q.Set("route", proxy)
+		if _, low := args["-low"]; low && sub == "openapi" {
+			q.Set("include_low_support", "1")
+		}
+		path += "/" + sub
+		if sub == "reset" || sub == "enforce" || sub == "relax" || sub == "accept" {
+			method = "POST"
+		}
+		if sub == "accept" {
+			var keys []string
+			for _, k := range strings.Split(flagValue(args, "-keys", ""), ";") {
+				if k = strings.TrimSpace(k); k != "" {
+					keys = append(keys, k)
+				}
+			}
+			_, allHigh := args["-all-high"]
+			_, dry := args["-dry-run"]
+			if len(keys) == 0 && !allHigh {
+				fmt.Fprintln(os.Stderr, "surface accept : -all-high ou -keys requis (les clés viennent de `surface suggestions`)")
+				os.Exit(1)
+			}
+			body = map[string]any{"keys": keys, "all_high": allHigh, "dry_run": dry}
+		}
+		if sub == "enforce" {
+			var reasons []string
+			for _, r := range strings.Split(flagValue(args, "-reasons", ""), ",") {
+				if r = strings.TrimSpace(r); r != "" {
+					reasons = append(reasons, r)
+				}
+			}
+			if len(reasons) == 0 {
+				fmt.Fprintln(os.Stderr, "surface enforce : -reasons requis (unknown_path, unknown_method, invalid_param, invalid_body, unsupported_media, too_large)")
+				os.Exit(1)
+			}
+			_, force := args["-force"]
+			_, dry := args["-dry-run"]
+			body = map[string]any{"reasons": reasons, "force": force, "dry_run": dry}
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande surface inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var res json.RawMessage
+	status, err := client.DoJSON(method, path, body, &res, 200, 409)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "surface %s : %v\n", sub, err)
+		os.Exit(1)
+	}
+	if status == 409 {
+		// Les garde-fous ont refusé : la réponse dit lesquels ; rien n'a été modifié.
+		out, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(out))
+		fmt.Fprintln(os.Stderr, "surface " + sub + " : refusé par les garde-fous (voir blockers) ; -force les passe outre quand ils le permettent")
+		os.Exit(1)
+	}
+	if file := flagValue(args, "-out", ""); file != "" && sub == "openapi" {
+		writeSurfaceOpenAPI(res, file, flagValue(args, "-proxy", ""))
+		return
+	}
+	out, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(out))
+}
+
+// writeSurfaceOpenAPI écrit dans file le réglage `openapi` généré par la passerelle qui connaît le plus de membres du groupe, prêt
+// pour `goproxify proxy option <id> openapi @file`.
+func writeSurfaceOpenAPI(res json.RawMessage, file, proxy string) {
+	var body struct {
+		Gateways []struct {
+			NodeName string `json:"node_name"`
+			OpenAPI  *struct {
+				Members    int             `json:"members"`
+				Ready      bool            `json:"ready"`
+				Error      string          `json:"error"`
+				Paths      int             `json:"paths"`
+				Operations int             `json:"operations"`
+				Config     json.RawMessage `json:"config"`
+			} `json:"openapi"`
+		} `json:"gateways"`
+	}
+	if err := json.Unmarshal(res, &body); err != nil {
+		fmt.Fprintf(os.Stderr, "surface openapi : réponse illisible : %v\n", err)
+		os.Exit(1)
+	}
+	best := -1
+	for i, g := range body.Gateways {
+		if g.OpenAPI == nil || len(g.OpenAPI.Config) == 0 {
+			continue
+		}
+		if best < 0 || g.OpenAPI.Members > body.Gateways[best].OpenAPI.Members {
+			best = i
+		}
+	}
+	if best < 0 {
+		reason := "aucun profil pour ce proxy"
+		for _, g := range body.Gateways {
+			if g.OpenAPI != nil && g.OpenAPI.Error != "" {
+				reason = g.OpenAPI.Error
+			}
+		}
+		fmt.Fprintf(os.Stderr, "surface openapi : rien à écrire : %s\n", reason)
+		os.Exit(1)
+	}
+	g := body.Gateways[best]
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, g.OpenAPI.Config, "", "  "); err != nil {
+		fmt.Fprintf(os.Stderr, "surface openapi : %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(file, append(pretty.Bytes(), '\n'), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "surface openapi : %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%d chemins, %d opérations écrits dans %s (passerelle %s, mode detect).\n", g.OpenAPI.Paths, g.OpenAPI.Operations, file, g.NodeName)
+	if !g.OpenAPI.Ready {
+		fmt.Println("Le profil n'est pas encore fiable : relisez `surface report` avant de passer en block.")
+	}
+	fmt.Printf("Pour la poser : goproxify proxy option %s openapi @%s\n", proxy, file)
 }
 
 // ── Threat (Ephor) ─────────────────────────────────────────────────────────
@@ -744,8 +908,91 @@ func runSecurityCVE() {
 	switch sub {
 	case "sla":
 		runSecurityCVESLA()
+	case "inventory":
+		runSecurityCVEInventory()
+	case "cpe":
+		runSecurityCVECPE()
 	default:
 		fmt.Fprintf(os.Stderr, "sous-commande cve inconnue : %q\n", sub)
+		os.Exit(1)
+	}
+}
+
+func runSecurityCVEInventory() {
+	args := parseFlags(os.Args[4:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	q := url.Values{}
+	if v := flagValue(args, "-proxy", ""); v != "" {
+		q.Set("route", v)
+	}
+	if v := flagValue(args, "-edge", ""); v != "" {
+		q.Set("edge", v)
+	}
+	path := "/api/v1/security/inventory"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var res json.RawMessage
+	if _, err := client.DoJSON("GET", path, nil, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "cve inventory : %v\n", err)
+		os.Exit(1)
+	}
+	if _, gaps := args["-gaps"]; gaps {
+		var full struct {
+			Coverage json.RawMessage `json:"coverage"`
+		}
+		if json.Unmarshal(res, &full) == nil && len(full.Coverage) > 0 {
+			res = full.Coverage
+		}
+	}
+	out, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(out))
+}
+
+func runSecurityCVECPE() {
+	sub := subcommand(os.Args, 4)
+	args := parseFlags(os.Args[5:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	switch sub {
+	case "get", "":
+		var res json.RawMessage
+		if _, err := client.DoJSON("GET", "/api/v1/security/cpe-overrides", nil, &res); err != nil {
+			fmt.Fprintf(os.Stderr, "cve cpe get : %v\n", err)
+			os.Exit(1)
+		}
+		out, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(out))
+	case "set":
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, `usage: goproxify security cve cpe set -file <overrides.json>   (contenu : {"overrides": [{"match": "vaultwarden", "cpe": "dani-garcia:vaultwarden"}]})`)
+			os.Exit(1)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "lecture fichier : %v\n", err)
+			os.Exit(1)
+		}
+		var body json.RawMessage
+		if err := json.Unmarshal(data, &body); err != nil {
+			fmt.Fprintf(os.Stderr, "JSON invalide : %v\n", err)
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("PUT", "/api/v1/security/cpe-overrides", body, nil, 200, 204); err != nil {
+			fmt.Fprintf(os.Stderr, "cve cpe set : %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Identifiants CPE mis à jour.")
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande cve cpe inconnue : %q\n", sub)
 		os.Exit(1)
 	}
 }

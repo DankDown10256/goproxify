@@ -59,7 +59,7 @@ Navigateur Admin
 
 - **Passerelle** : reçoit le trafic HTTP/HTTPS des utilisateurs finaux. Porte 80, 443.  
 - **Admin** : interface web de configuration. Porte 9443. Communique avec la passerelle via son API interne (port 8000 — ne pas exposer sur Internet).  
-- **Agent** : tourne sur chaque hôte Docker. Lit `docker.sock`, remonte les conteneurs et métriques à la passerelle. N'expose aucun port.
+- **Agent** : tourne sur chaque hôte Docker. Utilise `docker.sock` (accès équivalent à root sur l'hôte, qu'un montage `:ro` ne limite pas), remonte les conteneurs et métriques à la passerelle. N'expose aucun port.
 
 **Deux exemples d'architecture** (il en existe bien d'autres) :
 
@@ -207,7 +207,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://goproxify-admin:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=${AGENT_NODE_NAME:-goproxify-agent}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]
@@ -328,7 +328,7 @@ services:
       - GPX_CONTROL_PLANE_EDGE_ENDPOINT=http://goproxify-edge:8000
       - GPX_IDENTITY_AGENT_NODE_NAME=goproxify-agent
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks: [goproxify_net]
     depends_on: [goproxify-edge]
@@ -563,7 +563,7 @@ services:
       - GPX_CONTROL_PLANE_ADMIN_ENDPOINT=http://<IP_DU_EDGE>:9443
       - GPX_IDENTITY_AGENT_NODE_NAME=agent-prod-1
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - agent-prod-1_data:/etc/goproxify
     networks: [goproxify_net]
 ```
@@ -723,6 +723,37 @@ networks:
 
 ---
 
+## Installation par le launcher (en cours de mise en place)
+
+Le launcher (`ghcr.io/vincamok/goproxify/launcher`, [ADR 0019](adr/0019-launcher-bootstrap-multi-hotes.md)) installe le premier hôte en une commande, sans écrire de `docker-compose.yml` ni de `.env`. Il génère les secrets, le compte administrateur et un certificat TLS pour l'Admin, déploie Admin, passerelle et Agent, puis disparaît. Les autres hôtes sont déclarés dans l'Admin (vue Infrastructure) en attendant leur installation. Voir [`goproxify launcher`](cli.md#goproxify-launcher).
+
+Ce qui change par rapport au démarrage rapide :
+
+- **L'Admin sert en HTTPS** (certificat auto-signé, valable deux ans, écrit dans `/etc/goproxify/tls/`). Le contrôle de santé de l'image parle en HTTP : le launcher le remplace par un contrôle HTTPS. Le navigateur demandera d'accepter le certificat ; comparez l'empreinte affichée par le launcher à celle du navigateur.
+- **`architecture.json` est déposé dans l'Admin dès sa création** (`/etc/goproxify/state/`) : passerelles et Agents déclarés apparaissent à l'état déclaré. Un hôte distant n'est accepté automatiquement que pendant la validité d'un ticket d'installation de 15 minutes (`goproxify hosts join-ticket -host <nom>`, ou `POST /api/v1/hosts/{nom}/join-ticket`), créé à la demande et consommé quand ses nœuds arrivent.
+- **Le hub de la passerelle (port 8000) n'est publié que s'il y a plusieurs hôtes** (et toujours sur une passerelle distante, par où l'Admin la joint). Restreignez-le au réseau d'infrastructure par le pare-feu.
+- **L'Admin garde les images à installer** (`GPX_DEPLOY_REGISTRY`, `GPX_DEPLOY_TAG`) : les hôtes qui rejoignent reçoivent les mêmes que le premier.
+- **Le mot de passe du premier compte** reste dans l'environnement du conteneur de l'Admin (`GPX_FIRST_ADMIN_PASSWORD`) : l'Admin le réapplique à chaque redémarrage si le compte existe avec un autre mot de passe. Retirez la variable une fois le compte en service, ou recréez le conteneur sans elle.
+
+**Installer un hôte déclaré (`--host`).** Sur l'hôte, une seule commande, la même pour tous : le launcher attend un lien de l'Admin pendant 15 minutes sur le port 8080.
+
+```bash
+docker run --rm -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview
+```
+
+Puis `goproxify hosts join-ticket -host <nom>` (ou `POST /api/v1/hosts/{nom}/join-ticket`) donne un QR code, valable 15 minutes. Le scanner depuis un téléphone **du même réseau** ouvre la page du launcher de l'hôte : elle montre l'Admin visé et l'empreinte de son certificat, et l'installation ne démarre qu'au clic. Sans téléphone, copiez le `join_command` du ticket sur l'hôte.
+
+- **Le téléphone doit joindre l'hôte** (port 8080, en HTTP clair sur le réseau local) et l'hôte doit joindre l'Admin en https. Le lien porte le jeton du ticket : pendant les 15 minutes, quelqu'un qui écoute le réseau local pourrait le lire. Pour un réseau qui n'est pas de confiance, préférez `join_command`, ou épinglez l'Admin (`--expect-admin`, `--expect-fingerprint`).
+- **Si l'installation échoue**, ce qui avait été créé est retiré ; le même ticket permet de réessayer tant qu'il vaut. Les images se téléchargent avant tout : un téléchargement long peut dépasser les 15 minutes, auquel cas les composants arrivent après la fin de l'acceptation automatique et attendent votre approbation.
+- **Sans adresse publique en https** pour l'Admin (`GPX_ADMIN_PUBLIC_URL`), le ticket ne produit ni QR code ni lien (le launcher refuse un Admin en clair) ; l'avertissement du ticket le dit.
+- **Dans l'Admin**, la fiche de l'hôte (Infrastructure, Configuration de l'hôte) a une section **Launcher (QR code)** : le ticket de 15 minutes est créé à son ouverture (il remplace le précédent) et la section affiche le QR code, la commande à lancer sur l'hôte et la variante `launcher join`.
+
+**Mettre à jour.** Sur chaque hôte, `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/vincamok/goproxify/launcher:preview update` tire les images les plus récentes de ses conteneurs et recrée ceux qui ont changé, en gardant leurs volumes, leurs variables et leurs secrets ; un conteneur qui ne devient pas sain retrouve son ancienne image (détails dans [cli.md](cli.md#mettre-à-jour-un-hôte--launcher-update)).
+
+**Concevoir l'infrastructure depuis le navigateur.** Le même launcher, lancé sans paramètre, sert `http://<hôte>:8080/design` : on y déclare ses hôtes, on simule, puis on installe l'hôte local. L'interface donne l'accès d'un root sur l'hôte : le code d'accès (`ABCD-EFGH`) est dans la sortie du conteneur (`docker logs <conteneur>`, ou le terminal où vous l'avez lancé). Il circule en clair (HTTP) : si le réseau n'est pas de confiance, publiez le port sur `127.0.0.1` (`-p 127.0.0.1:8080:8080`) et passez par un tunnel SSH ; le QR code d'un hôte suivant exige en revanche que le port soit joignable depuis le téléphone. Le mot de passe du premier compte et la **clé de sauvegarde** (`GPX_BACKUP_KEY`, qui chiffre la partie secrets des sauvegardes de l'Admin, secret racine compris) s'affichent à la fin et restent dans la sortie du conteneur : lisez-les avant de cliquer sur **Terminer**, et notez la clé ailleurs que sur l'hôte (sans elle une sauvegarde ne se relit pas).
+
+---
+
 ## Fond de carte vectoriel (optionnel)
 
 Par défaut, les cartes de l'Admin (Prism, Sécurité, Vue Proxy) utilisent des contours de pays et de régions embarqués : aucune requête vers un tiers, mais un zoom limité à l'échelle régionale. Pour zoomer jusqu'à la rue **sans service de tuiles externe**, posez sur le serveur de l'Admin un fond vectoriel au format [PMTiles](https://docs.protomaps.com/pmtiles/) (données © contributeurs OpenStreetMap, découpées par Protomaps).
@@ -796,7 +827,7 @@ Il n'y a rien à reconfigurer à la mise à jour : au premier démarrage, la pas
 
 - **La clé générée est sur le même disque que les données.** Elle sépare le chiffrement du secret d'appairage, pas plus : pour la garder hors du volume, fournissez `GPX_NODE_KEY` ou un fichier de secret.
 - **Sauvegardez `node.key` avec le volume** (la sauvegarde d'état de la passerelle l'inclut) : sans elle, une restauration sur un volume neuf ne relit plus les copies chiffrées, et la passerelle repart de ce que l'Admin lui renvoie.
-- **Le portail Access** garde sa clé maître propre (`GPX_PORTAL_MASTER_KEY`, sinon dérivée du secret d'appairage) : elle doit être identique sur tous les membres d'un groupe HA pour que les coffres des comptes SSO se déchiffrent partout.
+- **Le portail Access** garde sa clé maître propre (`GPX_PORTAL_MASTER_KEY` ; à défaut le secret d'appairage s'il est présent, sinon la clé locale de la passerelle) : elle doit être identique sur tous les membres d'un groupe HA pour que les coffres des comptes SSO se déchiffrent partout. Un membre en attente du portail renvoie son hôte vers le port HTTP du portail (`8444`) des autres membres : ce port doit être joignable entre les membres.
 
 ## Changer le secret d'appairage
 

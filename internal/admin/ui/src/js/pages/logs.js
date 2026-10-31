@@ -698,6 +698,8 @@ window.openLogsSettingsModal = async function() {
           <span>${esc(t('logs.ip_mode_' + m))}</span>
         </label>`;
     const er = s.edge_retention || {};
+    const vr = s.vault_retention || {};
+    window.logsVaultInitial = { access: vr.access_days ?? 365, system: vr.system_days ?? 90, source: s.read_source || 'auto' };
     const reported = Object.fromEntries((er.edges || []).map(e => [e.node_name, e]));
     const names = [...new Set([...Object.keys(reported), ...Object.keys(er.nodes || {})])].sort();
     const edgeRow = n => {
@@ -712,6 +714,21 @@ window.openLogsSettingsModal = async function() {
       : `<p style="font-size:12px;color:var(--text2)">${esc(t('logs.edge_retention_none'))}</p>`;
     const body = `
       <div class="field" style="margin-bottom:14px">
+        <label class="field-label">${t('logs.vault_title')}</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div><span style="font-size:12px;color:var(--text2)">${t('logs.edge_retention_access')}</span><br>
+            <input id="log-vault-access" type="number" class="input" value="${vr.access_days ?? 365}" min="1" max="3650" style="width:120px"></div>
+          <div><span style="font-size:12px;color:var(--text2)">${t('logs.edge_retention_system')}</span><br>
+            <input id="log-vault-system" type="number" class="input" value="${vr.system_days ?? 90}" min="1" max="3650" style="width:120px"></div>
+        </div>
+        <p style="font-size:12px;color:var(--text2);margin-top:8px">${esc(t('logs.vault_hint'))}</p>
+        <label class="field-label" style="margin-top:12px">${t('logs.read_source_title')}</label>
+        <select id="log-read-source" class="input">
+          ${['auto', 'gateway', 'admin'].map(v => `<option value="${v}" ${(s.read_source || 'auto') === v ? 'selected' : ''}>${esc(t('logs.read_source_' + v))}</option>`).join('')}
+        </select>
+        <p style="font-size:12px;color:var(--text2);margin-top:6px">${esc(t('logs.read_source_hint'))}</p>
+      </div>
+      <div class="field" style="margin-bottom:14px">
         <label class="field-label">${t('logs.edge_retention_title')}</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
           <div><span style="font-size:12px;color:var(--text2)">${t('logs.edge_retention_access')}</span><br>
@@ -720,6 +737,7 @@ window.openLogsSettingsModal = async function() {
             <input id="log-edge-system" type="number" class="input" value="${er.system_days ?? 90}" min="1" max="3650" style="width:120px"></div>
         </div>
         <p style="font-size:12px;color:var(--text2);margin-top:8px">${esc(t('logs.edge_retention_hint'))}</p>
+        <p style="font-size:12px;color:var(--text2);margin-top:6px">${esc(t('logs.edge_retention_buffer'))}</p>
         ${edgeRows}
       </div>
       <div class="field" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);margin-bottom:14px">
@@ -755,12 +773,24 @@ window.saveLogsSettings = async function() {
   const access = parseInt(document.getElementById('log-retention-access')?.value) || 30;
   const sys = parseInt(document.getElementById('log-retention-system')?.value) || 90;
   const mode = document.querySelector('input[name="log-ip-mode"]:checked')?.value || 'none';
+  const body = {
+    retention_access_days: access, retention_system_days: sys,
+    ip_anonymize: mode === 'anonymize', ip_pseudonymize: mode === 'pseudonymize',
+    edge_retention: collectEdgeRetention(),
+  };
+  // Conservation du volume de logs de l'Admin et source de lecture (ADR 0018) : envoyées seulement si elles ont changé,
+  // pour ne pas inscrire une ligne d'audit à chaque enregistrement.
+  const init = window.logsVaultInitial || {};
+  const vAccess = parseInt(document.getElementById('log-vault-access')?.value) || 0;
+  const vSystem = parseInt(document.getElementById('log-vault-system')?.value) || 0;
+  if (vAccess && vSystem && (vAccess !== init.access || vSystem !== init.system)) {
+    if ((vAccess < init.access || vSystem < init.system) && !confirm(t('logs.vault_reduce_confirm'))) return;
+    body.vault_retention = { access_days: vAccess, system_days: vSystem };
+  }
+  const source = document.getElementById('log-read-source')?.value || 'auto';
+  if (source !== init.source) body.read_source = source;
   try {
-    await api('PUT', '/logs/settings', {
-      retention_access_days: access, retention_system_days: sys,
-      ip_anonymize: mode === 'anonymize', ip_pseudonymize: mode === 'pseudonymize',
-      edge_retention: collectEdgeRetention(),
-    });
+    await api('PUT', '/logs/settings', body);
     toast(t('logs.settings_saved'), 'success');
     closeModal();
     logsRetentionLoaded = false;

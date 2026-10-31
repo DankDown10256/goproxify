@@ -206,3 +206,29 @@ func TestBackupKeepsOnlyTheLegalHoldsOfTheLogsFolder(t *testing.T) {
 		}
 	}
 }
+
+// Les copies chiffrées ajoutées avec Ephor, le groupe HA et la conservation des logs sont reprises ; la base ASN, que
+// l'Admin repousse et retélécharge, ne prend pas la place du reste dans le budget de la sauvegarde.
+func TestBackupKeepsTheStateOfEphorAndTheHAGroupButNotTheASNBase(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("GPX_EDGE_DATA_DIR", root)
+	files := []string{"threat-state.gpx", "behavior-state.gpx", "group-card.gpx", "pushed-journal.gpx", "log-retention.gpx", "asn-db.gpx"}
+	for _, name := range files {
+		os.WriteFile(filepath.Join(root, name), []byte("contenu "+name), 0o600)
+	}
+	s := &Server{}
+	rec := httptest.NewRecorder()
+	s.handleBackupExport(rec, httptest.NewRequest(http.MethodGet, "/internal/v1/backup/export", nil))
+	var b backupBundle
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range files[:5] {
+		if len(b.Files[name]) == 0 {
+			t.Errorf("%s absent de la sauvegarde : %v", name, keys(b.Files))
+		}
+	}
+	if _, ok := b.Files["asn-db.gpx"]; ok {
+		t.Error("la base ASN est rejouable par l'Admin : elle n'a pas à être sauvegardée")
+	}
+}

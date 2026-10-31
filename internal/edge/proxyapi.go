@@ -42,7 +42,7 @@ func (s *Server) handleListFileProxies(w http.ResponseWriter, r *http.Request) {
 	for i, env := range prods {
 		hasFile[env.ID] = true
 		if isImplicitRoute(env.ID) {
-			cp := *env
+			cp := *s.effectiveImplicitEnvelope(env)
 			cp.Implicit = true
 			prods[i] = &cp
 		}
@@ -74,6 +74,7 @@ func (s *Server) handleGetFileProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isImplicitRoute(id) {
+		env = s.effectiveImplicitEnvelope(env)
 		env.Implicit = true
 	}
 	writeJSON(w, env)

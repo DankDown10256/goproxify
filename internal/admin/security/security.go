@@ -31,6 +31,8 @@ type Ban struct {
 	CreatedAt   time.Time `json:"created_at"`
 	// Signals : pourquoi Ephor ou le WAF a banni l'IP (signal, points, valeur observée) ; vide pour les autres sources.
 	Signals []router.BanSignal `json:"signals,omitempty"`
+	// UserAgent : le dernier User-Agent vu pour l'IP quand une passerelle l'a bannie ; vide pour les bans manuels et importés.
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // NormalizeBanExpiry valide une expiration RFC3339 reçue d'un client et la ramène en UTC à la
@@ -84,6 +86,13 @@ type CVE struct {
 	Status      string    `json:"status"` // open | ignored | fixed
 	EdgeName    string    `json:"edge_name"`
 	DetectedAt  time.Time `json:"detected_at"`
+
+	// Host, Product, Version, Source : le proxy, le produit et la version sur lesquels la CVE a été trouvée, et d'où ils viennent
+	// (« image » : inventaire des conteneurs de la passerelle ; « headers » : en-têtes du backend). Vides pour les CVE plus anciennes.
+	Host    string `json:"host,omitempty"`
+	Product string `json:"product,omitempty"`
+	Version string `json:"version,omitempty"`
+	Source  string `json:"source,omitempty"`
 
 	// KEV : exploitation activement observée (catalogue CISA Known Exploited Vulnerabilities).
 	KEV bool `json:"kev"`

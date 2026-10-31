@@ -17,12 +17,13 @@ func NewBulkClient() *Client {
 	return &Client{HTTP: ssrf.SelfHostedClient(75 * time.Second)}
 }
 
-// LogSearch demande une page de lignes à la base de logs de la passerelle.
+// LogSearch demande une page de lignes à la base de logs de la passerelle (ou à sa copie dans le volume de logs de l'Admin).
 func (c *Client) LogSearch(ctx context.Context, t Target, p logapi.Params) (*logapi.SearchResponse, error) {
 	var out logapi.SearchResponse
 	if err := c.do(ctx, t, http.MethodGet, logapi.PathSearch+"?"+p.Values().Encode(), nil, &out); err != nil {
 		return nil, err
 	}
+	out.Via = t.ID
 	return &out, nil
 }
 

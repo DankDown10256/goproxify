@@ -25,12 +25,18 @@ type ScanFilter struct {
 	From, To time.Time
 	Domain   string
 	IP       string
+	// Origin lit les lignes qu'une ancienne version a répliquées de ce pair (colonne origin) au lieu des lignes propres ; vide : les lignes propres.
+	Origin string
 }
 
 // clause rend la condition SQL du filtre et ses arguments.
 func (s *Store) clause(f ScanFilter) (string, []any, error) {
-	query := `ts >= ? AND ts <= ?`
+	query := `origin = '' AND ts >= ? AND ts <= ?`
 	args := []any{f.From.UTC().Format(tsLayout), f.To.UTC().Format(tsLayout)}
+	if f.Origin != "" {
+		query = `origin = ? AND ts >= ? AND ts <= ?`
+		args = []any{f.Origin, f.From.UTC().Format(tsLayout), f.To.UTC().Format(tsLayout)}
+	}
 	if f.Domain != "" {
 		query += ` AND domain = ?`
 		args = append(args, f.Domain)
@@ -166,7 +172,7 @@ func openArchive(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if err := prepareSchema(db); err != nil {
 		db.Close()
 		return nil, err
 	}

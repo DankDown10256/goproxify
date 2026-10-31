@@ -309,6 +309,16 @@ func openBundle(b *Backup) (*SecretBundle, error) {
 	return &sb, nil
 }
 
+// SecretFiles déchiffre la section secrets et rend ses fichiers : « <étiquette>/<chemin> » → contenu (`state/…`,
+// `config/…`, `gateway/<nom>/…`). Rien n'est écrit : c'est ce qui permet de lire une sauvegarde sans Admin.
+func SecretFiles(b *Backup) (map[string][]byte, error) {
+	sb, err := openBundle(b)
+	if err != nil {
+		return nil, err
+	}
+	return sb.Files, nil
+}
+
 // restoreSecrets remplace les lignes sensibles (écrasement systématique : ce sont les
 // valeurs vidées par l'import standard) et réécrit les fichiers d'état.
 func restoreSecrets(db *sql.DB, b *Backup, dirs map[string]string) (rows, files int, gateways []GatewayRestore, err error) {

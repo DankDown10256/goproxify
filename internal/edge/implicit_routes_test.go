@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
+	"github.com/vincamok/goproxify/internal/edge/portal"
+	"github.com/vincamok/goproxify/internal/edge/proxy"
 	"github.com/vincamok/goproxify/internal/edge/proxypipeline"
 	"github.com/vincamok/goproxify/internal/edge/proxystore"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -173,5 +176,103 @@ func TestPortalRouteTakesItsOverlay(t *testing.T) {
 	got, ok := s.table.ByHost("access.example.test")
 	if !ok || got.RateLimit == nil || got.Backends[0].URL != "http://127.0.0.1:9" {
 		t.Fatalf("la route du portail doit porter sa surcouche et son backend généré, obtenu %+v", got)
+	}
+}
+
+// Un membre qui n'héberge pas le portail (désactivé ou en attente) n'écoute pas sur son port : sa surcouche ne doit pas
+// refaire apparaître la route publique, qui répondrait 502 au lieu de laisser l'hôte à qui le sert.
+func TestPortalOverlayDoesNotRevivePublicRouteOnAGatewayWithoutPortal(t *testing.T) {
+	s := newImplicitGateway(t)
+	s.portal = newPortalGateway(t, t.TempDir()).portal
+	over := router.Route{ID: portalPublicRouteID, Host: "access.example.test", Type: router.RouteHTTP,
+		RateLimit: &router.RateLimitConfig{RequestsPerSecond: 3, Burst: 3}}
+
+	writeOverlay(t, s, over, true)
+	if _, ok := s.table.ByHost("access.example.test"); ok {
+		t.Fatal("la surcouche seule ne doit pas publier la route du portail sur une passerelle qui ne l'héberge pas")
+	}
+
+	s.upsertImplicitRoute(&router.Route{
+		ID: portalPublicRouteID, Host: "access.example.test", Type: router.RouteHTTP, TLSEnabled: true,
+		Backends: []router.Backend{{URL: "http://127.0.0.1:9", Weight: 1}},
+	})
+	s.ensurePortalPublicRoute()
+	if _, ok := s.table.ByHost("access.example.test"); ok {
+		t.Fatal("la route doit être retirée tant que le portail est inactif")
+	}
+	writeOverlay(t, s, over, true)
+	if _, ok := s.table.ByHost("access.example.test"); ok {
+		t.Fatal("réécrire la surcouche ne doit pas ressusciter la route retirée")
+	}
+}
+
+// Un membre en attente du portail renvoie son hôte vers les autres membres du groupe, sans rien écouter lui-même ;
+// la surcouche ne change pas ces backends.
+func TestStandbyMemberForwardsPortalHostToGroupMembers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GPX_PORTAL_MASTER_KEY", "cle-maitre-test")
+	s := newImplicitGateway(t)
+	s.portal = newPortalGateway(t, dir).portal
+	s.peers = proxy.NewPeerRegistry()
+	s.peers.Replace([]proxy.PeerInfo{
+		{Name: "core", Endpoint: "http://core.example.test:8000", Token: "t"},
+		{Name: "autre-groupe", Endpoint: "http://elsewhere.example.test:8000", Token: "t"},
+	})
+	if err := s.portal.ApplyConfig(portal.Config{
+		Enabled: false, HAStandby: true, HAGroup: "ha-1", HAKey: "k", HAMembers: []string{"core", "backup"},
+		PublicHost: "access.example.test", DBPath: filepath.Join(dir, "portal.gpx"),
+		Views: []portal.View{{Host: "presta.example.test", Title: "Prestataires"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ensurePortalPublicRoute()
+
+	for _, host := range []string{"access.example.test", "presta.example.test"} {
+		got, ok := s.table.ByHost(host)
+		if !ok || len(got.Backends) != 1 || got.Backends[0].URL != "http://core.example.test:8444" {
+			t.Fatalf("%s doit viser le portail du membre du groupe, obtenu %+v", host, got)
+		}
+		if got.PreserveHost == nil || !*got.PreserveHost {
+			t.Fatalf("%s : l'hôte d'origine doit être conservé pour choisir la vue", host)
+		}
+	}
+
+	writeOverlay(t, s, router.Route{ID: portalPublicRouteID, Host: "access.example.test", Type: router.RouteHTTP,
+		Backends: []router.Backend{{URL: "http://127.0.0.1:1"}}}, true)
+	got, _ := s.table.ByHost("access.example.test")
+	if got == nil || got.Backends[0].URL != "http://core.example.test:8444" {
+		t.Fatalf("la surcouche ne doit pas changer le backend généré, obtenu %+v", got)
+	}
+
+	s.peers.Replace(nil)
+	s.ensurePortalPublicRoute()
+	if _, ok := s.table.ByHost("access.example.test"); ok {
+		t.Fatal("sans pair connu il n'y a rien vers quoi renvoyer : pas de route")
+	}
+}
+
+// Le fichier de surcouche peut garder l'ancien backend du générateur : l'API montre celui que la table sert.
+func TestImplicitProxyAPIShowsTheServedBackendNotTheOverlayCopy(t *testing.T) {
+	s := newImplicitGateway(t)
+	s.upsertImplicitRoute(delegationRoute())
+	stale := *delegationRoute()
+	stale.Backends = []router.Backend{{URL: "http://127.0.0.1:8444"}}
+	stale.RateLimit = &router.RateLimitConfig{RequestsPerSecond: 3, Burst: 3}
+	writeOverlay(t, s, stale, true)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/proxies/deleg-d1", nil)
+	req.SetPathValue("id", "deleg-d1")
+	s.handleGetFileProxy(rec, req)
+	var env proxystore.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := proxypipeline.ParseRoute(&env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Backends[0].URL != "https://b.example.test" || rt.RateLimit == nil {
+		t.Fatalf("backend servi attendu avec la surcouche conservée, obtenu %+v", rt)
 	}
 }

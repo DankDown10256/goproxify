@@ -435,6 +435,7 @@ function vsDrawerHTML() {
   const slaDays = vsSlaDays(c);
   const rows = [
     [t('security.col.backend'), c.backend_url],
+    c.product ? [t('security.vs.application'), `${c.product}${c.version ? ' ' + c.version : ''} (${t(c.source === 'image' ? 'security.vs.app_image' : 'security.vs.app_headers')}). ${t('security.vs.app_hint')}`] : null,
     _vs.mode === 'admin' ? [t('security.col.edge'), c.edge_name || '—'] : null,
     c.epss_score > 0 ? [t('security.vs.epss'), `${(c.epss_score * 100).toFixed(1)} %`] : null,
     c.status === 'open' && slaDays != null ? [t('security.vs.sla_due_label'), slaDays < 0 ? t('security.vs.sla_overdue', { n: -slaDays }) : t('security.vs.sla_due', { n: slaDays })] : null,
@@ -620,6 +621,7 @@ async function renderSecurityVulns(ctx) {
       </details>` : ''}`;
 
     vsPaint();
+    if (!isAdmin) loadVulnscanCoverage();
     if (!isAdmin && vsState?.running) startVulnscanPoll();
   } catch(e) { toast(e.message,'error'); }
 }
@@ -660,11 +662,11 @@ function vulnscanPanelV2(st, cfg, isAdmin) {
       </summary>
       <div class="table-wrap" style="margin-top:8px">
         <table>
-          <thead><tr><th>${t('security.col.backend')}</th><th>${t('security.col.status')}</th><th>${t('security.vulnscan.col.headers')||'En-têtes'}</th><th>CVEs</th></tr></thead>
+          <thead><tr><th>${t('security.col.backend')}</th><th>${t('security.col.status')}</th><th>${t('security.vulnscan.col.detected')}</th><th>CVEs</th></tr></thead>
           <tbody>${results.map(r => `<tr>
             <td class="mono" style="font-size:11px;max-width:260px;word-break:break-all">${esc(r.url||'')}</td>
             <td><span style="color:${vulnscanStatusColor(r.status)};font-size:12px">${esc(vulnscanStatusLabel(r.status))}</span>${r.error?`<div style="font-size:10px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.error)}">${esc(r.error)}</div>`:''}</td>
-            <td style="font-size:11px;color:var(--text2)">${(r.headers||[]).length?(r.headers||[]).map(h=>`<span class="tag tag-neutral" style="font-size:10px;margin:1px">${esc(h)}</span>`).join(' '):'—'}</td>
+            <td style="font-size:11px;color:var(--text2)">${[...(r.apps||[]), ...(r.headers||[])].length?[...(r.apps||[]), ...(r.headers||[])].map(h=>`<span class="tag tag-neutral" style="font-size:10px;margin:1px">${esc(h)}</span>`).join(' '):'—'}</td>
             <td><b style="color:${(r.cves_found||0)>0?'var(--yellow)':'var(--text)'}">${r.cves_found||0}</b></td>
           </tr>`).join('')}
           </tbody>
@@ -694,8 +696,39 @@ function vulnscanPanelV2(st, cfg, isAdmin) {
     </div>
     ${st.last_error ? `<div style="margin-bottom:10px;color:var(--red);font-size:12px">${esc(st.last_error)}</div>` : ''}
     ${resultsBlock}
+    <div id="vulnscan-coverage"></div>
     ${configBlock}
   </div>`;
+}
+
+// Ce que la recherche de CVE ne peut pas traiter dans l'inventaire des applications, et pourquoi (ADR 0017). Lu sur les passerelles,
+// gardé 30 s : le panneau se redessine pendant un scan.
+async function loadVulnscanCoverage() {
+  const box = document.getElementById('vulnscan-coverage');
+  if (!box) return;
+  if (!window._vsCov || Date.now() - window._vsCov.at > 30000) {
+    try {
+      const r = await api('GET', '/security/inventory');
+      window._vsCov = { at: Date.now(), cov: r && r.coverage };
+    } catch { return; }
+  }
+  const cov = window._vsCov.cov;
+  if (!cov || !cov.total || !document.getElementById('vulnscan-coverage')) { box.innerHTML = ''; return; }
+  const gaps = cov.gaps || [];
+  const rows = gaps.map(g => `<tr>
+      <td class="mono" style="font-size:11px;word-break:break-all">${esc(g.name)}</td>
+      <td style="font-size:12px">${esc(t('security.vs.cov_reason.' + g.reason))}</td>
+      <td class="mono" style="font-size:11px;color:var(--text2);word-break:break-all">${esc(g.evidence || '')}</td>
+      <td style="font-size:11px;color:var(--text2)">${esc((g.hosts || []).join(', '))}</td>
+    </tr>`).join('');
+  box.innerHTML = `<details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:12px;color:var(--text2);user-select:none">${esc(t('security.vs.cov_title', { covered: cov.covered, total: cov.total }))}</summary>
+    ${gaps.length ? `<p style="font-size:12px;color:var(--text2);margin:8px 0">${esc(t('security.vs.cov_help'))}</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>${esc(t('security.vs.cov_col_name'))}</th><th>${esc(t('security.vs.cov_col_reason'))}</th><th>${esc(t('security.vs.cov_col_evidence'))}</th><th>${esc(t('security.col.backend'))}</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>` : `<p style="font-size:12px;color:var(--text2);margin:8px 0">${esc(t('security.vs.cov_none'))}</p>`}
+  </details>`;
 }
 
 async function renderSecurityPosture(ctx) {
@@ -1427,6 +1460,7 @@ function vulnscanStatusLabel(status) {
 function vulnscanStatusColor(status) {
   return ({
     ok: 'var(--green)',
+    inventory: 'var(--green)',
     unreachable: 'var(--red)',
     no_headers: 'var(--yellow)',
     probing: 'var(--accent)',
@@ -1477,11 +1511,11 @@ function vulnscanPanel(st, cfg, isAdmin) {
     <div style="margin-top:16px">
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">${t('security.vulnscan.detail_title')}</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>${t('security.col.backend')}</th><th>${t('security.col.status')}</th><th>${t('security.vulnscan.col.headers')}</th><th>CVEs</th></tr></thead>
+        <thead><tr><th>${t('security.col.backend')}</th><th>${t('security.col.status')}</th><th>${t('security.vulnscan.col.detected')}</th><th>CVEs</th></tr></thead>
         <tbody>${results.map(r => `<tr>
           <td class="mono" style="font-size:11px;max-width:280px;word-break:break-all">${esc(r.url||'')}</td>
           <td><span style="color:${vulnscanStatusColor(r.status)};font-size:12px">${esc(vulnscanStatusLabel(r.status))}</span>${r.error ? `<div style="font-size:10px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.error)}">${esc(r.error)}</div>` : ''}</td>
-          <td style="font-size:11px;color:var(--text2)">${(r.headers||[]).length ? (r.headers||[]).map(h => `<span class="tag tag-neutral" style="font-size:10px;margin:1px">${esc(h)}</span>`).join(' ') : '—'}</td>
+          <td style="font-size:11px;color:var(--text2)">${[...(r.apps||[]), ...(r.headers||[])].length ? [...(r.apps||[]), ...(r.headers||[])].map(h => `<span class="tag tag-neutral" style="font-size:10px;margin:1px">${esc(h)}</span>`).join(' ') : '—'}</td>
           <td><b style="color:${(r.cves_found||0)>0?'var(--yellow)':'var(--text)'}">${r.cves_found||0}</b></td>
         </tr>`).join('')}</tbody>
       </table></div>

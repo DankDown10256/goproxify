@@ -34,6 +34,8 @@ type SecurityHandler struct {
 	// Edge (optionnel) : trafic récent lu dans les bases de logs des passerelles (aperçus de ban et d'ASN).
 	Edge *prismedge.Source
 	Log      *slog.Logger
+	// Proxies écrit la configuration d'un proxy (passage en block de la politique de surface) ; nil = indisponible.
+	Proxies ProxyConfigWriter
 	Store    *security.Store
 	Fail2Ban *fail2ban.Engine
 	VulnScan *vulnscan.Scanner
@@ -165,11 +167,36 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.simulateThreat(w, r)
 	case r.Method == http.MethodGet && sub == "threat-references":
 		h.getThreatReferences(w, r)
+	// Apprentissage de la surface d'un proxy (ADR 0016)
+	case r.Method == http.MethodGet && sub == "surface" && id == "report":
+		h.getSurfaceReport(w, r)
+	case r.Method == http.MethodGet && sub == "surface" && id == "suggestions":
+		h.getSurfaceSuggestions(w, r)
+	case r.Method == http.MethodPost && sub == "surface" && id == "accept":
+		h.acceptSurface(w, r)
+	case r.Method == http.MethodGet && sub == "surface" && id == "openapi":
+		h.getSurfaceOpenAPI(w, r)
+	case r.Method == http.MethodGet && sub == "surface" && id == "proposals":
+		h.getSurfaceProposals(w, r)
+	case r.Method == http.MethodPost && sub == "surface" && id == "enforce":
+		h.enforceSurface(w, r)
+	case r.Method == http.MethodPost && sub == "surface" && id == "relax":
+		h.relaxSurface(w, r)
+	case r.Method == http.MethodPost && sub == "surface" && id == "reset":
+		h.resetSurface(w, r)
+	case r.Method == http.MethodGet && sub == "surface":
+		h.getSurface(w, r)
 	// Interrupteur du WAF (moteur de sécurité, par passerelle ou groupe HA)
 	case r.Method == http.MethodGet && sub == "waf-config":
 		h.getWAFConfig(w, r)
 	case r.Method == http.MethodPut && sub == "waf-config":
 		h.putWAFConfig(w, r)
+	case r.Method == http.MethodGet && sub == "inventory":
+		h.getInventory(w, r)
+	case r.Method == http.MethodGet && sub == "cpe-overrides":
+		h.getCPEOverrides(w, r)
+	case r.Method == http.MethodPut && sub == "cpe-overrides":
+		h.putCPEOverrides(w, r)
 	case r.Method == http.MethodGet && sub == "waf-activity":
 		h.getWAFActivity(w, r)
 	// Timeouts HTTP/QUIC (statiques — redémarrage passerelle requise)
@@ -287,7 +314,7 @@ func (h *SecurityHandler) listBans(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, domain, reason, source, edge_name, target_scope, asn, expires_at, strftime('%Y-%m-%dT%H:%M:%SZ', created_at), signals FROM security_bans`+where+` ORDER BY created_at DESC`,
+		`SELECT id, ip, domain, reason, source, edge_name, target_scope, asn, expires_at, strftime('%Y-%m-%dT%H:%M:%SZ', created_at), signals, user_agent FROM security_bans`+where+` ORDER BY created_at DESC`,
 		args...)
 	if err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
@@ -300,7 +327,7 @@ func (h *SecurityHandler) listBans(w http.ResponseWriter, r *http.Request) {
 		var b security.Ban
 		var exp sql.NullString
 		var createdAt, signals string
-		if err := rows.Scan(&b.ID, &b.IP, &b.Domain, &b.Reason, &b.Source, &b.EdgeName, &b.TargetScope, &b.ASN, &exp, &createdAt, &signals); err != nil {
+		if err := rows.Scan(&b.ID, &b.IP, &b.Domain, &b.Reason, &b.Source, &b.EdgeName, &b.TargetScope, &b.ASN, &exp, &createdAt, &signals, &b.UserAgent); err != nil {
 			if h.Log != nil {
 				h.Log.Warn("security bans: scan", "err", err)
 			}
@@ -635,7 +662,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score, epss_updated_at
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score, epss_updated_at, host, product, version, source
 		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC`,
 		args...)
 	if err != nil {
@@ -651,7 +678,7 @@ func (h *SecurityHandler) listCVEs(w http.ResponseWriter, r *http.Request) {
 		var kevInt int
 		var epssUpdated sql.NullString
 		if err := rows.Scan(&c.ID, &c.BackendURL, &c.CVEID, &c.CVSSScore, &c.Description, &c.Status, &c.EdgeName,
-			&detectedAt, &kevInt, &c.EPSSScore, &epssUpdated); err != nil {
+			&detectedAt, &kevInt, &c.EPSSScore, &epssUpdated, &c.Host, &c.Product, &c.Version, &c.Source); err != nil {
 			continue
 		}
 		c.KEV = kevInt != 0

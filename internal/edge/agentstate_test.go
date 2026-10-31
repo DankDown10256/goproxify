@@ -149,6 +149,58 @@ func TestAgentStatePortainerScopeAndRejectedRoute(t *testing.T) {
 	}
 }
 
+// Un conteneur recréé change d'identifiant, donc d'identifiant de route : la route existante de l'hôte reçoit son
+// backend, et l'état complet qui suit ne doit pas la retirer parce que son identifiant est celui de l'ancien conteneur.
+func TestAgentStatePortainerRecreatedContainerKeepsItsRoute(t *testing.T) {
+	s := testEdgeServer()
+	const host = "app.example.fr"
+	const old, fresh = "aaaaaaaaaaaa1111", "bbbbbbbbbbbb2222"
+	if code, _ := putState(t, s, state("portainer", "1", 1, portainerRoute("1", old, host, "http://10.1.0.1:32768"))); code != http.StatusOK {
+		t.Fatalf("seed %d", code)
+	}
+
+	code, res := putState(t, s, state("portainer", "1", 2, portainerRoute("1", fresh, host, "http://10.1.0.1:32771")))
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	rt, ok := s.table.ByHost(host)
+	if !ok {
+		t.Fatalf("la route de %s a disparu après la recréation du conteneur (%+v)", host, res)
+	}
+	if len(rt.Backends) != 1 || rt.Backends[0].ContainerID != fresh || rt.Backends[0].URL != "http://10.1.0.1:32771" {
+		t.Fatalf("le pool ne doit garder que le nouveau conteneur : %+v", rt.Backends)
+	}
+}
+
+// Dans un pool de deux conteneurs, la recréation de l'un ne laisse ni son ancien backend (port mort) ni l'autre en moins.
+func TestAgentStatePortainerPoolDropsOnlyTheReplacedBackend(t *testing.T) {
+	s := testEdgeServer()
+	const host = "app.example.fr"
+	const a, b, b2 = "aaaaaaaaaaaa1111", "bbbbbbbbbbbb2222", "cccccccccccc3333"
+	if code, _ := putState(t, s, state("portainer", "1", 1,
+		portainerRoute("1", a, host, "http://10.1.0.1:8081"),
+		portainerRoute("1", b, host, "http://10.1.0.1:8082"))); code != http.StatusOK {
+		t.Fatalf("seed %d", code)
+	}
+
+	if code, _ := putState(t, s, state("portainer", "1", 2,
+		portainerRoute("1", a, host, "http://10.1.0.1:8081"),
+		portainerRoute("1", b2, host, "http://10.1.0.1:8083"))); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	rt, ok := s.table.ByHost(host)
+	if !ok {
+		t.Fatal("la route doit survivre")
+	}
+	got := map[string]bool{}
+	for _, be := range rt.Backends {
+		got[be.ContainerID] = true
+	}
+	if len(rt.Backends) != 2 || !got[a] || !got[b2] {
+		t.Fatalf("attendu les conteneurs %s et %s, obtenu %+v", a, b2, rt.Backends)
+	}
+}
+
 func TestAgentStateIgnoresAnOlderGeneration(t *testing.T) {
 	s := testEdgeServer()
 	const a = "aaaaaaaaaaaa1111"

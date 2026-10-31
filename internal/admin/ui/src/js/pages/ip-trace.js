@@ -51,6 +51,12 @@ function trChips(list, color) {
   return (list || []).map(c => `<span class="tr-chip"${color ? ` style="color:${color}"` : ''}>${esc(c.value ?? c)}${c.count != null ? ` <i>×${c.count}</i>` : ''}</span>`).join('');
 }
 
+// Le client qui a provoqué le ban : sans lui, « ua », « path » ou « score cumulé » n'expliquent pas qui était visé.
+function trUserAgentHTML(ua) {
+  if (!ua) return '';
+  return `<div class="tr-row tr-ua"><span class="tr-ua-label">${esc(t('trace.ua'))}</span><span class="tr-mono" title="${esc(ua)}">${esc(ua)}</span></div>`;
+}
+
 function trStepHTML(s) {
   const k = TR_KIND[s.kind] || TR_KIND.system;
   let title, body = '';
@@ -70,9 +76,10 @@ function trStepHTML(s) {
       ${b.threat_signals?.length ? `<div class="tr-row">${trChips(b.threat_signals, 'var(--orange,#d97706)')}</div>` : ''}`;
   } else {
     title = t('trace.step.' + s.kind);
+    const ua = trUserAgentHTML(s.user_agent);
     const src = s.source ? (typeof _secSourceLabel === 'function' ? _secSourceLabel(s.source) : s.source) : '';
     body = `<div class="tr-meta">${[s.ip && `<span class="tr-mono">${esc(s.ip)}</span>`, s.domain && esc(s.domain), src && esc(src), s.occurrences > 1 && `×${s.occurrences}`].filter(Boolean).join(' · ')}</div>
-      ${s.reason ? `<div class="tr-row">${esc(s.reason)}</div>` : ''}${banSignalsDetailHTML(s.signals)}`;
+      ${s.reason ? `<div class="tr-row">${esc(s.reason)}</div>` : ''}${ua}${banSignalsDetailHTML(s.signals)}`;
   }
   return `<div class="tr-step"><span class="tr-dot" style="background:${k.color}">${k.icon}</span>
     <div class="tr-card"><div class="tr-head"><b style="color:${k.color}">${esc(title)}</b><time>${esc(trTime(s.ts))}</time></div>${body}</div></div>`;
@@ -106,7 +113,7 @@ function trSummaryHTML() {
   const d = _tr.data, s = d.summary;
   const tile = (v, label, color) => `<div class="bn-kpi"><b style="color:${color || 'var(--text1)'}">${v}</b><span>${esc(label)}</span></div>`;
   const state_ = [
-    ...(s.active_bans || []).map(b => `<span class="tr-badge" style="--c:var(--red)" title="${esc(banSignalsText(b.signals))}">⛔ ${esc(t('trace.state.banned'))} · ${esc(b.ip)}${b.expires_at ? '' : ' · ' + esc(t('trace.state.permanent'))}</span>`),
+    ...(s.active_bans || []).map(b => `<span class="tr-badge" style="--c:var(--red)" title="${esc([banSignalsText(b.signals), b.user_agent && t('trace.ua') + ' : ' + b.user_agent].filter(Boolean).join(' — '))}">⛔ ${esc(t('trace.state.banned'))} · ${esc(b.ip)}${b.expires_at ? '' : ' · ' + esc(t('trace.state.permanent'))}</span>`),
     ...(s.profiles || []).map(p => `<span class="tr-badge" style="--c:var(--orange,#d97706)">${esc(t('trace.state.profile'))} · ${esc(p.name)} (${esc(p.mode)})</span>`),
   ].join('');
   const list = (title, items, mono, link) => items?.length ? `<div class="tr-list"><h4>${esc(title)}</h4>${items.map(i => `<div><span${mono ? ' class="tr-mono"' : ''}>${link ? `<a href="#" onclick="openIPTrace('${esc(i.value)}');return false">${esc(i.value)}</a>` : esc(i.value)}</span><b>${i.count}</b></div>`).join('')}</div>` : '';

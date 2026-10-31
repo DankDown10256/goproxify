@@ -113,47 +113,6 @@ func TestPortalTemplatesSurviveRestartWithoutAdmin(t *testing.T) {
 	}
 }
 
-func TestClusterPeersSurviveRestartWithoutAdmin(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("GPX_CLUSTER_PEERS_PATH", filepath.Join(dir, "cluster-peers.gpx"))
-	s := newConfigGateway(t, dir)
-	s.applyClusterPeers(map[string]string{"edge-2": "http://10.0.0.2:8002"})
-
-	raw, err := os.ReadFile(filepath.Join(dir, "cluster-peers.gpx"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(raw, []byte("10.0.0.2")) {
-		t.Fatal("copie locale de la topologie écrite en clair")
-	}
-
-	restarted := newConfigGateway(t, dir)
-	got := restarted.loadClusterPeersFromDisk()
-	if got["edge-2"] != "http://10.0.0.2:8002" {
-		t.Fatalf("pairs après redémarrage sans Admin : %v", got)
-	}
-}
-
-// Une config locale (cluster.peers) n'est jamais écrasée ni doublée par l'Admin.
-func TestClusterPeersLocalConfigWins(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("GPX_CLUSTER_PEERS_PATH", filepath.Join(dir, "cluster-peers.gpx"))
-	s := newConfigGateway(t, dir)
-	s.cfg.Cluster.Peers = map[string]string{"edge-3": "http://10.0.0.3:8002"}
-	s.applyClusterPeers(map[string]string{"edge-2": "http://10.0.0.2:8002"})
-	if _, err := os.Stat(filepath.Join(dir, "cluster-peers.gpx")); err == nil {
-		t.Fatal("la topologie Admin ne doit pas être persistée quand la config locale est définie")
-	}
-}
-
-func TestLoadClusterPeersWithoutFile(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("GPX_CLUSTER_PEERS_PATH", filepath.Join(dir, "cluster-peers.gpx"))
-	if got := newConfigGateway(t, dir).loadClusterPeersFromDisk(); len(got) != 0 {
-		t.Fatalf("sans copie locale : %v", got)
-	}
-}
-
 func newPeersGateway(t *testing.T, dir string) *Server {
 	t.Helper()
 	t.Setenv("GPX_GATEWAY_PEERS_PATH", filepath.Join(dir, "gateway-peers.gpx"))

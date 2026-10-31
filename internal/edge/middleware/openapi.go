@@ -5,6 +5,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -534,6 +535,15 @@ func ValidateOpenAPIConfig(cfg *router.OpenAPIConfig) []string {
 	if cfg.StripPrefix != "" && !strings.HasPrefix(cfg.StripPrefix, "/") {
 		errs = append(errs, "openapi.strip_prefix doit commencer par /")
 	}
+	for _, reason := range cfg.BlockReasons {
+		known := false
+		for _, k := range OpenAPIReasons {
+			known = known || k == reason
+		}
+		if !known {
+			errs = append(errs, fmt.Sprintf("openapi.block_reasons : %q inconnu (%s)", reason, strings.Join(OpenAPIReasons, ", ")))
+		}
+	}
 	for _, s := range cfg.Skip {
 		switch s {
 		case "path", "query", "header", "cookie", "body":
@@ -754,6 +764,54 @@ func (s *openAPISpec) validateBody(r *http.Request, body *oaBody, maxBody int64)
 	return issues, restore, 0
 }
 
+type openAPIOutcomeKey struct{}
+
+// OpenAPIOutcome reçoit le verdict du contrôle openapi pour une requête : la passerelle le pose dans le contexte avant la
+// chaîne et le relit après, pour que l'apprentissage de surface voie les violations même en mode detect (ADR 0016).
+type OpenAPIOutcome struct {
+	// Result : valid | invalid | unknown_path | unknown_method ; vide si le contrôle n'a pas jugé la requête.
+	Result string
+	// Reason : unknown_path | unknown_method | invalid_param | invalid_body | unsupported_media | too_large ; vide si valide, ou
+	// si le chemin est inconnu mais que le proxy les laisse passer (unknown_paths = allow : ce n'est pas une violation).
+	Reason string
+	// Blocked : la requête a été refusée par le contrôle (mode block, ou raison listée dans block_reasons).
+	Blocked bool
+}
+
+// OpenAPIReasons liste les types de violation que block_reasons accepte.
+var OpenAPIReasons = []string{"unknown_path", "unknown_method", "invalid_param", "invalid_body", "unsupported_media", "too_large"}
+
+// openAPIReason donne le type de violation d'un verdict ; vide si la requête est conforme.
+func openAPIReason(result string, status int) string {
+	switch {
+	case result == "unknown_path" || result == "unknown_method":
+		return result
+	case result != "invalid":
+		return ""
+	case status == http.StatusRequestEntityTooLarge:
+		return "too_large"
+	case status == http.StatusUnsupportedMediaType:
+		return "unsupported_media"
+	case status == http.StatusBadRequest:
+		return "invalid_param"
+	}
+	return "invalid_body"
+}
+
+// WithOpenAPIOutcome joint au contexte un verdict à remplir.
+func WithOpenAPIOutcome(ctx context.Context) (context.Context, *OpenAPIOutcome) {
+	o := &OpenAPIOutcome{}
+	return context.WithValue(ctx, openAPIOutcomeKey{}, o), o
+}
+
+func recordOpenAPIOutcome(r *http.Request, result, reason string, blocked bool) {
+	o, _ := r.Context().Value(openAPIOutcomeKey{}).(*OpenAPIOutcome)
+	if o == nil {
+		return
+	}
+	o.Result, o.Reason, o.Blocked = result, reason, blocked
+}
+
 // OpenAPI valide les requêtes contre une spécification OpenAPI : le chemin et la méthode doivent
 // exister (si unknown_paths vaut « block »), les paramètres et le corps JSON doivent respecter leurs
 // schémas. Mode block (défaut) : 400 (paramètre), 422 (corps), 404 / 405 (chemin ou méthode inconnus),
@@ -771,6 +829,10 @@ func OpenAPI(host string, cfg *router.OpenAPIConfig) func(http.Handler) http.Han
 		}
 		block := cfg.Mode != "detect"
 		strictPaths := cfg.UnknownPaths == "block"
+		blockReasons := map[string]bool{}
+		for _, reason := range cfg.BlockReasons {
+			blockReasons[reason] = true
+		}
 		maxBody := cfg.MaxBody
 		if maxBody <= 0 {
 			maxBody = requestSchemaDefaultMaxBody
@@ -786,33 +848,27 @@ func OpenAPI(host string, cfg *router.OpenAPIConfig) func(http.Handler) http.Han
 				restore()
 			}
 			count(result)
-			if result == "unknown_path" || result == "unknown_method" {
-				if !strictPaths {
-					next.ServeHTTP(w, r)
-					return
-				}
-				if block {
-					if result == "unknown_method" {
-						if pth, _ := spec.match(openAPIPath(r, cfg)); pth != nil {
-							allow := make([]string, 0, len(pth.ops))
-							for m := range pth.ops {
-								allow = append(allow, m)
-							}
-							sort.Strings(allow)
-							w.Header().Set("Allow", strings.Join(allow, ", "))
-						}
-					}
-					writeOpenAPIError(w, status, issues)
-					return
-				}
+			reason := openAPIReason(result, status)
+			if (result == "unknown_path" || result == "unknown_method") && !strictPaths {
+				reason = ""
+			}
+			refuse := reason != "" && (block || blockReasons[reason])
+			recordOpenAPIOutcome(r, result, reason, refuse)
+			if !refuse {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if result == "invalid" && block {
-				writeOpenAPIError(w, status, issues)
-				return
+			if result == "unknown_method" {
+				if pth, _ := spec.match(openAPIPath(r, cfg)); pth != nil {
+					allow := make([]string, 0, len(pth.ops))
+					for m := range pth.ops {
+						allow = append(allow, m)
+					}
+					sort.Strings(allow)
+					w.Header().Set("Allow", strings.Join(allow, ", "))
+				}
 			}
-			next.ServeHTTP(w, r)
+			writeOpenAPIError(w, status, issues)
 		})
 	}
 }

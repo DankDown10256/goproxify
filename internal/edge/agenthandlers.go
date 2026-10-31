@@ -141,6 +141,7 @@ type agentContainerPayload struct {
 	Passthrough  bool     `json:"passthrough"`
 	Source       string   `json:"source"`
 	ContainerID  string   `json:"container_id"`
+	Image        string   `json:"image"`
 	AgentName    string   `json:"agent_name"`
 	Role         string   `json:"role"`          // normal | canary | shadow
 	CanaryWeight int      `json:"canary_weight"` // % trafic canary (défaut 10)
@@ -369,6 +370,9 @@ func (s *Server) applyAgentRoute(in *agentContainerPayload) (int, string) {
 	if p.Host == "" || len(p.Backends) == 0 {
 		return http.StatusBadRequest, "host et backends requis"
 	}
+	if s.disabledRoutes.has(p.Host) {
+		return http.StatusNoContent, ""
+	}
 	// La sécurité issue des labels est validée avant tout changement : une route ne doit pas être
 	// enregistrée (ni une route existante modifiée) avec un filtre ou un WAF mal configuré.
 	geoDB := ""
@@ -517,6 +521,7 @@ func (s *Server) applyAgentRoute(in *agentContainerPayload) (int, string) {
 		backends = append(backends, router.Backend{
 			URL:         u,
 			ContainerID: p.ContainerID,
+			Image:       p.Image,
 			AgentName:   p.AgentName,
 		})
 	}
@@ -1018,6 +1023,8 @@ func (s *Server) handleListAgentContainers(w http.ResponseWriter, r *http.Reques
 		Inactive bool   `json:"inactive,omitempty"`
 		State    string `json:"state,omitempty"`
 		Name     string `json:"name,omitempty"`
+		// Disabled : la route existe dans l'état de l'Agent mais l'Admin l'a désactivée ; elle ne sert aucun trafic.
+		Disabled bool `json:"disabled,omitempty"`
 	}
 	filterAgent := r.URL.Query().Get("agent")
 	all := s.table.All()
@@ -1080,6 +1087,19 @@ func (s *Server) handleListAgentContainers(w http.ResponseWriter, r *http.Reques
 			Config:       discoveryRouteConfig(rt),
 			ShadowedBy:   shadowedBy,
 			ProxyConfig:  discoveryProxyConfig(rt),
+		})
+	}
+	for _, d := range s.disabledEntries(filterAgent) {
+		result = append(result, containerRoute{
+			ID:           d.ID,
+			Host:         d.Host,
+			Aliases:      d.Aliases,
+			Backends:     d.Backends,
+			ContainerIDs: d.ContainerIDs,
+			TLS:          d.TLS,
+			Source:       d.Source,
+			AgentName:    d.Agent,
+			Disabled:     true,
 		})
 	}
 	// Les conteneurs inactifs, sauf ceux dont l'hôte est déjà servi par un conteneur qui tourne : les anciens conteneurs
@@ -1332,6 +1352,12 @@ func (s *Server) handleEdgePair(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("edge: création token appairage agent", "err", err)
 		http.Error(w, "erreur interne", http.StatusInternalServerError)
 		return
+	}
+	// Un Agent n'en présente qu'un, le dernier : les plus anciens de ce nom sont retirés au-delà de KeepAgentTokens.
+	if n, perr := s.tokenStore.PruneNamed(edgetokens.RoleAgent, nodeName, edgetokens.KeepAgentTokens); perr != nil {
+		s.log.Warn("edge: purge des anciens jetons de l'Agent", "node", nodeName, "err", perr)
+	} else if n > 0 {
+		s.log.Debug("edge: anciens jetons de l'Agent purgés", "node", nodeName, "supprimés", n)
 	}
 	// L'Agent a prouvé son identité par la clé d'appairage : par défaut on le pré-approuve, pour que sa prochaine
 	// connexion WS avec ce token soit acceptée sans intervention humaine. GPX_AGENT_PREAPPROVAL=manual le laisse en

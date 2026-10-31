@@ -75,6 +75,8 @@ func (s *Server) sendLogInfo() {
 	days := func(k logstore.Kind) int { return int(s.logStore.Retention(k) / (24 * time.Hour)) }
 	msg, err := edgews.NewMessage(0, edgews.TypeLogInfo, edgews.LogInfoPayload{
 		NodeName: s.cfg.Identity.NodeName, AccessDays: days(logstore.KindAccess), SystemDays: days(logstore.KindSystem),
+		AccessLast: s.logStore.LastID(logstore.KindAccess), SystemLast: s.logStore.LastID(logstore.KindSystem),
+		BufferActive: s.logStore.BufferActive(), UnackedDays: unackedDays(s.logStore.OldestUnacked()), BufferMaxDays: int(s.logStore.BufferMax() / (24 * time.Hour)),
 	})
 	if err == nil {
 		s.wsHub.BroadcastToAdmins(msg)
@@ -94,4 +96,12 @@ func (s *Server) logInfoLoop(ctx context.Context) {
 			s.sendLogInfo()
 		}
 	}
+}
+
+// unackedDays rend l'âge, en jours entiers, de la plus ancienne ligne que l'Admin n'a pas acquittée (0 : tout est acquitté).
+func unackedDays(oldest time.Time) int {
+	if oldest.IsZero() {
+		return 0
+	}
+	return max(int(time.Since(oldest)/(24*time.Hour)), 0)
 }

@@ -28,6 +28,8 @@ type RuntimeBan struct {
 	Scope string `json:"scope,omitempty"`
 	// Signals : pourquoi un moteur automatique (Ephor, WAF) a banni l'IP ; vide pour les autres sources.
 	Signals []BanSignal `json:"signals,omitempty"`
+	// UserAgent : le dernier User-Agent vu pour l'IP au moment du ban automatique, quel que soit le moteur ; vide pour les autres sources.
+	UserAgent string `json:"user_agent,omitempty"`
 
 	ip   net.IP
 	ipnet *net.IPNet

@@ -41,6 +41,350 @@
     tag.className = 'tag ' + (first.checked ? 'tag-accent' : 'tag-neutral');
   };
 
+
+  // Rapport de l'apprentissage de surface (ADR 0016). Une passerelle de groupe HA rend le profil fusionné de ses pairs :
+  // on garde le rapport qui en réunit le plus.
+  const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' Mo' : n >= 1024 ? (n / 1024).toFixed(1) + ' Ko' : n + ' o';
+  const fmtDate = d => d && !String(d).startsWith('0001') ? new Date(d).toLocaleString() : '—';
+  const counts = (list, max = 6) => (list || []).slice(0, max).map(c => `${e(c.name)} <span style="color:var(--text3)">${c.count}</span>`).join(', ') || '—';
+
+  window._proutSurfaceReport = async function () {
+    const box = document.getElementById('prout-sf-report');
+    if (!box) return;
+    const host = window._openProxyCfg?.host;
+    if (!host) { box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Enregistrez d\'abord le proxy.</div>'; return; }
+    box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Lecture des passerelles…</div>';
+    let res;
+    try { res = await api('GET', `/security/surface/report?route=${encodeURIComponent(host)}`); }
+    catch (err) { box.innerHTML = `<div style="font-size:12px;color:var(--danger)">${e(err.message || err)}</div>`; return; }
+    const reports = (res?.gateways || []).filter(g => g.report).map(g => ({ node: g.node_name, r: g.report }));
+    reports.sort((a, b) => (b.r.members - a.r.members) || (b.r.learned - a.r.learned));
+    const partial = res?.unreachable?.length ? `<div style="font-size:11px;color:var(--warn);margin-bottom:6px">Passerelle(s) injoignable(s) : ${e(res.unreachable.map(u => u.node_name).join(', '))}</div>` : '';
+    if (!reports.length) {
+      box.innerHTML = partial + '<div style="font-size:12px;color:var(--text3)">Aucun profil pour l\'instant. Activez l\'apprentissage et enregistrez le proxy : le profil se construit à mesure que le trafic arrive.</div>';
+      return;
+    }
+    const { node, r } = reports[0];
+    const cv = r.convergence || {};
+    const badge = cv.converged ? '<span class="tag tag-accent">Profil fiable</span>' : '<span class="tag tag-neutral">En cours d\'apprentissage</span>';
+    const reasons = (cv.reasons || []).map(x => `<li>${e(x)}</li>`).join('');
+    const rows = (r.templates || []).map(t => `<tr>
+        <td style="font-family:monospace">${e(t.path)}${t.low_support ? ' <span class="tag tag-neutral" title="Peu de clients ou de jours distincts : à confirmer">à confirmer</span>' : ''}</td>
+        <td>${t.requests}</td><td>${counts(t.methods, 4)}</td><td>${counts(t.statuses, 4)}</td>
+        <td>${counts(t.request_media, 2)}</td><td>${t.body_p99 ? fmtBytes(t.body_p99) : '—'}</td>
+        <td>${t.clients}</td><td>${t.days}</td>
+        <td>${(t.params || []).map(p => e(p.name) + (p.enum ? ' (liste)' : '')).join(', ') || '—'}</td></tr>`).join('');
+    box.innerHTML = partial + `
+      <div style="font-size:12px;display:flex;flex-direction:column;gap:8px;">
+        <div>${badge} <span style="color:var(--text3)">passerelle ${e(node)}${r.members > 1 ? ` · ${r.members} membres du groupe fusionnés` : ''} · depuis ${fmtDate(r.since)}</span></div>
+        ${reasons ? `<ul style="margin:0 0 0 18px;color:var(--text3)">${reasons}</ul>` : ''}
+        <div>${r.requests} requêtes vues · ${r.learned} apprises · ${r.excluded} d'IP suspectes ignorées · ${(r.failed || []).reduce((n, f) => n + f.count, 0)} en échec · ≈ ${r.clients} clients distincts</div>
+        <div><b>Méthodes</b> ${counts(r.methods)} · <b>Pays</b> ${counts(r.countries)} · <b>AS</b> ${counts(r.asns, 4)}</div>
+        <div><b>Types de requête</b> ${counts(r.request_media, 5)} · <b>Types de réponse</b> ${counts(r.response_media, 5)}${r.body_max ? ` · <b>Corps</b> max ${fmtBytes(r.body_max)}, p99 ≤ ${fmtBytes(r.body_p99)}` : ''}</div>
+        ${typeHtml(r)}
+        <div><b>En-têtes vus</b> ${counts(r.headers, 12)}</div>
+        <div style="overflow:auto;max-height:340px;"><table class="table" style="width:100%;font-size:11px;">
+          <thead><tr><th>Chemin</th><th>Req.</th><th>Méthodes</th><th>Statuts</th><th>Type requête</th><th>Corps p99</th><th>Clients</th><th>Jours</th><th>Paramètres</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="9" style="color:var(--text3)">Aucun chemin appris.</td></tr>'}</tbody></table></div>
+        ${violationsHtml(r)}
+        ${wafHtml(r)}
+        ${suggestionsHtml(r)}
+        ${enforceHtml(r)}
+        ${r.template_count > (r.templates || []).length ? `<div style="color:var(--text3)">${r.template_count} chemins au total, les ${(r.templates || []).length} plus demandés sont listés.</div>` : ''}
+      </div>`;
+  };
+
+  // Propositions de réglages tirées du profil (ADR 0016, étape 2). Rien n'est appliqué : chaque proposition donne la commande
+  // qui la pose, à copier.
+  let sfCmds = [];
+  window._proutSurfaceCopy = function (i) {
+    if (sfCmds[i] && navigator.clipboard) navigator.clipboard.writeText(sfCmds[i]).catch(() => {});
+  };
+
+  window._proutSurfaceProposals = async function () {
+    const box = document.getElementById('prout-sf-proposals');
+    if (!box) return;
+    const host = window._openProxyCfg?.host;
+    if (!host) { box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Enregistrez d\'abord le proxy.</div>'; return; }
+    box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Calcul des propositions…</div>';
+    let res;
+    try { res = await api('GET', `/security/surface/proposals?route=${encodeURIComponent(host)}`); }
+    catch (err) { box.innerHTML = `<div style="font-size:12px;color:var(--danger)">${e(err.message || err)}</div>`; return; }
+    const all = (res?.gateways || []).filter(g => g.proposals).map(g => ({ node: g.node_name, p: g.proposals }));
+    all.sort((a, b) => (b.p.members - a.p.members) || (b.p.learned - a.p.learned));
+    if (!all.length) {
+      box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Aucun profil pour l\'instant : rien à proposer.</div>';
+      return;
+    }
+    const { node, p } = all[0];
+    sfCmds = [];
+    const cv = p.convergence || {};
+    const warn = cv.converged ? '' : `<div style="font-size:11px;color:var(--warn)"><b>Profil pas encore fiable</b> : ${e((cv.reasons || []).join(' ; '))}. Ces propositions sont un aperçu : attendez avant de les appliquer.</div>`;
+    const items = (p.items || []).map(it => {
+      sfCmds.push(it.command);
+      const refuse = it.measured
+        ? `<div>${it.would_refuse === 0 ? 'N\'aurait refusé aucune' : 'Aurait refusé <b>' + it.would_refuse + '</b>'} des ${it.of} requêtes apprises.</div>`
+        : '<div style="color:var(--text3)">Impact non mesurable sur le profil.</div>';
+      return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;">
+        <div style="font-weight:600">${e(it.summary)} <span class="tag tag-neutral">${e(it.setting)}</span></div>
+        <div style="color:var(--text3)">Actuellement : ${e(it.current)}</div>
+        <ul style="margin:0 0 0 18px">${(it.evidence || []).map(x => `<li>${e(x)}</li>`).join('')}</ul>
+        ${refuse}
+        ${(it.cautions || []).length ? `<ul style="margin:0 0 0 18px;color:var(--warn)">${it.cautions.map(x => `<li>${e(x)}</li>`).join('')}</ul>` : ''}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code style="font-size:11px;word-break:break-all;flex:1">${e(it.command)}</code>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceCopy(${sfCmds.length - 1})">Copier</button></div>
+      </div>`;
+    }).join('');
+    const skipped = (p.skipped || []).map(x => `<li><b>${e(x.setting)}</b> : ${e(x.reason)}</li>`).join('');
+    box.innerHTML = `<div style="font-size:12px;display:flex;flex-direction:column;gap:8px;">
+      <div style="color:var(--text3)">Propositions de la passerelle ${e(node)}${p.members > 1 ? ` (${p.members} membres fusionnés)` : ''} sur ${p.learned} requêtes apprises. Rien n'est appliqué.</div>
+      ${warn}
+      ${(p.notes || []).map(x => `<div style="color:var(--text3)">${e(x)}</div>`).join('')}
+      ${items || '<div style="color:var(--text3)">Le profil ne permet de proposer aucun réglage pour l\'instant.</div>'}
+      ${skipped ? `<details><summary style="cursor:pointer;color:var(--text3)">Réglages non proposés (${(p.skipped || []).length})</summary><ul style="margin:6px 0 0 18px;color:var(--text3)">${skipped}</ul></details>` : ''}
+    </div>`;
+  };
+
+  // Type du proxy (ADR 0016) : une API a une surface fermée, un site un contenu ouvert où une liste de chemins n'a pas de sens.
+  const typeHtml = r => {
+    const label = { api: 'API', site: 'site' };
+    const declared = r.type ? `Type déclaré : <b>${e(label[r.type] || r.type)}</b>.` : 'Type non précisé (traité comme une API).';
+    const hint = r.type_hint && r.type_hint !== r.type
+      ? `<span style="color:var(--warn)"> Le trafic ressemble à celui d'${r.type_hint === 'site' ? 'un <b>site</b>' : 'une <b>API</b>'} (${e(r.type_hint_why || '')}) : choisissez ce type ci-dessus${r.type_hint === 'site' ? ' pour que la convergence ne dépende plus des chemins et que la politique de chemins ne soit pas proposée' : ''}.</span>` : '';
+    return `<div style="color:var(--text3)">${declared}${hint}</div>`;
+  };
+
+  // Violations de la politique (contrôle openapi du proxy) vues pendant l'apprentissage.
+  const REASONS = { unknown_path: 'chemin inconnu', unknown_method: 'méthode inconnue', invalid_param: 'paramètre invalide', invalid_body: 'corps invalide', unsupported_media: 'type de contenu', too_large: 'corps trop gros' };
+  const violationsHtml = r => {
+    if (!(r.violations || []).length) return '';
+    const rows = r.violations.map(v => `<tr>
+        <td>${e(REASONS[v.reason] || v.reason)}</td><td>${e(v.method)}</td><td style="font-family:monospace">${e(v.path)}</td>
+        <td>${v.count}</td><td>${v.legit}</td><td>${v.clients}</td>
+        <td>${v.likely_legit ? '<span class="tag tag-accent" title="Réussit le plus souvent depuis plusieurs clients propres : probablement un chemin légitime qui manque à la politique">à ajouter ?</span>' : ''}</td></tr>`).join('');
+    const total = (r.violation_totals || []).map(c => `${e(REASONS[c.name] || c.name)} <span style="color:var(--text3)">${c.count}</span>`).join(', ');
+    return `<div><b>Hors de la politique openapi</b> (${total})
+      <div style="overflow:auto;max-height:260px;margin-top:4px;"><table class="table" style="width:100%;font-size:11px;">
+        <thead><tr><th>Raison</th><th>Méthode</th><th>Chemin</th><th>Req.</th><th>Réussies</th><th>Clients</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  };
+
+  // Politique positive : une spécification OpenAPI générée à partir du profil, pour le contrôle openapi du proxy, en detect
+  // (ADR 0016, étape 3). Rien n'est appliqué sans enregistrer le proxy.
+  let sfOpenAPI = null;
+  window._proutSurfaceOpenAPI = async function () {
+    const box = document.getElementById('prout-sf-openapi');
+    if (!box) return;
+    const host = window._openProxyCfg?.host;
+    if (!host) { box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Enregistrez d\'abord le proxy.</div>'; return; }
+    box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Génération de la politique…</div>';
+    const low = document.getElementById('prout-sf-low')?.checked ? '&include_low_support=1' : '';
+    let res;
+    try { res = await api('GET', `/security/surface/openapi?route=${encodeURIComponent(host)}${low}`); }
+    catch (err) { box.innerHTML = `<div style="font-size:12px;color:var(--danger)">${e(err.message || err)}</div>`; return; }
+    const all = (res?.gateways || []).filter(g => g.openapi).map(g => ({ node: g.node_name, o: g.openapi }));
+    all.sort((a, b) => (b.o.members - a.o.members) || (b.o.learned - a.o.learned));
+    sfOpenAPI = null;
+    if (!all.length) {
+      box.innerHTML = '<div style="font-size:12px;color:var(--text3)">Aucun profil pour l\'instant : rien à générer.</div>';
+      return;
+    }
+    const { node, o } = all[0];
+    if (o.error || !o.config) {
+      box.innerHTML = `<div style="font-size:12px;color:var(--text3)">Aucune politique générée : ${e(o.error || 'profil vide')}.</div>`;
+      return;
+    }
+    sfOpenAPI = o;
+    const excluded = (o.excluded || []).map(x => `<li><span style="font-family:monospace">${e(x.path)}</span> : ${e(x.reason)}</li>`).join('');
+    box.innerHTML = `<div style="font-size:12px;display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+      <div style="font-weight:600">Politique générée : ${o.paths} chemin(s), ${o.operations} opération(s), ${o.parameters} paramètre(s)
+        ${o.ready ? '<span class="tag tag-accent">profil fiable</span>' : '<span class="tag tag-neutral">profil pas encore fiable</span>'}</div>
+      <div style="color:var(--text3)">Passerelle ${e(node)}${o.members > 1 ? ` (${o.members} membres fusionnés)` : ''}, ${o.learned} requêtes apprises. Mode <b>detect</b> : aucune requête n'est refusée, celles qui sortent de la politique sont comptées et listées dans le rapport.</div>
+      <ul style="margin:0 0 0 18px;color:var(--warn)">${(o.cautions || []).map(x => `<li>${e(x)}</li>`).join('')}</ul>
+      ${excluded ? `<details><summary style="cursor:pointer;color:var(--text3)">Chemins hors de la politique (${(o.excluded || []).length})</summary><ul style="margin:6px 0 0 18px;color:var(--text3)">${excluded}</ul></details>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceApplyOpenAPI()">Pré-remplir la validation OpenAPI</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceCopyOpenAPI()">Copier la configuration</button>
+      </div>
+      <div id="prout-sf-openapi-msg" style="color:var(--text3)"></div>
+    </div>`;
+  };
+
+  window._proutSurfaceCopyOpenAPI = function () {
+    if (sfOpenAPI && navigator.clipboard) navigator.clipboard.writeText(JSON.stringify(sfOpenAPI.config, null, 2)).catch(() => {});
+  };
+
+  // Remplit la carte « Validation OpenAPI » de la modale ; la politique ne s'applique qu'à l'enregistrement du proxy.
+  window._proutSurfaceApplyOpenAPI = function () {
+    const msg = document.getElementById('prout-sf-openapi-msg');
+    if (!sfOpenAPI) return;
+    if (sfOpenAPI.replaces && !confirm('Ce proxy a déjà une validation OpenAPI active : elle sera remplacée par la politique apprise. Continuer ?')) return;
+    const on = document.getElementById('prout-oa-on'), spec = document.getElementById('prout-oa-spec');
+    if (!on || !spec) { if (msg) msg.textContent = 'La carte « Validation OpenAPI » est introuvable dans cette modale.'; return; }
+    on.checked = true;
+    window._proutTag(on);
+    const mode = document.getElementById('prout-oa-mode'), unknown = document.getElementById('prout-oa-unknown');
+    if (mode) mode.value = 'detect';
+    if (unknown) unknown.value = 'block';
+    spec.value = JSON.stringify(sfOpenAPI.config.spec, null, 2);
+    if (window._openProxyCfg?.openapi) delete window._openProxyCfg.openapi.block_reasons;
+    if (msg) msg.textContent = 'La carte « Validation OpenAPI » est remplie (mode detect). Enregistrez le proxy pour appliquer la politique.';
+  };
+
+  // Règles du WAF déclenchées, surtout par des clients ordinaires : candidates à l'exclusion (voir les propositions).
+  const wafHtml = r => {
+    if (!(r.waf || []).length) return '';
+    const rows = r.waf.map(w => `<tr>
+        <td>${w.id}</td><td>${e(w.category)}</td><td>${e(w.message)}</td><td>${w.hits}</td>
+        <td>${w.clean}</td><td>${w.served}</td><td>${w.blocked}</td><td>${w.clients}</td><td>${w.days}</td>
+        <td>${(w.paths || []).slice(0, 2).map(p => `<span style="font-family:monospace">${e(p.name)}</span>`).join(', ') || '—'}</td></tr>`).join('');
+    return `<div><b>Règles du WAF déclenchées</b>
+      <div style="color:var(--text3)">« Propres » : requêtes d'IP sans autre signal que le WAF. Une règle qui revient de plusieurs clients propres sur plusieurs jours est proposée à l'exclusion (propositions).</div>
+      <div style="overflow:auto;max-height:240px;margin-top:4px;"><table class="table" style="width:100%;font-size:11px;">
+        <thead><tr><th>Règle</th><th>Type</th><th>Message</th><th>Déclench.</th><th>Propres</th><th>Servies</th><th>Refusées</th><th>Clients</th><th>Jours</th><th>Chemins</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  };
+
+  // Suggestions d'ajout à la politique (ADR 0016, étape 5) : des chemins ou méthodes hors politique qui reviennent de plusieurs clients
+  // propres sur plusieurs jours. La politique ne s'élargit jamais seule : on coche, on ajoute.
+  let sfSuggestions = [];
+  const suggestionsHtml = r => {
+    sfSuggestions = r.suggestions || [];
+    if (!sfSuggestions.length) return '';
+    const rows = sfSuggestions.map((x, i) => `<label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;border-top:1px solid var(--border);padding-top:6px;">
+        <input type="checkbox" class="prout-sf-sugg" value="${i}" ${x.confidence === 'high' ? 'checked' : ''} style="margin-top:3px">
+        <span style="display:flex;flex-direction:column;gap:2px;">
+          <span><b style="font-family:monospace">${e(x.method)} ${e(x.path)}</b>
+            <span class="tag ${x.confidence === 'high' ? 'tag-accent' : 'tag-neutral'}">${x.confidence === 'high' ? 'confiance haute' : 'à examiner'}</span>
+            ${x.reason === 'unknown_method' ? '<span class="tag tag-neutral">méthode</span>' : ''}</span>
+          <span style="color:var(--text3)">${(x.why || []).map(e).join(' ; ')}</span>
+          ${(x.cautions || []).map(c => `<span style="color:var(--warn)">${e(c)}</span>`).join('')}
+        </span></label>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;">
+      <b>Ajouts suggérés à la politique (${sfSuggestions.length})</b>
+      <div style="color:var(--text3)">Ces chemins reviennent de plusieurs clients ordinaires sur plusieurs jours. Rien n'est ajouté sans votre accord, et un ajout ne retire jamais rien.</div>
+      ${rows}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceAccept(true)">Simuler</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceAccept(false)">Ajouter à la politique</button>
+      </div>
+      <div id="prout-sf-accept-msg"></div></div>`;
+  };
+
+  window._proutSurfaceAccept = async function (dry) {
+    const box = document.getElementById('prout-sf-accept-msg');
+    const keys = [...document.querySelectorAll('.prout-sf-sugg:checked')].map(c => sfSuggestions[parseInt(c.value, 10)]?.key).filter(Boolean);
+    const host = window._openProxyCfg?.host;
+    if (!box) return;
+    if (!keys.length) { box.innerHTML = '<div style="color:var(--danger)">Cochez au moins une suggestion.</div>'; return; }
+    let res;
+    try { res = await api('POST', `/security/surface/accept?route=${encodeURIComponent(host)}`, { keys, dry_run: !!dry }); }
+    catch (err) {
+      let body = null;
+      try { body = JSON.parse(err.message); } catch { /* corps non JSON */ }
+      box.innerHTML = `<div style="color:var(--danger)">${e(body ? (body.blockers || []).concat(body.warnings || []).join(' ; ') || 'Refusé.' : String(err.message || err))}</div>`;
+      return;
+    }
+    const added = (res.added || []).map(a => `<li><span style="font-family:monospace">${e(a.method)} ${e(a.path)}</span></li>`).join('');
+    const skipped = (res.skipped || []).map(x => `<li>${e(x.key)} : ${e(x.reason)}</li>`).join('');
+    box.innerHTML = `<div style="font-size:12px;display:flex;flex-direction:column;gap:4px;">
+      <b>${res.applied ? 'Ajouté à la politique.' : 'Simulation : rien n\'est écrit.'}</b>
+      ${added ? `<ul style="margin:0 0 0 18px">${added}</ul>` : ''}
+      ${skipped ? `<ul style="margin:0 0 0 18px;color:var(--text3)">${skipped}</ul>` : ''}
+      ${(res.warnings || []).map(w => `<div style="color:var(--warn)">${e(w)}</div>`).join('')}</div>`;
+    if (res.applied && res.spec) {
+      // La modale garde la spécification qu'elle affiche : sans cela, l'enregistrer retirerait ce qui vient d'être ajouté.
+      const spec = document.getElementById('prout-oa-spec');
+      const text = JSON.stringify(res.spec, null, 2);
+      if (spec) spec.value = text;
+      if (window._openProxyCfg?.openapi) window._openProxyCfg.openapi.spec = res.spec;
+    }
+  };
+
+  // Passage en block de la politique, type de violation par type de violation (ADR 0016, étape 4). Les garde-fous sont côté
+  // Admin : la réponse dit lesquels refusent (blockers) et ce que le refus couperait (impact).
+  const enforceHtml = r => {
+    const totals = Object.fromEntries((r.violation_totals || []).map(c => [c.name, c.count]));
+    const blockedNow = new Set(window._openProxyCfg?.openapi?.block_reasons || []);
+    const legit = {};
+    for (const v of r.violations || []) legit[v.reason] = (legit[v.reason] || 0) + v.legit;
+    const rows = Object.keys(REASONS).map(k => `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" class="prout-sf-reason" value="${k}" ${blockedNow.has(k) ? 'checked' : ''}>
+        <span>${e(REASONS[k])}</span>
+        <span style="color:var(--text3)">${totals[k] || 0} vue(s)${legit[k] ? `, dont ${legit[k]} réussie(s) depuis des IP propres` : ''}</span></label>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;">
+      <b>Refuser les violations de la politique</b>
+      <div style="color:var(--text3)">Le contrôle openapi du proxy refuse alors ces types de violation et laisse passer, en les comptant, les autres. Cochez ce que vous voulez refuser.</div>
+      ${rows}
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text3)"><input type="checkbox" id="prout-sf-force"> passer outre les garde-fous (consigné à l'audit)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceEnforce(true)">Simuler</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceEnforce(false)">Refuser ces violations</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceRelax()">Repasser en detect</button>
+      </div>
+      <div id="prout-sf-enforce-msg"></div></div>`;
+  };
+
+  const showEnforce = res => {
+    const box = document.getElementById('prout-sf-enforce-msg');
+    if (!box) return;
+    const list = (title, items, color) => (items || []).length ? `<div style="color:${color}"><b>${title}</b><ul style="margin:2px 0 0 18px">${items.map(x => `<li>${e(x)}</li>`).join('')}</ul></div>` : '';
+    const impact = (res.impact || []).map(i => `${e(REASONS[i.reason] || i.reason)} : ${i.total} vue(s), ${i.legit} réussie(s) depuis des IP propres`).join(' · ');
+    const head = res.applied ? '<b>Appliqué.</b> Enregistrez le proxy si vous modifiez d\'autres réglages de la modale.' : res.dry_run ? '<b>Simulation</b> : rien n\'est écrit.' : '<b>Refusé</b> : rien n\'a été modifié.';
+    box.innerHTML = `<div style="font-size:12px;display:flex;flex-direction:column;gap:4px;">${head}
+      ${(res.block_reasons || []).length ? `<div>Refusés : ${(res.block_reasons || []).map(k => e(REASONS[k] || k)).join(', ')}${res.forced ? ' (forcé)' : ''}</div>` : ''}
+      ${list('Garde-fous', res.blockers, 'var(--danger)')}${list('À savoir', res.warnings, 'var(--warn)')}
+      ${impact ? `<div style="color:var(--text3)">${impact}</div>` : ''}</div>`;
+  };
+
+  // Garde la modale d'accord avec ce que l'Admin vient d'écrire : sinon l'enregistrer remettrait l'ancien état.
+  const syncOpenAPIFields = res => {
+    const cfg = window._openProxyCfg;
+    if (cfg?.openapi) {
+      cfg.openapi.mode = 'detect';
+      if (res.block_reasons?.length) cfg.openapi.block_reasons = res.block_reasons; else delete cfg.openapi.block_reasons;
+      if (res.unknown_paths) cfg.openapi.unknown_paths = res.unknown_paths;
+    }
+    const mode = document.getElementById('prout-oa-mode'), unknown = document.getElementById('prout-oa-unknown');
+    if (mode) mode.value = 'detect';
+    if (unknown && res.unknown_paths) unknown.value = res.unknown_paths;
+  };
+
+  const callEnforce = async (path, body) => {
+    const host = window._openProxyCfg?.host;
+    if (!host) { showEnforce({ blockers: ['Enregistrez d\'abord le proxy.'] }); return null; }
+    try { return await api('POST', `/security/surface/${path}?route=${encodeURIComponent(host)}`, body); }
+    catch (err) {
+      let res = null;
+      try { res = JSON.parse(err.message); } catch { /* corps non JSON */ }
+      showEnforce(res && typeof res === 'object' ? res : { blockers: [String(err.message || err)] });
+      return null;
+    }
+  };
+
+  window._proutSurfaceEnforce = async function (dry) {
+    const reasons = [...document.querySelectorAll('.prout-sf-reason:checked')].map(c => c.value);
+    if (!reasons.length) { showEnforce({ blockers: ['Cochez au moins un type de violation (ou « Repasser en detect »).'] }); return; }
+    const res = await callEnforce('enforce', { reasons, force: !!document.getElementById('prout-sf-force')?.checked, dry_run: !!dry });
+    if (!res) return;
+    if (res.applied) syncOpenAPIFields(res);
+    showEnforce(res);
+  };
+
+  window._proutSurfaceRelax = async function () {
+    if (!confirm('Repasser le contrôle openapi en detect ? Plus aucune violation ne sera refusée.')) return;
+    const res = await callEnforce('relax');
+    if (!res) return;
+    syncOpenAPIFields({ block_reasons: [], unknown_paths: res.unknown_paths });
+    document.querySelectorAll('.prout-sf-reason').forEach(c => { c.checked = false; });
+    showEnforce(res);
+  };
+
+  window._proutSurfaceReset = async function () {
+    const host = window._openProxyCfg?.host;
+    if (!host || !confirm('Effacer le profil appris de ce proxy ? L\'apprentissage repart de zéro.')) return;
+    try { await api('POST', `/security/surface/reset?route=${encodeURIComponent(host)}`); } catch (err) { alert(err.message || err); return; }
+    window._proutSurfaceReport();
+  };
+
   window._proutGtSrc = function () {
     const set = document.getElementById('prout-gt-src')?.value === 'set';
     const p = document.getElementById('prout-gt-proto'), s = document.getElementById('prout-gt-set');
@@ -65,7 +409,7 @@
   window._proutRender = function (cfg) {
     cfg = cfg || {};
     const sp = cfg.split, mt = cfg.maintenance, su = cfg.signed_url, gq = cfg.graphql, hg = cfg.hedge;
-    const bw = cfg.bandwidth, rj = cfg.redact_json, hi = cfg.html_inject, st = cfg.static, rs = cfg.request_schema, oa = cfg.openapi, gt = cfg.grpc_transcode;
+    const bw = cfg.bandwidth, rj = cfg.redact_json, hi = cfg.html_inject, st = cfg.static, rs = cfg.request_schema, oa = cfg.openapi, gt = cfg.grpc_transcode, sf = cfg.surface;
     const gtFiles = Object.keys(gt?.proto || {});
     const variants = sp?.variants?.length ? sp.variants : [{}, {}];
     setTimeout(() => { variants.forEach(v => window._proutAddVariant(v)); }, 0);
@@ -121,6 +465,10 @@
         `<div style="margin-top:10px;">${row(field('prout-oa-prefix', 'Préfixe retiré avant la recherche', oa?.strip_prefix, 'placeholder="/api/v1"') + field('prout-oa-max', 'Corps max lu (octets)', oa?.max_body || '', 'type="number" min="0" placeholder="1048576"', false))}</div>` +
         `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;"><span style="color:var(--text3);">Ne pas contrôler :</span>${[['path', 'chemin'], ['query', 'requête'], ['header', 'en-têtes'], ['cookie', 'cookies'], ['body', 'corps']].map(([k, l]) => `<label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="prout-oa-skip" value="${k}" ${(oa?.skip || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>` +
         area('prout-oa-spec', 'Spécification (YAML ou JSON)', typeof oa?.spec === 'string' ? oa.spec : (oa?.spec ? JSON.stringify(oa.spec, null, 2) : ''), 'spellcheck="false" placeholder="openapi: 3.0.3&#10;paths:&#10;  /users/{id}: …"', 14))}
+      ${card('surface', 'Apprentissage de la surface', 'La passerelle observe le trafic légitime de ce proxy (méthodes, chemins, types de contenu, tailles, paramètres, clients) pour établir ce qui est réellement utilisé. Aucun blocage : le profil sert à comprendre, puis à proposer des réglages. Les requêtes d\'IP suspectes, ou qui échouent, n\'y entrent pas. Un profil n\'est fiable qu\'après 7 jours, 1 000 requêtes et 48 h sans nouveau chemin.', sf?.mode === 'learn',
+        toggle('prout-sf-on', 'Apprendre la surface (aucun effet sur le trafic)', sf?.mode === 'learn') +
+        `<div class="field" style="max-width:420px;margin:0 0 10px;"><label class="field-label" style="font-size:11px">Type de proxy</label><select id="prout-sf-type" class="input"><option value="" ${!sf?.type ? 'selected' : ''}>Non précisé (traité comme une API)</option><option value="api" ${sf?.type === 'api' ? 'selected' : ''}>API : surface fermée, une liste de chemins a un sens</option><option value="site" ${sf?.type === 'site' ? 'selected' : ''}>Site : contenu ouvert, des milliers de chemins</option></select></div>` +
+        `<div style="display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceReport()">Voir le rapport</button><button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceProposals()">Voir les propositions</button><button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceOpenAPI()">Générer la politique (OpenAPI)</button><label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);cursor:pointer;"><input type="checkbox" id="prout-sf-low"> inclure les chemins à confirmer</label><button type="button" class="btn btn-secondary btn-sm" onclick="_proutSurfaceReset()">Repartir de zéro</button></div><div id="prout-sf-report" style="margin-top:10px;"></div><div id="prout-sf-proposals" style="margin-top:10px;"></div><div id="prout-sf-openapi" style="margin-top:10px;"></div>`)}
       ${card('grpc_transcode', 'Transcodage REST ↔ gRPC', 'Expose un backend gRPC unaire en REST/JSON : chaque méthode est publiée selon ses annotations google.api.http (get, post, body, response_body…). Le backend doit parler gRPC en HTTP/2 (h2c accepté en http://). Flux serveur : NDJSON ; flux client : corps en suite de valeurs JSON.', !!gt?.enabled,
         toggle('prout-gt-on', 'Activer', gt?.enabled) +
         (gtFiles.length > 1
@@ -139,7 +487,7 @@
     prev = prev || {};
     if (!document.getElementById('prout-split-on')) {
       const keep = {};
-      for (const k of ['split', 'maintenance', 'signed_url', 'graphql', 'hedge', 'grpc_web', 'bandwidth', 'redact_json', 'html_inject', 'static', 'request_schema', 'openapi', 'grpc_transcode'])
+      for (const k of ['split', 'maintenance', 'signed_url', 'graphql', 'hedge', 'grpc_web', 'bandwidth', 'redact_json', 'html_inject', 'static', 'request_schema', 'openapi', 'grpc_transcode', 'surface'])
         if (prev[k] !== undefined) keep[k] = prev[k];
       return keep;
     }
@@ -235,8 +583,10 @@
         ...(val('prout-oa-prefix') ? { strip_prefix: val('prout-oa-prefix') } : {}),
         ...(num('prout-oa-max') > 0 ? { max_body: num('prout-oa-max') } : {}),
         ...(skip.length ? { skip } : {}),
+        ...(prev.openapi?.block_reasons?.length ? { block_reasons: prev.openapi.block_reasons } : {}),
       };
     }
+    if (checked('prout-sf-on') || prev.surface) out.surface = { mode: checked('prout-sf-on') ? 'learn' : 'off', ...(val('prout-sf-type') ? { type: val('prout-sf-type') } : {}) };
     if (checked('prout-gt-on') || prev.grpc_transcode) {
       const prevGt = prev.grpc_transcode || {};
       const multi = Object.keys(prevGt.proto || {}).length > 1;

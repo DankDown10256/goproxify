@@ -16,7 +16,7 @@ import (
 // TestMetricsSummaryDecryptsTokenBeforeBearer vérifie que le proxy
 // GET /internal/v1/metrics/summary vers passerelle envoie le token en clair même
 // quand tokens.token est chiffré au repos (auth.SealNodeToken) — même bug
-// que backends_health.go et edgepush/pusher.go.
+// que backends_health.go.
 func TestMetricsSummaryDecryptsTokenBeforeBearer(t *testing.T) {
 	auth.ConfigureNodeTokenKey("test-jwt-secret")
 	defer auth.ConfigureNodeTokenKey("")

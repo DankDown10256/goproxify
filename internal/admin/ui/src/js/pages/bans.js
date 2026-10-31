@@ -269,7 +269,7 @@ function bnRowHTML(b) {
     <td class="mono bn-c-ip">${ip}${rec ? ` <span class="tag tag-yellow" title="${rec} bans sur l'historique">×${rec}</span>` : ''}${b.exempt ? ' <span class="tag tag-green" title="Entièrement couvert par la liste blanche : ce ban ne s\'applique pas">Exempté</span>' : ''}</td>
     <td data-label="Source"><span class="tag tag-neutral"><i class="sent-dot" style="background:${bnSrcColor(bnSrc(b))};margin-right:5px"></i>${esc(_secSourceLabel(bnSrc(b)))}</span></td>
     ${admin ? `<td data-label="Passerelle" style="font-size:12px">${b.edge_name ? esc(bnEdge(b.edge_name)) : '<span class="tag tag-neutral">Global</span>'}${bnScopeTag(b)}</td>` : `<td data-label="Domaine" style="color:var(--text2)">${esc(b.domain || '—')}</td>`}
-    <td data-label="Raison" style="color:var(--text2);font-size:12px;max-width:260px" title="${esc(b.reason || '')}">${esc(b.reason || '—')}${banSignalsHTML(b.signals)}</td>
+    <td data-label="Raison" style="color:var(--text2);font-size:12px;max-width:260px" title="${esc(b.reason || '')}">${esc(b.reason || '—')}${banSignalsHTML(b.signals)}${banUserAgentHTML(b.user_agent)}</td>
     <td data-label="Restant">${bnTtlCell(b)}</td>
     <td class="bn-actions">
       ${bnIcon('prism', `openPrismForBanIP('${ip}')`, 'Voir dans Prism')}
@@ -320,7 +320,7 @@ function bnHistoryTableHTML() {
       <td class="mono bn-c-ip">${esc(b.ip)}</td>
       <td data-label="Source"><span class="tag tag-neutral">${esc(_secSourceLabel(bnSrc(b)))}</span></td>
       ${admin ? `<td data-label="Passerelle" style="font-size:12px">${b.edge_name ? esc(bnEdge(b.edge_name)) : '<span class="tag tag-neutral">Global</span>'}${bnScopeTag(b)}</td>` : `<td data-label="Domaine" style="color:var(--text2)">${esc(b.domain || '—')}</td>`}
-      <td data-label="Raison" style="color:var(--text2);font-size:12px">${esc(b.reason || '—')}${banSignalsHTML(b.signals)}</td>
+      <td data-label="Raison" style="color:var(--text2);font-size:12px">${esc(b.reason || '—')}${banSignalsHTML(b.signals)}${banUserAgentHTML(b.user_agent)}</td>
       <td data-label="Expiré le" style="font-size:11px">${fmtDate(b.expires_at)}</td>
       <td data-label="Créé le" style="font-size:11px;color:var(--text3)">${fmtDate(b.created_at)}</td></tr>`).join('')}</tbody></table></div>`;
 }

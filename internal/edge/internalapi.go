@@ -12,8 +12,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/vincamok/goproxify/internal/edge/tracing"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +79,8 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("GET /internal/v1/threat-lists/export", s.handleHAThreatExport)
 	mux.HandleFunc("POST /internal/v1/waf/behavior/sync", s.handleHAWAFBehaviorSync)
 	mux.HandleFunc("GET /internal/v1/waf/behavior/export", s.handleHAWAFBehaviorExport)
+	mux.HandleFunc("GET "+logapi.PathSurfaceExport, s.handleSurfaceExport)
+	mux.HandleFunc("GET "+logapi.PathInventoryExport, s.handleInventoryExport)
 	mux.HandleFunc("GET /internal/v1/waf/behavior/profiles", s.handleWAFBehaviorProfiles)
 	mux.HandleFunc("DELETE /internal/v1/waf/behavior/profiles/{ip}", s.handleWAFBehaviorDeleteProfile)
 	mux.HandleFunc("POST /internal/v1/settings", s.handlePushSettings)
@@ -97,7 +102,6 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("POST "+agentStateReplicaPath, s.handleAgentStateReplicaImport)
 	mux.HandleFunc("GET "+echReplicaPath, s.handleECHReplicaExport)
 	mux.HandleFunc("POST "+echReplicaPath, s.handleECHReplicaImport)
-	mux.HandleFunc("POST /internal/v1/cluster/peers", s.handlePushClusterPeers)
 	mux.HandleFunc("POST /internal/v1/gateway/peers", s.handlePushGatewayPeers)
 	mux.HandleFunc("POST /internal/v1/gateway/tunnel", s.handleGatewayTunnel)
 	mux.HandleFunc("GET /internal/v1/lb/scores", s.handleLBScores)
@@ -492,6 +496,7 @@ func (s *Server) threatBanCallback() threat.BanCallback {
 			Source:    "threat",
 			ExpiresAt: &expires,
 			Signals:   signals,
+			UserAgent: s.lastUA.Get(ip),
 		}
 		s.addBanEvent(ip, "threat")
 		s.gossipBanToPeers(b)
@@ -510,6 +515,7 @@ func (s *Server) threatBanCallback() threat.BanCallback {
 			ExpiresAt: expires.UTC().Format(time.RFC3339),
 			NodeName:  s.cfg.Identity.NodeName,
 			Signals:   signals,
+			UserAgent: b.UserAgent,
 		}
 		if msg, err := edgews.NewMessage(0, edgews.TypeThreatBan, payload); err == nil {
 			s.wsHub.BroadcastToAdmins(msg)
@@ -541,6 +547,7 @@ func (s *Server) onF2BBan(b edgef2b.Ban) {
 		Reason:    b.Reason,
 		Source:    "fail2ban",
 		ExpiresAt: expires,
+		UserAgent: s.lastUA.Get(b.IP),
 	}
 	if s.threatEngine != nil {
 		var until time.Time
@@ -552,7 +559,7 @@ func (s *Server) onF2BBan(b edgef2b.Ban) {
 	s.addBanEvent(b.IP, "fail2ban")
 	s.gossipBanToPeers(rb)
 	if s.bansDB != nil {
-		if err := s.bansDB.UpsertBan(rb.ID, rb.IP, "", rb.Reason, rb.Source, rb.ExpiresAt); err != nil {
+		if err := s.bansDB.UpsertRuntimeBan(rb); err != nil {
 			s.log.Warn("f2b: persistance ban DB échouée", "err", err)
 		}
 	}
@@ -561,10 +568,11 @@ func (s *Server) onF2BBan(b edgef2b.Ban) {
 
 	// Notifier l'Admin pour qu'il puisse agréger dans security_bans.
 	payload := edgews.F2BBanPayload{
-		ID:       b.ID,
-		IP:       b.IP,
-		Reason:   b.Reason,
-		NodeName: s.cfg.Identity.NodeName,
+		ID:        b.ID,
+		IP:        b.IP,
+		Reason:    b.Reason,
+		NodeName:  s.cfg.Identity.NodeName,
+		UserAgent: rb.UserAgent,
 	}
 	if b.ExpiresAt != nil {
 		payload.ExpiresAt = b.ExpiresAt.UTC().Format(time.RFC3339)
@@ -643,6 +651,7 @@ func (s *Server) reloadBanStore() {
 					Source:    r.Source,
 					ExpiresAt: r.ExpiresAt,
 					Signals:   r.Signals,
+					UserAgent: r.UserAgent,
 				}
 				if s.autoBanWhitelisted(rb) {
 					continue
@@ -789,10 +798,11 @@ func (s *Server) addRuleBan(ip, reason string, duration time.Duration) {
 		Reason:    reason,
 		Source:    "rules_engine",
 		ExpiresAt: expires,
+		UserAgent: s.lastUA.Get(ip),
 	}
 	s.addBanEvent(ip, "rules_engine")
 	if s.bansDB != nil {
-		if err := s.bansDB.UpsertBan(rb.ID, rb.IP, "", rb.Reason, rb.Source, rb.ExpiresAt); err != nil {
+		if err := s.bansDB.UpsertRuntimeBan(rb); err != nil {
 			s.log.Warn("rulesengine: persistance ban DB échouée", "err", err)
 		}
 	}
@@ -1113,43 +1123,87 @@ const portalPublicRouteID = "gpx-portal-public"
 // Client HTTP pour les relais passerelle→Agent (évite DefaultClient sans timeout — revue P1 #7).
 var agentRelayHTTP = &http.Client{Timeout: 30 * time.Second}
 
-// ensurePortalPublicRoute publie PublicHost → http://127.0.0.1:HTTPPort (TLS sur l'entrée), ainsi que
-// les hôtes dédiés des vues du portail. Rejoué après chaque Replace de routes pour survivre aux
-// full-sync Admin.
+// portalRoutes : les routes publiques du portail que cette passerelle publie (ID → hôte) et leurs backends.
+// Une passerelle qui l'héberge le sert en local. Un membre en attente d'un groupe HA ne l'héberge pas (rien n'écoute
+// chez lui) : il renvoie l'hôte vers les autres membres du groupe, dont celui qui l'héberge répond, les autres refusent
+// la connexion et sont écartés par le contrôle de santé. Sans pair connu, pas de route.
+func (s *Server) portalRoutes() (hosts map[string]string, backends []router.Backend) {
+	hosts = map[string]string{}
+	if s.portal == nil {
+		return hosts, nil
+	}
+	cfg := s.portal.Config()
+	if !cfg.Enabled && !cfg.HAStandby {
+		return hosts, nil
+	}
+	cfg.Defaults()
+	if cfg.Enabled {
+		backends = []router.Backend{{URL: fmt.Sprintf("http://127.0.0.1:%d", cfg.HTTPPort), Weight: 1}}
+	} else {
+		backends = s.portalMemberBackends(cfg)
+		if len(backends) == 0 {
+			return hosts, nil
+		}
+	}
+	if h := strings.TrimSpace(strings.ToLower(cfg.PublicHost)); h != "" {
+		hosts[portalPublicRouteID] = h
+		for _, vh := range cfg.ViewHosts() {
+			hosts[portalPublicRouteID+":"+vh] = vh
+		}
+	}
+	return hosts, backends
+}
+
+// portalMemberBackends : le port HTTP du portail chez les autres membres du groupe HA, d'après les adresses de leurs
+// passerelles (poussées par l'Admin, copie locale chiffrée).
+func (s *Server) portalMemberBackends(cfg portal.Config) []router.Backend {
+	member := map[string]bool{}
+	for _, m := range cfg.HAMembers {
+		member[m] = true
+	}
+	var out []router.Backend
+	for _, p := range s.peers.All() {
+		if !member[p.Name] {
+			continue
+		}
+		u, err := url.Parse(p.Endpoint)
+		if err != nil || u.Hostname() == "" {
+			continue
+		}
+		out = append(out, router.Backend{
+			URL:    "http://" + net.JoinHostPort(u.Hostname(), strconv.Itoa(cfg.HTTPPort)),
+			Weight: 1,
+		})
+	}
+	return out
+}
+
+// ensurePortalPublicRoute publie PublicHost vers le portail (TLS sur l'entrée), ainsi que les hôtes dédiés des vues.
+// Rejoué après chaque Replace de routes pour survivre aux full-sync Admin.
 func (s *Server) ensurePortalPublicRoute() {
 	if s.portal == nil || s.table == nil {
 		return
 	}
-	cfg := s.portal.Config()
-	wanted := map[string]string{}
-	if cfg.Enabled {
-		if h := strings.TrimSpace(strings.ToLower(cfg.PublicHost)); h != "" {
-			wanted[portalPublicRouteID] = h
-		}
-		if len(wanted) > 0 {
-			for _, h := range cfg.ViewHosts() {
-				wanted[portalPublicRouteID+":"+h] = h
-			}
-		}
-	}
+	wanted, backends := s.portalRoutes()
 	for _, r := range s.table.All() {
 		if strings.HasPrefix(r.ID, portalPublicRouteID) {
 			if _, keep := wanted[r.ID]; !keep && s.table.Delete(r.ID) {
+				s.implicitSkeleton.Delete(r.ID)
 				s.log.Info("portal: route publique retirée", "host", r.Host)
 			}
 		}
 	}
-	cfg.Defaults()
-	backend := fmt.Sprintf("http://127.0.0.1:%d", cfg.HTTPPort)
+	preserve := true
 	for id, host := range wanted {
 		s.upsertImplicitRoute(&router.Route{
-			ID:         id,
-			Host:       host,
-			Type:       router.RouteHTTP,
-			TLSEnabled: true,
-			Backends:   []router.Backend{{URL: backend, Weight: 1}},
+			ID:           id,
+			Host:         host,
+			Type:         router.RouteHTTP,
+			TLSEnabled:   true,
+			PreserveHost: &preserve,
+			Backends:     backends,
 		})
-		s.log.Info("portal: route HTTPS publique", "host", host, "backend", backend)
+		s.log.Info("portal: route HTTPS publique", "host", host, "backends", len(backends), "backend", backends[0].URL)
 	}
 }
 
@@ -1537,23 +1591,6 @@ func sortedBounds(m map[float64]float64) []float64 {
 	return keys
 }
 
-// handlePushClusterPeers reçoit la topologie Raft poussée par Admin.
-// Si la passerelle a déjà une config Peers locale non vide, elle est ignorée (local wins).
-func (s *Server) handlePushClusterPeers(w http.ResponseWriter, r *http.Request) {
-	if len(s.cfg.Cluster.Peers) > 0 {
-		// Config locale définie : Admin ne peut pas l'écraser.
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	var peers map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&peers); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	s.applyClusterPeers(peers)
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // reconfigureTracing bascule l'export OTLP à chaud vers l'endpoint poussé par Admin
 // et vide l'ancien exporteur en arrière-plan.
 func (s *Server) reconfigureTracing(endpoint string) {
@@ -1634,5 +1671,12 @@ func (s *Server) registerLogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+logapi.PathUniqueIPs, s.handleLogUniqueIPs)
 	mux.HandleFunc("POST "+logapi.PathEphorSim, s.handleEphorSimulate)
 	mux.HandleFunc("GET "+logapi.PathEphorReferences, s.handleEphorReferences)
+	mux.HandleFunc("GET "+logapi.PathSurface, s.handleSurfaceList)
+	mux.HandleFunc("GET "+logapi.PathInventory, s.handleInventory)
+	mux.HandleFunc("GET "+logapi.PathSurfaceReport, s.handleSurfaceReport)
+	mux.HandleFunc("GET "+logapi.PathSurfaceProposals, s.handleSurfaceProposals)
+	mux.HandleFunc("GET "+logapi.PathSurfaceOpenAPI, s.handleSurfaceOpenAPI)
+	mux.HandleFunc("POST "+logapi.PathSurfaceReset, s.handleSurfaceReset)
+	mux.HandleFunc("POST "+logapi.PathSurfaceForget, s.handleSurfaceForget)
 	mux.HandleFunc("POST "+logapi.PathErase, s.handleLogErase)
 }

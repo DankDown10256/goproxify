@@ -145,9 +145,10 @@ pages.backups = async function() {
     const needsSched = activeTab === 'snapshots' || activeTab === 'schedule';
     const needsSnaps = activeTab === 'snapshots';
 
-    const [status, dests] = await Promise.all([
+    const [status, dests, hosts] = await Promise.all([
       activeTab === 'snapshots' ? api('GET', '/backups/status').catch(() => null) : Promise.resolve(null),
       activeTab === 'destinations' ? api('GET', '/backups/destinations').catch(() => []) : Promise.resolve([]),
+      activeTab === 'snapshots' ? api('GET', '/hosts').catch(() => []) : Promise.resolve([]),
     ]);
     const keyStatus = activeTab === 'key' ? await api('GET', '/backups/key').catch(() => null) : null;
     window._bkDests = dests;
@@ -165,7 +166,7 @@ pages.backups = async function() {
     }
 
     let body = '';
-    if (activeTab === 'snapshots') body = runningBanner(status && status.running) + statusBanner(status) + snapshotsTab(snaps, draftSchedules);
+    if (activeTab === 'snapshots') body = runningBanner(status && status.running) + statusBanner(status) + snapshotsTab(snaps, draftSchedules) + rebuildCard(status, hosts);
     else if (activeTab === 'destinations') body = destinationsTab(dests);
     else if (activeTab === 'key') body = keyTab(keyStatus);
     else body = scheduleTab(draftSchedules);
@@ -242,6 +243,55 @@ pages.backups = async function() {
         </p>
       </div>`;
   }
+
+  // Reconstruire l'Admin sur une machine neuve (ADR 0019, étape 9) : la commande du launcher, prête à copier. Elle ne contient
+  // jamais la clé de sauvegarde, que l'Admin ne montre qu'au superadmin et sur demande.
+  function rebuildCard(st, hosts) {
+    const list = Array.isArray(hosts) ? hosts : [];
+    window._bkRebuildImage = (st && st.launcher_image) || 'ghcr.io/vincamok/goproxify/launcher:preview';
+    const hostField = list.length
+      ? `<select id="bk-rb-host" class="input" onchange="bkRebuildCmd(true)">${list.map(h => `<option value="${esc(h.name)}" data-addr="${esc(h.addr)}">${esc(h.name)} (${esc(h.addr)})</option>`).join('')}</select>`
+      : `<input id="bk-rb-host" class="input" placeholder="${t('backups.rebuild.host_ph')}" oninput="bkRebuildCmd()">`;
+    const noKey = st && !st.key_set
+      ? `<div style="border-left:3px solid var(--warning,#c80);padding:6px 10px;margin:10px 0;font-size:13px">${t('backups.rebuild.no_key')} <a href="#" onclick="window._bkTab('key');return false">${t('backups.rebuild.key_link')}</a></div>`
+      : '';
+    setTimeout(() => window.bkRebuildCmd && window.bkRebuildCmd(true), 0);
+    return `
+      <div class="card" id="bk-rebuild" style="margin-top:12px">
+        <div class="card-kicker">${t('backups.rebuild.kicker')}</div>
+        <div class="card-title">${t('backups.rebuild.title')}</div>
+        <p style="color:var(--text2);font-size:13px;margin:8px 0 0;line-height:1.5;max-width:640px">${t('backups.rebuild.desc')}</p>
+        ${noKey}
+        <ol style="font-size:13px;line-height:1.6;padding-left:20px;margin:12px 0">
+          <li>${t('backups.rebuild.s1')}</li>
+          <li>${t('backups.rebuild.s2')}</li>
+        </ol>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:8px 0">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2)">${t('backups.rebuild.host')}${hostField}</label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2)">${t('backups.rebuild.addr')}
+            <input id="bk-rb-addr" class="input" placeholder="192.168.1.50" oninput="bkRebuildCmd()"></label>
+        </div>
+        <pre id="bk-rb-cmd" style="white-space:pre-wrap;word-break:break-all;font-size:12px;margin:8px 0"></pre>
+        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('bk-rb-cmd').textContent, t('backups.rebuild.copied'))">${t('backups.rebuild.copy')}</button>
+        <ol start="3" style="font-size:13px;line-height:1.6;padding-left:20px;margin:12px 0 0">
+          <li>${t('backups.rebuild.s3')}</li>
+        </ol>
+        <p style="color:var(--text2);font-size:12px;margin:10px 0 0">${t('backups.rebuild.or_ui')}</p>
+      </div>`;
+  }
+
+  window.bkRebuildCmd = function(hostChanged) {
+    const host = document.getElementById('bk-rb-host');
+    const addr = document.getElementById('bk-rb-addr');
+    const out = document.getElementById('bk-rb-cmd');
+    if (!host || !out) return;
+    const picked = host.selectedOptions && host.selectedOptions[0];
+    if (addr && picked && picked.dataset.addr) addr.placeholder = picked.dataset.addr;
+    const name = (host.value || '').trim() || '<host>';
+    const a = ((addr && addr.value) || '').trim();
+    out.textContent = 'docker run --rm \\\n  -v /var/run/docker.sock:/var/run/docker.sock \\\n  -v "$PWD/<file>:/backup/snapshot:ro" \\\n  ' +
+      window._bkRebuildImage + ' \\\n  --restore /backup/snapshot --name ' + name + (a ? ' --addr ' + a : '') + ' --backup-key <backup key>';
+  };
 
   function snapshotsTable(snaps, schedules) {
     const nameById = Object.fromEntries((schedules||[]).map(s => [s.id, s.name]));

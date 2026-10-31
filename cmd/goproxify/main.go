@@ -48,6 +48,8 @@ func main() {
 		runAgent()
 	case "landing":
 		runLanding()
+	case "launcher":
+		runLauncher()
 	case "token":
 		runToken()
 	case "backup":
@@ -66,6 +68,8 @@ func main() {
 		runNodes()
 	case "declared":
 		runDeclared()
+	case "hosts":
+		runHosts()
 	case "bootstrap":
 		runBootstrap()
 	case "automation":
@@ -144,6 +148,7 @@ Commandes de service :
   edge     Démarre la passerelle (Data Plane — Reverse Proxy)
   agent    Démarre l'Agent (Discovery & Télémétrie)
   landing  Démarre la page de présentation
+  launcher Installe GoProxify sur cet hôte et déclare les autres (image ghcr.io/vincamok/goproxify/launcher)
 
 Commandes d'administration (API Admin — -admin-url / -token) :
   token     Tokens d'appairage passerelle/Agent (create/list/revoke)
@@ -177,6 +182,7 @@ Commandes d'administration (API Admin — -admin-url / -token) :
   access    GoProxify Access (config, catalogue, users, templates, audit)
   nodes     Nœuds Infrastructure (list / accept / reject pending)
   declared  Nœuds déclarés wizard architecture (list / create / delete)
+  hosts         Hôtes déclarés : état et tickets d'installation de 15 minutes (list/join-ticket)
   bootstrap     Tickets QR / curl|bash d'intégration d'hôtes
   migrate-yaml  Convertit proxies/*.json → *.yaml (legacy)
 
@@ -217,6 +223,12 @@ Pour l'aide d'une sous-commande :
 // -----------------------------------------------------------------------------
 
 func runAdmin() {
+	// Commandes locales sur l'historique de logs du volume de l'Admin : export signé, gel légal (ADR 0018)
+	if subcommand(os.Args, 2) == "logs" {
+		runAdminLogs()
+		return
+	}
+
 	args := parseFlags(os.Args[2:])
 
 	cfgPath := configPath("admin", args)

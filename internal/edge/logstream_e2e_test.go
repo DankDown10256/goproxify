@@ -16,6 +16,7 @@ import (
 	"time"
 
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
+	"github.com/vincamok/goproxify/internal/admin/edgelogs"
 	"github.com/vincamok/goproxify/internal/admin/edgews"
 	"github.com/vincamok/goproxify/internal/admin/logs"
 	"github.com/vincamok/goproxify/internal/config"
@@ -27,6 +28,7 @@ import (
 )
 
 const streamEdgeID = "22222222-2222-2222-2222-222222222222"
+const streamEdgeID2 = "33333333-3333-3333-3333-333333333333"
 
 // streamGateway est une passerelle réelle (base de logs, hub WebSocket) qui ne traite que la reprise des logs.
 type streamGateway struct {
@@ -35,11 +37,15 @@ type streamGateway struct {
 }
 
 func newStreamGateway(t *testing.T, dir string) *streamGateway {
+	return newNamedStreamGateway(t, dir, "gw-stream")
+}
+
+func newNamedStreamGateway(t *testing.T, dir, name string) *streamGateway {
 	t.Helper()
 	t.Setenv("GPX_LOG_IP_KEY_PATH", filepath.Join(dir, "log-ip-key.gpx"))
 	cfg := &config.EdgeConfig{}
 	cfg.Engine.LogStoreDir = filepath.Join(dir, "logs")
-	cfg.Identity.NodeName = "gw-stream"
+	cfg.Identity.NodeName = name
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	s := &Server{
 		cfg:       cfg,
@@ -53,7 +59,7 @@ func newStreamGateway(t *testing.T, dir string) *streamGateway {
 		t.Fatal("base de logs indisponible")
 	}
 	s.wsHub.SetAdminMessageHandler(func(connID string, msg edgews2.Message) error {
-		if msg.Type == edgews2.TypeLogResume || msg.Type == edgews2.TypeLogLive {
+		if msg.Type == edgews2.TypeLogResume || msg.Type == edgews2.TypeLogLive || msg.Type == edgews2.TypeLogAck {
 			return s.handleWSAdminMessage(connID, msg)
 		}
 		return nil
@@ -63,6 +69,8 @@ func newStreamGateway(t *testing.T, dir string) *streamGateway {
 	mux.HandleFunc("GET "+logapi.PathSearch, s.handleLogSearch)
 	mux.HandleFunc("GET "+logapi.PathHistogram, s.handleLogHistogram)
 	mux.HandleFunc("GET "+logapi.PathFacets, s.handleLogFacets)
+	mux.HandleFunc("POST "+logapi.PathTop, s.handleLogTop)
+	mux.HandleFunc("GET "+logapi.PathUniqueIPs, s.handleLogUniqueIPs)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(func() {
 		srv.Close()
@@ -85,23 +93,36 @@ type adminSide struct {
 	store   *logs.Store
 	manager *edgews.Manager
 	quiet   *slog.Logger
+	vault   *edgelogs.Vault
 }
 
 func newAdminSide(t *testing.T, dir string) *adminSide {
+	return newAdminSideWithVault(t, dir, filepath.Join(dir, "admin-logs"))
+}
+
+// newAdminSideWithVault monte un Admin dont la base est dans dir et le volume de logs dans vaultDir : deux Admin qui
+// partagent vaultDir sont le même volume de logs monté sur une base neuve.
+func newAdminSideWithVault(t *testing.T, dir, vaultDir string) *adminSide {
 	t.Helper()
 	db, err := admindb.Open(filepath.Join(dir, "admin.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &adminSide{db: db, store: logs.New(db), quiet: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	vault, err := edgelogs.Open(vaultDir, nil, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(vault.Close)
+	return &adminSide{db: db, store: logs.New(db), quiet: quiet, vault: vault}
 }
 
 // start (re)démarre le gestionnaire et enregistre la passerelle : comme un démarrage de l'Admin.
 func (a *adminSide) start(t *testing.T, gatewayURL string) {
 	t.Helper()
 	a.manager = edgews.NewManager("e2e-hmac", a.db, a.quiet)
-	a.manager.SetLogStreamIngestor(&edgews.LogStreamIngestor{Store: a.store, Log: a.quiet})
+	a.manager.SetLogStreamIngestor(&edgews.LogStreamIngestor{Store: a.store, Log: a.quiet, Vault: a.vault})
 	a.manager.Register(streamEdgeID, "gw-stream", gatewayURL, "admin")
 }
 

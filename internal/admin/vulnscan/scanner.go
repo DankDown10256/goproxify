@@ -6,13 +6,13 @@ package vulnscan
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,14 +20,17 @@ import (
 
 	"github.com/vincamok/goproxify/internal/admin/adminmetrics"
 	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
+	"github.com/vincamok/goproxify/internal/edge/logapi"
 	"github.com/vincamok/goproxify/internal/ssrf"
 )
 
 // BackendResult résume le scan d'un backend.
 type BackendResult struct {
 	URL       string   `json:"url"`
-	Status    string   `json:"status"` // pending|probing|ok|unreachable|no_headers
+	Host      string   `json:"host,omitempty"` // proxy auquel appartient le backend, quand l'inventaire le dit
+	Status    string   `json:"status"`         // pending|probing|ok|inventory|unreachable|no_headers
 	Headers   []string `json:"headers,omitempty"`
+	Apps      []string `json:"apps,omitempty"` // applications reconnues par l'inventaire (image du conteneur), avec ce qui n'a pas pu être cherché
 	CVEsFound int      `json:"cves_found"`
 	Error     string   `json:"error,omitempty"`
 }
@@ -47,6 +50,7 @@ type State struct {
 	ReachableN   int             `json:"reachable_n"`
 	UnreachableN int             `json:"unreachable_n"`
 	NoHeadersN   int             `json:"no_headers_n"`
+	InventoryN   int             `json:"inventory_n"` // backends analysés d'après l'inventaire (image) plutôt que par une sonde
 	NVDQueries   int             `json:"nvd_queries"`
 	LastError    string          `json:"last_error,omitempty"`
 	Results      []BackendResult `json:"results,omitempty"`
@@ -54,22 +58,36 @@ type State struct {
 
 // Scanner détecte les CVEs sur les backends enregistrés.
 type Scanner struct {
-	db      *sql.DB
-	log     *slog.Logger
-	client  *http.Client
-	nvdKey  string // NVD API key optionnel
-	mu      sync.Mutex
-	running bool
+	db        *sql.DB
+	log       *slog.Logger
+	client    *http.Client
+	probe     *http.Client                                  // sonde des backends : le certificat n'est pas vérifié
+	inventory func(context.Context) []logapi.InventoryEntry // inventaire des passerelles ; remplacé dans les tests
+	nvdKey    string                                        // NVD API key optionnel
+	mu        sync.Mutex
+	running   bool
 }
 
 // New crée un Scanner.
 func New(db *sql.DB, log *slog.Logger, nvdKey string) *Scanner {
-	return &Scanner{
+	s := &Scanner{
 		db:     db,
 		log:    log,
 		nvdKey: nvdKey,
 		client: &http.Client{Timeout: 15 * time.Second},
+		probe:  newProbeClient(),
 	}
+	s.inventory = s.loadInventory
+	return s
+}
+
+// Un backend à certificat expiré, auto-signé ou au mauvais nom reste un serveur à inventorier : la sonde ne lit
+// que des en-têtes de réponse et n'envoie aucun secret, donc la validation du certificat n'apporte rien ici.
+// NVD, KEV et EPSS gardent le client qui vérifie.
+func newProbeClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
+	return &http.Client{Timeout: 15 * time.Second, Transport: tr}
 }
 
 // Start lance le scanner en arrière-plan (toutes les 6h).
@@ -126,6 +144,19 @@ func (s *Scanner) run(ctx context.Context) {
 
 	now := time.Now().UTC()
 	backends := s.loadBackends()
+	inv := map[string][]logapi.InventoryEntry{}
+	have := map[string]bool{}
+	for _, u := range backends {
+		have[u] = true
+	}
+	for _, e := range ApplyOverrides(s.inventory(ctx), LoadOverrides(ctx, s.db)) {
+		inv[e.Backend] = append(inv[e.Backend], e)
+		if !have[e.Backend] && strings.Contains(e.Backend, "://") {
+			have[e.Backend] = true
+			backends = append(backends, e.Backend)
+		}
+	}
+	nvdCache := map[string][]cveResult{}
 	results := make([]BackendResult, len(backends))
 	for i, u := range backends {
 		results[i] = BackendResult{URL: u, Status: "pending"}
@@ -160,34 +191,49 @@ backendsLoop:
 		st.Results[i].Status = "probing"
 		s.saveState(st)
 
-		tokens, probeErr := s.probeServer(url)
-		if probeErr != "" {
-			st.Results[i].Status = "unreachable"
-			st.Results[i].Error = probeErr
-			st.UnreachableN++
-			if lastErr == "" {
-				lastErr = probeErr
+		apps := inv[url]
+		queries := inventoryQueries(apps)
+		if len(apps) > 0 {
+			st.Results[i].Host = apps[0].Host
+			st.Results[i].Apps = appLabels(apps)
+		}
+		if len(queries) > 0 {
+			st.Results[i].Status = "inventory"
+			st.Results[i].Headers = nil
+			st.InventoryN++
+		} else {
+			// Pas de produit ni de version connus par l'image : on sonde le backend comme avant.
+			tokens, probeErr := s.probeServer(url)
+			if probeErr != "" {
+				st.Results[i].Status = "unreachable"
+				st.Results[i].Error = probeErr
+				st.UnreachableN++
+				if lastErr == "" {
+					lastErr = probeErr
+				}
+				st.ScannedN = i + 1
+				st.ProgressPct = progressPct(i+1, len(backends))
+				s.saveState(st)
+				continue
 			}
-			st.ScannedN = i + 1
-			st.ProgressPct = progressPct(i+1, len(backends))
-			s.saveState(st)
-			continue
+			if len(tokens) == 0 {
+				st.Results[i].Status = "no_headers"
+				st.NoHeadersN++
+				st.ScannedN = i + 1
+				st.ProgressPct = progressPct(i+1, len(backends))
+				s.saveState(st)
+				continue
+			}
+			st.Results[i].Status = "ok"
+			st.Results[i].Headers = tokens
+			st.ReachableN++
+			for _, kw := range tokens {
+				queries = append(queries, headerQuery(kw))
+			}
 		}
-		if len(tokens) == 0 {
-			st.Results[i].Status = "no_headers"
-			st.NoHeadersN++
-			st.ScannedN = i + 1
-			st.ProgressPct = progressPct(i+1, len(backends))
-			s.saveState(st)
-			continue
-		}
-
-		st.Results[i].Status = "ok"
-		st.Results[i].Headers = tokens
-		st.ReachableN++
 		backendCVEs := 0
 
-		for _, kw := range tokens {
+		for _, q := range queries {
 			select {
 			case <-ctx.Done():
 				lastErr = "scan interrompu"
@@ -195,28 +241,39 @@ backendsLoop:
 			default:
 			}
 			st.CurrentStep = "nvd"
-			st.CurrentURL = url + " · " + kw
+			st.CurrentURL = url + " · " + q.label
 			s.saveState(st)
 
-			cves, qErr := s.queryCVEs(ctx, kw)
-			nvdQueries++
-			st.NVDQueries = nvdQueries
-			if qErr != "" {
-				lastErr = qErr
-				st.LastError = qErr
-				s.saveState(st)
-				continue
+			// Dix conteneurs de la même image donnent une seule question à NVD (5 requêtes par 30 s sans clé).
+			cves, cached := nvdCache[q.url]
+			if !cached {
+				var qErr string
+				cves, qErr = s.queryCVEs(ctx, q.url)
+				nvdQueries++
+				st.NVDQueries = nvdQueries
+				if qErr != "" {
+					lastErr = qErr
+					st.LastError = qErr
+					s.saveState(st)
+					continue
+				}
+				nvdCache[q.url] = cves
 			}
 			for _, c := range cves {
 				_, err := s.db.ExecContext(ctx,
-					`INSERT OR IGNORE INTO security_cves (backend_url, cve_id, cvss_score, description)
-					 VALUES (?,?,?,?)`,
-					url, c.id, c.cvss, c.desc)
+					`INSERT INTO security_cves (backend_url, cve_id, cvss_score, description, host, product, version, source)
+					 VALUES (?,?,?,?,?,?,?,?)
+					 ON CONFLICT(backend_url, cve_id) DO UPDATE SET host=excluded.host, product=excluded.product, version=excluded.version, source=excluded.source`,
+					url, c.id, c.cvss, c.desc, st.Results[i].Host, q.product, q.version, q.source)
 				if err == nil {
 					found++
 					backendCVEs++
 				}
 			}
+			// Le backend a été mis à jour : les CVE de l'ancienne version qui ne concernent pas la nouvelle sont corrigées.
+			s.db.ExecContext(ctx, //nolint:errcheck
+				`UPDATE security_cves SET status='fixed' WHERE backend_url=? AND source=? AND product=? AND version<>? AND status='open'`,
+				url, q.source, q.product, q.version)
 			st.FoundCVEs = found
 			st.Results[i].CVEsFound = backendCVEs
 			s.saveState(st)
@@ -331,13 +388,13 @@ func (s *Scanner) probeServer(url string) (tokens []string, errMsg string) {
 	if err != nil {
 		return nil, err.Error()
 	}
-	resp, err := s.client.Do(req)
+	resp, err := s.probe.Do(req)
 	if err != nil {
 		req2, err2 := http.NewRequest(http.MethodGet, url, nil)
 		if err2 != nil {
 			return nil, err2.Error()
 		}
-		resp, err = s.client.Do(req2)
+		resp, err = s.probe.Do(req2)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -383,19 +440,17 @@ func buildNVDQuery(keyword string) string {
 	parts := strings.SplitN(keyword, " ", 2)
 	if len(parts) == 2 {
 		if vendorProduct, ok := cpeVendorProduct[strings.ToLower(parts[0])]; ok {
-			cpe := fmt.Sprintf("cpe:2.3:a:%s:%s:*:*:*:*:*:*:*", vendorProduct, parts[1])
-			return "https://services.nvd.nist.gov/rest/json/cves/2.0?virtualMatchString=" +
-				url.QueryEscape(cpe) + "&resultsPerPage=20"
+			return cpeQueryURL(vendorProduct, parts[1])
 		}
 	}
 	return fmt.Sprintf("https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=%s&resultsPerPage=5",
 		strings.ReplaceAll(keyword, " ", "+"))
 }
 
-func (s *Scanner) queryCVEs(ctx context.Context, keyword string) ([]cveResult, string) {
+func (s *Scanner) queryCVEs(ctx context.Context, queryURL string) ([]cveResult, string) {
 	<-nvdRateLimit.C
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildNVDQuery(keyword), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, queryURL, nil)
 	if err != nil {
 		return nil, err.Error()
 	}

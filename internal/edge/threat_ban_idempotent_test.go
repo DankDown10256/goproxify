@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/config"
+	"github.com/vincamok/goproxify/internal/edge/bansdb"
+	"github.com/vincamok/goproxify/internal/edge/lastua"
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
 	"github.com/vincamok/goproxify/internal/edge/logthrottle"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -32,6 +34,7 @@ func TestThreatBanCallbackRunsOncePerIPPerMinute(t *testing.T) {
 		banStore:     router.NewBanStore(),
 		profileStore: router.NewIPProfileStore(),
 		blockLog:     logthrottle.New(time.Minute),
+		lastUA:       lastua.New(),
 		wsHub:        edgews.NewHub("", slog.New(slog.NewTextHandler(io.Discard, nil))),
 	}
 	cb := s.threatBanCallback()
@@ -44,5 +47,39 @@ func TestThreatBanCallbackRunsOncePerIPPerMinute(t *testing.T) {
 	data, _ := os.ReadFile(logFile)
 	if n := strings.Count(string(data), "IP bannie"); n != 2 {
 		t.Fatalf("%d lignes « IP bannie » pour 51 appels sur 2 IP, attendu 2\n%s", n, data)
+	}
+}
+
+// Un ban automatique emporte le dernier User-Agent vu pour l'IP : c'est lui qui explique le ban dans la chronologie.
+func TestThreatBanCarriesTheLastUserAgent(t *testing.T) {
+	logFile := filepath.Join(os.TempDir(), "gpx-threatban-ua-"+strings.ReplaceAll(t.Name(), "/", "_")+".log")
+	os.Remove(logFile)
+	t.Cleanup(func() { os.Remove(logFile) })
+
+	cfg := &config.EdgeConfig{}
+	cfg.Identity.NodeName = "frontal"
+	hub := edgews.NewHub("", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	bans, err := bansdb.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bans.Close()
+	s := &Server{
+		cfg:          cfg,
+		log:          edgelog.New("info", "text", logFile),
+		table:        &router.Table{},
+		banStore:     router.NewBanStore(),
+		profileStore: router.NewIPProfileStore(),
+		blockLog:     logthrottle.New(time.Minute),
+		lastUA:       lastua.New(),
+		bansDB:       bans,
+		wsHub:        hub,
+	}
+	s.lastUA.Note("203.0.113.9", "Nikto/2.5")
+	s.threatBanCallback()("203.0.113.9", "threat: ua", time.Now().Add(time.Hour), nil)
+
+	rows, err := bans.ActiveBans()
+	if err != nil || len(rows) != 1 || rows[0].UserAgent != "Nikto/2.5" {
+		t.Fatalf("ban sans le User-Agent vu : %v %+v", err, rows)
 	}
 }

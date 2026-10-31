@@ -88,6 +88,8 @@ type Handler struct {
 	OnWhitelistChange func()
 	// ResolvePublicURL (optionnel) — base publique Admin pour les tickets bootstrap (QR / curl|bash).
 	ResolvePublicURL func(r *http.Request) string
+	// Hosts (optionnel) — hôtes déclarés et tickets d'installation (outils list_hosts, create_host_join_ticket).
+	Hosts *api.HostsHandler
 	// Automation (optionnel) — flux d'automatisation (règles, planifications, playbooks).
 	Automation   *automation.Service
 	DNSProviders *acme.ProviderStore // optionnel — fournisseurs DNS nommés (ACME DNS-01)
@@ -105,7 +107,7 @@ type CertDeployerIface interface {
 	TriggerTarget(ctx context.Context, targetID string) error
 }
 
-// RoutePusher est implémenté par edgews.Manager / edgepush.Pusher (évite un import cyclique).
+// RoutePusher est implémenté par edgews.Manager (évite un import cyclique).
 type RoutePusher interface {
 	PushRoutes(ctx context.Context)
 	DeleteRoute(ctx context.Context, id string)
@@ -286,6 +288,14 @@ var tools = []map[string]any{
 		),
 	},
 	{
+		"name":        "set_container_route_enabled",
+		"description": "Active ou désactive la route issue des labels d'un conteneur (Docker, Portainer, Podman, Kubernetes, annuaires) sans toucher au conteneur. Désactivée, la route ne sert plus de trafic sur aucune passerelle, mais reste listée (list_proxies : enabled=false) pour être réactivée. S'applique à l'hôte, tous conteneurs du pool compris. Un proxy configuré se gère avec set_proxy_enabled.",
+		"inputSchema": schema(
+			req("host", "string", "Domaine de la route découverte (champ host de list_proxies)"),
+			req("enabled", "boolean", "true = activer, false = désactiver"),
+		),
+	},
+	{
 		"name":        "update_proxy",
 		"description": "Met à jour un proxy existant (host, backend, tls, lb, enabled, options avancées).",
 		"inputSchema": schema(
@@ -295,7 +305,7 @@ var tools = []map[string]any{
 			opt("tls_enabled", "boolean", "Active ou désactive HTTPS"),
 			opt("lb", "string", "Load balancing: round_robin, weighted, adaptive"),
 			opt("enabled", "boolean", "Active ou désactive la route"),
-			opt("options", "object", "Options avancées à poser (valeur null = retirer) : split, maintenance, signed_url, graphql, bandwidth, redact_json, html_inject, hedge, static, request_schema, openapi, grpc_transcode, grpc_web, rate_limit, conditions"),
+			opt("options", "object", "Options avancées à poser (valeur null = retirer) : split, maintenance, signed_url, graphql, bandwidth, redact_json, html_inject, hedge, static, request_schema, openapi, grpc_transcode, surface (apprentissage de la surface : {\"mode\":\"learn\"}), grpc_web, rate_limit, conditions"),
 		),
 	},
 	{
@@ -671,6 +681,8 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = (&api.DiscoveredContainersHandler{DB: h.DB, Log: h.Log, Groups: h.Groups}).Orphans(r.Context())
 	case "convert_discovered_container":
 		result, toolErr = h.toolConvertDiscoveredContainer(r, p.Arguments)
+	case "set_container_route_enabled":
+		result, toolErr = h.toolSetContainerRouteEnabled(r, p.Arguments)
 	case "update_proxy":
 		result, toolErr = h.toolUpdateProxy(r, p.Arguments)
 	case "set_proxy_enabled":
@@ -860,6 +872,24 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolSimulateEphor(r, p.Arguments)
 	case "get_ephor_references":
 		result, toolErr = h.toolGetEphorReferences(r, p.Arguments)
+	case "get_proxy_surface":
+		result, toolErr = h.toolGetProxySurface(r, p.Arguments)
+	case "get_app_inventory":
+		result, toolErr = h.toolGetAppInventory(r, p.Arguments)
+	case "get_proxy_surface_suggestions":
+		result, toolErr = h.toolGetProxySurfaceSuggestions(r, p.Arguments)
+	case "accept_proxy_surface_suggestions":
+		result, toolErr = h.toolAcceptProxySurfaceSuggestions(r, p.Arguments)
+	case "enforce_proxy_surface":
+		result, toolErr = h.toolEnforceProxySurface(r, p.Arguments)
+	case "relax_proxy_surface":
+		result, toolErr = h.toolRelaxProxySurface(r, p.Arguments)
+	case "get_proxy_surface_openapi":
+		result, toolErr = h.toolGetProxySurfaceOpenAPI(r, p.Arguments)
+	case "get_proxy_surface_proposals":
+		result, toolErr = h.toolGetProxySurfaceProposals(r, p.Arguments)
+	case "reset_proxy_surface":
+		result, toolErr = h.toolResetProxySurface(r, p.Arguments)
 	case "suggest_ephor_thresholds":
 		result, toolErr = h.toolSuggestEphorThresholds(r, p.Arguments)
 	case "get_waf_activity":
@@ -876,6 +906,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolCreateDeclaredNode(r, p.Arguments)
 	case "delete_declared_node":
 		result, toolErr = h.toolDeleteDeclaredNode(r, p.Arguments)
+	case "list_hosts":
+		result, toolErr = h.toolListHosts(r)
+	case "create_host_join_ticket":
+		result, toolErr = h.toolCreateHostJoinTicket(r, p.Arguments)
 	case "create_bootstrap_ticket":
 		result, toolErr = h.toolCreateBootstrapTicket(r, p.Arguments)
 	case "accept_node":
@@ -1019,7 +1053,7 @@ func (h *Handler) toolListProxies(r *http.Request) (any, error) {
 	dc := &api.DiscoveredContainersHandler{DB: h.DB, Log: h.Log, Groups: h.Groups}
 	for _, d := range dc.FetchFromEdges(r.Context()) {
 		out = append(out, map[string]any{
-			"id": d.ID, "name": d.Host, "enabled": true, "host": d.Host, "type": "http", "tls": d.TLS,
+			"id": d.ID, "name": d.Host, "enabled": !d.Disabled, "host": d.Host, "type": "http", "tls": d.TLS,
 			"source": d.Source, "read_only": true, "aliases": d.Aliases, "backends": d.Backends,
 			"edge": d.EdgeName, "edge_label": d.EdgeLabel, "group": d.Group, "agent": d.AgentName, "shadowed_by": d.ShadowedBy,
 			"inactive": d.Inactive, "state": d.State,
@@ -1168,6 +1202,23 @@ func (h *Handler) toolConvertDiscoveredContainer(r *http.Request, args map[strin
 	}
 	_ = admindb.WriteAudit(h.DB, actor, "create", "proxy:"+proxyID, c.Host)
 	return map[string]any{"id": proxyID, "host": c.Host, "backends": c.Backends, "converted_from": c.ID}, nil
+}
+
+func (h *Handler) toolSetContainerRouteEnabled(r *http.Request, args map[string]any) (any, error) {
+	host, _ := args["host"].(string)
+	en, ok := args["enabled"].(bool)
+	if host == "" || !ok {
+		return nil, fmt.Errorf("host et enabled requis")
+	}
+	var pusher api.DisabledRoutesPusher
+	if p, ok := h.Pusher.(api.DisabledRoutesPusher); ok {
+		pusher = p
+	}
+	dc := &api.DiscoveredContainersHandler{DB: h.DB, Log: h.Log, Groups: h.Groups, Pusher: pusher}
+	if err := dc.SetEnabled(r.Context(), adminauth.UserIDFromContext(r.Context()), adminauth.ActorFromContext(r.Context()), host, en); err != nil {
+		return nil, err
+	}
+	return map[string]any{"host": host, "enabled": en}, nil
 }
 
 func (h *Handler) resolveProxyEnvelope(ctx context.Context, ref string) (*proxystore.Envelope, error) {
@@ -1779,7 +1830,7 @@ func (h *Handler) toolListSecurityBans(r *http.Request, args map[string]any) (an
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, ip, domain, reason, source, edge_name, target_scope, expires_at, created_at, signals FROM security_bans`+where+
+		`SELECT id, ip, domain, reason, source, edge_name, target_scope, expires_at, created_at, signals, user_agent FROM security_bans`+where+
 			` ORDER BY created_at DESC LIMIT 200`, qargs...)
 	if err != nil {
 		return nil, err
@@ -1787,10 +1838,10 @@ func (h *Handler) toolListSecurityBans(r *http.Request, args map[string]any) (an
 	defer rows.Close()
 	var out []map[string]any
 	for rows.Next() {
-		var id, ip, domain, reason, source, edgeName, scope, signals string
+		var id, ip, domain, reason, source, edgeName, scope, signals, userAgent string
 		var exp sql.NullString
 		var createdAt string
-		if err := rows.Scan(&id, &ip, &domain, &reason, &source, &edgeName, &scope, &exp, &createdAt, &signals); err != nil {
+		if err := rows.Scan(&id, &ip, &domain, &reason, &source, &edgeName, &scope, &exp, &createdAt, &signals, &userAgent); err != nil {
 			continue
 		}
 		item := map[string]any{
@@ -1799,6 +1850,9 @@ func (h *Handler) toolListSecurityBans(r *http.Request, args map[string]any) (an
 		}
 		if why := security.DecodeBanSignals(signals); len(why) > 0 {
 			item["signals"] = why
+		}
+		if userAgent != "" {
+			item["user_agent"] = userAgent
 		}
 		if exp.Valid {
 			item["expires_at"] = exp.String
@@ -2235,7 +2289,7 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 		where = " WHERE " + strings.Join(clauses, " AND ")
 	}
 	rows, err := h.DB.QueryContext(r.Context(),
-		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score
+		`SELECT id, backend_url, cve_id, cvss_score, description, status, edge_name, detected_at, kev, epss_score, host, product, version, source
 		 FROM security_cves`+where+` ORDER BY cvss_score DESC, detected_at DESC LIMIT 200`, qargs...)
 	if err != nil {
 		return nil, err
@@ -2244,15 +2298,16 @@ func (h *Handler) toolListSecurityCVEs(r *http.Request, args map[string]any) (an
 	var out []map[string]any
 	for rows.Next() {
 		var id, kevInt int
-		var backend, cveID, desc, status, edgeName, detectedAt string
+		var backend, cveID, desc, status, edgeName, detectedAt, host, product, version, source string
 		var cvss, epssScore float64
-		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &edgeName, &detectedAt, &kevInt, &epssScore); err != nil {
+		if err := rows.Scan(&id, &backend, &cveID, &cvss, &desc, &status, &edgeName, &detectedAt, &kevInt, &epssScore, &host, &product, &version, &source); err != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "backend_url": backend, "cve_id": cveID, "cvss_score": cvss,
 			"description": desc, "status": status, "edge_name": edgeName, "detected_at": detectedAt,
 			"kev": kevInt != 0, "epss_score": epssScore,
+			"host": host, "product": product, "version": version, "source": source,
 		})
 	}
 	if out == nil {
@@ -2459,7 +2514,8 @@ func (h *Handler) toolListAlertEvents(r *http.Request, args map[string]any) (any
 // advancedProxyOptions : clés de la configuration d'un proxy modifiables par update_proxy (`options`).
 var advancedProxyOptions = map[string]bool{
 	"split": true, "maintenance": true, "signed_url": true, "graphql": true, "bandwidth": true,
-	"redact_json": true, "html_inject": true, "hedge": true, "static": true, "request_schema": true, "openapi": true, "grpc_transcode": true, "grpc_web": true, "rate_limit": true, "conditions": true,
+	"redact_json": true, "html_inject": true, "hedge": true, "static": true, "request_schema": true, "openapi": true, "grpc_transcode": true, "grpc_web": true, "rate_limit": true, "conditions": true, "surface": true,
+	"max_body_size": true, "ip_filter": true, "geo_ip": true, "cors": true, "waf": true,
 }
 
 // toolListLogsEdges : list_logs avec source=edge. Même logique que GET /api/v1/logs?source=edge (fusion des bases de

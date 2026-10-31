@@ -77,7 +77,7 @@ func (s *Server) startSIEM(ctx context.Context) {
 		return
 	}
 	s.siemExporter = siem.New(siem.Options{
-		Node: s.cfg.Identity.NodeName, Source: s.logStore, State: siemState{s}, Retention: s.logStore.Retention,
+		Node: s.cfg.Identity.NodeName, Source: s.logStore, State: siemState{s}, Retention: s.logStore.EffectiveRetention,
 		Log: s.log.Logger(),
 	})
 	s.siemExporter.Apply(s.loadSIEMConfig())

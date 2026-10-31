@@ -578,6 +578,12 @@ func (h *ProxiesHandler) revisionsDiff(w http.ResponseWriter, r *http.Request, p
 func (h *ProxiesHandler) writeEdgeErr(w http.ResponseWriter, r *http.Request, err error) {
 	var he *edgeproxy.HTTPError
 	if errors.As(err, &he) {
+		// Un 401 relayé tel quel déconnecterait l'utilisateur : c'est l'Admin qui n'est pas reconnu de la passerelle.
+		if he.Status == http.StatusUnauthorized || he.Status == http.StatusForbidden {
+			h.Log.Error("proxies/files: la passerelle refuse l'Admin", "status", he.Status)
+			writeErr(w, r, http.StatusBadGateway, "api.err.edge_refused")
+			return
+		}
 		if he.Status == http.StatusUnprocessableEntity {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(he.Status)

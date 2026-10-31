@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -50,6 +51,9 @@ func (s *ProviderStore) load() ([]ProviderEntry, error) {
 func (s *ProviderStore) save(entries []ProviderEntry) error {
 	data, err := yaml.Marshal(entries)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(s.path, data, 0o600)

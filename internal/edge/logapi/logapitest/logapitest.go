@@ -19,6 +19,7 @@ import (
 
 	"github.com/vincamok/goproxify/internal/edge/logapi"
 	"github.com/vincamok/goproxify/internal/edge/logstore"
+	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 )
 
@@ -29,6 +30,19 @@ type Gateway struct {
 	Name   string
 	// References est ce que la passerelle répond à GET /internal/v1/ephor/references.
 	References logapi.EphorReferencesResponse
+	// Surface et Reports sont ce que la passerelle répond à GET /internal/v1/surface et /surface/report (par route) ;
+	// Resets garde les proxies dont l'Admin a demandé la remise à zéro.
+	Surface logapi.SurfaceListResponse
+	Reports map[string]surface.Report
+	Resets  []string
+	// Proposals : ce que la passerelle répond à GET /internal/v1/surface/proposals, par proxy.
+	Proposals map[string]surface.Proposals
+	// OpenAPI : ce que la passerelle répond à GET /internal/v1/surface/openapi, par proxy.
+	OpenAPI map[string]surface.OpenAPIResult
+	// Forgotten garde les clés de violation que l'Admin a demandé d'effacer.
+	Forgotten []string
+	// Inventory : ce que la passerelle répond à GET /internal/v1/inventory.
+	Inventory []logapi.InventoryEntry
 }
 
 // New démarre une passerelle de test, arrêtée avec le test.
@@ -45,6 +59,54 @@ func New(t testing.TB, name string) *Gateway {
 	mux.HandleFunc("GET "+logapi.PathSearch, g.search)
 	mux.HandleFunc("POST "+logapi.PathEphorSim, g.simulate)
 	mux.HandleFunc("GET "+logapi.PathEphorReferences, func(w http.ResponseWriter, _ *http.Request) { write(w, g.References) })
+	mux.HandleFunc("GET "+logapi.PathSurface, func(w http.ResponseWriter, _ *http.Request) { write(w, g.Surface) })
+	mux.HandleFunc("GET "+logapi.PathSurfaceReport, func(w http.ResponseWriter, r *http.Request) {
+		rep, ok := g.Reports[r.URL.Query().Get("route")]
+		if !ok {
+			http.Error(w, "aucun profil pour ce proxy", http.StatusNotFound)
+			return
+		}
+		write(w, rep)
+	})
+	mux.HandleFunc("POST "+logapi.PathSurfaceForget, func(w http.ResponseWriter, r *http.Request) {
+		var req logapi.SurfaceForgetRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		g.Forgotten = append(g.Forgotten, req.Keys...)
+		write(w, logapi.SurfaceForgetResponse{Forgotten: len(req.Keys)})
+	})
+	mux.HandleFunc("GET "+logapi.PathInventory, func(w http.ResponseWriter, r *http.Request) {
+		out := logapi.InventoryResponse{Entries: []logapi.InventoryEntry{}}
+		for _, e := range g.Inventory {
+			if ref := r.URL.Query().Get("route"); ref == "" || ref == e.Route || ref == e.Host {
+				out.Entries = append(out.Entries, e)
+			}
+		}
+		write(w, out)
+	})
+	mux.HandleFunc("GET "+logapi.PathSurfaceOpenAPI, func(w http.ResponseWriter, r *http.Request) {
+		res, ok := g.OpenAPI[r.URL.Query().Get("route")]
+		if !ok {
+			http.Error(w, "aucun profil pour ce proxy", http.StatusNotFound)
+			return
+		}
+		write(w, res)
+	})
+	mux.HandleFunc("GET "+logapi.PathSurfaceProposals, func(w http.ResponseWriter, r *http.Request) {
+		p, ok := g.Proposals[r.URL.Query().Get("route")]
+		if !ok {
+			http.Error(w, "aucun profil pour ce proxy", http.StatusNotFound)
+			return
+		}
+		write(w, p)
+	})
+	mux.HandleFunc("POST "+logapi.PathSurfaceReset, func(w http.ResponseWriter, r *http.Request) {
+		var req logapi.SurfaceResetRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_, had := g.Reports[req.Route]
+		g.Resets = append(g.Resets, req.Route)
+		delete(g.Reports, req.Route)
+		write(w, logapi.SurfaceResetResponse{Reset: had})
+	})
 	g.Server = httptest.NewServer(mux)
 	t.Cleanup(func() {
 		g.Server.Close()

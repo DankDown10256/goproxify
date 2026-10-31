@@ -18,6 +18,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,9 @@ type Agent struct {
 	shellHub     *shellHub
 	tokenUpdate  chan string  // notifie heartbeatLoop d'un nouveau token (retryPairing)
 	edges        *edgeset.Set // passerelle courante et autres membres du groupe HA (bascule)
+
+	repairMu   sync.Mutex // sérialise refreshToken
+	lastRepair time.Time
 }
 
 // agentEdgesPath conserve les autres membres du groupe HA annoncés par la passerelle.
@@ -79,7 +83,8 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	// Sources de découverte (Docker/Podman, Portainer, Kubernetes… : modules du registre
 	// internal/agent/sources). Docker reste actif avec une ancienne config qui définit
 	// docker.runtime ; Docker est désactivable via docker.enabled: false.
-	srcs := agentsources.BuildBuiltin(agentsources.Deps{Cfg: cfg, Log: log, Docker: client, Net: netMgr, Edges: edges, State: statepub.New(cfg.Identity.NodeName, agentStateGenPath)})
+	state := statepub.New(cfg.Identity.NodeName, agentStateGenPath)
+	srcs := agentsources.BuildBuiltin(agentsources.Deps{Cfg: cfg, Log: log, Docker: client, Net: netMgr, Edges: edges, State: state})
 	var disc *agentdocker.Discovery
 	for _, s := range srcs {
 		if d, ok := s.Impl.(*agentdocker.Discovery); ok {
@@ -174,7 +179,7 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 	intAPI.setDiscovery(disc)
 	intAPI.cfgPath = cfgPath
 
-	return &Agent{
+	a := &Agent{
 		edges:        edges,
 		cfg:          cfg,
 		cfgPath:      cfgPath,
@@ -189,10 +194,45 @@ func New(cfg *config.AgentConfig, cfgPath string) (*Agent, error) {
 		digestWatch:  dw,
 		schedWatch:   sw,
 		dockerClient: client,
-	}, nil
+	}
+	state.SetOnUnauthorized(a.refreshToken)
+	return a, nil
 }
 
-const agentTokenPath = "/etc/goproxify/agent.token"
+// repairBackoff sépare deux réappairages après un 401 : une passerelle qui refuse l'appairage ne doit pas être
+// martelée par chaque envoi d'état de chaque endpoint.
+const repairBackoff = 30 * time.Second
+
+// refreshToken s'appaire de nouveau avec la passerelle parce qu'elle a refusé le jeton HTTP de l'Agent (401). Cela
+// arrive quand son magasin de jetons a été remis à zéro (volume recréé) : le WebSocket, authentifié par HMAC, reste
+// connecté, le battement de cœur passe par lui et ne le voit pas. Les envois d'état de toutes les sources (chacune
+// scanne en parallèle) arrivent ici ensemble : un seul appairage a lieu, les autres reprennent son jeton.
+func (a *Agent) refreshToken(ctx context.Context, stale string) string {
+	a.repairMu.Lock()
+	defer a.repairMu.Unlock()
+	if cur := a.cfg.ControlPlane.AuthToken; cur != "" && cur != stale {
+		return cur // un autre envoi l'a déjà renouvelé
+	}
+	if !a.lastRepair.IsZero() && time.Since(a.lastRepair) < repairBackoff {
+		return ""
+	}
+	a.lastRepair = time.Now()
+	a.log.Warn("agent: la passerelle refuse le jeton HTTP (401) — re-appairage")
+	t, err := a.pair(ctx)
+	if err != nil {
+		a.log.Warn("agent: re-appairage impossible après un 401", "err", err)
+		return ""
+	}
+	a.setSourcesToken(t)
+	select {
+	case a.tokenUpdate <- t:
+	default:
+	}
+	return t
+}
+
+// agentTokenPath est une variable pour que les tests l'écartent du vrai dossier d'état (voir main_test.go).
+var agentTokenPath = "/etc/goproxify/agent.token"
 
 // resolveAuthToken retourne le token à utiliser :
 // 1. Celui de la config (GPX_CONTROLPLANE_AUTH_TOKEN) s'il est défini.
@@ -234,6 +274,18 @@ func (a *Agent) pairingCredentials() []string {
 		out = append(out, c.Value)
 	}
 	return out
+}
+
+// pair obtient le jeton HTTP de l'Agent. Un Agent qui a une passerelle ne s'appaire qu'avec elle, même quand elle ne répond
+// pas encore (redéploiement simultané) : l'Admin émet un jeton que la passerelle, qui a son propre magasin, ne connaîtra
+// jamais ; l'Agent le garderait dans agent.token et recevrait des 401 sur chaque appel, sans qu'aucune bascule ni
+// aucun redémarrage n'y change rien (ADR 0006 : l'Agent ne dépend que de sa passerelle). L'Admin ne sert que sans
+// passerelle configurée.
+func (a *Agent) pair(ctx context.Context) (string, error) {
+	if a.cfg.ControlPlane.EdgeEndpoint == "" {
+		return a.pairWithAdmin(ctx)
+	}
+	return a.pairWithEdge(ctx)
 }
 
 // pairWithEdge obtient un token Agent auprès de la passerelle locale avec la clé d'appairage.
@@ -414,10 +466,7 @@ func (a *Agent) retryPairing(ctx context.Context) {
 			if a.cfg.ControlPlane.AuthToken != "" {
 				return // appairage réussi entre-temps
 			}
-			token, err := a.pairWithEdge(ctx)
-			if err != nil {
-				token, err = a.pairWithAdmin(ctx)
-			}
+			token, err := a.pair(ctx)
 			if err != nil {
 				a.log.Warn("agent: appairage (retry) échoué", "err", err, "prochain_essai", delay)
 				continue
@@ -590,11 +639,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	token := a.resolveAuthToken()
 	if token == "" {
 		var err error
-		token, err = a.pairWithEdge(ctx)
-		if err != nil {
-			a.log.Debug("agent: appairage passerelle échoué, tentative Admin", "err", err)
-			token, err = a.pairWithAdmin(ctx)
-		}
+		token, err = a.pair(ctx)
 		if err != nil {
 			a.log.Warn("agent: appairage impossible — retry en arrière-plan (backoff 5 s → 60 s)", "err", err)
 			go a.retryPairing(ctx)
@@ -677,10 +722,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		a.wsClient,
 		a.tokenUpdate,
 		func() string {
-			t, err := a.pairWithEdge(ctx)
-			if err != nil {
-				t, err = a.pairWithAdmin(ctx)
-			}
+			t, err := a.pair(ctx)
 			if err != nil {
 				a.log.Warn("heartbeat: re-appairage impossible", "err", err)
 				return ""

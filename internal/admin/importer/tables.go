@@ -37,11 +37,7 @@ var backupTables = []string{
 	"teams",
 	"team_members",
 	"team_scopes",
-	"team_scopes_v2",
-	"team_members_v2",
-	"team_scopes_grants",
 	"user_scopes",
-	"token_scopes_v2",
 	"workspaces",
 	"workspace_members",
 	"workspace_resources",
@@ -228,7 +224,7 @@ func applyTablesOrdered(db *sql.DB, tables map[string][]map[string]any, order []
 		for _, row := range rows {
 			// Membres d'une équipe portant une permission (gdpr:reveal) : composition réservée
 			// au superadmin, une restauration ne doit pas y ajouter quelqu'un.
-			if (table == "team_members" || table == "team_members_v2") && !allowPrivileged && teamHasPermission(db, row["team_id"]) {
+			if table == "team_members" && !allowPrivileged && teamHasPermission(db, row["team_id"]) {
 				skipped++
 				continue
 			}

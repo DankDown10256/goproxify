@@ -35,6 +35,7 @@ const SENT_BEHAVIOR = [
   { key: 'rate_deviation', points: '3', what: 'débit de l\'IP au-dessus du normal appris pour la route et l\'heure' },
   { key: 'fail2ban', points: '5', what: 'décision de Fail2Ban prise en entrée' },
   { key: 'crowdsec', points: '5', what: 'décision de CrowdSec prise en entrée' },
+  { key: 'surface_violation', points: '3', what: 'requête hors de la politique de surface du proxy, refusée par le backend' },
 ];
 const SENT_NEW_SIGNALS = new Set(['ua_tls_mismatch', 'no_assets', 'regular_interval', 'scan_breadth', 'asn_aggregate', 'rate_deviation']);
 

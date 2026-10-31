@@ -35,15 +35,15 @@ const (
 	TypeUnbanIPs            = "unban_ips"  // lève les bans d'IPs débannies depuis l'Admin, toutes sources confondues (payload : []UnbanEntry)
 	TypeEraseIPs            = "erase_ips"  // efface d'une passerelle les traces d'IPs (droit à l'effacement RGPD) : lignes d'accès de sa base de logs et historique des bans (payload : []EraseEntry)
 	TypeLogLive             = "log_live"   // Admin → passerelle : une vue Live est ouverte, envoyer les nouvelles lignes pendant TTLSec secondes (payload : LogLivePayload)
+	TypeLogAck              = "log_ack"    // Admin → passerelle : positions que l'Admin a rangées dans son volume de logs, par flux ; la passerelle peut purger ce qui est acquitté (payload : LogAckPayload)
 	TypeLogResume           = "log_resume" // Admin → passerelle : reprendre l'envoi des logs après la position que l'Admin a déjà enregistrée (payload : LogResumePayload)
 	TypePushSettings        = "push_settings"
-	TypePushClusterPeers    = "push_cluster_peers"
 	TypePushGatewayPeers    = "push_gateway_peers"
 	TypePushDelegations     = "push_delegations"
 	TypePushThreatConfig    = "push_threat_config"
 	TypePushF2BConfig       = "push_f2b_config"
 	TypePushLogRetention    = "push_log_retention" // durées de conservation des logs de la passerelle (payload : LogRetentionPayload)
-	TypePushSIEMConfig      = "push_siem_config" // configuration de l'exporteur SIEM de la passerelle (payload : siem.Config)
+	TypePushSIEMConfig      = "push_siem_config"   // configuration de l'exporteur SIEM de la passerelle (payload : siem.Config)
 	TypePushCrowdSecConfig  = "push_crowdsec_config"
 	TypePushWAFConfig       = "push_waf_config"
 	TypePushServerConfig    = "push_server_config"
@@ -57,6 +57,7 @@ const (
 	TypePushAutoRules       = "push_auto_rules"    // pousse les règles automatiques vers passerelle
 	TypePushTunnelConfig    = "push_tunnel_config" // pousse la config peers tunnel L4 mTLS vers passerelle
 	TypePushGroupCard       = "push_group_card"    // fiche du groupe HA de la passerelle (payload : GroupCard)
+	TypePushDisabledRoutes  = "push_disabled_routes" // hôtes dont la route issue d'un conteneur est désactivée (payload : DisabledRoutes)
 )
 
 // TypeRevokeStaleAdminTokens révoque les autres jetons qu'un Admin a poussés à la passerelle (payload : AdminTokenPayload,
@@ -95,13 +96,14 @@ const (
 	TypeAgentPending          = "agent_pending"
 	TypeNodeUpdate            = "node_update"
 	TypeEdgeHeartbeat         = "edge_heartbeat"
-	TypeEdgeTraffic           = "edge_traffic"  // débit récent de la passerelle, toutes les 5 s, pour la carte de topologie (payload : EdgeTrafficPayload)
-	TypeLogLiveRows           = "log_live_rows" // lignes récentes envoyées à une vue Live, sans numéro ni reprise (payload : LogLiveRowsPayload)
-	TypeLogStream             = "log_stream"    // lot de logs numérotés lus dans la base de logs de la passerelle (payload : LogStreamPayload)
-	TypeAggStream             = "agg_stream"    // cumuls par minute calculés par la passerelle avec ses lignes (payload : MinuteStreamPayload)
-	TypeLogInfo               = "log_info" // rétention réellement appliquée par la passerelle, toutes les 30 s (payload : LogInfoPayload)
-	TypeSIEMStatus            = "siem_status"   // état de chaque destination de l'exporteur SIEM, toutes les 30 s (payload : SIEMStatusPayload)
-	TypeIPStream              = "ip_stream"     // compteurs d'erreurs client par IP et par minute, pour le Fail2Ban global de l'Admin (payload : IPStreamPayload)
+	TypeEdgeTraffic           = "edge_traffic"        // débit récent de la passerelle, toutes les 5 s, pour la carte de topologie (payload : EdgeTrafficPayload)
+	TypeLogLiveRows           = "log_live_rows"       // lignes récentes envoyées à une vue Live, sans numéro ni reprise (payload : LogLiveRowsPayload)
+	TypeLogStream             = "log_stream"          // lot de logs numérotés lus dans la base de logs de la passerelle (payload : LogStreamPayload)
+	TypeAggStream             = "agg_stream"          // cumuls par minute calculés par la passerelle avec ses lignes (payload : MinuteStreamPayload)
+	TypeLogInfo               = "log_info"            // rétention réellement appliquée par la passerelle, toutes les 30 s (payload : LogInfoPayload)
+	TypeSIEMStatus            = "siem_status"         // état de chaque destination de l'exporteur SIEM, toutes les 30 s (payload : SIEMStatusPayload)
+	TypeSurfaceSuggestions    = "surface_suggestions" // ajouts suggérés à la politique de surface de chaque proxy, toutes les 5 min (payload : SurfaceSuggestionsPayload)
+	TypeIPStream              = "ip_stream"           // compteurs d'erreurs client par IP et par minute, pour le Fail2Ban global de l'Admin (payload : IPStreamPayload)
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
@@ -181,6 +183,8 @@ type F2BBanPayload struct {
 	Reason    string `json:"reason"`
 	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, vide = permanent
 	NodeName  string `json:"node_name,omitempty"`
+	// UserAgent : le dernier User-Agent vu pour l'IP au moment du ban.
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // UnbanEntry est un déban décidé dans l'Admin. At vide : déban à l'instant (la passerelle prend sa
@@ -210,6 +214,8 @@ type ThreatBanPayload struct {
 	Source string `json:"source,omitempty"`
 	// Signals : les signaux qui expliquent le ban, avec leurs points et la valeur observée (ADR 0011).
 	Signals []router.BanSignal `json:"signals,omitempty"`
+	// UserAgent : le dernier User-Agent vu pour l'IP au moment du ban.
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // LogEntryPayload est le format normalisé des logs relayés passerelle → Admin.
@@ -238,6 +244,8 @@ type LogEntryPayload struct {
 	Bytes       int64  `json:"bytes"`
 	Message     string `json:"message"`
 	Referrer    string `json:"referrer,omitempty"`
+	// UserAgent n'est envoyé que par le flux de lignes (ADR 0018) : le store de l'Admin en a besoin pour ses classements.
+	UserAgent string `json:"user_agent,omitempty"`
 	// RequestID/WAFMatches/ThreatSignal : contexte de sécurité de la requête d'origine
 	// (voir logger.ShipEntry côté passerelle) — vides pour la majorité des requêtes
 	// propres, renseignés quand le WAF ou Ephor se sont déclenchés.
@@ -260,6 +268,15 @@ const (
 
 // LogResumePayload : positions de l'Admin par flux. 0 ou absent : depuis le début de la base de la passerelle.
 type LogResumePayload struct {
+	// Stored : les positions sont celles de lignes rangées dans le volume de logs de l'Admin (ADR 0018), donc acquittées : la
+	// passerelle peut en purger la base. Faux (Admin sans volume de logs) : les positions ne protègent rien et ne purgent rien.
+	Stored bool `json:"stored,omitempty"`
+	Cursors map[string]int64 `json:"cursors"`
+}
+
+// LogAckPayload : positions rangées par l'Admin, par flux (access, system, minute, iperr). Elles ne reculent pas : une remise en
+// arrière passe par log_resume, quand le volume de logs de l'Admin a été remplacé.
+type LogAckPayload struct {
 	Cursors map[string]int64 `json:"cursors"`
 }
 
@@ -356,12 +373,43 @@ type LogInfoPayload struct {
 	NodeName   string `json:"node_name"`
 	AccessDays int    `json:"access_days"`
 	SystemDays int    `json:"system_days"`
+	// AccessLast et SystemLast : le dernier identifiant que la base de logs de la passerelle a attribué, par type. L'Admin les
+	// compare à la position de sa copie pour savoir si elle est à jour (ADR 0018).
+	AccessLast int64 `json:"access_last,omitempty"`
+	SystemLast int64 `json:"system_last,omitempty"`
+	// BufferActive : la base de la passerelle se comporte en tampon (l'Admin acquitte ses lignes). UnackedDays : âge, en jours
+	// entiers, de la plus ancienne ligne que l'Admin n'a pas acquittée ; BufferMaxDays : âge au-delà duquel elle est supprimée.
+	BufferActive  bool `json:"buffer_active,omitempty"`
+	UnackedDays   int  `json:"unacked_days,omitempty"`
+	BufferMaxDays int  `json:"buffer_max_days,omitempty"`
 }
 
 // SIEMStatusPayload : l'état de l'exporteur SIEM d'une passerelle. Liste vide : aucune destination active.
 type SIEMStatusPayload struct {
 	NodeName     string                   `json:"node_name"`
 	Destinations []siem.DestinationStatus `json:"destinations"`
+}
+
+// SurfaceSuggestionPayload est un ajout que le profil de surface d'un proxy suggère à sa politique.
+type SurfaceSuggestionPayload struct {
+	Key        string `json:"key"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Confidence string `json:"confidence"` // high | low
+}
+
+// SurfaceProxyPayload : les ajouts suggérés pour un proxy.
+type SurfaceProxyPayload struct {
+	Route       string                     `json:"route"`
+	Host        string                     `json:"host"`
+	Suggestions []SurfaceSuggestionPayload `json:"suggestions"`
+}
+
+// SurfaceSuggestionsPayload : l'état des suggestions d'une passerelle. C'est un état, pas un journal : un envoi perdu pendant une
+// coupure est remplacé par le suivant, et un proxy absent n'a plus de suggestion.
+type SurfaceSuggestionsPayload struct {
+	NodeName string                `json:"node_name"`
+	Proxies  []SurfaceProxyPayload `json:"proxies"`
 }
 
 // EdgeHeartbeatPayload est envoyé par passerelle → Admin toutes les 30 s.
@@ -371,9 +419,6 @@ type EdgeHeartbeatPayload struct {
 	Version  string  `json:"version"`
 	CPUPct   float64 `json:"cpu_pct"`
 	MemPct   float64 `json:"mem_pct"`
-	// ClusterPeers : pairs Raft de la passerelle (id → URL raft). L'Admin s'en sert pour
-	// découvrir les passerelles du groupe sans variable supplémentaire.
-	ClusterPeers map[string]string `json:"cluster_peers,omitempty"`
 }
 
 // AdminTokenPayload transporte le token HTTP qu'Admin utilise pour appeler l'API interne de la passerelle.
@@ -479,6 +524,13 @@ type TunnelPeer struct {
 // TunnelConfigPayload est envoyé par Admin → passerelle pour mettre à jour la liste des peers tunnel.
 type TunnelConfigPayload struct {
 	Peers []TunnelPeer `json:"peers"`
+}
+
+// DisabledRoutes liste les hôtes dont la route issue d'un conteneur (Docker, Portainer, Podman, Kubernetes, annuaires)
+// est désactivée : la passerelle ne la sert plus, mais la garde listée pour qu'on puisse la réactiver. La liste est
+// complète, triée, et remplace la précédente.
+type DisabledRoutes struct {
+	Hosts []string `json:"hosts"`
 }
 
 // GroupCard est la fiche d'un groupe HA (ADR 0014, section 3) : la composition et les domaines du groupe, tels que

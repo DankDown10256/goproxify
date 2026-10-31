@@ -117,4 +117,5 @@ var messagesES = map[string]string{
 	"api.err.domain_not_found":      "dominio no encontrado",
 	"api.err.agent_unreachable":     "agent inaccesible",
 	"api.err.edge_unreachable":      "edge inaccesible",
+	"api.err.edge_refused":          "el edge rechazó las credenciales del Admin (revisa las claves de canal)",
 }

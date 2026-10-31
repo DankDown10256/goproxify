@@ -30,6 +30,18 @@ type Node struct {
 
 	leaderID atomic.Value // string
 
+	// lastLeaderContact : dernier AppendEntries valide reçu d'un leader. Sert
+	// au pré-vote : un nœud qui a un leader actif refuse de laisser un pair
+	// lancer une élection (sinon un nœud isolé qui revient fait tomber le
+	// leader sain avec son terme gonflé).
+	lastLeaderContact time.Time
+	preVoteRunning    atomic.Bool
+	lastNoQuorumLog   time.Time
+	// noQuorumStreak : pré-votes consécutifs sans quorum. Espace les tentatives
+	// (backoff exponentiel) tant que les pairs restent introuvables ; remis à
+	// zéro dès qu'un leader parle ou qu'un pré-vote aboutit.
+	noQuorumStreak int
+
 	// electionResetCh signale à la goroutine run() qu'un heartbeat/vote
 	// valide a été reçu, pour reporter l'élection. Le timer d'élection
 	// lui-même n'est possédé et manipulé que par cette goroutine (voir
@@ -67,6 +79,7 @@ func NewNode(cfg Config, transport Transport, log *slog.Logger) *Node {
 		cfg.HeartbeatInterval = 50 * time.Millisecond
 	}
 
+	cfg.Peers = withoutSelf(cfg.ID, cfg.Peers)
 	n := &Node{
 		cfg:             cfg,
 		log:             log,
@@ -119,11 +132,7 @@ func (n *Node) LeaderID() string {
 func (n *Node) UpdatePeers(peers map[string]string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	newPeers := make(map[string]string, len(peers))
-	for k, v := range peers {
-		newPeers[k] = v
-	}
-	n.cfg.Peers = newPeers
+	n.cfg.Peers = withoutSelf(n.cfg.ID, peers)
 }
 
 // IsLeader retourne true si ce nœud est le leader.
@@ -229,12 +238,119 @@ func (n *Node) runLeader() {
 
 // --- Élection -------------------------------------------------------------
 
+// startElection lance un pré-vote auprès des pairs et ne démarre la vraie
+// élection (terme incrémenté) que si une majorité répond qu'elle voterait pour
+// ce nœud. Sans cela, un nœud dont les pairs sont injoignables incrémentait son
+// terme à chaque timeout sans jamais pouvoir gagner : terme qui s'envole, log
+// saturé, et un leader sain déposé dès le retour du nœud isolé.
 func (n *Node) startElection() {
 	n.mu.Lock()
+	peers := n.cfg.Peers
+	term := n.currentTerm
+	lastLogIndex := uint64(len(n.logEntries) - 1)
+	lastLogTerm := n.logEntries[lastLogIndex].Term
+	n.mu.Unlock()
+
+	if len(peers) == 0 {
+		n.campaign(term, time.Time{})
+		return
+	}
+	if !n.preVoteRunning.CompareAndSwap(false, true) {
+		return
+	}
+	started := time.Now()
+	go func() {
+		defer n.preVoteRunning.Store(false)
+		ok := n.preVote(peers, term, lastLogIndex, lastLogTerm)
+		n.mu.Lock()
+		if ok {
+			n.noQuorumStreak = 0
+		} else if n.noQuorumStreak < maxBackoffShift {
+			n.noQuorumStreak++
+		}
+		n.mu.Unlock()
+		if ok {
+			n.campaign(term, started)
+		}
+	}()
+}
+
+// preVote retourne true si une majorité (soi compris) voterait pour ce nœud au
+// terme term+1. N'altère ni le terme ni le vote de personne.
+func (n *Node) preVote(peers map[string]string, term, lastLogIndex, lastLogTerm uint64) bool {
+	quorum := (len(peers)+1)/2 + 1
+	type result struct {
+		reply RequestVoteReply
+		err   error
+	}
+	results := make(chan result, len(peers))
+	for _, peerURL := range peers {
+		go func(purl string) {
+			reply, err := n.transport.RequestVote(purl, RequestVoteArgs{
+				Term:         term + 1,
+				CandidateID:  n.cfg.ID,
+				LastLogIndex: lastLogIndex,
+				LastLogTerm:  lastLogTerm,
+				PreVote:      true,
+			})
+			results <- result{reply, err}
+		}(peerURL)
+	}
+
+	granted, reachable := 1, 0
+	for range peers {
+		r := <-results
+		if r.err != nil {
+			continue
+		}
+		reachable++
+		if r.reply.Term > term {
+			n.mu.Lock()
+			if r.reply.Term > n.currentTerm {
+				n.stepDown(r.reply.Term)
+			}
+			n.mu.Unlock()
+			return false
+		}
+		if r.reply.VoteGranted {
+			granted++
+			if granted >= quorum {
+				return true
+			}
+		}
+	}
+	n.logNoQuorum(reachable, len(peers))
+	return false
+}
+
+// logNoQuorum signale l'absence de quorum au plus une fois par minute : une
+// passerelle dont les pairs sont coupés retente toutes les ~200 ms.
+func (n *Node) logNoQuorum(reachable, total int) {
+	n.mu.Lock()
+	due := time.Since(n.lastNoQuorumLog) > time.Minute
+	if due {
+		n.lastNoQuorumLog = time.Now()
+	}
+	n.mu.Unlock()
+	if due {
+		n.log.Warn("raft: pas de quorum, élection non lancée", "id", n.cfg.ID, "pairs_joignables", reachable, "pairs_total", total)
+	}
+}
+
+// campaign démarre la vraie élection. expectedTerm est le terme observé avant
+// le pré-vote : si un leader a parlé depuis since ou si le terme a changé, le
+// pré-vote est périmé et on renonce.
+func (n *Node) campaign(expectedTerm uint64, since time.Time) {
+	n.mu.Lock()
+	if n.currentTerm != expectedTerm || n.state == Leader || n.lastLeaderContact.After(since) {
+		n.mu.Unlock()
+		return
+	}
 	n.state = Candidate
 	n.currentTerm++
 	n.votedFor = n.cfg.ID
 	term := n.currentTerm
+	peers := n.cfg.Peers
 	lastLogIndex := uint64(len(n.logEntries) - 1)
 	lastLogTerm := n.logEntries[lastLogIndex].Term
 	n.mu.Unlock()
@@ -242,16 +358,16 @@ func (n *Node) startElection() {
 	n.log.Info("raft: début élection", "id", n.cfg.ID, "term", term)
 
 	votes := 1 // vote pour soi-même
-	total := len(n.cfg.Peers) + 1
+	total := len(peers) + 1
 	quorum := total/2 + 1
 
 	if votes >= quorum {
-		n.becomeLeader()
+		n.becomeLeader(term)
 		return
 	}
 
 	var mu sync.Mutex
-	for peerID, peerURL := range n.cfg.Peers {
+	for peerID, peerURL := range peers {
 		go func(pid, purl string) {
 			reply, err := n.transport.RequestVote(purl, RequestVoteArgs{
 				Term:         term,
@@ -276,17 +392,20 @@ func (n *Node) startElection() {
 				won := votes >= quorum
 				mu.Unlock()
 				if won {
-					n.becomeLeader()
+					n.becomeLeader(term)
 				}
 			}
 		}(peerID, peerURL)
 	}
 }
 
-func (n *Node) becomeLeader() {
+// becomeLeader ne promeut le nœud que si l'élection gagnée est toujours celle
+// du terme courant : le dépouillement est asynchrone, et des votes tardifs
+// d'un terme révolu ne doivent pas élire le nœud dans un terme plus récent.
+func (n *Node) becomeLeader(term uint64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.state != Candidate {
+	if n.state != Candidate || n.currentTerm != term {
 		return
 	}
 	n.state = Leader
@@ -323,14 +442,15 @@ func (n *Node) broadcastAppendEntries() {
 	term := n.currentTerm
 	leaderCommit := n.commitIndex
 	logLen := uint64(len(n.logEntries))
+	peers := n.cfg.Peers
 	n.mu.Unlock()
 
 	replicated := 1
-	total := len(n.cfg.Peers) + 1
+	total := len(peers) + 1
 	quorum := total/2 + 1
 	var mu sync.Mutex
 
-	for peerID, peerURL := range n.cfg.Peers {
+	for peerID, peerURL := range peers {
 		go func(pid, purl string) {
 			n.mu.Lock()
 			ni := n.nextIndex[pid]
@@ -450,17 +570,23 @@ func (n *Node) HandleRequestVote(args RequestVoteArgs) RequestVoteReply {
 
 	reply := RequestVoteReply{Term: n.currentTerm}
 
+	lastLogIndex := uint64(len(n.logEntries) - 1)
+	lastLogTerm := n.logEntries[lastLogIndex].Term
+	logOK := args.LastLogTerm > lastLogTerm ||
+		(args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex)
+
+	if args.PreVote {
+		leaderAlive := n.state == Leader || time.Since(n.lastLeaderContact) < n.cfg.ElectionTimeoutMin
+		reply.VoteGranted = args.Term > n.currentTerm && logOK && !leaderAlive
+		return reply
+	}
+
 	if args.Term < n.currentTerm {
 		return reply
 	}
 	if args.Term > n.currentTerm {
 		n.stepDown(args.Term)
 	}
-
-	lastLogIndex := uint64(len(n.logEntries) - 1)
-	lastLogTerm := n.logEntries[lastLogIndex].Term
-	logOK := args.LastLogTerm > lastLogTerm ||
-		(args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex)
 
 	if (n.votedFor == "" || n.votedFor == args.CandidateID) && logOK {
 		n.votedFor = args.CandidateID
@@ -485,6 +611,8 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 		n.stepDown(args.Term)
 	}
 	n.leaderID.Store(args.LeaderID)
+	n.lastLeaderContact = time.Now()
+	n.noQuorumStreak = 0
 	n.signalElectionReset()
 
 	// Vérifie la cohérence du log précédent
@@ -530,9 +658,29 @@ func (n *Node) HandleAppendEntries(args AppendEntriesArgs) AppendEntriesReply {
 
 // --- Helpers --------------------------------------------------------------
 
+// maxBackoffShift borne l'espacement à 16 fois le délai d'élection (≈ 5 s avec
+// les 150-300 ms par défaut).
+const maxBackoffShift = 4
+
 func (n *Node) randomElectionTimeout() time.Duration {
-	return n.cfg.ElectionTimeoutMin +
+	n.mu.Lock()
+	shift := n.noQuorumStreak
+	n.mu.Unlock()
+	base := n.cfg.ElectionTimeoutMin +
 		time.Duration(rand.Int63n(int64(n.cfg.ElectionTimeoutMax-n.cfg.ElectionTimeoutMin)))
+	return base << shift
+}
+
+// withoutSelf copie les pairs en retirant ce nœud : s'il figure dans la
+// topologie reçue, il se compterait deux fois dans les quorums.
+func withoutSelf(self string, peers map[string]string) map[string]string {
+	out := make(map[string]string, len(peers))
+	for id, url := range peers {
+		if id != self {
+			out[id] = url
+		}
+	}
+	return out
 }
 
 // signalElectionReset notifie runFollowerCandidate qu'un événement valide

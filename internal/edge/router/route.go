@@ -16,10 +16,10 @@ type RouteOrigin struct {
 
 // Route décrit un proxy HTTP ou TCP/UDP vers un ou plusieurs backends.
 type Route struct {
-	ID       string   `json:"id"`
-	Host     string   `json:"host"`              // ex: "app.example.fr" — vide pour TCP/UDP
-	Aliases  []string `json:"aliases,omitempty"` // domaines secondaires pointant vers la même route
-	Type     RouteType `json:"type"`             // http | tcp | udp
+	ID       string    `json:"id"`
+	Host     string    `json:"host"`              // ex: "app.example.fr" — vide pour TCP/UDP
+	Aliases  []string  `json:"aliases,omitempty"` // domaines secondaires pointant vers la même route
+	Type     RouteType `json:"type"`              // http | tcp | udp
 	Backends []Backend `json:"backends"`
 
 	// AgentName est le nœud Agent qui a découvert / injecté cette route (docker:/k8s:).
@@ -35,9 +35,9 @@ type Route struct {
 
 	// TLS
 	TLSEnabled     bool   `json:"tls_enabled"`
-	TLSPassthrough bool   `json:"tls_passthrough"` // SNI passthrough sans déchiffrement
-	CertName       string `json:"cert_name"`       // clé dans CertStore
-	TLSSkipVerify  bool   `json:"tls_skip_verify,omitempty"`  // ignorer le certificat backend auto-signé
+	TLSPassthrough bool   `json:"tls_passthrough"`           // SNI passthrough sans déchiffrement
+	CertName       string `json:"cert_name"`                 // clé dans CertStore
+	TLSSkipVerify  bool   `json:"tls_skip_verify,omitempty"` // ignorer le certificat backend auto-signé
 	// nil (absent) = conserver le Host original (défaut, comme nginx) ; false = envoyer le host du backend
 	PreserveHost *bool `json:"preserve_host,omitempty"`
 	// nil/true = autoriser WebSocket ; false = rejeter Upgrade: websocket
@@ -71,6 +71,8 @@ type Route struct {
 	JWT                 *JWTConfig                 `json:"jwt,omitempty"`
 	MTLS                *MTLSConfig                `json:"mtls,omitempty"`
 	SSO                 *SSOConfig                 `json:"sso,omitempty"`
+	// Surface apprend la surface du proxy (ADR 0016) : ce que son trafic légitime utilise.
+	Surface *SurfaceConfig `json:"surface,omitempty"`
 
 	// Cache proxy sur disque (vide = désactivé)
 	CachePath string `json:"cache_path,omitempty"`
@@ -94,20 +96,20 @@ type Route struct {
 	MaxBodySize     int64         `json:"max_body_size,omitempty"`    // taille max corps requête client en octets (nginx: client_max_body_size ; 0 = défaut 100 Mo, -1 = illimité)
 
 	// Résilience
-	LB             LBAlgorithm  `json:"lb"`              // round_robin | weighted | adaptive
+	LB             LBAlgorithm  `json:"lb"` // round_robin | weighted | adaptive
 	CircuitBreaker *CBConfig    `json:"circuit_breaker,omitempty"`
 	Retry          *RetryConfig `json:"retry,omitempty"`
 	StickyCookie   string       `json:"sticky_cookie,omitempty"`
 	// SlowStartSec : durée (s) de montée en charge d'un backend nouvellement sain ou nouvellement ajouté (0 = désactivé).
-	SlowStartSec int `json:"slow_start_sec,omitempty"`
-	HealthCheck    *HealthCheckConfig `json:"health_check,omitempty"`
+	SlowStartSec int                `json:"slow_start_sec,omitempty"`
+	HealthCheck  *HealthCheckConfig `json:"health_check,omitempty"`
 
 	// Pipeline de transformation de requête/réponse (headers, réécriture URL).
-	Transform  *RequestTransform `json:"transform,omitempty"`
+	Transform *RequestTransform `json:"transform,omitempty"`
 
 	// Trafic avancé
-	Canary     *CanaryConfig    `json:"canary,omitempty"`
-	Shadow     *ShadowConfig    `json:"shadow,omitempty"`
+	Canary *CanaryConfig `json:"canary,omitempty"`
+	Shadow *ShadowConfig `json:"shadow,omitempty"`
 	// Split répartit le trafic entre plusieurs backends nommés selon des poids (A/B, déploiement progressif).
 	Split *SplitConfig `json:"split,omitempty"`
 	// Maintenance coupe la route avec une page 503, sans la supprimer.
@@ -136,15 +138,15 @@ type Route struct {
 	RedactJSON *RedactConfig `json:"redact_json,omitempty"`
 	// HTMLInject insère un fragment (script, balise) dans les pages HTML du backend.
 	HTMLInject *HTMLInjectConfig `json:"html_inject,omitempty"`
-	Conditions []Condition      `json:"conditions,omitempty"`
-	Locations  []Location       `json:"locations,omitempty"`
+	Conditions []Condition       `json:"conditions,omitempty"`
+	Locations  []Location        `json:"locations,omitempty"`
 	// StripPrefix is applied at proxy time (usually copied from the matched Location).
 	StripPrefix string `json:"strip_prefix,omitempty"`
 	// StripPrefixFold: StripPrefix s'applique sans tenir compte de la casse (posé par MergeLocation).
 	StripPrefixFold bool `json:"-"`
 	// PathRewrite is a replacement template applied after a regex Location match.
 	// Use $1, $2 … to reference capture groups from the matched Location regex.
-	PathRewrite        string `json:"path_rewrite,omitempty"`
+	PathRewrite string `json:"path_rewrite,omitempty"`
 	// PathRewritePattern holds the source regex pattern when PathRewrite is set.
 	// It is populated by MergeLocation and not persisted to JSON.
 	PathRewritePattern string `json:"-"`
@@ -175,7 +177,7 @@ type Route struct {
 	EphorWhitelist []string `json:"ephor_whitelist,omitempty"`
 
 	// Observabilité par route
-	Logging    *RouteLoggingConfig `json:"logging,omitempty"`
+	Logging *RouteLoggingConfig `json:"logging,omitempty"`
 
 	// Pages d'erreur personnalisées
 	ErrorPages *ErrorPagesConfig `json:"error_pages,omitempty"`
@@ -183,9 +185,9 @@ type Route struct {
 	// Références vers des ressources passerelle partagées
 	// SnippetUnresolved liste les snippets référencés mais introuvables ou illisibles (calculé par
 	// ResolveSnippets, jamais sérialisé) : la route refuse alors le trafic au lieu de perdre leur protection.
-	SnippetUnresolved string `json:"-"`
-	SnippetIDs     []string `json:"snippet_ids,omitempty"`      // snippets à fusionner dans la config
-	AuthProviderID string   `json:"auth_provider_id,omitempty"` // fournisseur SSO/OIDC de la passerelle
+	SnippetUnresolved string   `json:"-"`
+	SnippetIDs        []string `json:"snippet_ids,omitempty"`      // snippets à fusionner dans la config
+	AuthProviderID    string   `json:"auth_provider_id,omitempty"` // fournisseur SSO/OIDC de la passerelle
 
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -230,12 +232,13 @@ const (
 )
 
 type Backend struct {
-	URL                string `json:"url"`                              // ex: "http://10.0.0.5:3000" ou "10.0.0.5:5432" (L4)
-	Weight             int    `json:"weight"`                           // 0 = égal aux autres
-	ContainerID        string `json:"container_id,omitempty"`           // discovery Docker — pour merge/retrait
-	AgentName          string `json:"agent_name,omitempty"`
-	OwnerEdgeEndpoint  string `json:"owner_edge_endpoint,omitempty"`    // si distant : gateway vers cette passerelle
-	OwnerEdgeName      string `json:"owner_edge_name,omitempty"`
+	URL               string `json:"url"`                    // ex: "http://10.0.0.5:3000" ou "10.0.0.5:5432" (L4)
+	Weight            int    `json:"weight"`                 // 0 = égal aux autres
+	ContainerID       string `json:"container_id,omitempty"` // discovery Docker — pour merge/retrait
+	Image             string `json:"image,omitempty"`        // image du conteneur : inventaire des applications (ADR 0017)
+	AgentName         string `json:"agent_name,omitempty"`
+	OwnerEdgeEndpoint string `json:"owner_edge_endpoint,omitempty"` // si distant : gateway vers cette passerelle
+	OwnerEdgeName     string `json:"owner_edge_name,omitempty"`
 }
 
 type LBAlgorithm string
@@ -283,7 +286,7 @@ type PluginRef struct {
 }
 
 type IPFilterConfig struct {
-	Mode  string   `json:"mode"`   // allow | deny
+	Mode  string   `json:"mode"` // allow | deny
 	CIDRs []string `json:"cidrs"`
 }
 
@@ -344,18 +347,18 @@ type CacheValidRule struct {
 // RequestVar définit une variable dérivée de la requête (équivalent nginx map {}).
 // La variable est résolue à chaque requête et peut être injectée via request_set_header.
 type RequestVar struct {
-	Name    string           `json:"name"`             // nom de la variable (sans $)
-	Source  string           `json:"source"`           // header | cookie | query | method | remote_ip | path
-	Key     string           `json:"key,omitempty"`    // nom du header/cookie/query param (si source=header/cookie/query)
+	Name    string           `json:"name"`              // nom de la variable (sans $)
+	Source  string           `json:"source"`            // header | cookie | query | method | remote_ip | path
+	Key     string           `json:"key,omitempty"`     // nom du header/cookie/query param (si source=header/cookie/query)
 	Default string           `json:"default,omitempty"` // valeur si aucun cas ne correspond
 	Cases   []RequestVarCase `json:"cases,omitempty"`
 }
 
 // RequestVarCase mappe un pattern à une valeur de variable.
 type RequestVarCase struct {
-	Pattern string `json:"pattern"`           // valeur ou regex à matcher
-	Value   string `json:"value"`             // valeur retournée si pattern correspond
-	Regex   bool   `json:"regex,omitempty"`   // interpréter Pattern comme regex
+	Pattern string `json:"pattern"`         // valeur ou regex à matcher
+	Value   string `json:"value"`           // valeur retournée si pattern correspond
+	Regex   bool   `json:"regex,omitempty"` // interpréter Pattern comme regex
 }
 
 // SubFilter décrit une règle de remplacement dans le corps des réponses texte.
@@ -384,11 +387,11 @@ type ProxyRedirect struct {
 }
 
 type HeadersConfig struct {
-	HSTS            bool              `json:"hsts"`
-	HSTSMaxAge      int               `json:"hsts_max_age"`
-	XFrameOptions   string            `json:"x_frame_options"`
-	HideServer      bool              `json:"hide_server"`
-	Custom          map[string]string `json:"custom,omitempty"`
+	HSTS          bool              `json:"hsts"`
+	HSTSMaxAge    int               `json:"hsts_max_age"`
+	XFrameOptions string            `json:"x_frame_options"`
+	HideServer    bool              `json:"hide_server"`
+	Custom        map[string]string `json:"custom,omitempty"`
 }
 
 // HeadersManipulationConfig contrôle les en-têtes injectés vers le backend
@@ -400,6 +403,15 @@ type HeadersManipulationConfig struct {
 	RequestSetHeader  map[string]string `json:"request_set_header,omitempty"`  // proxy_set_header Name value
 	RequestHideHeader []string          `json:"request_hide_header,omitempty"` // proxy_hide_header / Del
 	ResponseAddHeader []string          `json:"response_add_header,omitempty"` // legacy UI ; préférer headers.custom
+}
+
+// SurfaceConfig règle l'apprentissage de la surface d'un proxy. Mode : off (défaut) | learn. En learn la passerelle observe
+// le trafic légitime et en tire un profil ; elle ne bloque rien.
+type SurfaceConfig struct {
+	Mode string `json:"mode,omitempty"`
+	// Type : api (surface fermée : une liste de chemins a un sens) | site (contenu ouvert, milliers de chemins : le profil ne propose ni
+	// politique de chemins ni ajouts, et sa convergence ne dépend pas des chemins). Vide : traité comme une API.
+	Type string `json:"type,omitempty"`
 }
 
 type CORSConfig struct {
@@ -450,35 +462,40 @@ type RetryConfig struct {
 	MaxWait     time.Duration `json:"max_wait"`
 }
 
+// WAFExclusion exclut des règles du WAF sous certains chemins seulement. Un chemin est un préfixe sur frontière de segment :
+// "/wp-admin/" couvre /wp-admin/post.php ; "/api/search" couvre /api/search et /api/search/x, pas /api/searchx. Les règles sont
+// celles de rule_ids et, si platform est renseignée, celles que cette plateforme déclenche d'habitude à tort.
+type WAFExclusion struct {
+	Paths    []string `json:"paths"`
+	RuleIDs  []int    `json:"rule_ids,omitempty"`
+	Platform string   `json:"platform,omitempty"`
+	// Note : pourquoi l'exclusion existe (pour celui qui relira la configuration).
+	Note string `json:"note,omitempty"`
+}
+
 // WAFConfig configure le WAF par route.
 type WAFConfig struct {
 	Enabled          bool         `json:"enabled"`
-	Mode             string       `json:"mode"`               // detect | block
+	Mode             string       `json:"mode"` // detect | block
 	ExcludeIDs       []int        `json:"exclude_ids"`
 	MaxBodyMB        int          `json:"max_body_mb"`
-	AnomalyThreshold int          `json:"anomaly_threshold"`  // 0 = premier match, >0 = score cumulatif
+	AnomalyThreshold int          `json:"anomaly_threshold"` // 0 = premier match, >0 = score cumulatif
 	CustomRules      []CustomRule `json:"custom_rules,omitempty"`
 
 	// Analyse comportementale — stateful, par IP, sur une fenêtre glissante.
 	BehaviorEnabled   bool `json:"behavior_enabled"`
-	BehaviorWindowSec int  `json:"behavior_window_s"`   // durée fenêtre (défaut 60s)
-	BehaviorThreshold int  `json:"behavior_threshold"`  // score avant action (défaut 8)
+	BehaviorWindowSec int  `json:"behavior_window_s"`  // durée fenêtre (défaut 60s)
+	BehaviorThreshold int  `json:"behavior_threshold"` // score avant action (défaut 8)
 
 	// TrustedProxies : CIDRs des proxies de confiance dont les headers X-Forwarded-For
 	// sont acceptés pour déterminer l'IP réelle du client.
 	// Vide = pas de confiance (on utilise RemoteAddr directement).
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
 
-	// ExcludePlatforms : plateformes applicatives derrière ce proxy.
-	// CMS: wordpress, drupal, joomla, magento, prestashop, ghost, strapi.
-	// Frameworks: nextjs, laravel, symfony, django.
-	// Collab: nextcloud, dokuwiki, mattermost, discourse, rocketchat.
-	// DevOps: gitea, forgejo, portainer, proxmox, grafana, zabbix.
-	// Métier: odoo, n8n, keycloak.
-	// Médias: jellyfin, immich, vaultwarden.
-	// Admin: cpanel.
-	// Le moteur WAF résout chaque plateforme en IDs à exclure (union avec ExcludeIDs).
-	ExcludePlatforms []string `json:"exclude_platforms,omitempty"`
+	// Exclusions : des règles exclues sur certains chemins seulement. Partout ailleurs, ces règles restent actives : c'est l'exclusion
+	// à préférer à exclude_ids, qui vaut pour tout le proxy. Une exclusion peut nommer une plateforme (`platform`) : ce sont alors ses
+	// règles habituelles qui sont retirées sous ses chemins.
+	Exclusions []WAFExclusion `json:"exclusions,omitempty"`
 
 	// CustomRulesPath : chemin vers un fichier JSON de règles custom sur la passerelle.
 	// Surveillé en temps réel — toute modification recharge les règles sans redémarrage.
@@ -495,11 +512,11 @@ type WAFConfig struct {
 type CustomRule struct {
 	ID       int      `json:"id"`
 	Category string   `json:"category"`
-	Severity string   `json:"severity"`          // critical | high | medium | low
-	Pattern  string   `json:"pattern"`           // regex Go
-	Targets  []string `json:"targets"`           // uri | args | body | headers | cookies
+	Severity string   `json:"severity"` // critical | high | medium | low
+	Pattern  string   `json:"pattern"`  // regex Go
+	Targets  []string `json:"targets"`  // uri | args | body | headers | cookies
 	Message  string   `json:"message"`
-	Score    int      `json:"score,omitempty"`   // score anomalie (0 = déduit de la sévérité)
+	Score    int      `json:"score,omitempty"` // score anomalie (0 = déduit de la sévérité)
 }
 
 // BotConfig configure la protection bot.
@@ -544,23 +561,23 @@ type MTLSConfig struct {
 
 // SSOConfig configure le provider SSO.
 type SSOConfig struct {
-	Enabled          bool        `json:"enabled"`
+	Enabled bool `json:"enabled"`
 	// Provider : authentik | authelia | oauth2_proxy | basic | forward | pocket_id | oidc |
 	//            keycloak | zitadel | google | microsoft | auth0 | okta | casdoor | dex |
 	//            github | ldap | ldap_ad | saml
-	Provider         string      `json:"provider"`
-	ForwardAuthURL   string      `json:"forward_auth_url,omitempty"`
+	Provider       string `json:"provider"`
+	ForwardAuthURL string `json:"forward_auth_url,omitempty"`
 	// ForwardAuthTimeoutMs : délai max du service d'authentification (défaut 5000).
 	ForwardAuthTimeoutMs int `json:"forward_auth_timeout_ms,omitempty"`
 	// ForwardAuthSignInURL : un 401 du service redirige le navigateur ici (?rd=<URL d'origine>), ex. /oauth2/start d'oauth2-proxy.
-	ForwardAuthSignInURL string `json:"forward_auth_signin_url,omitempty"`
-	HeadersToForward []string    `json:"headers_to_forward,omitempty"`
-	BasicUsers       []BasicUser `json:"basic_users,omitempty"`
-	Realm            string      `json:"realm,omitempty"`
-	OIDC             *OIDCConfig  `json:"oidc,omitempty"`
-	GitHub           *GitHubOAuthConfig `json:"github,omitempty"`
-	LDAP             *LDAPConfig  `json:"ldap,omitempty"`
-	SAML             *SAMLConfig  `json:"saml,omitempty"`
+	ForwardAuthSignInURL string             `json:"forward_auth_signin_url,omitempty"`
+	HeadersToForward     []string           `json:"headers_to_forward,omitempty"`
+	BasicUsers           []BasicUser        `json:"basic_users,omitempty"`
+	Realm                string             `json:"realm,omitempty"`
+	OIDC                 *OIDCConfig        `json:"oidc,omitempty"`
+	GitHub               *GitHubOAuthConfig `json:"github,omitempty"`
+	LDAP                 *LDAPConfig        `json:"ldap,omitempty"`
+	SAML                 *SAMLConfig        `json:"saml,omitempty"`
 }
 
 // GitHubOAuthConfig configure l'authentification via GitHub OAuth2.
@@ -568,58 +585,58 @@ type GitHubOAuthConfig struct {
 	ClientID      string   `json:"client_id"`
 	ClientSecret  string   `json:"client_secret"`
 	RedirectURL   string   `json:"redirect_url"`
-	AllowedOrgs   []string `json:"allowed_orgs,omitempty"`   // restreindre à ces orgs GitHub
-	AllowedTeams  []string `json:"allowed_teams,omitempty"`  // format "org/team"
+	AllowedOrgs   []string `json:"allowed_orgs,omitempty"`  // restreindre à ces orgs GitHub
+	AllowedTeams  []string `json:"allowed_teams,omitempty"` // format "org/team"
 	SessionSecret string   `json:"session_secret"`
 	SessionMaxAge int      `json:"session_max_age,omitempty"` // secondes, défaut 86400
 }
 
 // LDAPConfig configure l'authentification LDAP / Active Directory.
 type LDAPConfig struct {
-	URL          string `json:"url"`           // ex: ldap://dc.corp.local:389 ou ldaps://...
-	BindDN       string `json:"bind_dn"`       // DN de lecture (service account)
-	BindPassword string `json:"bind_password"`
-	BaseDN       string `json:"base_dn"`       // ex: DC=corp,DC=local
-	UserFilter   string `json:"user_filter"`   // ex: (sAMAccountName=%s) ou (uid=%s)
-	GroupFilter  string `json:"group_filter,omitempty"` // filtre groupes (optionnel)
+	URL           string   `json:"url"`     // ex: ldap://dc.corp.local:389 ou ldaps://...
+	BindDN        string   `json:"bind_dn"` // DN de lecture (service account)
+	BindPassword  string   `json:"bind_password"`
+	BaseDN        string   `json:"base_dn"`                  // ex: DC=corp,DC=local
+	UserFilter    string   `json:"user_filter"`              // ex: (sAMAccountName=%s) ou (uid=%s)
+	GroupFilter   string   `json:"group_filter,omitempty"`   // filtre groupes (optionnel)
 	AllowedGroups []string `json:"allowed_groups,omitempty"` // DNs ou CNs de groupes autorisés
-	UsernameAttr string `json:"username_attr,omitempty"` // défaut: sAMAccountName / uid
-	EmailAttr    string `json:"email_attr,omitempty"`    // défaut: mail
-	TLSSkipVerify bool  `json:"tls_skip_verify,omitempty"`
-	SessionSecret string `json:"session_secret"`
-	SessionMaxAge int    `json:"session_max_age,omitempty"`
+	UsernameAttr  string   `json:"username_attr,omitempty"`  // défaut: sAMAccountName / uid
+	EmailAttr     string   `json:"email_attr,omitempty"`     // défaut: mail
+	TLSSkipVerify bool     `json:"tls_skip_verify,omitempty"`
+	SessionSecret string   `json:"session_secret"`
+	SessionMaxAge int      `json:"session_max_age,omitempty"`
 }
 
 // SAMLConfig configure l'authentification SAML 2.0 (Service Provider).
 type SAMLConfig struct {
 	// SP (nous)
-	EntityID    string `json:"entity_id"`    // ex: https://app.example.com/saml/metadata
-	ACSPath     string `json:"acs_path"`     // ex: /saml/acs (assertion consumer service)
+	EntityID     string `json:"entity_id"`               // ex: https://app.example.com/saml/metadata
+	ACSPath      string `json:"acs_path"`                // ex: /saml/acs (assertion consumer service)
 	MetadataPath string `json:"metadata_path,omitempty"` // ex: /saml/metadata
-	CertPEM     string `json:"cert_pem"`     // certificat X.509 du SP (PEM)
-	KeyPEM      string `json:"key_pem"`      // clé privée du SP (PEM) — jamais en DB
+	CertPEM      string `json:"cert_pem"`                // certificat X.509 du SP (PEM)
+	KeyPEM       string `json:"key_pem"`                 // clé privée du SP (PEM) — jamais en DB
 	// IdP (partenaire)
 	IDPMetadataURL string `json:"idp_metadata_url,omitempty"` // URL XML métadonnées IdP
 	IDPMetadataXML string `json:"idp_metadata_xml,omitempty"` // ou XML inline
 	// Mapping attributs
-	UsernameAttr  string `json:"username_attr,omitempty"`  // défaut: uid / NameID
-	EmailAttr     string `json:"email_attr,omitempty"`
-	GroupsAttr    string `json:"groups_attr,omitempty"`
+	UsernameAttr  string   `json:"username_attr,omitempty"` // défaut: uid / NameID
+	EmailAttr     string   `json:"email_attr,omitempty"`
+	GroupsAttr    string   `json:"groups_attr,omitempty"`
 	AllowedGroups []string `json:"allowed_groups,omitempty"`
-	SessionSecret string `json:"session_secret"`
-	SessionMaxAge int    `json:"session_max_age,omitempty"`
+	SessionSecret string   `json:"session_secret"`
+	SessionMaxAge int      `json:"session_max_age,omitempty"`
 }
 
 // OIDCConfig configure l'authentification via OIDC (Pocket ID, Keycloak, etc.)
 // avec Authorization Code Flow + PKCE.
 type OIDCConfig struct {
-	IssuerURL     string   `json:"issuer_url"`               // ex: https://id.example.com
+	IssuerURL     string   `json:"issuer_url"` // ex: https://id.example.com
 	ClientID      string   `json:"client_id"`
 	ClientSecret  string   `json:"client_secret"`
-	RedirectURL   string   `json:"redirect_url"`             // ex: https://app.example.com/_gpx/oidc/callback
-	Scopes        []string `json:"scopes,omitempty"`         // défaut: [openid, email, profile]
-	UsernameClaim string   `json:"username_claim,omitempty"` // défaut: "preferred_username"
-	SessionSecret string   `json:"session_secret"`           // clé HMAC pour les cookies de session
+	RedirectURL   string   `json:"redirect_url"`              // ex: https://app.example.com/_gpx/oidc/callback
+	Scopes        []string `json:"scopes,omitempty"`          // défaut: [openid, email, profile]
+	UsernameClaim string   `json:"username_claim,omitempty"`  // défaut: "preferred_username"
+	SessionSecret string   `json:"session_secret"`            // clé HMAC pour les cookies de session
 	SessionMaxAge int      `json:"session_max_age,omitempty"` // secondes, défaut 86400
 }
 
@@ -633,11 +650,11 @@ type BasicUser struct {
 // CanaryConfig envoie un pourcentage du trafic vers un backend canary.
 // Si Header/CookieName est renseigné, le basculement est déterministe (header ou cookie présent).
 type CanaryConfig struct {
-	Backend     string `json:"backend"`               // URL du backend canary
-	Weight      int    `json:"weight"`                // % du trafic [0-100] (mode aléatoire)
-	Header      string `json:"header,omitempty"`      // header de déclenchement (ex: X-Canary)
+	Backend     string `json:"backend"`                // URL du backend canary
+	Weight      int    `json:"weight"`                 // % du trafic [0-100] (mode aléatoire)
+	Header      string `json:"header,omitempty"`       // header de déclenchement (ex: X-Canary)
 	HeaderValue string `json:"header_value,omitempty"` // valeur attendue (vide = présence suffit)
-	CookieName  string `json:"cookie_name,omitempty"` // cookie de déclenchement
+	CookieName  string `json:"cookie_name,omitempty"`  // cookie de déclenchement
 	ContainerID string `json:"container_id,omitempty"` // discovery Docker — cycle de vie
 }
 
@@ -816,6 +833,10 @@ type OpenAPIConfig struct {
 	StripPrefix  string          `json:"strip_prefix,omitempty"`
 	MaxBody      int64           `json:"max_body,omitempty"`
 	Skip         []string        `json:"skip,omitempty"`
+	// BlockReasons : en mode detect, les types de violation que le contrôle refuse quand même (unknown_path, unknown_method,
+	// invalid_param, invalid_body, unsupported_media, too_large). Les autres passent et sont comptées. Sans effet en mode block,
+	// qui les refuse toutes. Posé règle par règle par l'apprentissage de surface (ADR 0016, étape 4).
+	BlockReasons []string `json:"block_reasons,omitempty"`
 }
 
 // GRPCTranscodeConfig expose un backend gRPC (unaire) en REST/JSON. Les descripteurs viennent soit de

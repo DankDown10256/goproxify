@@ -19,8 +19,6 @@ const (
 	logStreamBatch = 500
 	// logStreamIdle : attente maximale sans nouvelle ligne avant de vérifier que l'Admin est toujours connecté.
 	logStreamIdle = 15 * time.Second
-	// logStreamAdvance : intervalle minimal entre deux avances de curseur sans ligne à envoyer.
-	logStreamAdvance = 30 * time.Second
 )
 
 // logStreamKinds lie chaque flux de l'Admin au type de la base de logs, dans l'ordre d'envoi.
@@ -82,6 +80,13 @@ func (s *Server) handleLogResume(connID string, raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
+	// Les positions annoncées à la connexion sont celles de l'Admin, ni plus ni moins : si son volume de logs a été
+	// remplacé, elles reculent, et les lignes qu'il n'a plus ne sont plus protégées par un ancien acquittement.
+	if p.Stored {
+		for stream, pos := range p.Cursors {
+			s.logStore.SetAck(stream, pos)
+		}
+	}
 	s.logStreams.start(connID, func(ctx context.Context) { s.streamLogs(ctx, connID, p.Cursors) })
 	return nil
 }
@@ -95,25 +100,15 @@ func (s *Server) streamLogs(ctx context.Context, connID string, cursors map[stri
 	}
 	minutePos := cursors[edgews.LogStreamMinute]
 	ipPos := cursors[edgews.LogStreamIPErrors]
-	var lastAdvance time.Time
 	for {
 		// Demandé avant de lire : une écriture pendant la lecture ferme ce canal, et la boucle relit.
 		changed := s.logStore.Changed()
 		sent := false
 		for _, k := range logStreamKinds {
 			for {
-				// Les accès ordinaires restent dans la base de la passerelle : l'Admin n'en reçoit que les événements de
-				// sécurité. Le curseur avance quand même, au plus toutes les logStreamAdvance secondes tant qu'il n'y
-				// a rien à envoyer.
-				filtered := k.kind == logstore.KindAccess
-				var rows []logstore.Row
-				var through int64
-				var err error
-				if filtered {
-					rows, through, err = s.logStore.ReadSecurityAfter(k.kind, pos[k.name], logStreamBatch)
-				} else {
-					rows, err = s.logStore.ReadAfterRevealed(k.kind, pos[k.name], logStreamBatch)
-				}
+				// Toutes les lignes partent vers l'Admin, qui les range (ADR 0018) : la base de la passerelle n'est qu'un tampon
+				// qui couvre ses coupures.
+				rows, err := s.logStore.ReadAfterRevealed(k.kind, pos[k.name], logStreamBatch)
 				if err != nil {
 					s.log.Warn("logs: lecture de la base pour l'Admin échouée", "stream", k.name, "err", err)
 					break
@@ -133,30 +128,20 @@ func (s *Server) streamLogs(ctx context.Context, connID string, cursors map[stri
 						pos[k.name] = 0
 						continue
 					}
-					if filtered && through > pos[k.name] && time.Since(lastAdvance) >= logStreamAdvance {
-						msg, err := edgews.NewMessage(0, edgews.TypeLogStream, edgews.LogStreamPayload{Stream: k.name, After: pos[k.name], Through: through})
-						if err != nil {
-							return
-						}
-						if err := s.wsHub.SendToAdmin(connID, msg); err != nil {
-							return
-						}
-						pos[k.name], lastAdvance = through, time.Now()
-					}
 					break
 				}
 				entries := make([]edgews.LogEntryPayload, len(rows))
 				for i, r := range rows {
 					entries[i] = shipPayload(edgelog.ShipEntryFromRow(r, k.kind, s.cfg.Identity.NodeName))
 				}
-				msg, err := edgews.NewMessage(0, edgews.TypeLogStream, edgews.LogStreamPayload{Stream: k.name, After: pos[k.name], Entries: entries, Through: through})
+				msg, err := edgews.NewMessage(0, edgews.TypeLogStream, edgews.LogStreamPayload{Stream: k.name, After: pos[k.name], Entries: entries})
 				if err != nil {
 					return
 				}
 				if err := s.wsHub.SendToAdmin(connID, msg); err != nil {
 					return
 				}
-				pos[k.name] = max(rows[len(rows)-1].ID, through)
+				pos[k.name] = rows[len(rows)-1].ID
 				sent = true
 				if ctx.Err() != nil {
 					return
@@ -238,7 +223,23 @@ func shipPayload(e edgelog.ShipEntry) edgews.LogEntryPayload {
 	return edgews.LogEntryPayload{
 		Ts: e.Ts, Level: e.Level, Component: e.Component, NodeName: e.NodeName, Domain: e.Domain, Method: e.Method,
 		Path: e.Path, Status: e.Status, IP: e.IP, RealIP: e.RealIP, IPTruncated: e.IPTruncated, LatencyMs: e.LatencyMs,
-		Bytes: e.Bytes, Message: e.Message, Referrer: e.Referrer, RequestID: e.RequestID, WAFMatches: e.WAFMatches,
+		Bytes: e.Bytes, Message: e.Message, Referrer: e.Referrer, UserAgent: e.UserAgent, RequestID: e.RequestID, WAFMatches: e.WAFMatches,
 		ThreatSignal: e.ThreatSignal, TLSJA3: e.TLSJA3, TLSJA4: e.TLSJA4, Seq: e.Seq,
 	}
+}
+
+// handleLogAck fait avancer les positions que l'Admin a rangées dans son volume de logs (ADR 0018) : la base de la passerelle
+// peut alors purger ce qui est acquitté une fois sa période finie depuis assez longtemps.
+func (s *Server) handleLogAck(raw json.RawMessage) error {
+	if s.logStore == nil {
+		return nil
+	}
+	var p edgews.LogAckPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	for stream, pos := range p.Cursors {
+		s.logStore.AdvanceAck(stream, pos)
+	}
+	return nil
 }

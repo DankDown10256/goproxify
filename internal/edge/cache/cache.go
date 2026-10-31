@@ -143,6 +143,14 @@ func EnsureNodeKey() (created bool, err error) {
 	return true, nil
 }
 
+// NodeKey rend la clé locale de la passerelle (fournie, sinon générée) ; vide tant qu'aucune n'existe.
+func NodeKey() string {
+	if k := providedNodeKey(); k != "" {
+		return k
+	}
+	return generatedNodeKey()
+}
+
 // LegacySecret est la clé d'avant la clé locale, dérivée du jeton ou du secret d'appairage. Le portail s'en sert encore
 // par défaut : sa clé maître doit être la même sur tous les membres d'un groupe HA, ce que le secret d'appairage, commun
 // à tous les composants, assure sans réglage (GPX_PORTAL_MASTER_KEY la remplace).

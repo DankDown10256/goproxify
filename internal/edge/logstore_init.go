@@ -53,6 +53,12 @@ func (s *Server) loadOrCreateLogIPKey() []byte {
 	return key
 }
 
+// Tampon de la base de logs (ADR 0018) : voir logstore.Buffer.
+const (
+	defaultLogBufferDays    = 7
+	defaultLogBufferMaxDays = 30
+)
+
 // initLogStore ouvre la base de logs locale et y branche le journal d'accès et le journal système. En cas
 // d'échec la passerelle sert le trafic quand même : ses logs ne sont alors qu'expédiés à l'Admin.
 func (s *Server) initLogStore() {
@@ -78,6 +84,14 @@ func (s *Server) initLogStore() {
 		return
 	}
 	s.logStore = st
+	bufAcked, bufMax := s.cfg.Engine.LogBufferDays, s.cfg.Engine.LogBufferMaxDays
+	if bufAcked <= 0 {
+		bufAcked = defaultLogBufferDays
+	}
+	if bufMax <= 0 {
+		bufMax = defaultLogBufferMaxDays
+	}
+	st.SetBuffer(logstore.Buffer{Acked: time.Duration(bufAcked) * 24 * time.Hour, Max: time.Duration(max(bufMax, bufAcked)) * 24 * time.Hour})
 	s.accessLog.SetStore(st)
 	s.log.SetStore(st)
 }

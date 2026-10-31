@@ -6,6 +6,7 @@ package security
 import (
 	"encoding/json"
 	"strings"
+	"unicode"
 
 	"github.com/vincamok/goproxify/internal/edge/router"
 )
@@ -15,6 +16,7 @@ const (
 	maxBanSignalName   = 40
 	maxBanSignalValue  = 200
 	maxBanSignalPoints = 1e6
+	maxUserAgent       = 300
 )
 
 // EncodeBanSignals sérialise pour la colonne `signals` les signaux reçus d'une passerelle. Ils viennent du réseau (et, pour
@@ -56,6 +58,16 @@ func DecodeBanSignals(s string) []router.BanSignal {
 		return nil
 	}
 	return out
+}
+
+// ClipUserAgent borne le User-Agent reçu d'une passerelle (il vient de l'attaquant) et en retire les caractères de contrôle.
+func ClipUserAgent(ua string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, clipUTF8(strings.TrimSpace(ua), maxUserAgent))
 }
 
 func clipUTF8(s string, n int) string {

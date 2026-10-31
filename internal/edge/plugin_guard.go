@@ -137,11 +137,11 @@ func (s *Server) banForPlugin(ip, plugin string, after int, window, duration tim
 	source := edgews.PluginBanSourcePrefix + plugin
 	expires := time.Now().Add(duration)
 	reason := plugin + ": trop de refus"
-	b := &router.RuntimeBan{ID: source + "-" + ip, IP: ip, Reason: reason, Source: source, ExpiresAt: &expires}
+	b := &router.RuntimeBan{ID: source + "-" + ip, IP: ip, Reason: reason, Source: source, ExpiresAt: &expires, UserAgent: s.lastUA.Get(ip)}
 	s.addBanEvent(ip, source)
 	s.gossipBanToPeers(b)
 	if s.bansDB != nil {
-		if err := s.bansDB.UpsertBan(b.ID, b.IP, "", b.Reason, b.Source, b.ExpiresAt); err != nil {
+		if err := s.bansDB.UpsertRuntimeBan(b); err != nil {
 			s.log.Warn("plugin: persistance ban DB échouée", "plugin", plugin, "err", err)
 		}
 	}
@@ -152,6 +152,7 @@ func (s *Server) banForPlugin(ip, plugin string, after int, window, duration tim
 		IP: ip, Reason: reason, Source: source,
 		ExpiresAt: expires.UTC().Format(time.RFC3339),
 		NodeName:  s.cfg.Identity.NodeName,
+		UserAgent: b.UserAgent,
 	}
 	if msg, err := edgews.NewMessage(0, edgews.TypeThreatBan, payload); err == nil {
 		s.wsHub.BroadcastToAdmins(msg)

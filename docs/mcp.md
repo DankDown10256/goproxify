@@ -20,10 +20,10 @@ Chaque outil exige un scope, le même que sa route REST équivalente. Les outils
 | Scope | Outils |
 |-------|--------|
 | `proxies:read` | `list_proxies`, `get_proxy`, `get_proxy_labels`, `get_discovered_container`, `list_orphan_proxies` |
-| `proxies:write` | `create_proxy`, `convert_discovered_container`, `update_proxy`, `set_proxy_enabled`, `purge_proxy_cache` |
+| `proxies:write` | `create_proxy`, `convert_discovered_container`, `set_container_route_enabled`, `update_proxy`, `set_proxy_enabled`, `purge_proxy_cache` |
 | `proxies:delete` | `delete_proxy` |
-| `nodes:read` | `list_nodes`, `list_declared_nodes`, `get_topology_live`, `list_agents` †, `get_architecture` †, `list_discovery_sources` † |
-| `nodes:write` | `create_declared_node`, `delete_declared_node`, `create_bootstrap_ticket`, `accept_node`, `reject_node`, `approve_agent` †, `revoke_agent` † |
+| `nodes:read` | `list_nodes`, `list_declared_nodes`, `list_hosts`, `get_topology_live`, `list_agents` †, `get_architecture` †, `list_discovery_sources` † |
+| `nodes:write` | `create_declared_node`, `delete_declared_node`, `create_bootstrap_ticket`, `create_host_join_ticket`, `accept_node`, `reject_node`, `approve_agent` †, `revoke_agent` † |
 | `alerts:read` | `list_alerts`, `list_alert_events`, `list_alert_channels`, `list_alert_channel_types`, `list_alert_rules` |
 | `alerts:write` | `create_alert_channel`, `delete_alert_channel`, `create_alert_rule`, `delete_alert_rule`, `ack_alert_event` |
 | `metrics:read` | `get_metrics`, `get_proxy_metrics` |
@@ -37,8 +37,8 @@ Chaque outil exige un scope, le même que sa route REST équivalente. Les outils
 | `certs:read` | `list_certs`, `get_cert_status`, `list_cert_deploy_targets`, `list_cert_deploy_types`, `list_internal_cas` †, `list_internal_certs` †, `get_ech_status` †, `list_dns_providers` †, `list_dns_provider_types` † |
 | `certs:write` | `obtain_cert`, `import_cert`, `trigger_cert_deploy`, `create_internal_ca` †, `issue_internal_cert` †, `revoke_internal_cert` † |
 | `logs:read` | `list_logs`, `get_siem_status` †, `get_prism_anomalies`, `get_prism_geo`, `get_prism_tls_fingerprints`, `get_prism_slo`, `simulate_ephor_config` †, `get_ephor_references` †, `suggest_ephor_thresholds` †, `trace_ip` †, `preview_security_ban` †, `preview_asn_ban` † |
-| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
-| `security:write` | `create_ip_profile`, `delete_ip_profile`, `create_security_ban` †, `delete_security_ban` †, `ban_ip` †, `unban_ip` †, `add_ban_whitelist` †, `remove_ban_whitelist` †, `import_security_bans` †, `ban_asn` †, `unban_asn` †, `create_auth_provider` †, `delete_auth_provider` †, `create_flow` †, `update_flow` †, `set_flow_enabled` †, `delete_flow` †, `run_flow` †, `simulate_flow` †, `restore_flow_version` †, `detach_flow` †, `update_flow_params` †, `decide_flow_run` †, `cancel_flow_run` †, `replay_flow_run` †, `install_flow_template` †, `create_silence` †, `delete_silence` †, `import_automation` † |
+| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `get_proxy_surface` †, `get_app_inventory` †, `get_proxy_surface_proposals` †, `get_proxy_surface_openapi` †, `get_proxy_surface_suggestions` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
+| `security:write` | `create_ip_profile`, `delete_ip_profile`, `reset_proxy_surface` †, `enforce_proxy_surface` †, `accept_proxy_surface_suggestions` †, `relax_proxy_surface` †, `create_security_ban` †, `delete_security_ban` †, `ban_ip` †, `unban_ip` †, `add_ban_whitelist` †, `remove_ban_whitelist` †, `import_security_bans` †, `ban_asn` †, `unban_asn` †, `create_auth_provider` †, `delete_auth_provider` †, `create_flow` †, `update_flow` †, `set_flow_enabled` †, `delete_flow` †, `run_flow` †, `simulate_flow` †, `restore_flow_version` †, `detach_flow` †, `update_flow_params` †, `decide_flow_run` †, `cancel_flow_run` †, `replay_flow_run` †, `install_flow_template` †, `create_silence` †, `delete_silence` †, `import_automation` † |
 | `portal:read` / `portal:write` | outils Access (`*_portal_*`, `push_portal`) † — voir [GoProxify Access](#goproxify-access-portail) |
 
 Les scopes d'écriture (`proxies:delete`, `nodes:write`, `alerts:write`, `domains:write`, `certs:write`, `security:write`, `import:write`) ainsi que `users:read`, `teams:read` et `portal:*` sont réservés aux rôles admin et superadmin (`proxies:write` et `snippets:write` sont aussi ouverts à un compte `user` qui a un droit d'écriture). Un refus est renvoyé comme erreur d'outil (`isError: true`) :
@@ -190,6 +190,19 @@ Convertit une route découverte par les labels d'un conteneur (`list_proxies`, `
 
 ---
 
+### `set_container_route_enabled`
+
+Active ou désactive la route issue des labels d'un conteneur (Docker, Portainer, Podman, Kubernetes, annuaires) sans toucher au conteneur. Désactivée, la route ne sert plus de trafic sur aucune passerelle mais reste listée (`list_proxies` : `enabled: false`) pour être réactivée. L'interrupteur s'applique à l'hôte, donc à tout le pool de conteneurs derrière lui. Un proxy configuré se gère avec `set_proxy_enabled`. Droit d'écriture sur le domaine requis ; la désactivation d'un hôte qu'aucune passerelle n'annonce est refusée.
+
+| Paramètre | Type    | Requis | Description |
+|-----------|---------|--------|-------------|
+| `host`    | string  | ✓      | Domaine de la route découverte (`host` de `list_proxies`) |
+| `enabled` | boolean | ✓      | `true` = activer, `false` = désactiver |
+
+**Réponse :** `{ host, enabled }`.
+
+---
+
 ### `create_proxy`
 
 Crée une nouvelle route proxy (HTTP, TCP ou UDP). Le `backend` doit appartenir à l'allowlist de destinations MCP (`GET/PUT /api/v1/mcp-access/allowed-backends` ; défaut : réseaux privés et suffixes `*.internal`/`*.local`/`*.svc`) — même règle pour `update_proxy`.
@@ -221,7 +234,7 @@ Met à jour un proxy existant (champs partiels).
 | `tls_enabled` | boolean | —      | Active ou désactive HTTPS                      |
 | `lb`          | string  | —      | `round_robin`, `weighted`, `adaptive`          |
 | `enabled`     | boolean | —      | Active ou désactive la route                   |
-| `options`     | object  | —      | Options avancées à poser (`null` = retirer) : `split`, `maintenance`, `signed_url`, `graphql`, `bandwidth`, `redact_json`, `html_inject`, `hedge`, `static`, `request_schema`, `openapi`, `grpc_transcode`, `grpc_web`, `rate_limit`, `conditions` ; clé inconnue refusée |
+| `options`     | object  | —      | Options avancées à poser (`null` = retirer) : `split`, `maintenance`, `signed_url`, `graphql`, `bandwidth`, `redact_json`, `html_inject`, `hedge`, `static`, `request_schema`, `openapi`, `grpc_transcode`, `surface`, `max_body_size`, `ip_filter`, `geo_ip`, `cors`, `waf`, `grpc_web`, `rate_limit`, `conditions` ; clé inconnue refusée |
 
 **Réponse :** `{ "id", "name", "enabled", "config" }`
 
@@ -678,7 +691,7 @@ Liste les bans IP (Fail2Ban, CrowdSec, Ephor, plugins de détection comme Coraza
 | `active_only`  | boolean | —      | Uniquement les bans non expirés                  |
 | `edge`         | string  | —      | Passerelle (nom du nœud ou id du token) : ses bans et les bans globaux |
 
-Chaque ban renvoyé porte `edge_name` (passerelle d'origine, vide = ban global). Un ban automatique d'Ephor ou du WAF porte aussi `signals` : la liste des signaux qui l'ont causé, chacun avec `name`, `points` et `value` (ce qui l'a déclenché : chemin, User-Agent, empreinte…), dont la somme explique la décision. Absent des autres sources. `trace_ip` les renvoie aussi, sur les bans en cours et sur les étapes de ban.
+Chaque ban renvoyé porte `edge_name` (passerelle d'origine, vide = ban global). Un ban automatique d'Ephor ou du WAF porte aussi `signals` : la liste des signaux qui l'ont causé, chacun avec `name`, `points` et `value` (ce qui l'a déclenché : chemin, User-Agent, empreinte…), dont la somme explique la décision. Absent des autres sources. `trace_ip` les renvoie aussi, sur les bans en cours et sur les étapes de ban. Un ban automatique porte de même `user_agent` (le dernier User-Agent vu pour l'IP au moment du ban), absent des bans manuels ou importés.
 
 **Scope :** `audit:read` + rôle admin
 
@@ -1098,6 +1111,17 @@ Trié par `last_seen_at` décroissant. Chaque résultat inclut `edge_name` (Pass
 
 ---
 
+### `get_app_inventory`
+
+*(Admin `0.208.0`)* Applications que chaque passerelle reconnaît derrière ses proxies ([ADR 0017](adr/0017-inventaire-des-applications-et-cve.md)) : produit, version, identifiant CPE et ce qui les a fait reconnaître : l'image du conteneur (annoncée par l'Agent, proxies créés par labels) ou les réponses du backend lues avant `hide_server` (en-têtes `Server`, `X-Powered-By`, `X-Generator`, `<meta name="generator">`, tous les proxies). C'est ce que le scanner de vulnérabilités cherche dans NVD : un produit sans version (étiquette `latest`) est sondé sur le backend, un produit sans CPE sûr est listé sans être cherché. Même source que `GET /api/v1/security/inventory`, rapport de couverture (`coverage` : ce qui n'est pas cherché dans NVD et pourquoi) compris. Scope `audit:read` (rôle admin), lecture seule.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | | Identifiant ou hôte d'un proxy (défaut : tous) |
+| `edge` | string | | ID du jeton ou nom de la passerelle (défaut : toutes) |
+
+---
+
 ### `list_security_cves`
 
 CVE détectées sur les backends.
@@ -1108,7 +1132,7 @@ CVE détectées sur les backends.
 | `critical_only`   | boolean | —      | CVSS ≥ 7 uniquement                  |
 | `kev_only`        | boolean | —      | Uniquement les CVE du catalogue CISA KEV (exploitation active) |
 
-Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne) — ainsi que `kev` (bool, exploitation activement observée, catalogue CISA) et `epss_score` (0-1, probabilité d'exploitation sous 30 jours, modèle EPSS de FIRST.org), rafraîchis en fin de scan (Admin `0.52.3`).
+Chaque résultat inclut désormais `edge_name` — la passerelle d'origine ayant remonté la CVE (vide pour les entrées antérieures à cette colonne) — ainsi que `kev` (bool, exploitation activement observée, catalogue CISA) et `epss_score` (0-1, probabilité d'exploitation sous 30 jours, modèle EPSS de FIRST.org), rafraîchis en fin de scan (Admin `0.52.3`). Depuis Admin `0.208.0` : `host` (proxy), `product`, `version` et `source` (`image`, `headers` ou `html`) disent sur quoi la CVE a été trouvée ; à vérifier, pas une preuve (correctifs rétroportés).
 
 **Scope :** `audit:read` + rôle admin
 
@@ -1180,6 +1204,116 @@ Ce que chaque passerelle a appris pour la note commune d'Ephor (ADR 0011) : réf
 
 ---
 
+### `get_proxy_surface`
+
+Apprentissage de la surface d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md)) : ce que son trafic légitime utilise réellement. Sans `proxy`, liste par passerelle les proxies en apprentissage (requêtes vues et apprises, gabarits de chemin, convergence). Avec `proxy`, rapport complet : méthodes, gabarits de chemin (`/api/users/{int}`) avec méthodes, statuts, types de contenu, taille des corps, paramètres, clients distincts et jours de présence, en-têtes, pays et AS, requêtes exclues (IP suspecte) ou en échec, et indicateur de convergence (7 jours, 1 000 requêtes, 48 h sans nouveau gabarit). Un gabarit `low_support` a peu de clients ou de jours : à confirmer. Le mode `learn` se pose par proxy (`update_proxy`, option `surface` : `{"mode":"learn"}`) et ne bloque rien.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | — | Identifiant ou hôte du proxy ; vide = liste des proxies en apprentissage |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `audit:read` + rôle admin
+
+---
+
+### `get_proxy_surface_proposals`
+
+Réglages que le profil de surface d'un proxy permet de proposer ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md), étape 2) : `max_body_size`, `rate_limit`, `geo_ip`, `ip_filter`, `cors` et `waf` (règles du WAF qui se déclenchent de façon répétée sur des clients ordinaires : la configuration `waf` complète avec une **exclusion par chemin** pour une règle qui se circonscrit à des préfixes, ou à défaut un `anomaly_threshold` de 10 conseillé ; jamais une exclusion pour tout le proxy, ni pour une règle personnalisée ni un WAF de snippet). Le rapport de surface liste aussi les règles du WAF déclenchées. Chaque proposition donne la valeur, la commande qui la pose, ce que le profil a vu, ce qu'elle aurait refusé sur le trafic appris (`would_refuse` sur `of`, quand c'est mesurable) et ses limites. Un réglage que le proxy a déjà n'est jamais remplacé ; un réglage non proposé est dans `skipped` avec sa raison. Tant que `convergence.converged` est faux, le profil n'est pas fiable. Ne modifie rien : pour appliquer, `update_proxy` avec `options` (même clé, même valeur).
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `audit:read` + rôle admin
+
+---
+
+### `get_proxy_surface_openapi`
+
+Politique positive d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md), étape 3) : une spécification OpenAPI générée à partir de son profil de surface, sous la forme du réglage `openapi` du proxy, en mode `detect` (rien n'est refusé, les requêtes hors de la politique sont comptées et listées dans le rapport de surface, `get_proxy_surface`). Chemins (`/api/users/{users_id}`), méthodes, paramètres typés et types de contenu appris ; pas les corps. Les chemins vus par trop peu de clients ou de jours sont dans `excluded` (`include_low_support` les garde). Tant que `ready` est faux, le profil n'est pas fiable. Ne modifie rien : pour poser la politique, `update_proxy` avec `options` `{"openapi": <config>}`.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `include_low_support` | boolean | — | Garder aussi les chemins à faible soutien (défaut : non) |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `audit:read` + rôle admin
+
+---
+
+### `get_proxy_surface_suggestions`
+
+Ajouts suggérés à la politique de surface d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md), étape 5) : un chemin ou une méthode hors politique (`unknown_path`, `unknown_method`) qui revient de plusieurs clients propres sur plusieurs jours, avec sa preuve. Confiance `high` : le backend a servi ces requêtes (3 clients propres, 2 jours). Confiance `low` : le contrôle les refuse, seuls des clients propres reviennent (5 clients, 3 jours) : un scanner distribué ressemble à cela, à examiner. Les chemins de scanner connus ne sont jamais suggérés. Ne modifie rien.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `audit:read` + rôle admin
+
+---
+
+### `accept_proxy_surface_suggestions`
+
+Ajoute des suggestions à la politique openapi d'un proxy : le chemin ou la méthode est ajouté à la spécification, rien n'est retiré, les violations correspondantes sont effacées du profil. Seules les suggestions actuelles du profil (clés de `get_proxy_surface_suggestions`) peuvent être ajoutées ; la spécification doit être en JSON (un texte YAML est refusé, sans rien modifier). Un refus ne modifie rien et dit pourquoi (`blockers`).
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `keys` | array | — | Clés des suggestions à ajouter (« raison MÉTHODE chemin ») |
+| `all_high` | boolean | — | Ajouter toutes les suggestions de confiance haute |
+| `dry_run` | boolean | — | Calculer le résultat sans rien écrire |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `security:write` + rôle admin
+
+---
+
+### `enforce_proxy_surface`
+
+Passe en block la politique de surface d'un proxy, type de violation par type de violation ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md), étape 4) : le contrôle `openapi` du proxy refuse les violations de ces types et laisse passer, en les comptant, les autres. Garde-fous : politique openapi active et profil de surface (`get_proxy_surface_openapi` d'abord, en detect), profil convergé, aucun chemin `likely_legit` pour ces types, pas de débordement. Un refus des garde-fous ne modifie rien et le dit (`blockers`). `force` passe outre le profil non convergé et les chemins à ajouter (consigné à l'audit) ; `dry_run` calcule sans écrire. Retour : `relax_proxy_surface`.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `reasons` | array | ✓ | `unknown_path`, `unknown_method`, `invalid_param`, `invalid_body`, `unsupported_media`, `too_large` |
+| `dry_run` | boolean | — | Calculer le résultat sans rien écrire |
+| `force` | boolean | — | Passer outre les garde-fous qui peuvent l'être (audit) |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `security:write` + rôle admin
+
+---
+
+### `relax_proxy_surface`
+
+Remet le contrôle `openapi` d'un proxy en `detect` : plus rien n'est refusé, les violations restent comptées. La spécification est conservée.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+
+**Scope :** `security:write` + rôle admin
+
+---
+
+### `reset_proxy_surface`
+
+Efface le profil de surface d'un proxy sur toutes les passerelles (ou sur `edge`) : l'apprentissage repart de zéro. À faire quand l'application a changé. Ne touche ni au trafic ni à la configuration.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `proxy` | string | ✓ | Identifiant ou hôte du proxy |
+| `edge` | string | — | Passerelle (nom du nœud ou id du token) ; défaut : toutes |
+
+**Scope :** `security:write` + rôle admin
+
+---
+
 ### `suggest_ephor_thresholds`
 
 Propose des seuils Ephor à partir des cumuls par minute (sans IP) : par passerelle, débit normal (médiane, p99, p99,9, max, part d'erreurs) et limite globale proposée (quatre fois le p99,9, arrondie). Ne modifie rien.
@@ -1228,11 +1362,11 @@ Parcours complet d'une IP ou d'un CIDR sur une longue période : requêtes d'acc
 | `asn`     | string | —      | Numéro d'ASN (`AS16276`) à tracer en entier, avec `scope=asn` |
 | `from`    | string | —      | RFC3339 ou `AAAA-MM-JJ` (défaut : 30 jours avant `to`) |
 | `to`      | string | —      | RFC3339 ou `AAAA-MM-JJ` (défaut : maintenant) |
-| `order`   | string | —      | `asc` (défaut) ou `desc` |
+| `order`   | string | —      | `desc` (défaut : le plus récent d'abord) ou `asc` (chronologique) |
 | `limit`   | number | —      | Étapes par page (défaut 500, max 2000) |
 | `offset`  | number | —      | Décalage de pagination |
 
-Réponse : `summary` (totaux sur toute la période, activité par jour, tops) et `steps` (voir `GET /api/v1/security/ip-trace` dans `docs/api_specs.md`). Les requêtes remontent aussi loin que la rétention des logs d'accès ; les IP pseudonymisées ou tronquées (RGPD) ne sont pas retrouvées. Équivalent CLI : `goproxify security trace`.
+Réponse : `summary` (totaux sur toute la période, activité par jour, tops) et `steps` (voir `GET /api/v1/security/ip-trace` dans `docs/api_specs.md`). Les requêtes remontent aussi loin que la rétention des logs d'accès ; les IP pseudonymisées ou tronquées (RGPD) ne sont pas retrouvées. Chaque étape `ban` (et chaque ban en cours) porte `user_agent`, le client qui a provoqué le ban. Équivalent CLI : `goproxify security trace`.
 
 **Scope :** `logs:read` + rôle admin
 
@@ -1304,6 +1438,22 @@ Crée un ticket one-shot : URL `/i/{token}`, script `.sh`, QR PNG, commande `cur
 | `ttl_hours`       | number  | —      | 1–168 (défaut 24)                    |
 | `auto_accept`     | boolean | —      | Auto-accept des nœuds liés (défaut true) |
 | `node_names`      | array   | —      | Noms de nœuds pour l’auto-accept     |
+
+---
+
+### `list_hosts`
+
+Liste les hôtes déclarés dans `architecture.json` (adresse, rôles, groupe HA), leur état (`pending`, `partial`, `joined`), leurs nœuds et le ticket d'installation en cours (échéance seulement). Aucun paramètre. Voir `GET /api/v1/hosts`.
+
+---
+
+### `create_host_join_ticket`
+
+Crée pour un hôte déclaré un ticket d'installation de 15 minutes (il remplace le précédent) : jeton, `spec_url` où le launcher récupère la description de l'hôte, `fingerprint` du certificat de l'Admin à vérifier, `trigger_url` et `qr_code` (PNG en data URL) du QR code à scanner vers le launcher de l'hôte en attente, `listen_command` et `join_command` à lancer sur l'hôte. Refusé si l'hôte est inconnu ou déjà intégré. Voir `POST /api/v1/hosts/{name}/join-ticket`.
+
+| Paramètre | Type   | Requis | Description              |
+|-----------|--------|--------|--------------------------|
+| `host`    | string | ✓      | Nom de l'hôte déclaré    |
 
 ---
 

@@ -100,6 +100,7 @@ Le WAF applique les règles OWASP passerelle Rule Set (CRS) sur les requêtes HT
 | `goproxify.waf.anomaly_threshold` | `"10"` | Score d'anomalie cumulatif avant blocage (défaut : `5`). Augmenter réduit les faux positifs. |
 | `goproxify.waf.max_body_mb` | `"10"` | Taille maximale du corps analysé par le WAF en Mo (défaut : 128 Kio). Le reste du corps est transmis sans analyse ; plus la limite est haute, plus une requête volumineuse coûte de CPU. |
 | `goproxify.waf.exclude_ids` | `"942100,941100"` | IDs de règles OWASP CRS à désactiver pour ce proxy (CSV). |
+| *(pas de label)* | | Les exclusions de règles **par chemin** (`waf.exclusions`) ne se posent pas par label : `goproxify proxy option <id> waf '<json>'`, l'API ou la modale du proxy. Voir [docs/security.md](security.md#exclure-des-règles-sans-désarmer-le-proxy). |
 | `goproxify.waf.behavior` | `"true"` | Active l'analyse comportementale par IP (score cumulatif sur une fenêtre glissante). |
 | `goproxify.waf.behavior.window` | `"60"` | **Ignoré** depuis l'ADR 0011 : le magasin comportemental est unique par passerelle, sa fenêtre est de 60 s. |
 | `goproxify.waf.behavior.threshold` | `"8"` | Score comportemental avant bannissement temporaire (défaut : `8`). |

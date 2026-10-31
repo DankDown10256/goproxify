@@ -123,4 +123,5 @@ var messagesEN = map[string]string{
 	"api.err.domain_not_found":      "domain not found",
 	"api.err.agent_unreachable":     "agent unreachable",
 	"api.err.edge_unreachable":      "edge unreachable",
+	"api.err.edge_refused":          "edge refused the Admin's credentials (check the channel keys)",
 }

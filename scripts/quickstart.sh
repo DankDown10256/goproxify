@@ -329,7 +329,7 @@ services:
       # - GPX_IDENTITY_AGENT_NODE_NAME=agent-1
 
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - goproxify_agent_data:/etc/goproxify
     networks:
       - goproxify_net

@@ -62,10 +62,12 @@ type edgeEntry struct {
 	client   *Client
 	// resumePending : une reprise des logs est déjà programmée pour cette passerelle.
 	resumePending atomic.Bool
+	// ackPending : un acquittement des logs est déjà programmé pour cette passerelle.
+	ackPending atomic.Bool
 }
 
 // Manager gère un client WS persistant par passerelle enregistrée.
-// Il remplace edgepush.Pusher comme mécanisme de synchronisation Admin→Passerelle.
+// C'est le mécanisme de synchronisation Admin→Passerelle.
 type Manager struct {
 	mu         sync.RWMutex
 	edges      map[string]*edgeEntry // key = edgeID (UUID)
@@ -81,10 +83,12 @@ type Manager struct {
 	settingsMu     sync.RWMutex
 	settings       Settings // derniers paramètres poussés (utilisés au full_sync)
 	onAgentPending func(id, name, version string)
+	onEdgeConnected func(nodeName string) // appelé après chaque synchronisation complète vers une passerelle
 	logStream      *LogStreamIngestor
 	live           liveState
 	traffic        trafficState
 	siem           siemState
+	surfaceAlerts  surfaceSuggestionState
 	logInfo        logInfoState
 	onLogBatch    func(entries []edgeWS.LogEntryPayload)
 	onWAFReloaded  func(nodeName string)
@@ -467,6 +471,12 @@ func (m *Manager) SetAgentPendingHandler(fn func(id, name, version string)) {
 	m.onAgentPending = fn
 }
 
+// SetEdgeConnectedHandler enregistre un callback appelé quand l'Admin vient de se connecter à une passerelle et de lui
+// envoyer l'état complet (à chaque reconnexion).
+func (m *Manager) SetEdgeConnectedHandler(fn func(nodeName string)) {
+	m.onEdgeConnected = fn
+}
+
 // SetLogBatchHandler enregistre le callback d'ingestion des logs passerelle/Agent (Prism / Logs).
 func (m *Manager) SetLogBatchHandler(fn func(entries []edgeWS.LogEntryPayload)) {
 	m.onLogBatch = fn
@@ -491,6 +501,8 @@ func (m *Manager) HandleEdgeMessage(msg edgeWS.Message) {
 		m.handleEdgeTraffic(msg.Payload)
 	case edgeWS.TypeSIEMStatus:
 		m.handleSIEMStatus(msg.Payload)
+	case edgeWS.TypeSurfaceSuggestions:
+		m.handleSurfaceSuggestions(msg.Payload)
 	case edgeWS.TypeLogInfo:
 		m.handleLogInfo(msg.Payload)
 	case edgeWS.TypeAgentPending:
@@ -570,15 +582,16 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	}
 	banID := source + "-" + p.IP
 	signals := security.EncodeBanSignals(p.Signals)
+	ua := security.ClipUserAgent(p.UserAgent)
 	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at, edge_name, signals)
-		 VALUES (?, ?, '', ?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET reason=excluded.reason, expires_at=excluded.expires_at, signals=excluded.signals`,
-		banID, p.IP, p.Reason, source, expiresAt, p.NodeName, signals,
+		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at, edge_name, signals, user_agent)
+		 VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET reason=excluded.reason, expires_at=excluded.expires_at, signals=excluded.signals, user_agent=excluded.user_agent`,
+		banID, p.IP, p.Reason, source, expiresAt, p.NodeName, signals, ua,
 	)
 	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id, edge_name, signals) VALUES (?,?,'banned',?,?,?,?,?)`,
-		p.IP, "", p.Reason, source, banID, p.NodeName, signals)
+		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id, edge_name, signals, user_agent) VALUES (?,?,'banned',?,?,?,?,?,?)`,
+		p.IP, "", p.Reason, source, banID, p.NodeName, signals, ua)
 	if source == "threat" && m.alertEngine != nil {
 		m.alertEngine.Emit(alerting.Event{
 			Trigger:  alerting.TriggerEphorBan,
@@ -597,19 +610,20 @@ func (m *Manager) handleF2BBan(raw json.RawMessage) {
 	if err := json.Unmarshal(raw, &p); err != nil || p.IP == "" {
 		return
 	}
+	ua := security.ClipUserAgent(p.UserAgent)
 	var expiresAt any
 	if p.ExpiresAt != "" {
 		expiresAt = p.ExpiresAt
 	}
 	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at, edge_name)
-		 VALUES (?, ?, '', ?, 'fail2ban', ?, ?)
+		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at, edge_name, user_agent)
+		 VALUES (?, ?, '', ?, 'fail2ban', ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
-		p.ID, p.IP, p.Reason, expiresAt, p.NodeName,
+		p.ID, p.IP, p.Reason, expiresAt, p.NodeName, ua,
 	)
 	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id, edge_name) VALUES (?,?,'banned',?,?,?,?)`,
-		p.IP, "", p.Reason, "fail2ban", p.ID, p.NodeName)
+		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id, edge_name, user_agent) VALUES (?,?,'banned',?,?,?,?,?)`,
+		p.IP, "", p.Reason, "fail2ban", p.ID, p.NodeName, ua)
 	if m.alertEngine != nil {
 		m.alertEngine.Emit(alerting.Event{
 			Trigger:  alerting.TriggerFail2BanBan,
@@ -732,7 +746,6 @@ func (m *Manager) handleEdgeHeartbeat(msg edgeWS.Message) {
 	if err != nil {
 		m.log.Warn("edgews: upsert heartbeat passerelle", "err", err)
 	}
-	m.discoverClusterPeers(ctx, hb)
 }
 
 // newClient crée un Client WS pour une passerelle donné.
@@ -746,6 +759,9 @@ func (m *Manager) newClient(edgeID, endpoint string, entry *edgeEntry) *Client {
 		m.revokeStaleIfPending(ctx, entry)
 		m.sendLogResume(entry)
 		m.sendLiveSubscribe(entry)
+		if m.onEdgeConnected != nil {
+			m.onEdgeConnected(entry.nodeName)
+		}
 		return nil
 	}, func(msg edgeWS.Message) {
 		switch msg.Type {
@@ -935,7 +951,7 @@ func (m *Manager) allEntries() []*edgeEntry {
 	return entries
 }
 
-// --- Interfaces compatibles edgepush.Pusher ---
+// --- Interfaces des handlers de l'API ---
 
 // PushRoutes envoie les routes filtrées par RBAC à toutes les passerelles.
 // Les proxies fichiers YAML sont la source de vérité côté passerelle — on ne pousse pas les routes ici.
@@ -1106,6 +1122,24 @@ func (m *Manager) PushErrorPages(ctx context.Context) {
 			defer wg.Done()
 			if err := e.client.PushJSON(edgeWS.TypePushErrorPages, tpls); err != nil {
 				m.log.Warn("edgews/manager: push error pages", "edge", e.nodeName, "err", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// PushDisabledRoutes envoie à toutes les passerelles la liste complète des hôtes dont la route issue d'un conteneur est
+// désactivée. Elle remplace la précédente : une réactivation est une liste où l'hôte n'est plus.
+func (m *Manager) PushDisabledRoutes(ctx context.Context) {
+	payload := edgeWS.DisabledRoutes{Hosts: api.LoadDisabledRoutes(m.db)}
+	var wg sync.WaitGroup
+	for _, e := range m.allEntries() {
+		e := e
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := e.client.PushJSON(edgeWS.TypePushDisabledRoutes, payload); err != nil {
+				m.log.Warn("edgews/manager: push routes désactivées", "edge", e.nodeName, "err", err)
 			}
 		}()
 	}
@@ -1356,43 +1390,6 @@ func (m *Manager) PushIPProtection(ctx context.Context, anonymize, pseudonymize 
 		go func() {
 			if err := e.client.PushJSON(edgeWS.TypePushSettings, partial); err != nil {
 				m.log.Warn("edgews/manager: push protection IP", "edge", e.nodeName, "err", err)
-			}
-		}()
-	}
-}
-
-// PushClusterPeers envoie la topologie Raft à chaque passerelle.
-func (m *Manager) PushClusterPeers(ctx context.Context) {
-	// Construire la map peers depuis les passerelles enregistrées (besoin du raft_endpoint)
-	rows, err := m.db.QueryContext(ctx,
-		`SELECT id, node_name, COALESCE(raft_endpoint,'')
-		 FROM tokens WHERE role='edge' AND revoked=0 AND node_endpoint != ''
-		   AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`)
-	if err != nil {
-		m.log.Error("edgews/manager: lecture raft peers", "err", err)
-		return
-	}
-	defer rows.Close()
-
-	peers := make(map[string]string)
-	for rows.Next() {
-		var id, name, raft string
-		if err := rows.Scan(&id, &name, &raft); err != nil {
-			continue
-		}
-		if raft != "" {
-			peers[name] = raft
-		}
-	}
-	if len(peers) == 0 {
-		return
-	}
-
-	for _, e := range m.allEntries() {
-		e := e
-		go func() {
-			if err := e.client.PushJSON(edgeWS.TypePushClusterPeers, peers); err != nil {
-				m.log.Warn("edgews/manager: push cluster peers", "edge", e.nodeName, "err", err)
 			}
 		}()
 	}
@@ -1743,8 +1740,6 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *edgeEntry, s Settings) 
 	// Base ASN : annoncée seulement ; la passerelle la réclame si elle n'a pas cette version.
 	go m.offerASNTo(ctx, e)
 
-	// Peers Raft
-	go m.PushClusterPeers(ctx)
 	// Peers gateway LB cross-passerelle
 	go m.PushGatewayPeers(ctx)
 	// Délégations
@@ -1796,6 +1791,13 @@ func (m *Manager) pushAllToEntry(ctx context.Context, e *edgeEntry, s Settings) 
 
 	// Règles automatiques — poussées après le full_sync
 	go m.PushAutoRules(ctx)
+
+	// Routes de conteneurs désactivées : une désactivation faite pendant la coupure de la passerelle doit l'atteindre.
+	go func() {
+		if err := e.client.PushJSON(edgeWS.TypePushDisabledRoutes, edgeWS.DisabledRoutes{Hosts: api.LoadDisabledRoutes(m.db)}); err != nil {
+			m.log.Warn("edgews/manager: push routes désactivées", "edge", e.nodeName, "err", err)
+		}
+	}()
 
 	// Config tunnel peers — poussée si présente
 	go func() {
@@ -2048,7 +2050,7 @@ func (m *Manager) loadActiveBans(ctx context.Context, e *edgeEntry) ([]router.Ru
 		}
 	}
 	rows, err := m.db.QueryContext(ctx, `
-		SELECT id, ip, reason, source, expires_at, target_scope, signals
+		SELECT id, ip, reason, source, expires_at, target_scope, signals, user_agent
 		FROM security_bans
 		WHERE (expires_at IS NULL OR expires_at = '' OR datetime(expires_at) > CURRENT_TIMESTAMP)
 		  AND target_scope IN (?, ?, ?, ?)`, scopes...)
@@ -2061,7 +2063,7 @@ func (m *Manager) loadActiveBans(ctx context.Context, e *edgeEntry) ([]router.Ru
 		var b router.RuntimeBan
 		var expires sql.NullString
 		var signals string
-		if err := rows.Scan(&b.ID, &b.IP, &b.Reason, &b.Source, &expires, &b.Scope, &signals); err != nil {
+		if err := rows.Scan(&b.ID, &b.IP, &b.Reason, &b.Source, &expires, &b.Scope, &signals, &b.UserAgent); err != nil {
 			continue
 		}
 		b.Signals = security.DecodeBanSignals(signals)

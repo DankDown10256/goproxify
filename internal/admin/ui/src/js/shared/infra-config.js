@@ -199,31 +199,19 @@ function _buildEdgeOpts(d) {
   const name     = (d.wc_name || 'edge-1').trim();
   const restart  = d.wc_restart || 'unless-stopped';
   const logLevel = d.wc_log || 'info';
-  const cluster  = !!d.wc_cluster;
   const portal   = !!d.wc_portal;
-  const nodeID   = (d.wc_cluster_node_id || name).trim();
-  const group    = (d.wc_cluster_group || 'ha-1').trim();
-  const peers    = (d.wc_cluster_peers || '').trim();
   const envVars = [
     { k:'GPX_IDENTITY_EDGE_NODE_NAME', v: name },
     { k:'GPX_PAIRING_SECRET',          v: _wiz.pairingSecret || '' },
     { k:'GPX_ENGINE_LOG_LEVEL',        v: logLevel },
-    cluster ? { k:'GPX_CLUSTER_ENABLED',    v: 'true' } : null,
-    cluster ? { k:'GPX_CLUSTER_RAFT_PORT',  v: '8002' } : null,
-    cluster ? { k:'GPX_CLUSTER_NODE_ID',    v: nodeID } : null,
-    cluster ? { k:'GPX_CLUSTER_GROUP_NAME', v: group } : null,
-    cluster && peers ? { k:'GPX_CLUSTER_PEERS', v: peers } : null,
-    // Compat wizard infra historique (ignoré par passerelle ; peers poussés par Admin sinon)
-    cluster && d.wc_raft_leader && !peers ? { k:'GPX_CLUSTER_RAFT_LEADER', v: d.wc_raft_leader } : null,
     portal ? { k:'GPX_PORTAL_ENABLED', v: 'true' } : null,
   ].filter(Boolean);
   const image    = cat ? cat.image('edge') : 'ghcr.io/vincamok/goproxify/edge:preview';
   const netBlock = cat ? cat.netBlock()    : '\nnetworks:\n  goproxify_net:\n    driver: bridge';
-  const ports    = cat ? cat.portStrings('edge', { http3: d.wc_http3, cluster, portal }) : (function(){
+  const ports    = cat ? cat.portStrings('edge', { http3: d.wc_http3, portal }) : (function(){
     const p = ['80:80','443:443'];
     if (d.wc_http3) p.push('443:443/udp');
     p.push('8000:8000');
-    if (cluster) p.push('8002:8002');
     if (portal)  { p.push('2222:2222'); p.push('8444:8444'); }
     return p;
   })();
@@ -262,7 +250,7 @@ function _buildAgentOpts(d) {
   const image    = cat ? cat.image('agent') : 'ghcr.io/vincamok/goproxify/agent:preview';
   const netBlock = cat ? cat.netBlock()     : '\nnetworks:\n  goproxify_net:\n    driver: bridge';
   const volumes  = [];
-  if (useContainerRuntime) volumes.push(`${sockHost}:${sockHost}:ro`);
+  if (useContainerRuntime) volumes.push(`${sockHost}:${sockHost}`);
   volumes.push(`${name}_data:/etc/goproxify`);
   return { name, svcName: name, image, envVars, ports: [], volumes, netBlock, restart, command: 'agent' };
 }

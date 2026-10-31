@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -110,6 +111,12 @@ func (g *agentGenerations) accept(key string, gen int64) bool {
 	return true
 }
 
+func (g *agentGenerations) kept(key string) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.last[key]
+}
+
 func (st *agentStatePayload) key() string { return st.AgentName + "|" + st.Source + "|" + st.Scope }
 
 func (s *Server) handleAgentState(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +129,13 @@ func (s *Server) handleAgentState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, status, msg := s.acceptAgentState(&st)
+	if status == http.StatusConflict {
+		// L'Agent compte un 409 comme « envoyé » : sans cette ligne, un état ignoré en continu (génération retenue en
+		// avance de l'horloge de l'Agent, par exemple venue d'un pair) laisse des routes manquer sans aucune trace.
+		if log, n := s.blockLog.Allow("generation|" + st.key()); log {
+			s.log.Warn("agent: état complet ignoré, génération dépassée", "agent", st.AgentName, "source", st.Source, "scope", st.Scope, "reçue", st.Generation, "retenue", s.agentGen.kept(st.key()), "ignorés depuis la dernière ligne", n)
+		}
+	}
 	if status != http.StatusOK {
 		http.Error(w, msg, status)
 		return
@@ -217,13 +231,13 @@ func (s *Server) pruneAgentSource(st *agentStatePayload, hostContainers map[stri
 	for _, rt := range s.table.All() {
 		switch st.Source {
 		case "portainer":
-			if !strings.HasPrefix(rt.ID, "portainer:") || rt.AgentName != st.AgentName || routeIDs[rt.ID] {
+			if !strings.HasPrefix(rt.ID, "portainer:") || rt.AgentName != st.AgentName {
 				continue
 			}
 			if st.Scope != "" && portainerEndpointOf(rt.ID) != st.Scope {
 				continue
 			}
-			if s.table.Delete(rt.ID) {
+			if s.prunePortainerRoute(rt, hostContainers[strings.ToLower(rt.Host)], routeIDs[rt.ID]) {
 				pruned++
 			}
 		default:
@@ -234,6 +248,40 @@ func (s *Server) pruneAgentSource(st *agentStatePayload, hostContainers map[stri
 		}
 	}
 	return pruned
+}
+
+// prunePortainerRoute retire d'une route Portainer les backends dont le conteneur n'est plus déclaré pour son hôte. Une
+// route ne se juge pas sur son identifiant : il porte celui du premier conteneur de l'hôte, et un conteneur recréé vient
+// s'ajouter à la route existante sans la renommer. La route disparaît quand il ne lui reste rien, avec son identifiant
+// non déclaré ; un backend sans conteneur connu ne survit que si l'identifiant de la route est déclaré.
+func (s *Server) prunePortainerRoute(rt *router.Route, declared []string, idDeclared bool) bool {
+	kept := make([]router.Backend, 0, len(rt.Backends))
+	changed := false
+	for _, b := range rt.Backends {
+		if b.OwnerEdgeEndpoint != "" || slices.Contains(declared, b.ContainerID) || b.ContainerID == "" && idDeclared {
+			kept = append(kept, b)
+			continue
+		}
+		changed = true
+	}
+	if rt.Canary != nil && !slices.Contains(declared, rt.Canary.ContainerID) {
+		rt.Canary = nil
+		changed = true
+	}
+	if rt.Shadow != nil && !slices.Contains(declared, rt.Shadow.ContainerID) {
+		rt.Shadow = nil
+		changed = true
+	}
+	if !changed {
+		return false
+	}
+	rt.Backends = kept
+	if len(kept) == 0 && rt.Canary == nil && rt.Shadow == nil {
+		s.table.Delete(rt.ID)
+		return true
+	}
+	s.table.Upsert(rt)
+	return true
 }
 
 // portainerEndpointOf extrait l'identifiant d'endpoint de « portainer:{endpoint}:{conteneur}:{hôte} ».
