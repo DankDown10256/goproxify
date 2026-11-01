@@ -9,17 +9,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/netip"
 	"time"
 
 	"github.com/vincamok/goproxify/internal/edge/threat"
-)
-
-const (
-	SimDefaultHours = 1
-	SimMaxHours     = 24
-	simMaxEvents    = 200_000
 )
 
 // SimulateSentinel rejoue les access logs récents contre la config Sentinel de cfgKey surchargée par override,
@@ -40,7 +33,7 @@ func SimulateSentinel(ctx context.Context, db *sql.DB, cfgKey string, override m
 	}
 	candidate := current
 	b, _ := json.Marshal(override)
-	if err := engines.Validate(engines.Sentinel, b); err != nil {
+	if err := engines.Validate(engines.Ephor, b); err != nil {
 		return nil, fmt.Errorf("config candidate invalide: %w", err)
 	}
 	if err := json.Unmarshal(b, &candidate); err != nil {
@@ -105,21 +98,3 @@ func SimulateSentinel(ctx context.Context, db *sql.DB, cfgKey string, override m
 	}, nil
 }
 
-func (h *SecurityHandler) simulateThreat(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Config map[string]any `json:"config"`
-		Hours  int            `json:"hours"`
-		Domain string         `json:"domain"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Config == nil {
-		writeErr(w, r, http.StatusBadRequest, "api.err.json")
-		return
-	}
-	scope, _ := h.scope(r)
-	out, err := SimulateSentinel(r.Context(), h.DB, threatConfigKey(scope), body.Config, body.Hours, body.Domain)
-	if err != nil {
-		secJSONErr(w, err, http.StatusBadRequest)
-		return
-	}
-	jsonOK(w, out)
-}

@@ -42,10 +42,3 @@ func (h *Handler) toolSimulateSentinel(r *http.Request, args map[string]any) (an
 	return api.SimulateSentinel(r.Context(), h.DB, h.threatConfigKey(edgeID), override, hours, domain)
 }
 
-// threatConfigKey retourne la clé de la config Sentinel qui s'applique à la passerelle : celle de son groupe HA, sinon la sienne.
-func (h *Handler) threatConfigKey(edgeID string) string {
-	if h.ArchStore == nil {
-		return api.ThreatConfigKey(edgeID)
-	}
-	return api.ThreatConfigKeyFor(h.ArchStore, edgeID)
-}

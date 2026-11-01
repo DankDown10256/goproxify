@@ -69,9 +69,6 @@ type CoreConfig struct {
 	} `mapstructure:"timeouts"`
 }
 
-// DefaultMaxHeaderKB borne les en-têtes de requête (nginx : 4 × 8 Ko ; Go : 1 Mo si non borné).
-const DefaultMaxHeaderKB = 32
-
 // MaxHeaderBytes renvoie la taille max des en-têtes de requête en octets (défaut 32 Ko).
 func (c *CoreConfig) MaxHeaderBytes() int {
 	kb := c.Timeouts.MaxHeaderKB

@@ -9,3 +9,4 @@ helm
 docker-compose*.yml
 Makefile
 .claude
+dev-data/

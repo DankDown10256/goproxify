@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2024-2026 Vincamok / GoProxify contributors
 // SPDX-License-Identifier: Apache-2.0
 

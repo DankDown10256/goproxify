@@ -15,44 +15,16 @@ import (
 	"strings"
 )
 
-// EraseIP supprime du fichier d'access log et de ses rotations les lignes d'une IP (droit à
-// l'effacement RGPD) et retourne leur nombre. Les lignes d'un client dont l'IP était déjà tronquée
-// ne portent pas l'IP réelle : elles n'ont rien à effacer. Sans fichier (stdout), il n'y a rien à faire.
-// Les écritures sont suspendues pendant la réécriture ; celles que le canal ne peut pas absorber sont
-// perdues, comme quand le journal est saturé.
+// EraseIP removes an IP's entries from the local log store.
+// Without a local store, there is nothing to erase.
 func (a *AccessLogger) EraseIP(ip string) (int, error) {
-	target := CanonicalIP(ip)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.path == "" {
+	s := a.store.Load()
+	if s == nil {
 		return 0, nil
 	}
-	// Fermer d'abord : on ne remplace pas un fichier ouvert (Windows), et le writer garderait l'ancien descripteur.
-	if a.closer != nil {
-		a.closer.Close() //nolint:errcheck
-	}
-	defer a.reopenLocked()
-	dir, base := filepath.Dir(a.path), filepath.Base(a.path)
-	ext := filepath.Ext(base)
-	prefix := strings.TrimSuffix(base, ext) + "-"
-	files := []string{a.path}
-	for _, pattern := range []string{prefix + "*" + ext, prefix + "*" + ext + ".gz"} {
-		m, err := filepath.Glob(filepath.Join(dir, pattern))
-		if err != nil {
-			return 0, err
-		}
-		files = append(files, m...)
-	}
-
-	total := 0
-	for _, f := range files {
-		n, err := eraseIPFromFile(f, target)
-		total += n
-		if err != nil {
-			return total, err
-		}
-	}
-	return total, nil
+	s.Flush()
+	n, err := s.EraseIP(CanonicalIP(ip))
+	return int(n), err
 }
 
 func eraseIPFromFile(path, target string) (int, error) {

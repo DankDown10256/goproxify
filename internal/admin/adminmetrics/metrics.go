@@ -84,6 +84,32 @@ var Automation = struct {
 	}),
 }
 
+// RulesEngine exposes the rule engine's evaluation and action metrics.
+var RulesEngine = struct {
+	EvalsTotal   prometheus.Counter
+	EvalDuration prometheus.Histogram
+	ActiveRules  prometheus.Gauge
+	ActionsTotal *prometheus.CounterVec
+}{
+	EvalsTotal: promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "gpx", Subsystem: "rulesengine", Name: "evals_total",
+		Help: "Total rule evaluation cycles.",
+	}),
+	EvalDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "gpx", Subsystem: "rulesengine", Name: "eval_duration_seconds",
+		Help:    "Duration of a rule evaluation cycle.",
+		Buckets: []float64{.001, .005, .01, .05, .1, .5, 1, 5},
+	}),
+	ActiveRules: promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "gpx", Subsystem: "rulesengine", Name: "active_rules",
+		Help: "Number of enabled rules.",
+	}),
+	ActionsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx", Subsystem: "rulesengine", Name: "actions_total",
+		Help: "Total rule actions by type and result.",
+	}, []string{"action", "result"}),
+}
+
 // VulnScan expose les métriques du scanner de vulnérabilités.
 var VulnScan = struct {
 	CVEsDetectedTotal *prometheus.CounterVec

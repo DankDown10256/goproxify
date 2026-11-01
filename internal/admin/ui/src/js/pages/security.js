@@ -418,7 +418,7 @@ function vsUnitCardHTML(u) {
   const meta = _vs.mode === 'admin'
     ? t('security.vs.backends_n', { n: new Set(u.l.map(c => c.backend_url)).size })
     : t('security.vs.cves_n', { n: u.l.length });
-  return `<button type="button" class="vs-unit" data-unit="${esc(u.k)}" aria-expanded="${expanded}" onclick="vsToggleUnit(this.dataset.unit)">
+  return `<button type="button" class="vs-unit" data-unit="${esc(u.k)}" aria-expanded="${expanded}" onclick="window.open(this.dataset.url, '_blank', 'noopener,noreferrer')"> 
     <span class="vs-unit-top">
       <span class="vs-unit-id"><span class="vs-unit-name mono">${esc(u.k)}</span><span class="vs-unit-meta">${esc(meta)}</span></span>
       ${vsRing(u.score, 52)}
