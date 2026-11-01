@@ -42,4 +42,4 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.5.0
-          args: --timeout=5m --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
+          args: --timeout=5m --new-from-rev=${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
