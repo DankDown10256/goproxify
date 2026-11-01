@@ -41,7 +41,6 @@ const (
 	TypePushGatewayPeers    = "push_gateway_peers"
 	TypePushDelegations     = "push_delegations"
 	TypePushThreatConfig    = "push_threat_config"
-	TypePushF2BConfig       = "push_f2b_config"
 	TypePushLogRetention    = "push_log_retention" // durées de conservation des logs de la passerelle (payload : LogRetentionPayload)
 	TypePushSIEMConfig      = "push_siem_config"   // configuration de l'exporteur SIEM de la passerelle (payload : siem.Config)
 	TypePushCrowdSecConfig  = "push_crowdsec_config"
@@ -103,17 +102,17 @@ const (
 	TypeLogInfo               = "log_info"            // rétention réellement appliquée par la passerelle, toutes les 30 s (payload : LogInfoPayload)
 	TypeSIEMStatus            = "siem_status"         // état de chaque destination de l'exporteur SIEM, toutes les 30 s (payload : SIEMStatusPayload)
 	TypeSurfaceSuggestions    = "surface_suggestions" // ajouts suggérés à la politique de surface de chaque proxy, toutes les 5 min (payload : SurfaceSuggestionsPayload)
-	TypeIPStream              = "ip_stream"           // compteurs d'erreurs client par IP et par minute, pour le Fail2Ban global de l'Admin (payload : IPStreamPayload)
+	TypeIPStream              = "ip_stream"           // compteurs d'erreurs client par IP et par minute, pour les Seuils multi-passerelles de l'Admin (payload : IPStreamPayload)
 	TypePortalInviteCompleted = "portal_invite_completed"
 	TypePortalSendEmailOTP    = "portal_send_email_otp"
 	TypePortalAudit           = "portal_audit"
 	TypePortalLive            = "portal_live"           // instantané des connexions pontées en cours
 	TypePortalAccessRequest   = "portal_access_request" // demande d'accès temporaire d'un utilisateur du portail
 	TypeThreatBan             = "threat_ban"            // IP bannie par le moteur de détection automatique
-	TypeF2BBan                = "f2b_ban"               // IP bannie par le moteur Fail2Ban passerelle
 	TypeCrowdSecDecisions     = "crowdsec_decisions"    // décisions CrowdSec passerelle→Admin (agrégation)
 	TypeWAFReloaded           = "waf_reloaded"          // Confirmation passerelle → Admin : règles WAF appliquées
 	TypeBackendDown           = "backend_down"          // Backend déclaré indisponible par health-check
+	TypeTrafficDeviation      = "traffic_deviation"     // Alertes de trafic en cours (référence saisonnière) passerelle → Admin (payload : TrafficDeviationPayload)
 	TypeRuleFired             = "rule_fired"            // Règle automatique déclenchée passerelle → Admin
 	TypeASNOffer              = "asn_db_offer"          // Admin → passerelle : version de la base IP → ASN que l'Admin possède (payload : ASNOfferPayload)
 	TypeASNWant               = "asn_db_want"           // passerelle → Admin : réclame la base ASN (payload : ASNWantPayload)
@@ -144,7 +143,7 @@ type RuleFiredPayload struct {
 	NodeName    string         `json:"node_name,omitempty"`
 	RuleID      string         `json:"rule_id"`
 	RuleName    string         `json:"rule_name"`
-	ActionType  string         `json:"action_type,omitempty"` // ban_ip | disable_proxy | notify | enable_strict_f2b
+	ActionType  string         `json:"action_type,omitempty"` // ban_ip | disable_proxy | notify | enable_strict
 	CondResult  bool           `json:"cond_result"`
 	ActionTaken bool           `json:"action_taken"`
 	Silenced    bool           `json:"silenced,omitempty"` // déclenchement ignoré : mise en sourdine
@@ -174,17 +173,6 @@ type CrowdSecDecisionsPayload struct {
 	NodeName string             `json:"node_name,omitempty"`
 	Added    []CrowdSecDecision `json:"added,omitempty"`
 	Deleted  []CrowdSecDecision `json:"deleted,omitempty"`
-}
-
-// F2BBanPayload est envoyé par passerelle → Admin quand le moteur Fail2Ban passerelle banne une IP.
-type F2BBanPayload struct {
-	ID        string `json:"id"`
-	IP        string `json:"ip"`
-	Reason    string `json:"reason"`
-	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339, vide = permanent
-	NodeName  string `json:"node_name,omitempty"`
-	// UserAgent : le dernier User-Agent vu pour l'IP au moment du ban.
-	UserAgent string `json:"user_agent,omitempty"`
 }
 
 // UnbanEntry est un déban décidé dans l'Admin. At vide : déban à l'instant (la passerelle prend sa
@@ -576,4 +564,23 @@ func NewMessage(seq int64, msgType string, payload any) (Message, error) {
 		return Message{}, err
 	}
 	return Message{Seq: seq, Type: msgType, Payload: b}, nil
+}
+
+// TrafficAlertPayload est une alerte de trafic en cours sur une route (ADR 0020, étape 3.b).
+type TrafficAlertPayload struct {
+	Route    string    `json:"route"`
+	Level    string    `json:"level"` // warning | probable
+	Since    time.Time `json:"since"`
+	RPS      float64   `json:"rps"`
+	Expected float64   `json:"expected"`
+	Natures  []string  `json:"natures,omitempty"`
+	Hardened bool      `json:"hardened,omitempty"` // la route est durcie (mode block)
+}
+
+// TrafficDeviationPayload porte TOUTES les alertes de trafic en cours d'une passerelle, à chaque changement d'état et chaque minute
+// tant qu'il y en a : l'Admin en déduit les nouvelles, et une alerte manquée pendant une coupure est rattrapée au message suivant.
+// Une liste vide dit que les alertes sont finies.
+type TrafficDeviationPayload struct {
+	NodeName string                `json:"node_name"`
+	Alerts   []TrafficAlertPayload `json:"alerts"`
 }

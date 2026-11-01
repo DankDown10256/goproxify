@@ -248,6 +248,17 @@ func (t *Table) ByHost(host string) (*Route, bool) {
 	return nil, false
 }
 
+// LabelHost donne le nom sous lequel une requête vers host, servie par route, est comptée dans les métriques : host lui-même
+// quand c'est le nom exact (ou un alias) d'une route, sinon le nom de la route qui le sert (« *.example.fr »). Le client
+// ne choisit ainsi jamais une étiquette : un wildcard ne multiplie pas les séries.
+func (t *Table) LabelHost(host string, route *Route) string {
+	key := hostKey(host)
+	if _, ok := t.d().byHost.Load(key); ok {
+		return key
+	}
+	return route.Host
+}
+
 // PassthroughRoute retourne une route TLS passthrough pour host si elle existe.
 // Contrairement à ByHost, un proxy exact non-passthrough n'empêche pas de trouver
 // un wildcard passthrough (ex: deleg-* *.domaine.fr) — requis pour la délégation inter-passerelles.

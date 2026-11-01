@@ -19,7 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
 	"github.com/vincamok/goproxify/internal/admin/asn"
-	"github.com/vincamok/goproxify/internal/admin/fail2ban"
+	"github.com/vincamok/goproxify/internal/admin/fleet"
 	"github.com/vincamok/goproxify/internal/admin/prismedge"
 	"github.com/vincamok/goproxify/internal/admin/security"
 	"github.com/vincamok/goproxify/internal/admin/vulnscan"
@@ -37,7 +37,7 @@ type SecurityHandler struct {
 	// Proxies écrit la configuration d'un proxy (passage en block de la politique de surface) ; nil = indisponible.
 	Proxies ProxyConfigWriter
 	Store    *security.Store
-	Fail2Ban *fail2ban.Engine
+	Fleet *fleet.Engine
 	VulnScan *vulnscan.Scanner
 	CrowdSec *crowdsec.Bouncer
 	ScanCtx  context.Context
@@ -137,11 +137,11 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.ipTimeline(w, r)
 	case r.Method == http.MethodGet && sub == "ip-trace":
 		h.ipTrace(w, r)
-	// Fail2Ban
-	case r.Method == http.MethodGet && sub == "fail2ban":
-		h.getF2BConfig(w, r)
-	case r.Method == http.MethodPut && sub == "fail2ban":
-		h.putF2BConfig(w, r)
+	// Seuils multi-passerelles
+	case r.Method == http.MethodGet && sub == "fleet":
+		h.getFleetConfig(w, r)
+	case r.Method == http.MethodPut && sub == "fleet":
+		h.putFleetConfig(w, r)
 	// VulnScan
 	case r.Method == http.MethodGet && sub == "vulnscan" && id == "config":
 		h.getVulnscanConfig(w, r)
@@ -193,6 +193,10 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.putWAFConfig(w, r)
 	case r.Method == http.MethodGet && sub == "inventory":
 		h.getInventory(w, r)
+	case r.Method == http.MethodGet && sub == "rejections":
+		h.getRejections(w, r)
+	case r.Method == http.MethodGet && sub == "traffic-reference":
+		h.getTrafficReference(w, r)
 	case r.Method == http.MethodGet && sub == "cpe-overrides":
 		h.getCPEOverrides(w, r)
 	case r.Method == http.MethodPut && sub == "cpe-overrides":
@@ -879,26 +883,26 @@ func (h *SecurityHandler) timeline(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w, events)
 }
 
-// ── Fail2Ban ──────────────────────────────────────────────────────────────────
+// ── Seuils multi-passerelles ──────────────────────────────────────────────────────────────────
 
-func (h *SecurityHandler) getF2BConfig(w http.ResponseWriter, r *http.Request) {
-	if h.Fail2Ban == nil {
-		jsonOK(w, fail2ban.DefaultConfig())
+func (h *SecurityHandler) getFleetConfig(w http.ResponseWriter, r *http.Request) {
+	if h.Fleet == nil {
+		jsonOK(w, fleet.DefaultConfig())
 		return
 	}
-	jsonOK(w, h.Fail2Ban.GetConfig())
+	jsonOK(w, h.Fleet.GetConfig())
 }
 
-func (h *SecurityHandler) putF2BConfig(w http.ResponseWriter, r *http.Request) {
-	if h.Fail2Ban == nil {
-		writeErr(w, r, http.StatusServiceUnavailable, "api.err.fail2ban")
+func (h *SecurityHandler) putFleetConfig(w http.ResponseWriter, r *http.Request) {
+	if h.Fleet == nil {
+		writeErr(w, r, http.StatusServiceUnavailable, "api.err.fleet")
 		return
 	}
-	var cfg fail2ban.Config
-	if !decodeEngineConfig(w, r, engines.Fail2Ban, &cfg) {
+	var cfg fleet.Config
+	if !decodeEngineConfig(w, r, engines.Fleet, &cfg) {
 		return
 	}
-	if err := h.Fail2Ban.SaveConfig(cfg); err != nil {
+	if err := h.Fleet.SaveConfig(cfg); err != nil {
 		secJSONErr(w, err, http.StatusInternalServerError)
 		return
 	}

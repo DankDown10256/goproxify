@@ -15,13 +15,13 @@ import (
 	"github.com/vincamok/goproxify/internal/edge/router"
 )
 
-// Ban représente un bannissement IP (Fail2Ban, CrowdSec ou natif).
+// Ban représente un bannissement IP (Seuils, CrowdSec ou natif).
 type Ban struct {
 	ID        string    `json:"id"`
 	IP        string    `json:"ip"`
 	Domain    string    `json:"domain"`
 	Reason    string    `json:"reason"`
-	Source    string    `json:"source"` // fail2ban | crowdsec | native
+	Source    string    `json:"source"` // fleet | threat | crowdsec | native
 	EdgeName  string    `json:"edge_name"`
 	// TargetScope : passerelles qui appliquent le ban ; vide = toutes, sinon une passerelle ou "group:<nom>".
 	TargetScope string    `json:"target_scope"`

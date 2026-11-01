@@ -71,8 +71,8 @@ func (e *Engine) execNotify(ac ActionContext) {
 }
 
 func (e *Engine) execEnableStrict(ac ActionContext) error {
-	if e.deps.EnableStrictF2B == nil {
-		return fmt.Errorf("EnableStrictF2B non configuré")
+	if e.deps.EnableStrict == nil {
+		return fmt.Errorf("EnableStrict non configuré")
 	}
 	dur := 30 * time.Minute
 	if ac.Rule.Action.StrictDuration != "" {
@@ -80,5 +80,5 @@ func (e *Engine) execEnableStrict(ac ActionContext) error {
 			dur = d
 		}
 	}
-	return e.deps.EnableStrictF2B(dur)
+	return e.deps.EnableStrict(dur)
 }

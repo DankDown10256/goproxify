@@ -16,7 +16,7 @@ func TestManifestsOrderAndEphorPaths(t *testing.T) {
 	for _, m := range Manifests() {
 		types = append(types, m.Type)
 	}
-	if strings.Join(types, ",") != "ephor,fail2ban,crowdsec,waf" {
+	if strings.Join(types, ",") != "ephor,fleet,crowdsec,waf" {
 		t.Fatalf("types = %v", types)
 	}
 	sm, _ := Manifest(Ephor)
@@ -40,8 +40,9 @@ func TestValidateAcceptsRealConfigs(t *testing.T) {
 			"lists":{"ua_enabled":true,"ip_sources":["https://example.com/list.txt"]},
 			"custom_lists":{"ips":["203.0.113.0/24"],"uas":["badbot"],"paths":["/.env"],"tls_fingerprints":["e7d705a3286e19ea42f587b344ee6865"]},
 			"whitelist":{"ips":["10.0.0.0/8"],"paths":["/health"]},"tarpit":{"enabled":true,"delay_ms":3000,"max_concurrent":100},
-			"behavior":{"mode":"detect","signals":{"ua_tls_mismatch":"block","no_assets":"off","asn_aggregate":"detect"},"tls_families":{"chromium":["8DAAF6152771"]},"no_trust":false,"reference_min_age":"24h"}}`,
-		Fail2Ban: `{"enabled":true,"window_sec":300,"max_errors":50,"ban_duration_sec":0,"trust_forwarded_for":true,"whitelist":["10.0.0.0/8","203.0.113.7"]}`,
+			"behavior":{"mode":"detect","signals":{"ua_tls_mismatch":"block","no_assets":"off","asn_aggregate":"detect"},"tls_families":{"chromium":["8DAAF6152771"]},"no_trust":false,"reference_min_age":"24h"},
+			"seasonal":{"mode":"detect","floor_rps":50,"fast_factor":8,"slow_sigmas":3,"min_hours":1}}`,
+		Fleet:    `{"enabled":true,"window_sec":300,"max_errors":50,"ban_duration_sec":0,"trust_forwarded_for":true,"whitelist":["10.0.0.0/8","203.0.113.7"]}`,
 		CrowdSec: `{"enabled":true,"api_url":"http://localhost:8080","api_key":"k"}`,
 		WAF:      `{"enabled":false}`,
 	}
@@ -50,7 +51,7 @@ func TestValidateAcceptsRealConfigs(t *testing.T) {
 			t.Errorf("%s : %v", typ, err)
 		}
 	}
-	for _, typ := range []string{Ephor, Fail2Ban, CrowdSec, WAF} {
+	for _, typ := range []string{Ephor, Fleet, CrowdSec, WAF} {
 		if err := Validate(typ, nil); err != nil {
 			t.Errorf("%s vide : %v", typ, err)
 		}
@@ -65,6 +66,8 @@ func TestValidateRejects(t *testing.T) {
 		"ephor clé inconnue":         {Ephor, `{"enabled":true,"modee":"block"}`},
 		"ephor clé imbriquée":        {Ephor, `{"ip_score":{"ban_treshold":3}}`},
 		"ephor mode":                 {Ephor, `{"mode":"off"}`},
+		"ephor saisonnière block":    {Ephor, `{"seasonal":{"mode":"block"}}`},
+		"ephor saisonnière facteur":  {Ephor, `{"seasonal":{"fast_factor":1}}`},
 		"ephor durée illisible":      {Ephor, `{"ban_duration":"un jour"}`},
 		"ephor durée négative":       {Ephor, `{"rate_window":"-5s"}`},
 		"ephor seuil négatif":        {Ephor, `{"error_threshold":-1}`},
@@ -82,9 +85,9 @@ func TestValidateRejects(t *testing.T) {
 		"ephor behavior empreinte":   {Ephor, `{"behavior":{"tls_families":{"chromium":["pas-un-hash"]}}}`},
 		"ephor behavior famille":     {Ephor, `{"behavior":{"tls_families":{"":["8daaf6152771"]}}}`},
 		"ephor behavior âge":         {Ephor, `{"behavior":{"reference_min_age":"9000h"}}`},
-		"fail2ban clé":               {Fail2Ban, `{"window":300}`},
-		"fail2ban négatif":           {Fail2Ban, `{"max_errors":-3}`},
-		"fail2ban liste blanche":     {Fail2Ban, `{"whitelist":["nope"]}`},
+		"fleet clé":                  {Fleet, `{"window":300}`},
+		"fleet négatif":              {Fleet, `{"max_errors":-3}`},
+		"fleet liste blanche":        {Fleet, `{"whitelist":["nope"]}`},
 		"crowdsec URL":               {CrowdSec, `{"api_url":"localhost:8080"}`},
 		"crowdsec sans clé":          {CrowdSec, `{"enabled":true,"api_url":"http://localhost:8080"}`},
 		"crowdsec clé inconnue":      {CrowdSec, `{"apikey":"k"}`},
@@ -113,5 +116,23 @@ func TestCrowdSecKeyMaskedAndKept(t *testing.T) {
 	omitted := string(KeepSecrets(CrowdSec, json.RawMessage(`{"api_key":"SECRET"}`), json.RawMessage(`{"enabled":false}`)))
 	if !strings.Contains(omitted, "SECRET") {
 		t.Fatalf("secret omis = %s", omitted)
+	}
+}
+
+func TestEphorChallengeSecretIsMasked(t *testing.T) {
+	raw := json.RawMessage(`{"enabled":true,"ip_score":{"enabled":true},"challenge":{"mode":"detect","secret":"valeur-secrete"}}`)
+	if err := Validate(Ephor, raw); err != nil {
+		t.Fatalf("configuration valide refusée : %v", err)
+	}
+	if got := string(MaskConfig(Ephor, raw)); strings.Contains(got, "valeur-secrete") {
+		t.Fatalf("le secret du défi doit être masqué à l'affichage : %s", got)
+	}
+	masked := MaskConfig(Ephor, raw)
+	kept := KeepSecrets(Ephor, raw, masked)
+	if !strings.Contains(string(kept), "valeur-secrete") {
+		t.Fatalf("renvoyé masqué, le secret enregistré doit être conservé : %s", kept)
+	}
+	if err := Validate(Ephor, json.RawMessage(`{"challenge":{"mode":"block"}}`)); err == nil {
+		t.Fatal("un défi sans score cumulé doit être refusé")
 	}
 }

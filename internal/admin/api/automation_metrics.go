@@ -33,7 +33,7 @@ var AutomationMetrics = []automation.MetricDef{
 	{Key: "portal.sessions", Label: "Sessions du portail Access", Scope: "global", Kind: "gauge"},
 	{Key: "waf.profiles_active", Label: "Profils WAF actifs", Scope: "global", Kind: "gauge"},
 	{Key: "pipeline.blocked_total", Label: "Requêtes arrêtées par étape du pipeline", Scope: "stage", Kind: "counter"},
-	{Key: "f2b.bans_total", Label: "Bans Fail2Ban (Admin)", Scope: "global", Kind: "counter"},
+	{Key: "fleet.bans_total", Label: "Bans des Seuils multi-passerelles (Admin)", Scope: "global", Kind: "counter"},
 	{Key: "crowdsec.decisions_total", Label: "Décisions CrowdSec reçues (Admin)", Scope: "global", Kind: "counter"},
 	{Key: "vulnscan.cves_total", Label: "CVE détectées par le scanner", Scope: "global", Kind: "counter"},
 	{Key: "admin.http_requests_total", Label: "Requêtes reçues par l'Admin", Scope: "global", Kind: "counter"},
@@ -108,7 +108,7 @@ func AdminMetricSamples() []MetricPoint {
 		return nil
 	}
 	keys := map[string]string{
-		"gpx_f2b_bans_total":               "f2b.bans_total",
+		"gpx_fleet_bans_total":             "fleet.bans_total",
 		"gpx_crowdsec_decisions_total":     "crowdsec.decisions_total",
 		"gpx_vulnscan_cves_detected_total": "vulnscan.cves_total",
 		"gpx_admin_http_requests_total":    "admin.http_requests_total",

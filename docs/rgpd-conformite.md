@@ -23,7 +23,7 @@ Un enregistrement par finalité. Les durées sont les **défauts** d'une install
 | Transferts hors UE | Aucun par défaut |
 | Mesures de sécurité | Voir §5 |
 
-### 1.2 Bans d'adresses IP (Fail2Ban, Ephor, WAF, CrowdSec)
+### 1.2 Bans d'adresses IP (Ephor, WAF, Seuils, CrowdSec)
 
 | Rubrique | Contenu |
 |---|---|
@@ -115,7 +115,7 @@ Une AIPD est exigée quand le traitement est « susceptible d'engendrer un risqu
 | Rectification (Art. 16) | Sans objet pour des logs techniques ; un compte se modifie dans **Utilisateurs** |
 | Opposition (Art. 21) | Appréciée au cas par cas : l'intérêt légitime de sécurité peut prévaloir. Si elle est acceptée : effacement, et liste blanche si l'IP ne doit plus être bannie |
 
-**Ce que l'effacement ne couvre pas** (à traiter si la demande l'exige) : les sauvegardes déjà faites (elles expirent selon leur propre rotation), l'état en mémoire de Fail2Ban et d'Ephor sur les passerelles (il disparaît au redémarrage ou à l'expiration), les ordres de déban de la passerelle (table `unbans`, nécessaire pour ne pas reposer un ban levé), et les journaux d'un service tiers (CrowdSec, canaux d'alerte).
+**Ce que l'effacement ne couvre pas** (à traiter si la demande l'exige) : les sauvegardes déjà faites (elles expirent selon leur propre rotation), l'état en mémoire d'Ephor (Seuils compris) sur les passerelles (il disparaît au redémarrage ou à l'expiration), les ordres de déban de la passerelle (table `unbans`, nécessaire pour ne pas reposer un ban levé), et les journaux d'un service tiers (CrowdSec, canaux d'alerte).
 
 Réponse sous **un mois** (Art. 12-3), prolongeable de deux mois si la demande est complexe.
 

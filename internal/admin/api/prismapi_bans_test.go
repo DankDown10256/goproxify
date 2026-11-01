@@ -72,7 +72,7 @@ func TestBanTechnique(t *testing.T) {
 	cases := []struct{ src, reason, key, label string }{
 		{"threat", "threat: path", "path", "Chemin sensible (scan)"},
 		{"threat", "threat: rate", "rate", "Débit excessif"},
-		{"fail2ban", "Fail2Ban: trop d'erreurs", "errors", "Trop d'erreurs HTTP"},
+		{"fleet", "Seuils multi-passerelles : 12 erreurs en 60s", "errors", "Trop d'erreurs HTTP"},
 		{"crowdsec", "crowdsecurity/http-probing", "crowdsecurity/http-probing", "crowdsecurity/http-probing"},
 		{"native", "", "unknown", "Non précisé"},
 	}
@@ -86,7 +86,7 @@ func TestBanTechnique(t *testing.T) {
 
 func TestSourceLabel(t *testing.T) {
 	for src, want := range map[string]string{
-		"threat": "Ephor", "fail2ban": "Fail2Ban", "crowdsec": "CrowdSec", "native": "Manuel", "agent": "Agent",
+		"threat": "Ephor", "fleet": "Seuils multi-passerelles", "crowdsec": "CrowdSec", "native": "Manuel", "agent": "Agent",
 		"plugin:coraza": "Coraza", "plugin:my-waf": "My-waf", "plugin:": "plugin:", "autre": "autre",
 	} {
 		if got := sourceLabel(src); got != want {

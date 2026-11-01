@@ -74,7 +74,7 @@ type Entry struct {
 	// RealIP est l'IP réelle fournie par la passerelle en mode pseudonymisation.
 	// Elle n'est JAMAIS renvoyée dans les réponses API — uniquement chiffrée en DB.
 	RealIP string `json:"-"`
-	// IPTruncated : IP tronquée par la passerelle (anonymisation ou pseudonymisation). Fail2Ban, la
+	// IPTruncated : IP tronquée par la passerelle (anonymisation ou pseudonymisation). Les Seuils multi-passerelles, la
 	// simulation Ephor et les actions de l'interface (ban, analyse d'IP) écartent ces lignes :
 	// x.x.x.0 ou un /48 ne désignent aucun client.
 	IPTruncated bool `json:"ip_truncated,omitempty"`
@@ -139,7 +139,7 @@ type Store struct {
 }
 
 // PseudonymizedIP remplace l'IP d'une entrée pseudonymisée dans la colonne ip. Volontairement
-// pas une IP : Fail2Ban et la simulation Ephor, qui lisent cette colonne, l'ignorent.
+// pas une IP : les Seuils multi-passerelles et la simulation Ephor, qui lisent cette colonne, l'ignorent.
 const PseudonymizedIP = "[pseudonymisé]"
 
 // Erreurs de RevealIP.
@@ -871,7 +871,7 @@ type IPErasure struct {
 	BanHistory int64 `json:"ban_history_deleted"`
 	Bans       int64 `json:"bans_deleted"`
 	GeoCache   int64 `json:"geoip_cache_deleted"`
-	// IPCounters compte les compteurs d'erreurs par IP que les passerelles ont envoyés pour le Fail2Ban global.
+	// IPCounters compte les compteurs d'erreurs par IP que les passerelles ont envoyés pour les Seuils multi-passerelles.
 	IPCounters int64 `json:"ip_counters_deleted"`
 	// AuditIP compte les entrées d'audit dont l'adresse a été vidée : l'entrée (qui a fait quoi, quand)
 	// reste, seule l'IP de l'acteur disparaît.

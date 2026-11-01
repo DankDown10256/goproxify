@@ -16,20 +16,22 @@ import (
 
 var prismSourceLabels = map[string]string{
 	"threat":   "Ephor",
-	"fail2ban": "Fail2Ban",
+	"fleet":    "Seuils multi-passerelles",
 	"crowdsec": "CrowdSec",
 	"native":   "Manuel",
 	"agent":    "Agent",
 }
 
 var ephorTechniqueLabels = map[string]string{
-	"ip":          "Liste d'IP malveillantes",
-	"custom_ip":   "Liste d'IP personnalisée",
-	"ua":          "User-Agent suspect",
-	"custom_ua":   "User-Agent personnalisé",
-	"path":        "Chemin sensible (scan)",
-	"custom_path": "Chemin personnalisé",
-	"rate":        "Débit excessif",
+	"ip":           "Liste d'IP malveillantes",
+	"custom_ip":    "Liste d'IP personnalisée",
+	"ua":           "User-Agent suspect",
+	"custom_ua":    "User-Agent personnalisé",
+	"path":         "Chemin sensible (scan)",
+	"custom_path":  "Chemin personnalisé",
+	"decoy":        "Leurre touché",
+	"unknown_host": "Hôte inconnu",
+	"rate":         "Débit excessif",
 }
 
 // sourceLabel donne le libellé d'une source de ban. Celle d'un plugin de détection ("plugin:coraza") porte le
@@ -56,9 +58,9 @@ func banTechnique(source, reason string) (key, label string) {
 		if l, ok := ephorTechniqueLabels[key]; ok {
 			return key, l
 		}
-	case "fail2ban":
-		key = strings.TrimSpace(strings.TrimPrefix(reason, "Fail2Ban:"))
-		if key == "trop d'erreurs" || key == "" {
+	case "fleet":
+		key = strings.TrimSpace(strings.TrimPrefix(reason, "Seuils multi-passerelles :"))
+		if key == "" || strings.Contains(key, "erreurs en") {
 			return "errors", "Trop d'erreurs HTTP"
 		}
 	}

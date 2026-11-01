@@ -1,7 +1,7 @@
 // ── PAGE PARTAGÉE: Sécurité (Admin + Passerelle) ───────────────────────────────
 // ctx = { mode: 'admin'|'edge' }
 // Mode edge : même UI ; données filtrées sur les proxies / domaines de la passerelle
-// sélectionné (GET /proxies?edge=…). Config Fail2Ban / CrowdSec = admin only.
+// sélectionné (GET /proxies?edge=…). Config Seuils multi-passerelles / CrowdSec = admin only.
 
 function securityPageId(variant, mode) {
   const isEdge = mode === 'edge';
@@ -258,11 +258,11 @@ window.secChartTipHide = function() {
 
 function secBansBySourceHTML(bans) {
   if (!bans.length) return `<div style="text-align:center;padding:20px 0;color:var(--text3);font-size:12px">${t('security.no_data')||'Aucune donnée'}</div>`;
-  const counts = { native: 0, fail2ban: 0, crowdsec: 0, threat: 0, manual: 0 };
+  const counts = { native: 0, fleet: 0, crowdsec: 0, threat: 0, manual: 0 };
   for (const b of bans) counts[b.source] = (counts[b.source] || 0) + 1;
   const total = bans.length || 1;
-  const labels = { native: 'Natif', fail2ban: 'Fail2Ban', crowdsec: 'CrowdSec', threat: 'Ephor', manual: 'Manuel' };
-  const colors = { native: 'var(--text3)', fail2ban: 'var(--blue)', crowdsec: 'var(--purple)', threat: 'var(--red)', manual: 'var(--yellow)' };
+  const labels = { native: 'Natif', fleet: 'Seuils multi-passerelles', crowdsec: 'CrowdSec', threat: 'Ephor', manual: 'Manuel' };
+  const colors = { native: 'var(--text3)', fleet: 'var(--blue)', crowdsec: 'var(--purple)', threat: 'var(--red)', manual: 'var(--yellow)' };
   return Object.entries(counts)
     .filter(([, c]) => c > 0)
     .sort(([,a],[,b]) => b - a)
@@ -947,7 +947,7 @@ function bansToolbarHTML(total, shown) {
       <span style="font-size:11px;color:var(--text3);">${t('security.filter_source')}</span>
       ${_secBansChip(source, '', t('security.filter.all'), "setSecBansSource('')")}
       ${_secBansChip(source, 'native', t('security.source.native'), "setSecBansSource('native')")}
-      ${_secBansChip(source, 'fail2ban', t('security.source.fail2ban'), "setSecBansSource('fail2ban')")}
+      ${_secBansChip(source, 'fleet', t('security.source.fleet'), "setSecBansSource('fleet')")}
       ${_secBansChip(source, 'crowdsec', t('security.source.crowdsec'), "setSecBansSource('crowdsec')")}
       ${_secBansChip(source, 'threat', t('security.source.threat'), "setSecBansSource('threat')")}
       <span style="font-size:11px;color:var(--text3);margin-left:6px;">${t('security.filter_expiry')}</span>
@@ -1401,30 +1401,30 @@ function timelineHTML(events) {
     </div>`).join('')}</div>`;
 }
 
-function f2bPanel(cfg) {
+function fleetPanel(cfg) {
   if (!cfg) return '<p style="color:var(--text2);font-size:12px;margin:0">' + t('common.not_available') + '</p>';
-  return `<form onsubmit="saveF2BConfig(event)">
+  return `<form onsubmit="saveFleetConfig(event)">
     <div class="sec-bans-engine-fields">
       <div class="field" style="margin:0">
-        <label class="field-label">${t('security.f2b.window')}</label>
-        <input id="f2b-window" type="number" class="input" value="${cfg.window_sec||300}" min="60" max="3600">
+        <label class="field-label">${t('security.fleet.window')}</label>
+        <input id="fleet-window" type="number" class="input" value="${cfg.window_sec||300}" min="60" max="3600">
       </div>
       <div class="field" style="margin:0">
-        <label class="field-label">${t('security.f2b.max_errors')}</label>
-        <input id="f2b-max" type="number" class="input" value="${cfg.max_errors||20}" min="1" max="1000">
+        <label class="field-label">${t('security.fleet.max_errors')}</label>
+        <input id="fleet-max" type="number" class="input" value="${cfg.max_errors||20}" min="1" max="1000">
       </div>
       <div class="field" style="margin:0">
-        <label class="field-label">${t('security.f2b.ban_duration')}</label>
-        <input id="f2b-dur" type="number" class="input" value="${cfg.ban_duration_sec??0}" min="0" title="${esc(t('security.f2b.ban_duration_hint'))}">
+        <label class="field-label">${t('security.fleet.ban_duration')}</label>
+        <input id="fleet-dur" type="number" class="input" value="${cfg.ban_duration_sec??0}" min="0" title="${esc(t('security.fleet.ban_duration_hint'))}">
       </div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12.5px">
-      <input type="checkbox" id="f2b-xff" ${cfg.trust_forwarded_for?'checked':''}>
-      <span>${t('security.f2b.trust_xff')}</span>
+      <input type="checkbox" id="fleet-xff" ${cfg.trust_forwarded_for?'checked':''}>
+      <span>${t('security.fleet.trust_xff')}</span>
     </label>
     <div class="field" style="margin-bottom:10px">
-      <label class="field-label">${t('security.f2b.whitelist')}</label>
-      <textarea id="f2b-whitelist" class="input" rows="2" placeholder="10.0.0.0/8&#10;203.0.113.10">${(cfg.whitelist||[]).join('\n')}</textarea>
+      <label class="field-label">${t('security.fleet.whitelist')}</label>
+      <textarea id="fleet-whitelist" class="input" rows="2" placeholder="10.0.0.0/8&#10;203.0.113.10">${(cfg.whitelist||[]).join('\n')}</textarea>
     </div>
     <button class="btn btn-primary btn-sm" type="submit">${t('common.save')}</button>
   </form>`;
@@ -1582,19 +1582,19 @@ function startVulnscanPoll() {
   }, 2000);
 }
 
-window.saveF2BConfig = async function(e) {
+window.saveFleetConfig = async function(e) {
   e.preventDefault();
-  const whitelist = (document.getElementById('f2b-whitelist')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  const whitelist = (document.getElementById('fleet-whitelist')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
   const cfg = {
-    enabled: !!(window._f2bCfg?.enabled),
-    window_sec: parseInt(document.getElementById('f2b-window')?.value)||300,
-    max_errors: parseInt(document.getElementById('f2b-max')?.value)||20,
-    ban_duration_sec: (() => { const v = parseInt(document.getElementById('f2b-dur')?.value, 10); return Number.isFinite(v) && v >= 0 ? v : 0; })(),
-    trust_forwarded_for: document.getElementById('f2b-xff')?.checked || false,
+    enabled: !!(window._fleetCfg?.enabled),
+    window_sec: parseInt(document.getElementById('fleet-window')?.value)||300,
+    max_errors: parseInt(document.getElementById('fleet-max')?.value)||20,
+    ban_duration_sec: (() => { const v = parseInt(document.getElementById('fleet-dur')?.value, 10); return Number.isFinite(v) && v >= 0 ? v : 0; })(),
+    trust_forwarded_for: document.getElementById('fleet-xff')?.checked || false,
     whitelist,
   };
   try {
-    await api('PUT', '/security/fail2ban', cfg);
+    await api('PUT', '/security/fleet', cfg);
     toast(t('security.ips.saved'), 'success');
     reloadCurrentSecurityPage();
   } catch(err) { toast(err.message, 'error'); }

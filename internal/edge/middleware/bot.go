@@ -66,7 +66,7 @@ func BotProtection(cfg *router.BotConfig) func(http.Handler) http.Handler {
 					"monitor", monitor,
 				)
 				if !monitor {
-					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "bot", "ua_blacklist").Inc()
+					metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "bot", "ua_blacklist").Inc()
 					http.Error(w, "403 Forbidden", http.StatusForbidden)
 					return
 				}
@@ -80,7 +80,7 @@ func BotProtection(cfg *router.BotConfig) func(http.Handler) http.Handler {
 				}
 				if !challenge.isExempt(r.URL.Path) {
 					if !challenge.hasProof(r) {
-						metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "bot", "js_challenge").Inc()
+						metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "bot", "js_challenge").Inc()
 						challenge.serve(w, r)
 						return
 					}

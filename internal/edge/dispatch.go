@@ -86,6 +86,20 @@ func serveDefaultError(w http.ResponseWriter, r *http.Request, status int) {
 	w.Write([]byte(html)) //nolint:errcheck
 }
 
+// rejectUnknownHost répond à une requête dont l'hôte n'a aucune route, sans rien révéler du produit : jamais la page
+// d'erreur à sa marque. En HTTP/2 la connexion ne peut pas être détournée, la réponse neutre s'applique alors.
+func (s *Server) rejectUnknownHost(w http.ResponseWriter) {
+	if s.cfg != nil && s.cfg.Network.UnknownHostAction == "close" {
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				conn.Close()
+				return
+			}
+		}
+	}
+	w.WriteHeader(http.StatusNotFound)
+}
+
 // serveErrorPageAsset sert /_goproxify/error-pages/{id}/{filename} depuis le volume passerelle.
 func (s *Server) serveErrorPageAsset(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -154,7 +168,8 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	// Utilise CF-Connecting-IP / X-Forwarded-For si disponible (Cloudflare, reverse proxy).
 	remoteIP := edgelog.RealIP(r)
 	s.lastUA.Note(remoteIP, r.UserAgent())
-	if blocked, reason := s.profileStore.CheckBlocked(remoteIP); blocked {
+	clientAddr, _ := router.ParseClientAddr(remoteIP) // lue une fois pour les trois vérifications ci-dessous
+	if blocked, reason := s.profileStore.CheckBlockedAddr(clientAddr); blocked {
 		if ok, n := s.blockLog.Allow("profil|" + remoteIP); ok {
 			s.log.Warn("ip bloquée par profil", blockedAttrs(n, "ip", remoteIP, "profile", reason)...)
 		}
@@ -162,9 +177,9 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		serveDefaultError(w, r, http.StatusForbidden)
 		return
 	}
-	// Bans Fail2Ban / CrowdSec / natifs — les profils allow (et IPs privées) passent outre.
-	if !s.profileStore.IsAllowed(remoteIP) {
-		if blocked, reason := s.banStore.CheckBlocked(remoteIP); blocked {
+	// Bans Ephor / CrowdSec / natifs — les profils allow (et IPs privées) passent outre.
+	if !s.profileStore.IsAllowedAddr(clientAddr) {
+		if blocked, reason := s.banStore.CheckBlockedAddr(clientAddr); blocked {
 			if ok, n := s.blockLog.Allow("ban|" + remoteIP); ok {
 				s.log.Warn("ip bloquée par ban", blockedAttrs(n, "ip", remoteIP, "reason", reason)...)
 			}
@@ -180,7 +195,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// Moteur de détection automatique (threat engine) — après les bans explicites. Les adresses de
 	// la liste blanche des bans ne sont ni évaluées ni comptées.
-	whitelisted := s.profileStore.IsWhitelisted(remoteIP)
+	whitelisted := s.profileStore.IsWhitelistedAddr(clientAddr)
 	if s.threatEngine != nil && !whitelisted {
 		if blocked, reason := s.threatEngine.Check(r, remoteIP); reason != "" {
 			r = threat.WithSignal(r, reason)
@@ -197,7 +212,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	route, ok := s.table.ByHost(host)
 	if !ok {
-		serveDefaultError(w, r, http.StatusNotFound)
+		s.recordUnknownHost(r, remoteIP)
+		if s.threatEngine != nil && !whitelisted {
+			s.threatEngine.NoteUnknownHost(remoteIP, cleanName(r.Host))
+		}
+		s.rejectUnknownHost(w)
 		return
 	}
 
@@ -210,6 +229,51 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tracing.Annotate(r.Context(), attribute.String("gpx.route.id", route.ID), attribute.String("gpx.route.host", route.Host))
+	hostLabel := s.table.LabelHost(host, route)
+	r = r.WithContext(metrics.WithHost(r.Context(), hostLabel))
+
+	// Défi gradué d'Ephor (ADR 0020, étape 1.b) : une IP dont la note monte sans atteindre le ban doit résoudre une preuve de
+	// travail avant que la requête n'atteigne le backend.
+	if g := s.gwChallenge.Load(); g != nil && s.threatEngine != nil && !whitelisted {
+		if g.IsVerify(r) {
+			result := "failed"
+			if g.Verify(w, r) {
+				result = "solved"
+			}
+			s.threatEngine.CountChallenge(result)
+			return
+		}
+		if g.Applies(r, route) && !g.HasProof(r) && s.threatEngine.ChallengeDue(r, remoteIP) {
+			s.threatEngine.CountChallenge("served")
+			r = threat.WithSignal(r, "threat: challenge")
+			tracing.Event(r.Context(), "ephor.challenge")
+			g.Serve(w, r)
+			return
+		}
+		g.StripProof(r)
+	}
+
+	// Profil durci d'une route en attaque probable (ADR 0020, étape 3.c) : les IP sans historique propre résolvent le défi à preuve
+	// de travail (navigation) et partagent un plafond de débit calculé sur le trafic d'ordinaire de la route. Les habitués passent.
+	if s.threatEngine != nil && !whitelisted {
+		if hard := s.threatEngine.Hardening(route.Host, remoteIP); hard != nil {
+			if g := s.gwChallenge.Load(); g != nil && g.Applies(r, route) && !g.HasProof(r) {
+				s.threatEngine.CountHarden("challenged")
+				s.threatEngine.RecordHardened(route.Host, remoteIP, r, http.StatusOK)
+				r = threat.WithSignal(r, "threat: seasonal challenge")
+				tracing.Event(r.Context(), "ephor.seasonal.challenge")
+				g.Serve(w, r)
+				return
+			}
+			if !hard.Allow(time.Now()) {
+				s.threatEngine.CountHarden("shed")
+				s.threatEngine.RecordHardened(route.Host, remoteIP, r, http.StatusServiceUnavailable)
+				w.Header().Set("Retry-After", "5")
+				serveDefaultError(w, r, http.StatusServiceUnavailable)
+				return
+			}
+		}
+	}
 
 	locPath := ""
 	if loc := router.MatchLocation(route, r.URL.Path); loc != nil {
@@ -222,7 +286,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	// Métriques
 	metricsOn := metrics.RequestMetricsOn()
 	if metricsOn {
-		metrics.Edge.ActiveRequests.WithLabelValues(host).Inc()
+		metrics.Edge.ActiveRequests.WithLabelValues(hostLabel).Inc()
 	}
 	start := time.Now()
 	rw := &statusCapture{ResponseWriter: w}
@@ -237,7 +301,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	h.ServeHTTP(rw, r)
 	if metricsOn {
-		recordRequestMetrics(host, r, rw, time.Since(start))
+		recordRequestMetrics(hostLabel, r, rw, time.Since(start))
 	}
 
 	// Avant Ephor : la note de l'IP ne doit pas contenir ce que cette requête vient d'y ajouter.

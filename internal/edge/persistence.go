@@ -13,6 +13,7 @@ import (
 	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
 	"github.com/vincamok/goproxify/internal/edge/ipprofiles"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
+	"github.com/vincamok/goproxify/internal/edge/middleware"
 	edgetls "github.com/vincamok/goproxify/internal/edge/tls"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	"github.com/vincamok/goproxify/internal/edge/portal"
@@ -104,8 +105,25 @@ func (s *Server) applyThreatConfig(cfg threat.Config) {
 		return
 	}
 	s.threatEngine.UpdateConfig(cfg)
+	s.applyChallenge(cfg)
 	// UpdateConfig remplace la liste blanche : y remettre les entrées ephor_whitelist des routes.
 	s.refreshEphorWhitelists()
+}
+
+// applyChallenge monte le défi gradué d'Ephor (ADR 0020, étape 1.b) quand la configuration le demande, ou le retire.
+func (s *Server) applyChallenge(cfg threat.Config) {
+	if !cfg.Enabled || !cfg.Challenge.Active() {
+		s.gwChallenge.Store(nil)
+		return
+	}
+	ch := cfg.Challenge
+	ttl := ""
+	if ch.TTL.Duration > 0 {
+		ttl = ch.TTL.String()
+	}
+	s.gwChallenge.Store(middleware.NewGatewayChallenge(middleware.GatewayChallengeConfig{
+		Difficulty: ch.Difficulty, TTL: ttl, ExemptPaths: ch.ExemptPaths, Secret: ch.Secret,
+	}))
 }
 
 // loadThreatConfigFromDisk rend Ephor opérationnel sans l'Admin après un redémarrage.
@@ -120,6 +138,7 @@ func (s *Server) loadThreatConfigFromDisk() {
 		return
 	}
 	s.threatEngine.UpdateConfig(cfg)
+	s.applyChallenge(cfg)
 	s.refreshEphorWhitelists()
 	s.log.Info(threat.Name+": config chargée depuis le disque", "enabled", cfg.Enabled)
 }

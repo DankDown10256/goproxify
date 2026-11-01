@@ -19,7 +19,7 @@ type Deps struct {
 	DisableProxy     func(ctx context.Context, proxyID string) error
 	CreateBan        func(ctx context.Context, ip, reason string, durationSec int) error
 	Emit             func(alerting.Event)
-	F2BLastActivity  func() time.Time
+	FleetLastActivity func() time.Time
 	CrowdSecLastSync func() time.Time
 	RunBackup        func(ctx context.Context, name string, retention int) error
 	// Metrics fournit les séries de la condition metric_threshold (nil : condition toujours fausse).

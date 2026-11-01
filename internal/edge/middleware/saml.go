@@ -97,7 +97,7 @@ func (h *samlHandler) handleACS(w http.ResponseWriter, r *http.Request) {
 	}
 	assertion, err := h.sp.ServiceProvider.ParseResponse(r, possibleIDs)
 	if err != nil {
-		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "failure").Inc()
+		metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "saml", "failure").Inc()
 		http.Error(w, "SAML: assertion invalide — "+err.Error(), http.StatusForbidden)
 		return
 	}
@@ -105,11 +105,11 @@ func (h *samlHandler) handleACS(w http.ResponseWriter, r *http.Request) {
 	user, email, groups := samlExtractAttrs(assertion, h.cfg)
 
 	if len(h.cfg.AllowedGroups) > 0 && !ldapInAllowedGroup(h.cfg.AllowedGroups, groups) {
-		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "failure").Inc()
+		metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "saml", "failure").Inc()
 		http.Error(w, "SAML: groupe non autorisé", http.StatusForbidden)
 		return
 	}
-	metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "saml", "success").Inc()
+	metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "saml", "success").Inc()
 
 	maxAge := h.cfg.SessionMaxAge
 	if maxAge <= 0 {

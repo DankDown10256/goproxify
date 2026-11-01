@@ -22,7 +22,7 @@ var backupTables = []string{
 	"settings",
 	"backup_schedule",
 	"backup_destinations",
-	"fail2ban_config",
+	"fleet_config",
 	"crowdsec_config",
 	"flows",
 	"flow_state",

@@ -504,7 +504,7 @@ type WAFConfig struct {
 	CustomRulesPath string `json:"custom_rules_path,omitempty"`
 
 	// WAFWhitelistIPs : IPs/CIDRs exemptes du WAF pour cette route.
-	// La protection Fail2Ban/Ephor reste active.
+	// La protection d'Ephor reste active.
 	WAFWhitelistIPs []string `json:"waf_whitelist_ips,omitempty"`
 }
 

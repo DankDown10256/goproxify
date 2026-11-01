@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
+	"github.com/vincamok/goproxify/internal/edge/metrics"
 	"github.com/vincamok/goproxify/internal/edge/router"
 	"github.com/vincamok/goproxify/internal/edge/waf/behavior"
 )
@@ -418,15 +419,16 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			return
 		}
 		host := r.Host
+		hostLabel := metrics.HostOf(r)
 		ip := realIP(r, trustedNets)
 
-		// Bypass WAF complet pour les IPs/CIDRs en whitelist (Fail2Ban/Ephor restent actifs).
+		// Bypass WAF complet pour les IPs/CIDRs en whitelist (Ephor reste actif).
 		if len(wafWhitelistNets) > 0 && ipMatchesNets(ip, wafWhitelistNets) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		wafRequestsTotal.WithLabelValues(host).Inc()
+		wafRequestsTotal.WithLabelValues(hostLabel).Inc()
 
 		// ── Étape 1 : vérification comportementale PRÉ-requête ────────────
 		if behaviorEnabled {
@@ -436,7 +438,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 			if preScore >= effectiveThreshold && block {
 				e.log.Warn("waf: blocage comportemental immédiat",
 					"ip", ip, "score", preScore, "threshold", effectiveThreshold)
-				wafBehaviorTotal.WithLabelValues(host, "pre_block").Inc()
+				wafBehaviorTotal.WithLabelValues(hostLabel, "pre_block").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
@@ -478,7 +480,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 				if triggered && block {
 					action = "block"
 				}
-				wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
+				wafMatchesTotal.WithLabelValues(hostLabel, m.Category, m.Severity.String(), action).Inc()
 				e.log.Warn("waf: règle déclenchée",
 					"rule_id", m.RuleID,
 					"category", m.Category,
@@ -522,7 +524,7 @@ func (e *Engine) Middleware(cfg *router.WAFConfig, next http.Handler) http.Handl
 				if block {
 					action = "block"
 				}
-				wafMatchesTotal.WithLabelValues(host, m.Category, m.Severity.String(), action).Inc()
+				wafMatchesTotal.WithLabelValues(hostLabel, m.Category, m.Severity.String(), action).Inc()
 				e.log.Warn("waf: fuite dans la réponse",
 					"rule_id", m.RuleID,
 					"category", m.Category,
@@ -585,7 +587,7 @@ func (e *Engine) postRecord(host, ip string, r *http.Request, wafScore, status, 
 		return
 	}
 	for _, sig := range bSignals {
-		wafBehaviorTotal.WithLabelValues(host, sig.Name).Inc()
+		wafBehaviorTotal.WithLabelValues(metrics.HostOf(r), sig.Name).Inc()
 	}
 	e.log.Warn("waf: signal comportemental",
 		"ip", ip, "score", bScore, "threshold", threshold, "signals", bSignals)

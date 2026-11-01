@@ -74,9 +74,6 @@ type AccessLogger struct {
 	nodeName    string
 	forwardFn   func([]ShipEntry) // prioritaire sur HTTP si défini
 
-	f2bTapMu sync.RWMutex
-	f2bTap   func(ip string, status int)
-
 	proxyTapMu sync.RWMutex
 	proxyTap   func(domain string, status int)
 
@@ -289,15 +286,6 @@ func (a *AccessLogger) SetProxyTap(fn func(domain string, status int)) {
 	a.proxyTapMu.Unlock()
 }
 
-// SetF2BTap enregistre un callback appelé pour chaque requête loguée (ip, status).
-// Utilisé par le moteur Fail2Ban passerelle pour alimenter sa fenêtre glissante.
-// Passer nil pour désactiver.
-func (a *AccessLogger) SetF2BTap(fn func(ip string, status int)) {
-	a.f2bTapMu.Lock()
-	a.f2bTap = fn
-	a.f2bTapMu.Unlock()
-}
-
 // SetIPProtection règle les deux modes d'un coup, sans état intermédiaire non protégé.
 // Pseudonymisation : le fichier passerelle reçoit une IP tronquée, l'Admin l'IP réelle qu'il
 // chiffre ; sans effet tant que l'anonymisation est active (voir ipFields).
@@ -317,7 +305,7 @@ func (a *AccessLogger) IPProtection() (anonymize, pseudonymize bool) {
 // SetIPAnonymize active ou désactive l'anonymisation des IPs dans les logs.
 // IPv4 : dernier octet remplacé par 0 (x.x.x.0).
 // IPv6 : 80 derniers bits masqués (préfixe /48 conservé).
-// Les taps Fail2Ban/Ephor reçoivent toujours l'IP réelle avant anonymisation.
+// Les taps Ephor reçoivent toujours l'IP réelle avant anonymisation.
 func (a *AccessLogger) SetIPAnonymize(enabled bool) {
 	a.anonymizeMu.Lock()
 	a.anonymize = enabled
@@ -389,13 +377,6 @@ func (a *AccessLogger) Middleware(next http.Handler) http.Handler {
 		wafMatches, threatSignal := notes.waf, notes.threat
 		notes.mu.Unlock()
 
-		// Les taps sécurité reçoivent l'IP réelle avant toute anonymisation.
-		a.f2bTapMu.RLock()
-		tap := a.f2bTap
-		a.f2bTapMu.RUnlock()
-		if tap != nil {
-			tap(ip, rw.status)
-		}
 		a.proxyTapMu.RLock()
 		ptap := a.proxyTap
 		a.proxyTapMu.RUnlock()
@@ -541,7 +522,7 @@ func (sw *statusWriter) Flush() {
 
 func (sw *statusWriter) Unwrap() http.ResponseWriter { return sw.ResponseWriter }
 
-// SetDisabled court-circuite le middleware (benchmark) : aucun log, aucun tap Fail2Ban/proxy.
+// SetDisabled court-circuite le middleware (benchmark) : aucun log, aucun tap proxy.
 func (a *AccessLogger) SetDisabled(off bool) { a.disabled.Store(off) }
 
 // ShipEntryFromRow reconstitue l'entrée expédiée à l'Admin à partir d'une ligne de la base de logs locale.

@@ -963,7 +963,7 @@ goproxify ip-profile delete <id> -y
 Ephor (threat engine global), gestion des bans, config WAF par proxy, et moteur de règles automatiques.
 
 ```
-# Moteurs globaux et leurs champs de configuration (Ephor, Fail2Ban, CrowdSec, WAF)
+# Moteurs globaux et leurs champs de configuration (Ephor, Seuils multi-passerelles, CrowdSec, WAF)
 goproxify security engines [-admin-url …] [-token …]
 
 # Config du moteur Ephor
@@ -989,7 +989,7 @@ goproxify security waf-engine set -enabled <true|false> [-edge <id>] [-admin-url
 goproxify security waf-engine activity [-hours N] [-edge <id>] [-admin-url …] [-token …]   # requêtes signalées par le WAF : refusées/passées, règles et domaines les plus touchés (défaut 24 h, max 168)
 
 # Bans
-goproxify security bans list   [-edge <passerelle>] [-source <source>] [-active true|false] [-scope <passerelle|group:nom>] [-admin-url …] [-token …]   # -source : native, fail2ban, crowdsec, threat, plugin:<nom> (ex. plugin:coraza) ; un ban d'Ephor ou du WAF est suivi d'une ligne « ↳ signal points (valeur) · … » qui l'explique
+goproxify security bans list   [-edge <passerelle>] [-source <source>] [-active true|false] [-scope <passerelle|group:nom>] [-admin-url …] [-token …]   # -source : native, fleet, crowdsec, threat, plugin:<nom> (ex. plugin:coraza) ; un ban d'Ephor ou du WAF est suivi d'une ligne « ↳ signal points (valeur) · … » qui l'explique
 goproxify security bans add    -ip <ip|cidr> [-reason <raison>] [-ttl <durée>] [-scope <passerelle|group:nom>] [-admin-url …] [-token …]
 goproxify security bans preview -ip <ip|cidr> [-hours N] [-json] [-admin-url …] [-token …]   # impact d'un ban avant de le créer
 goproxify security bans whitelist list|add|delete [-ip <ip|cidr>] [-comment <texte>] [-admin-url …] [-token …]   # liste blanche des bans
@@ -1005,6 +1005,8 @@ goproxify security waf get -proxy <proxy-id> [-admin-url …] [-token …]
 goproxify security waf set -proxy <proxy-id> -file <waf-config.json> [-admin-url …] [-token …]
 
 # SLA de correction des CVE (délai attendu selon la gravité)
+goproxify security rejections [-edge <id>] [-admin-url …] [-token …]   # ce que l'entrée de chaque passerelle a refusé : poignées de main TLS ratées, hôtes sans route, noms demandés, IP, empreintes
+goproxify security traffic-reference [-edge <id>] [-admin-url …] [-token …]   # la référence saisonnière du trafic de chaque route : débit réel, débit attendu à cette heure, alertes en cours
 goproxify security cve inventory [-proxy <id|hôte>] [-edge <id>] [-gaps] [-admin-url …] [-token …]   # applications reconnues derrière les proxies ; -gaps : seulement ce que la recherche de CVE ne couvre pas
 goproxify security cve cpe get [-admin-url …] [-token …]   # identifiants CPE donnés aux produits que la table ne couvre pas
 goproxify security cve cpe set -file <overrides.json> [-admin-url …] [-token …]
@@ -1014,7 +1016,7 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 
 **`security engines`** — liste les moteurs globaux et les champs de leur configuration (chemins pointés comme `ip_score.ban_threshold`, secrets repérés). `security threat set` valide le fichier avec ce manifeste : clé inconnue, mode hors `block|detect`, durée illisible ou négative, IP ou CIDR invalide, code d'erreur HTTP hors 400-599, source de liste qui n'est pas http(s) ⇒ erreur `400`, rien n'est enregistré.
 
-**`security threat`** — lit ou écrit la configuration du moteur Ephor (fail2ban, seuils, whitelist globale…). Le paramètre `-edge` cible une passerelle spécifique dans un cluster multi-passerelle.
+**`security threat`** — lit ou écrit la configuration du moteur Ephor (seuils, whitelist globale…). Le paramètre `-edge` cible une passerelle spécifique dans un cluster multi-passerelle.
 
 **`security threat suggest`** — seuils proposés à partir des cumuls par minute (`-days`, défaut 7 ; `-edge`) : débit normal par passerelle et limite globale proposée. N'applique rien. Voir `GET /api/v1/security/threat-config/suggestions`.
 
@@ -1022,7 +1024,7 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 
 **`security threat references`** — ce que chaque passerelle a appris pour la note commune d'Ephor (`-edge` pour une seule) : références de débit par route et par heure, base ASN, profils. Voir `GET /api/v1/security/threat-references`.
 
-**`security threat simulate`** — rejoue les access logs récents (`-hours`, défaut 1, max 24 ; `-domain` pour un seul domaine) contre la config candidate du fichier, surchargée sur la config actuelle, et affiche le résultat en JSON : requêtes bloquées, faux positifs probables (`legit_blocked`), IP et bans, actuel vs candidat. Ne modifie rien. Voir `POST /api/v1/security/threat-config/simulate`.
+**`security threat simulate`** — rejoue les access logs récents (`-hours`, défaut 1, max 24, et 168 quand la config rejoue la référence saisonnière ; `-domain` pour un seul domaine) contre la config candidate du fichier, surchargée sur la config actuelle, et affiche le résultat en JSON : requêtes bloquées, faux positifs probables (`legit_blocked`), IP et bans, actuel vs candidat. Ne modifie rien. Voir `POST /api/v1/security/threat-config/simulate`.
 
 **`security bans`** — liste, ajoute ou supprime des IPs bannies manuellement. `-ttl` accepte une durée Go (`30m`, `1h`, `24h`) ou un nombre entier de jours (`7d`), convertie par la CLI en date d'expiration (`expires_at`) au moment de l'appel ; sans `-ttl`, le ban est permanent. Une durée invalide ou nulle est refusée sans rien créer (avant Admin `0.69.5`, `-ttl` était ignoré et le ban toujours permanent). `list` accepte `-edge` (nom du nœud ou id du token : les bans de cette passerelle et les bans globaux), `-source` et `-active true` (non expirés) ou `false` (expirés) ; la passerelle d’origine est affichée entre crochets.
 
@@ -1033,6 +1035,10 @@ goproxify security cve sla set -file <sla.json> [-admin-url …] [-token …]
 `security bans asn` bannit un **ASN** (tout un opérateur) : `lookup -q OVH` (ou `-q AS16276`, ou `-q 51.77.0.1` pour l'ASN d'une adresse) cherche ; `preview -asn AS16276` mesure l'impact sans rien créer (plages, trafic des dernières heures, avertissements) ; `ban -asn AS16276 [-reason …] [-ttl 7d] [-scope …] [-dry-run]` crée un ban par plage annoncée, en un seul envoi aux passerelles ; `unban -asn AS16276` les lève tous ; `info` et `refresh` montrent ou mettent à jour la base ASN de l'Admin. Un ASN qui contient votre adresse est refusé.
 
 `security bans whitelist` gère la **liste blanche des bans** : `list` affiche les entrées (avec le nombre de bans actifs qu'elles neutralisent), `add -ip <ip|cidr> [-comment …]` ajoute une adresse ou une plage (normalisée comme un ban, `/16` IPv4 et `/32` IPv6 au plus larges), `delete -ip <valeur>` la retire. Une adresse en liste blanche n'est atteinte par aucun ban et n'est pas évaluée par Ephor ; les bans existants ne sont pas supprimés.
+
+**`security rejections`** *(Admin `0.228.0`, Edge `0.135.0`)* — affiche, par passerelle (`-edge` en désigne une), ce que son entrée a refusé depuis son démarrage : totaux par raison (`unknown_sni`, `no_sni`, `ip_literal`, `not_tls`, `bad_clienthello`, `timeout`, `too_many_pending`, `handshake_failed`, `unknown_host`), premiers noms demandés avec le nombre d'IP distinctes qui les demandent, premières IP et premières empreintes JA4, en JSON (`GET /api/v1/security/rejections`). Classements approchés, tenus en mémoire, remis à zéro au redémarrage de la passerelle.
+
+**`security traffic-reference`** *(Admin `0.233.0`, Edge `0.140.0`)* — affiche, par passerelle (`-edge` en désigne une), la référence saisonnière du trafic : pour chaque route, le débit réel, le débit attendu à cette heure de cette journée, l'état (froid, normal, avertissement, attaque probable) et les alertes en cours. Lecture seule ; équivalent de l'outil MCP `get_traffic_reference`.
 
 **`security trace`** (`-scope asn` : tout l'ASN de l'adresse, ou `-asn AS16276` sans adresse ; sans saisir de CIDR, grâce à la base ASN) — reconstitue tout ce qu'une IP ou un CIDR a fait : synthèse (requêtes, bloquées, IP distinctes, épisodes, bans/débans, détections, bans en cours, profils IP) puis les étapes (épisodes d'activité, bans, débans, détections) avec leur date. `-from` / `-to` acceptent une date `AAAA-MM-JJ` ou RFC3339 (défaut : 30 derniers jours) ; les étapes sont du plus récent au plus ancien, `-order asc` pour l'ordre chronologique ; un ban affiche le `User-Agent` qui l'a provoqué sur la ligne suivante ; `-limit` / `-offset` paginent (500 étapes par défaut) ; `-json` renvoie la réponse brute de `GET /api/v1/security/ip-trace`. Exemple : `goproxify security trace -target 198.51.100.0/24 -from 2026-01-01`. Les requêtes remontent aussi loin que la rétention des logs d'accès.
 

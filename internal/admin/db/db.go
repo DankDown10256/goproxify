@@ -192,7 +192,7 @@ func migrate(db *sql.DB) error {
 			bots           INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (minute, node_name, domain, status)
 		) WITHOUT ROWID`,
-		// Erreurs client (4xx hors 404) par IP et par minute, envoyées par les passerelles pour le Fail2Ban global
+		// Erreurs client (4xx hors 404) par IP et par minute, envoyées par les passerelles pour les Seuils multi-passerelles
 		// (ADR 0012) : une IP en clair, donc gardées 24 h seulement et effacées avec l'IP.
 		`CREATE TABLE IF NOT EXISTS edge_ip_errors (
 			node_id TEXT    NOT NULL,
@@ -211,7 +211,7 @@ func migrate(db *sql.DB) error {
 			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (node_id, stream)
 		) WITHOUT ROWID`,
-		// Bans IP (Fail2Ban, CrowdSec, natif)
+		// Bans IP (Seuils, CrowdSec, natif)
 		`CREATE TABLE IF NOT EXISTS security_bans (
 			id         TEXT PRIMARY KEY,
 			ip         TEXT NOT NULL,
@@ -428,7 +428,7 @@ func migrate(db *sql.DB) error {
 		`ALTER TABLE ip_profiles ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE ip_profiles ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE ip_profiles ADD COLUMN next_attempt_at DATETIME`,
-		// Passerelle d'origine d'un ban ('' = ban global : admin, CrowdSec/Fail2Ban centraux)
+		// Passerelle d'origine d'un ban ('' = ban global : admin, CrowdSec/Seuils multi-passerelles centraux)
 		`ALTER TABLE security_bans ADD COLUMN edge_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE security_ban_history ADD COLUMN edge_name TEXT NOT NULL DEFAULT ''`,
 		// Portée d'un ban : '' = toutes les passerelles, sinon nom d'une passerelle ou "group:<nom>"
@@ -501,7 +501,7 @@ func migrate(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_logs_node_name ON logs (node_name)`,
 		`ALTER TABLE logs ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_request_id ON logs (request_id) WHERE request_id != ''`,
-		`CREATE TABLE IF NOT EXISTS fail2ban_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '{}')`,
+		`CREATE TABLE IF NOT EXISTS fleet_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '{}')`,
 		`CREATE TABLE IF NOT EXISTS vulnscan_state (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE IF NOT EXISTS crowdsec_config (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '{}')`,
 		`ALTER TABLE nodes ADD COLUMN container_runtimes TEXT NOT NULL DEFAULT ''`,
@@ -534,7 +534,7 @@ func migrate(db *sql.DB) error {
 		// d'un nœud introuvable sous son ancien nom.
 		`ALTER TABLE logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_node_id ON logs (node_id)`,
-		// IP tronquée par la passerelle (anonymisation/pseudonymisation) : écartée par Fail2Ban.
+		// IP tronquée par la passerelle (anonymisation/pseudonymisation) : écartée par les Seuils multi-passerelles.
 		`ALTER TABLE logs ADD COLUMN ip_truncated INTEGER NOT NULL DEFAULT 0`,
 	} {
 		db.Exec(s) //nolint:errcheck

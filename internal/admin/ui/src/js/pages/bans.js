@@ -5,7 +5,7 @@
 const BN_TABS = ['actifs', 'historique', 'crowdsec'];
 const BN_TAB_LABELS = { actifs: 'Actifs', historique: 'Historique', crowdsec: 'CrowdSec' };
 const BN_PAGE = 50;
-const BN_SRC_COLORS = { fail2ban: 'var(--orange,#d97706)', crowdsec: 'var(--blue,#3b82f6)', threat: 'var(--purple,#8b5cf6)', rules_engine: 'var(--accent)', native: 'var(--text3)' };
+const BN_SRC_COLORS = { fleet: 'var(--orange,#d97706)', crowdsec: 'var(--blue,#3b82f6)', threat: 'var(--purple,#8b5cf6)', rules_engine: 'var(--accent)', native: 'var(--text3)' };
 
 const _bn = {
   mode: 'admin', edgeCtx: null, tab: 'actifs',
@@ -531,7 +531,7 @@ async function renderBans({ mode }) {
 }
 
 // ── Liste blanche ─────────────────────────────────────────────────────────────
-// Adresses et plages qu'aucun ban n'atteint (manuel, Fail2Ban, CrowdSec, Ephor, règles) et que
+// Adresses et plages qu'aucun ban n'atteint (manuel, Seuils, CrowdSec, Ephor, règles) et que
 // Ephor n'évalue pas. Gérée ici : le profil IP qui la porte n'est pas modifiable depuis Profils IP.
 
 function bnWhitelistBodyHTML(list) {
@@ -541,7 +541,7 @@ function bnWhitelistBodyHTML(list) {
         <td style="color:var(--text2);font-size:12px">${esc(e.comment || '—')}${e.bans_exempted ? ` <span class="tag tag-yellow" title="Bans actifs rendus sans effet par cette entrée">${e.bans_exempted} ban${e.bans_exempted > 1 ? 's' : ''} neutralisé${e.bans_exempted > 1 ? 's' : ''}</span>` : ''}</td>
         <td style="text-align:right"><button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" data-wl="${esc(e.value)}" onclick="bnWhitelistRemove(this.dataset.wl)">Retirer</button></td></tr>`).join('')
     : '<tr><td colspan="3" style="color:var(--text3);padding:14px 4px">Liste blanche vide.</td></tr>';
-  return `<p style="font-size:12.5px;color:var(--text2);margin:0 0 10px">Une adresse ou une plage en liste blanche n'est jamais bloquée par un ban (manuel, Fail2Ban, CrowdSec, Ephor, règles) et n'est pas évaluée par Ephor. Les bans existants ne sont pas supprimés : ils cessent de s'appliquer à ces adresses.</p>
+  return `<p style="font-size:12.5px;color:var(--text2);margin:0 0 10px">Une adresse ou une plage en liste blanche n'est jamais bloquée par un ban (manuel, Seuils, CrowdSec, Ephor, règles) et n'est pas évaluée par Ephor. Les bans existants ne sont pas supprimés : ils cessent de s'appliquer à ces adresses.</p>
     <div class="table-wrap"><table class="bn-table"><tbody>${rows}</tbody></table></div>
     <div style="display:flex;gap:8px;margin-top:12px;align-items:flex-end;flex-wrap:wrap">
       <div class="field" style="margin:0;flex:1;min-width:180px"><label class="field-label">Adresse ou plage CIDR</label><input id="wl-ip" class="input" placeholder="203.0.113.10 ou 203.0.113.0/24"></div>

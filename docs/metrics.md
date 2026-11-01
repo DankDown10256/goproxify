@@ -34,13 +34,15 @@ Buckets : 100 B, 1 KB, 10 KB, 100 KB, 1 MB, 10 MB, 100 MB.
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_tls_handshake_seconds` | Histogram | `host` | Durée du handshake TLS côté serveur |
-| `gpx_tls_active_connections` | Gauge | `host` | Connexions TLS actives (handshake en cours ou établies) |
+| `gpx_tls_handshake_seconds` | Histogram | `host` | Durée du handshake TLS côté serveur (poignées de main réussies seulement) |
+| `gpx_tls_active_connections` | Gauge | `host` | Connexions TLS établies (comptées une fois la poignée de main réussie) |
+| `gpx_tls_rejected_total` | Counter | `reason` | Connexions refusées à l'entrée : `timeout` (ClientHello jamais reçu), `too_many_pending` (trop de lectures en cours, au total ou pour une même source), `bad_clienthello` (coupée avant tout TLS), `not_tls`, `no_sni` (accès par l'IP), `ip_literal`, `unknown_sni` (nom sans certificat), `handshake_failed` |
+| `gpx_edge_unknown_host_total` | Counter | — | Requêtes HTTP dont l'hôte n'a aucune route (sans étiquette d'hôte : le nom est choisi par le client) |
 | `gpx_tls_cert_expiry_seconds` | Gauge | `domain` | Secondes avant expiration du certificat (0 = expiré) |
 | `gpx_tls_ocsp_staple_seconds` | Gauge | `domain` | Secondes avant NextUpdate de la réponse OCSP agrafée (0 = périmée) ; absent sans agrafe |
 | `gpx_tls_ocsp_revoked` | Gauge | `domain` | 1 si la réponse OCSP agrafée indique une révocation |
 
-Le label `host` correspond au SNI extrait du ClientHello.  
+Le label `host` est le **nom du certificat qui sert la connexion** (`app.example.fr`, ou `*.example.fr` pour tout sous-domaine d'un certificat générique), ou `autre` : jamais le SNI brut, que le client choisit librement (un certificat générique aurait créé une série par sous-domaine inventé). Les autres métriques à étiquette `host` (requêtes, pipeline de contrôles, authentification, WAF…) suivent la même règle : un nom servi par une route à joker est compté sous le nom de la route (`*.example.fr`) ; un nom exact ou un alias garde sa propre étiquette.  
 Buckets handshake : 1 ms → 1 s.
 
 **Alertes recommandées :**
@@ -204,12 +206,12 @@ Les paths `/api/v1/health`, `/api/v1/logs/live` et `/internal/v1/` sont inclus d
 
 ---
 
-## Fail2Ban (`gpx_f2b_*`)
+## Seuils multi-passerelles (`gpx_fleet_*`)
 
 | Métrique | Type | Labels | Description |
 |---|---|---|---|
-| `gpx_f2b_bans_total` | Counter | — | IPs bannies automatiquement par Fail2Ban |
-| `gpx_f2b_scans_total` | Counter | — | Cycles de scan Fail2Ban (toutes les 30 s) |
+| `gpx_fleet_bans_total` | Counter | — | IPs bannies automatiquement par les Seuils multi-passerelles |
+| `gpx_fleet_scans_total` | Counter | — | Cycles de scan des Seuils multi-passerelles (toutes les 30 s) |
 
 ---
 

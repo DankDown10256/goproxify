@@ -23,6 +23,8 @@ var errNoGatewayToReplay = errors.New("aucune passerelle enregistrée : rien à 
 const (
 	SimDefaultHours = 1
 	SimMaxHours     = 24
+	// SimMaxHoursSeasonal : la référence saisonnière a besoin de jours de trafic pour juger un créneau.
+	SimMaxHoursSeasonal = 168
 	simMaxEvents    = 200_000
 )
 
@@ -31,9 +33,6 @@ const (
 func SimulateEphor(ctx context.Context, db *sql.DB, edge *prismedge.Source, cfgKey string, override map[string]any, hours int, domain string) (map[string]any, error) {
 	if hours <= 0 {
 		hours = SimDefaultHours
-	}
-	if hours > SimMaxHours {
-		hours = SimMaxHours
 	}
 	var current threat.Config
 	var raw string
@@ -49,6 +48,14 @@ func SimulateEphor(ctx context.Context, db *sql.DB, edge *prismedge.Source, cfgK
 	}
 	if err := json.Unmarshal(b, &candidate); err != nil {
 		return nil, fmt.Errorf("config candidate invalide: %w", err)
+	}
+
+	maxHours := SimMaxHours
+	if current.Seasonal.Active() || candidate.Seasonal.Active() {
+		maxHours = SimMaxHoursSeasonal
+	}
+	if hours > maxHours {
+		hours = maxHours
 	}
 
 	// La passerelle a le moteur et les lignes : elle rejoue son propre trafic (agents utilisateur compris) et l'Admin

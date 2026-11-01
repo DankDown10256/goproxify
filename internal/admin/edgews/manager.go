@@ -89,6 +89,7 @@ type Manager struct {
 	traffic        trafficState
 	siem           siemState
 	surfaceAlerts  surfaceSuggestionState
+	trafficAlerts  trafficAlertState
 	logInfo        logInfoState
 	onLogBatch    func(entries []edgeWS.LogEntryPayload)
 	onWAFReloaded  func(nodeName string)
@@ -533,14 +534,14 @@ func (m *Manager) HandleEdgeMessage(msg edgeWS.Message) {
 		m.handleThreatBan(msg.Payload)
 	case edgeWS.TypeASNWant:
 		m.handleASNWant(msg.Payload)
-	case edgeWS.TypeF2BBan:
-		m.handleF2BBan(msg.Payload)
 	case edgeWS.TypeCrowdSecDecisions:
 		m.handleCrowdSecDecisions(msg.Payload)
 	case edgeWS.TypeRuleFired:
 		m.handleRuleFired(msg.Payload)
 	case edgeWS.TypeBackendDown:
 		m.handleBackendDown(msg.Payload)
+	case edgeWS.TypeTrafficDeviation:
+		m.handleTrafficDeviation(msg.Payload)
 	case edgeWS.TypeWAFReloaded:
 		m.handleWAFReloaded(msg.Payload)
 	}
@@ -595,38 +596,6 @@ func (m *Manager) handleThreatBan(raw json.RawMessage) {
 	if source == "threat" && m.alertEngine != nil {
 		m.alertEngine.Emit(alerting.Event{
 			Trigger:  alerting.TriggerEphorBan,
-			Severity: alerting.SevWarning,
-			NodeName: p.NodeName,
-			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
-		})
-	}
-}
-
-func (m *Manager) handleF2BBan(raw json.RawMessage) {
-	if m.db == nil || len(raw) == 0 {
-		return
-	}
-	var p edgeWS.F2BBanPayload
-	if err := json.Unmarshal(raw, &p); err != nil || p.IP == "" {
-		return
-	}
-	ua := security.ClipUserAgent(p.UserAgent)
-	var expiresAt any
-	if p.ExpiresAt != "" {
-		expiresAt = p.ExpiresAt
-	}
-	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_bans (id, ip, domain, reason, source, expires_at, edge_name, user_agent)
-		 VALUES (?, ?, '', ?, 'fail2ban', ?, ?, ?)
-		 ON CONFLICT(id) DO NOTHING`,
-		p.ID, p.IP, p.Reason, expiresAt, p.NodeName, ua,
-	)
-	m.db.Exec( //nolint:errcheck
-		`INSERT INTO security_ban_history (ip, domain, action, reason, source, ban_id, edge_name, user_agent) VALUES (?,?,'banned',?,?,?,?,?)`,
-		p.IP, "", p.Reason, "fail2ban", p.ID, p.NodeName, ua)
-	if m.alertEngine != nil {
-		m.alertEngine.Emit(alerting.Event{
-			Trigger:  alerting.TriggerFail2BanBan,
 			Severity: alerting.SevWarning,
 			NodeName: p.NodeName,
 			Detail:   map[string]any{"ip": p.IP, "reason": p.Reason},
@@ -1198,7 +1167,7 @@ func (m *Manager) PushIPProfiles(ctx context.Context) {
 	}
 }
 
-// PushBans envoie les bans IP actifs (Fail2Ban, CrowdSec, natif) à toutes les passerelles.
+// PushBans envoie les bans IP actifs (Seuils, CrowdSec, natif) à toutes les passerelles.
 func (m *Manager) PushBans(ctx context.Context) {
 	for _, e := range m.allEntries() {
 		e := e
@@ -1216,7 +1185,7 @@ func (m *Manager) PushBans(ctx context.Context) {
 }
 
 // PushUnban lève les bans des IPs sur toutes les passerelles, y compris ceux qu'une passerelle a posés
-// elle-même (Fail2Ban, Ephor, règles) et que la liste des bans ne retirerait pas. La liste suit sur
+// elle-même (Ephor, règles) et que la liste des bans ne retirerait pas. La liste suit sur
 // la même connexion : les autres bans encore actifs de ces IPs sont reposés aussitôt.
 func (m *Manager) PushUnban(ctx context.Context, ips []string) {
 	entries := make([]edgeWS.UnbanEntry, 0, len(ips))
@@ -2120,26 +2089,6 @@ func (m *Manager) PushServerConfig(ctx context.Context, scope string, cfg any) {
 		go func() {
 			if err := e.client.PushJSON(edgeWS.TypePushServerConfig, json.RawMessage(body)); err != nil {
 				m.log.Warn("edgews: push server config", "edge", e.nodeName, "err", err)
-			}
-		}()
-	}
-}
-
-// PushF2BConfig envoie la config Fail2Ban à une passerelle spécifique (ou tous si edgeRef vide).
-func (m *Manager) PushF2BConfig(ctx context.Context, edgeRef string, cfg any) {
-	body, err := json.Marshal(cfg)
-	if err != nil {
-		return
-	}
-	entries := m.allEntries()
-	for _, e := range entries {
-		if edgeRef != "" && e.nodeName != edgeRef && e.id != edgeRef {
-			continue
-		}
-		e := e
-		go func() {
-			if err := e.client.PushJSON(edgeWS.TypePushF2BConfig, json.RawMessage(body)); err != nil {
-				m.log.Warn("edgews: push f2b config", "edge", e.nodeName, "err", err)
 			}
 		}()
 	}

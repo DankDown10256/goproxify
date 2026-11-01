@@ -110,3 +110,50 @@ func TestSimulateThreatEndpoint(t *testing.T) {
 		t.Fatalf("config absente : %d", rec.Code)
 	}
 }
+
+func TestSimulateThreatWindowWidensForTheSeasonalReference(t *testing.T) {
+	db, err := admindb.Open(filepath.Join(t.TempDir(), "sim.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	gw := logapitest.New(t, "gw-a")
+	if err := gw.Register(db); err != nil {
+		t.Fatal(err)
+	}
+	gw.Add(logstore.Entry{Ts: time.Now().UTC().Add(-5 * time.Minute), Component: "edge", Domain: "a.test", Method: "GET", Path: "/", Status: 200, IP: "9.9.9.9"})
+	h := &api.SecurityHandler{DB: db, Edge: &prismedge.Source{DB: db}}
+
+	sim := func(body string) map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/security/threat-config/simulate", strings.NewReader(body)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("POST simulate: %d %s", rec.Code, rec.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	if out := sim(`{"config":{"enabled":true},"hours":100}`); out["window_hours"] != float64(api.SimMaxHours) {
+		t.Fatalf("sans référence saisonnière la fenêtre reste bornée à %d h : %v", api.SimMaxHours, out["window_hours"])
+	}
+	out := sim(`{"config":{"enabled":true,"seasonal":{"mode":"detect"}},"hours":100}`)
+	if out["window_hours"] != float64(100) {
+		t.Fatalf("avec la référence saisonnière la fenêtre s'élargit : %v", out["window_hours"])
+	}
+	cand := out["candidate"].(map[string]any)
+	seas, ok := cand["seasonal"].(map[string]any)
+	if !ok || seas["mode"] != "detect" || len(seas["routes"].([]any)) != 1 {
+		t.Fatalf("le rapport doit porter la part saisonnière, une route jugée froide : %v", cand)
+	}
+	if seas["routes"].([]any)[0].(map[string]any)["warm"] != false {
+		t.Fatalf("une heure de trafic ne suffit pas à juger une route : %v", seas)
+	}
+	if _, has := out["current"].(map[string]any)["seasonal"]; has {
+		t.Fatal("la config actuelle n'a pas de référence saisonnière : rien à rapporter")
+	}
+}

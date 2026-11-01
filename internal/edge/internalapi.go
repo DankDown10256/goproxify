@@ -24,7 +24,6 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	edgecrowdsec "github.com/vincamok/goproxify/internal/edge/crowdsec"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
-	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
 	"github.com/vincamok/goproxify/internal/edge/portal"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -69,6 +68,8 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("POST /internal/v1/bans", s.handlePushBans)
 	mux.HandleFunc("POST /internal/v1/bans/gossip", s.handleBansGossip)
 	mux.HandleFunc("GET /internal/v1/bans", s.handleListBans)
+	mux.HandleFunc("GET "+logapi.PathRejections, s.handleRejections)
+	mux.HandleFunc("GET "+logapi.PathSeasonal, s.handleSeasonal)
 	mux.HandleFunc("GET /internal/v1/backup/export", s.handleBackupExport)
 	mux.HandleFunc("POST /internal/v1/backup/restore", s.handleBackupRestore)
 	mux.HandleFunc("GET /internal/v1/bans/history", s.handleListBanHistory)
@@ -480,7 +481,7 @@ func (s *Server) handleHAWAFBehaviorSync(w http.ResponseWriter, r *http.Request)
 }
 
 // threatBanCallback retourne la fonction appelée par Ephor (et le WAF) quand ils bannissent une IP.
-// Comme pour Fail2Ban, le ban est persisté localement : il s'applique et survit à un redémarrage sans
+// Comme pour les autres bans automatiques, le ban est persisté localement : il s'applique et survit à un redémarrage sans
 // l'Admin, qui est seulement notifié.
 func (s *Server) threatBanCallback() threat.BanCallback {
 	return func(ip, reason string, expires time.Time, signals []router.BanSignal) {
@@ -520,65 +521,6 @@ func (s *Server) threatBanCallback() threat.BanCallback {
 		if msg, err := edgews.NewMessage(0, edgews.TypeThreatBan, payload); err == nil {
 			s.wsHub.BroadcastToAdmins(msg)
 		}
-	}
-}
-
-// feedF2B alimente Fail2Ban, sauf avec les 403 servis à une IP déjà bannie : produits par le ban
-// lui-même, ils la rebanniraient dès sa levée.
-func (s *Server) feedF2B(ip string, status int) {
-	if status == http.StatusForbidden {
-		if blocked, _ := s.banStore.CheckBlocked(ip); blocked {
-			return
-		}
-	}
-	s.f2bEngine.Feed(ip, status)
-}
-
-// onF2BBan est appelé par le moteur Fail2Ban passerelle lors d'un nouveau ban.
-// Applique le ban immédiatement en mémoire, persiste en DB, et notifie l'Admin.
-func (s *Server) onF2BBan(b edgef2b.Ban) {
-	var expires *time.Time
-	if b.ExpiresAt != nil {
-		expires = b.ExpiresAt
-	}
-	rb := &router.RuntimeBan{
-		ID:        b.ID,
-		IP:        b.IP,
-		Reason:    b.Reason,
-		Source:    "fail2ban",
-		ExpiresAt: expires,
-		UserAgent: s.lastUA.Get(b.IP),
-	}
-	if s.threatEngine != nil {
-		var until time.Time
-		if expires != nil {
-			until = *expires
-		}
-		s.threatEngine.NoteDecision(b.IP, behavior.SignalFail2Ban, 5, until)
-	}
-	s.addBanEvent(b.IP, "fail2ban")
-	s.gossipBanToPeers(rb)
-	if s.bansDB != nil {
-		if err := s.bansDB.UpsertRuntimeBan(rb); err != nil {
-			s.log.Warn("f2b: persistance ban DB échouée", "err", err)
-		}
-	}
-	s.reloadBanStore()
-	s.log.Info("fail2ban: IP bannie", "ip", b.IP, "reason", b.Reason)
-
-	// Notifier l'Admin pour qu'il puisse agréger dans security_bans.
-	payload := edgews.F2BBanPayload{
-		ID:        b.ID,
-		IP:        b.IP,
-		Reason:    b.Reason,
-		NodeName:  s.cfg.Identity.NodeName,
-		UserAgent: rb.UserAgent,
-	}
-	if b.ExpiresAt != nil {
-		payload.ExpiresAt = b.ExpiresAt.UTC().Format(time.RFC3339)
-	}
-	if msg, err := edgews.NewMessage(0, edgews.TypeF2BBan, payload); err == nil {
-		s.wsHub.BroadcastToAdmins(msg)
 	}
 }
 
@@ -663,22 +605,20 @@ func (s *Server) reloadBanStore() {
 	s.banStore.Replace(dbBans)
 }
 
-// autoBanWhitelisted : les listes blanches Fail2Ban et Ephor priment aussi sur les bans que ces
-// moteurs ont déjà posés — ajouter une IP à la liste blanche la débloque sans attendre l'expiration.
+// autoBanWhitelisted : la liste blanche d'Ephor prime aussi sur les bans que ce moteur et les plugins
+// ont déjà posés — ajouter une IP à la liste blanche la débloque sans attendre l'expiration.
 func (s *Server) autoBanWhitelisted(b *router.RuntimeBan) bool {
 	switch b.Source {
-	case "fail2ban":
-		return s.f2bEngine != nil && s.f2bEngine.Whitelisted(b.IP)
 	case "threat":
 		return s.threatEngine != nil && s.threatEngine.WhitelistedIP(b.IP)
 	}
 	if strings.HasPrefix(b.Source, edgews.PluginBanSourcePrefix) {
-		return s.profileStore.IsWhitelisted(b.IP) || (s.f2bEngine != nil && s.f2bEngine.Whitelisted(b.IP))
+		return s.profileStore.IsWhitelisted(b.IP) || (s.threatEngine != nil && s.threatEngine.WhitelistedIP(b.IP))
 	}
 	return false
 }
 
-// applyUnbans lève, quelle que soit leur source (Fail2Ban ou Ephor local, règle, pair HA, Admin),
+// applyUnbans lève, quelle que soit leur source (Ephor local, plugin, règle, pair HA, Admin),
 // les bans des IPs débannies depuis l'Admin. Un déban à l'instant remet aussi à zéro les compteurs
 // des moteurs pour que l'IP ne soit pas rebannie sur ses erreurs passées.
 func (s *Server) applyUnbans(list []edgews.UnbanEntry) {
@@ -698,9 +638,6 @@ func (s *Server) applyUnbans(list []edgews.UnbanEntry) {
 		}
 		if u.At != nil {
 			continue
-		}
-		if s.f2bEngine != nil {
-			s.f2bEngine.UnbanIP(u.IP)
 		}
 		if s.threatEngine != nil {
 			s.threatEngine.ResetIP(u.IP)
@@ -1679,4 +1616,12 @@ func (s *Server) registerLogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+logapi.PathSurfaceReset, s.handleSurfaceReset)
 	mux.HandleFunc("POST "+logapi.PathSurfaceForget, s.handleSurfaceForget)
 	mux.HandleFunc("POST "+logapi.PathErase, s.handleLogErase)
+}
+
+// enableStrict est l'action « mode strict » des automatisations d'une passerelle : elle durcit Ephor pour dur (threat.Engine.Harden).
+func (s *Server) enableStrict(dur time.Duration) error {
+	if s.threatEngine == nil {
+		return fmt.Errorf("Ephor n'est pas démarré")
+	}
+	return s.threatEngine.Harden(dur)
 }

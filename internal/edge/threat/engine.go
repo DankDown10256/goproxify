@@ -14,12 +14,14 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
 	"github.com/vincamok/goproxify/internal/edge/logthrottle"
 	"github.com/vincamok/goproxify/internal/edge/router"
+	"github.com/vincamok/goproxify/internal/edge/seasonal"
 	"github.com/vincamok/goproxify/internal/edge/tlsfp"
 	"github.com/vincamok/goproxify/internal/edge/waf/behavior"
 )
@@ -86,6 +88,8 @@ func scoreForReason(reason string) int {
 		return 3 // moyen
 	case "path", "custom_path":
 		return 2
+	case "decoy":
+		return 8 // presque sûrement un scanner : un deuxième accès suffit au ban par défaut (10)
 	case "rate":
 		return 4
 	default:
@@ -132,6 +136,15 @@ type Engine struct {
 	counters *counterStore
 	wl       *whitelist
 	custom   *customLists // entrées inline compilées
+	decoys   *decoySet    // chemins-leurres compilés ; nil quand les leurres sont off
+	probes   *whitelist   // sondes déclarées (unknown_host.probes), jamais notées
+	unknown  *unknownTracker
+	seasonal *seasonal.Tracker // référence saisonnière du trafic (ADR 0020, étape 3)
+
+	thresholds        []*compiledThreshold // Seuils actifs (fournis et de l'administrateur), compilés
+	thresholdCounters *thresholdStore
+	// decoyGuard : vrai quand le trafic légitime de la route qui sert la requête utilise son chemin (SetDecoyGuard).
+	decoyGuard func(r *http.Request) bool
 
 	globalBkt *globalBucket // limiteur global DDoS (nil = désactivé)
 
@@ -145,20 +158,30 @@ type Engine struct {
 	log         *slog.Logger
 	sigLog      *logthrottle.Limiter // une ligne « signal détecté » par IP et par motif et par minute
 
-	cancel context.CancelFunc
-	done   chan struct{}
+	cancel       context.CancelFunc
+	seasonalDone chan struct{}
+
+	seasonalNotify func(active []seasonal.Event) // prévient l'Admin (SetSeasonalNotify)
+	seasonalDirty  atomic.Bool
+	seasonalSent   time.Time
+
+	done chan struct{}
 }
 
 // New crée un moteur de détection (non démarré).
 func New(log *slog.Logger, banFn BanCallback) *Engine {
-	return &Engine{
+	e := &Engine{
 		lists:    newLists(log),
 		counters: newCounterStore(),
+		unknown:  newUnknownTracker(),
 		log:      log,
 		sigLog:   logthrottle.New(time.Minute),
 		banFn:    banFn,
 		done:     make(chan struct{}),
 	}
+	e.thresholdCounters = newThresholdStore(func() time.Time { return e.counters.now() })
+	e.seasonal = seasonal.New(func() time.Time { return e.counters.now() }, e.onSeasonalEvent)
+	return e
 }
 
 // Start démarre la boucle de refresh des listes.
@@ -167,6 +190,8 @@ func (e *Engine) Start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	go e.run(ctx)
+	e.seasonalDone = make(chan struct{})
+	go e.runSeasonal(ctx)
 }
 
 // Stop arrête proprement le moteur.
@@ -175,6 +200,9 @@ func (e *Engine) Stop() {
 		e.cancel()
 	}
 	<-e.done
+	if e.seasonalDone != nil {
+		<-e.seasonalDone
+	}
 }
 
 // UpdateConfig remplace la config à chaud.
@@ -194,6 +222,10 @@ func (e *Engine) UpdateConfig(cfg Config) {
 	e.cfg = cfg
 	e.wl = buildWhitelist(cfg.Whitelist)
 	e.custom = buildCustomLists(cfg.CustomLists)
+	e.decoys = buildDecoys(cfg.Decoys)
+	e.probes = buildProbes(cfg.UnknownHost)
+	e.thresholds = compileThresholds(cfg.Thresholds)
+	e.seasonal.SetParams(cfg.Seasonal.params())
 	e.globalBkt = bkt
 	if cfg.Tarpit.Enabled && (e.tarpitSlots == nil || cap(e.tarpitSlots) != cfg.Tarpit.slots()) {
 		e.tarpitSlots = make(chan struct{}, cfg.Tarpit.slots())
@@ -242,6 +274,7 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	cfg := e.cfg
 	wl := e.wl
 	custom := e.custom
+	decoys := e.decoys
 	e.mu.RUnlock()
 
 	if !cfg.Enabled {
@@ -287,6 +320,9 @@ func (e *Engine) Check(r *http.Request, ip string) (blocked bool, reason string)
 	}
 	if custom != nil && custom.matchPath(path) {
 		signals = append(signals, signal{"custom_path", scoreForReason("custom_path"), clipValue(path)})
+	}
+	if decoys != nil && e.decoySignal(cfg, decoys, r, ip) {
+		signals = append(signals, signal{"decoy", scoreForReason("decoy"), clipValue(path)})
 	}
 	if cfg.RateLimit > 0 && e.counters.rateExceeded(ip, cfg.RateLimit, cfg.RateWindow.Duration) {
 		signals = append(signals, signal{"rate", scoreForReason("rate"), fmt.Sprintf("> %g req/s", cfg.RateLimit)})
@@ -845,4 +881,48 @@ func (cl *customLists) matchPath(path string) bool {
 		}
 	}
 	return false
+}
+
+// WhitelistIPs rend les IP et CIDR exemptés d'Ephor (liste blanche globale et entrées des routes), pour que d'autres détecteurs qui
+// bannissent visent les mêmes cibles (bantarget.BanTarget).
+func (e *Engine) WhitelistIPs() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return append([]string(nil), e.cfg.Whitelist.IPs...)
+}
+
+// Harden durcit les seuils d'Ephor pour dur, puis les rétablit (action « mode strict » des automatisations) : le seuil de ban du score
+// cumulé et le seuil d'erreurs 4xx sont divisés par deux, au plus bas à 2. Si la configuration a changé entre-temps, elle n'est pas
+// touchée à l'échéance. Sans effet quand Ephor est coupé.
+func (e *Engine) Harden(dur time.Duration) error {
+	e.mu.RLock()
+	cfg := e.cfg
+	e.mu.RUnlock()
+	if !cfg.Enabled {
+		return fmt.Errorf("Ephor est désactivé : rien à durcir")
+	}
+	half := func(v float64) float64 {
+		if v/2 < 2 {
+			return math.Min(v, 2)
+		}
+		return v / 2
+	}
+	strict := cfg
+	strict.IPScore.BanThreshold = half(cfg.IPScore.BanThreshold)
+	if cfg.ErrorThreshold > 0 {
+		strict.ErrorThreshold = int(half(float64(cfg.ErrorThreshold)))
+	}
+	e.UpdateConfig(strict)
+	e.log.Warn("ephor: mode strict", "duree", dur, "seuil_ban", strict.IPScore.BanThreshold, "seuil_erreurs", strict.ErrorThreshold)
+	go func() {
+		time.Sleep(dur)
+		e.mu.RLock()
+		cur := e.cfg
+		e.mu.RUnlock()
+		if cur.IPScore.BanThreshold == strict.IPScore.BanThreshold && cur.ErrorThreshold == strict.ErrorThreshold {
+			cur.IPScore.BanThreshold, cur.ErrorThreshold = cfg.IPScore.BanThreshold, cfg.ErrorThreshold
+			e.UpdateConfig(cur)
+		}
+	}()
+	return nil
 }

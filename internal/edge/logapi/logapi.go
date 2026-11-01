@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/vincamok/goproxify/internal/appinv"
+	"github.com/vincamok/goproxify/internal/edge/seasonal"
 	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 	"github.com/vincamok/goproxify/internal/edge/waf/behavior"
@@ -374,6 +375,10 @@ const (
 	PathSurfaceForget = "/internal/v1/surface/forget"
 	// PathInventory : applications reconnues derrière les proxies de la passerelle, ?route=<identifiant ou hôte> (GET).
 	PathInventory = "/internal/v1/inventory"
+	// PathRejections : ce que l'entrée de la passerelle a refusé depuis son démarrage (GET).
+	PathRejections = "/internal/v1/rejections"
+	// PathSeasonal : la référence saisonnière du trafic de chaque route et ses alertes (GET).
+	PathSeasonal = "/internal/v1/seasonal"
 	// PathInventoryExport : empreintes des réponses des backends, que les pairs d'un groupe HA se tirent entre eux (GET).
 	PathInventoryExport = "/internal/v1/inventory/export"
 	// PathSurfaceExport : profils locaux, que les pairs d'un groupe HA se tirent entre eux (GET).
@@ -421,4 +426,56 @@ type InventoryEntry struct {
 // InventoryResponse : l'inventaire d'une passerelle.
 type InventoryResponse struct {
 	Entries []InventoryEntry `json:"entries"`
+}
+
+// RejectionName est un nom demandé à l'entrée sans route ni certificat.
+type RejectionName struct {
+	Name          string `json:"name"`
+	Count         int64  `json:"count"`
+	Sources       int    `json:"sources"`                  // IP distinctes qui l'ont demandé
+	SourcesCapped bool   `json:"sources_capped,omitempty"` // il y en a davantage que Sources
+}
+
+// RejectionSource est une IP qui frappe l'entrée.
+type RejectionSource struct {
+	IP         string `json:"ip"`
+	Count      int64  `json:"count"`
+	LastReason string `json:"last_reason"`
+	JA4        string `json:"ja4,omitempty"`
+}
+
+// RejectionJA4 est une empreinte TLS qui frappe l'entrée.
+type RejectionJA4 struct {
+	JA4   string `json:"ja4"`
+	Count int64  `json:"count"`
+}
+
+// RejectionsResponse : ce que l'entrée d'une passerelle a refusé depuis son démarrage (ADR 0020, étape 1.c). Les classements sont
+// tenus en mémoire à taille fixe, donc approchés, et repartent de zéro au redémarrage.
+type RejectionsResponse struct {
+	Since   string            `json:"since"`
+	Reasons map[string]int64  `json:"reasons"`
+	Names   []RejectionName   `json:"names"`
+	Sources []RejectionSource `json:"sources"`
+	JA4     []RejectionJA4    `json:"ja4"`
+	// Probes : sondes probables parmi les IP qui frappent des hôtes inconnus, à exempter (unknown_host.probes) ; vide sans ce signal.
+	Probes []RejectionProbe `json:"probes"`
+}
+
+// RejectionProbe est une IP dont les accès à des hôtes inconnus sont réguliers : une sonde probable (supervision, répartiteur de
+// charge), proposée à l'exemption plutôt qu'à l'escalade (ADR 0020, étape 2.b).
+type RejectionProbe struct {
+	IP              string  `json:"ip"`
+	Hits            int64   `json:"hits"`
+	IntervalSeconds float64 `json:"interval_seconds"`
+}
+
+// SeasonalResponse : la référence saisonnière du trafic d'une passerelle (ADR 0020, étape 3). Rien n'y est décidé : l'Admin l'affiche.
+type SeasonalResponse struct {
+	// Mode : off | detect, tel que la passerelle l'applique.
+	Mode   string                 `json:"mode"`
+	Routes []seasonal.RouteStatus `json:"routes"`
+	// Active : les alertes de trafic en cours ; Events : les derniers changements d'état, du plus récent au plus ancien.
+	Active []seasonal.Event `json:"active"`
+	Events []seasonal.Event `json:"events"`
 }

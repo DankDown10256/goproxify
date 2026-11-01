@@ -31,6 +31,10 @@ func runSecurity() {
 		runSecurityWAFEngine()
 	case "cve":
 		runSecurityCVE()
+	case "rejections":
+		runSecurityRejections()
+	case "traffic-reference":
+		runSecurityTrafficReference()
 	case "engines":
 		runSecurityEngines()
 	case "surface":
@@ -46,7 +50,7 @@ Sous-commandes :
   waf-engine  Interrupteur du WAF d'une passerelle (coupe ou rétablit le WAF de tous ses proxies)
   (règles, planifications et playbooks : goproxify automation)
   cve      SLA de correction des CVE (délai attendu selon la gravité)
-  engines  Moteurs globaux (Ephor, Fail2Ban, CrowdSec, WAF) et leurs champs de configuration
+  engines  Moteurs globaux (Ephor, Seuils multi-passerelles, CrowdSec, WAF) et leurs champs de configuration
   surface  Apprentissage de la surface d'un proxy : ce que son trafic légitime utilise (aucun blocage)
 
 goproxify security threat get  [-edge <id>] [-admin-url …] [-token …]
@@ -84,6 +88,9 @@ goproxify security waf set  -proxy <id> -file <config.json> [-admin-url …] [-t
 goproxify security waf-engine get [-edge <id>] [-admin-url …] [-token …]
 goproxify security waf-engine set -enabled <true|false> [-edge <id>] [-admin-url …] [-token …]
 goproxify security waf-engine activity [-hours N] [-edge <id>] [-admin-url …] [-token …]
+
+goproxify security rejections [-edge <id>] [-admin-url …] [-token …]   # ce que l'entrée de chaque passerelle a refusé : poignées de main TLS ratées, hôtes sans route, noms demandés, IP, empreintes
+goproxify security traffic-reference [-edge <id>] [-admin-url …] [-token …]   # la référence saisonnière du trafic de chaque route : débit réel, débit attendu à cette heure, alertes en cours
 
 goproxify security cve inventory [-proxy <id|hôte>] [-edge <id>] [-gaps] [-admin-url …] [-token …]   # applications reconnues derrière les proxies ; -gaps : seulement ce que la recherche de CVE ne couvre pas
 goproxify security cve cpe get [-admin-url …] [-token …]   # identifiants CPE donnés par l'administrateur aux produits que la table ne couvre pas
@@ -918,6 +925,27 @@ func runSecurityCVE() {
 	}
 }
 
+// runSecurityRejections affiche le trafic refusé à l'entrée des passerelles (ADR 0020, étape 1.c).
+func runSecurityRejections() {
+	args := parseFlags(os.Args[3:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	path := "/api/v1/security/rejections"
+	if v := flagValue(args, "-edge", ""); v != "" {
+		path += "?edge=" + url.QueryEscape(v)
+	}
+	var res json.RawMessage
+	if _, err := client.DoJSON("GET", path, nil, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "rejections : %v\n", err)
+		os.Exit(1)
+	}
+	out, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(out))
+}
+
 func runSecurityCVEInventory() {
 	args := parseFlags(os.Args[4:])
 	client, err := newAdminClient(args)
@@ -1049,7 +1077,7 @@ func runSecurityCVESLA() {
 	}
 }
 
-// ── Moteurs de sécurité (Ephor, Fail2Ban, CrowdSec) ────────────────────────
+// ── Moteurs de sécurité (Ephor, Seuils multi-passerelles, CrowdSec) ────────────────────────
 
 // runSecurityWAFEngine lit ou règle l'interrupteur du WAF d'une passerelle (ou de son groupe HA).
 func runSecurityWAFEngine() {
@@ -1132,4 +1160,25 @@ func runSecurityEngines() {
 		}
 		fmt.Printf("%s — %s\n  %s\n", ty.Type, ty.Label, strings.Join(fields, ", "))
 	}
+}
+
+// runSecurityTrafficReference affiche la référence saisonnière du trafic des passerelles (ADR 0020, étape 3).
+func runSecurityTrafficReference() {
+	args := parseFlags(os.Args[3:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	path := "/api/v1/security/traffic-reference"
+	if v := flagValue(args, "-edge", ""); v != "" {
+		path += "?edge=" + url.QueryEscape(v)
+	}
+	var res json.RawMessage
+	if _, err := client.DoJSON("GET", path, nil, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "traffic-reference : %v\n", err)
+		os.Exit(1)
+	}
+	out, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(out))
 }

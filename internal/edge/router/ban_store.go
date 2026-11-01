@@ -5,7 +5,8 @@ package router
 
 import (
 	"net"
-	"sync"
+	"net/netip"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,15 +31,17 @@ type RuntimeBan struct {
 	Signals []BanSignal `json:"signals,omitempty"`
 	// UserAgent : le dernier User-Agent vu pour l'IP au moment du ban automatique, quel que soit le moteur ; vide pour les autres sources.
 	UserAgent string `json:"user_agent,omitempty"`
-
-	ip   net.IP
-	ipnet *net.IPNet
 }
 
-// BanStore stocke les bans actifs en mémoire (Fail2Ban, CrowdSec, natif).
+// BanStore stocke les bans actifs en mémoire (Ephor, CrowdSec, natif). La vérification d'une IP lit un index
+// (ADR 0020, étape 1) : son coût ne dépend pas du nombre de bans.
 type BanStore struct {
-	mu   sync.RWMutex
-	bans []*RuntimeBan
+	idx atomic.Pointer[banIndex]
+}
+
+type banIndex struct {
+	n int
+	p *prefixIndex[*RuntimeBan]
 }
 
 // NewBanStore crée un store vide.
@@ -46,71 +49,81 @@ func NewBanStore() *BanStore {
 	return &BanStore{}
 }
 
-// Replace remplace atomiquement tous les bans et précompile les réseaux.
+// Replace remplace atomiquement tous les bans et précompile l'index.
 func (s *BanStore) Replace(bans []*RuntimeBan) {
 	now := time.Now()
-	out := make([]*RuntimeBan, 0, len(bans))
-	for _, b := range bans {
-		if b == nil || b.IP == "" {
+	b := newPrefixBuilder[*RuntimeBan]()
+	n := 0
+	for _, in := range bans {
+		if in == nil || in.IP == "" {
 			continue
 		}
-		if b.ExpiresAt != nil && !b.ExpiresAt.IsZero() && b.ExpiresAt.Before(now) {
+		if in.ExpiresAt != nil && !in.ExpiresAt.IsZero() && in.ExpiresAt.Before(now) {
 			continue
 		}
-		compiled := *b
-		if _, ipnet, err := net.ParseCIDR(b.IP); err == nil {
-			compiled.ipnet = ipnet
-		} else if ip := net.ParseIP(b.IP); ip != nil {
-			compiled.ip = ip
+		compiled := *in
+		if _, ipnet, err := net.ParseCIDR(in.IP); err == nil {
+			if !b.addNet(n, ipnet, &compiled) {
+				continue
+			}
+		} else if ip := net.ParseIP(in.IP); ip != nil {
+			if !b.addIP(n, ip, &compiled) {
+				continue
+			}
 		} else {
 			continue
 		}
-		out = append(out, &compiled)
+		n++
 	}
-	s.mu.Lock()
-	s.bans = out
-	s.mu.Unlock()
+	s.idx.Store(&banIndex{n: n, p: b.build()})
 }
 
 // Len retourne le nombre de bans chargés (non expirés au moment du Replace).
 func (s *BanStore) Len() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.bans)
+	if x := s.idx.Load(); x != nil {
+		return x.n
+	}
+	return 0
 }
 
 // CheckBlocked indique si l'IP est bannie (IPs privées toujours exemptées).
 func (s *BanStore) CheckBlocked(ipStr string) (bool, string) {
-	ip := net.ParseIP(ipStr)
-	if ip == nil || isPrivateIP(ip) {
+	addr, _ := ParseClientAddr(ipStr)
+	return s.CheckBlockedAddr(addr)
+}
+
+// CheckBlockedAddr fait comme CheckBlocked pour une adresse déjà lue (ParseClientAddr). Une adresse invalide n'est pas bannie.
+// Quand plusieurs bans correspondent, c'est le premier de la liste reçue qui donne la raison.
+func (s *BanStore) CheckBlockedAddr(addr netip.Addr) (bool, string) {
+	if !addr.IsValid() || isPrivateAddr(addr) {
 		return false, ""
 	}
-	now := time.Now()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, b := range s.bans {
-		if b.ExpiresAt != nil && !b.ExpiresAt.IsZero() && b.ExpiresAt.Before(now) {
-			continue
-		}
-		matched := false
-		if b.ipnet != nil {
-			matched = b.ipnet.Contains(ip)
-		} else if b.ip != nil {
-			matched = b.ip.Equal(ip)
-		}
-		if matched {
-			reason := b.Source
-			if b.Reason != "" {
-				if reason != "" {
-					reason += ": "
-				}
-				reason += b.Reason
-			}
-			if reason == "" {
-				reason = b.IP
-			}
-			return true, reason
-		}
+	x := s.idx.Load()
+	if x == nil {
+		return false, ""
 	}
-	return false, ""
+	var now time.Time
+	b, ok := x.p.lookup(addr, func(b *RuntimeBan) bool {
+		if b.ExpiresAt == nil || b.ExpiresAt.IsZero() {
+			return false
+		}
+		if now.IsZero() {
+			now = time.Now()
+		}
+		return b.ExpiresAt.Before(now)
+	})
+	if !ok {
+		return false, ""
+	}
+	reason := b.Source
+	if b.Reason != "" {
+		if reason != "" {
+			reason += ": "
+		}
+		reason += b.Reason
+	}
+	if reason == "" {
+		reason = b.IP
+	}
+	return true, reason
 }

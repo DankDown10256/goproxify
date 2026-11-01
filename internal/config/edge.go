@@ -24,6 +24,9 @@ type EdgeConfig struct {
 		InternalAPIPort int    `mapstructure:"internal_api_port"` // :8000 — reçoit les pushes de l'Admin
 		BindAddress     string `mapstructure:"bind_address"`      // 0.0.0.0 par défaut
 		APIHost         string `mapstructure:"api_host"`          // hostname résolvable par l'Admin (ex: goproxify-edge)
+		// UnknownHostAction : réponse à une requête dont l'hôte n'a aucune route. « neutral » (défaut) : 404 sans corps ni
+		// marque ; « close » : coupe la connexion HTTP/1 sans répondre (en HTTP/2, réponse neutre).
+		UnknownHostAction string `mapstructure:"unknown_host_action"`
 		// ProxyProtocol : lit l'en-tête PROXY (v1/v2) sur :80 et :443 pour conserver l'IP client
 		// derrière un load balancer L4. Seules les sources de TrustedCIDRs sont crues.
 		ProxyProtocol struct {
@@ -50,11 +53,11 @@ type EdgeConfig struct {
 		// TracingSampleRatio : part des nouvelles traces échantillonnées (0 ou >=1 = toutes ; une trace déjà décidée en amont est respectée).
 		TracingSampleRatio float64 `mapstructure:"tracing_sample_ratio"`
 		// IPAnonymize : tronque le dernier octet IPv4 (x.x.x.0) et les 80 derniers bits IPv6.
-		// Recommandé pour la conformité RGPD. Ne désactive pas la protection Fail2Ban/Ephor.
+		// Recommandé pour la conformité RGPD. Ne désactive pas la protection d'Ephor.
 		IPAnonymize bool `mapstructure:"ip_anonymize"`
 		// MetricsDisabled coupe les métriques Prometheus par requête (benchmark ; /metrics reste servi, compteurs figés).
 		MetricsDisabled bool `mapstructure:"metrics_disabled"`
-		// AccessLogDisabled coupe le log d'accès global : plus de Prism/Logs, ni de signal Fail2Ban/proxy issu du log (benchmark).
+		// AccessLogDisabled coupe le log d'accès global : plus de Prism/Logs, ni de signal Ephor/proxy issu du log (benchmark).
 		AccessLogDisabled bool `mapstructure:"access_log_disabled"`
 		// WAFCustomRulesPath : chemin vers un fichier JSON de règles WAF custom.
 		// Surveillé toutes les 10 s — hot-reload sans redémarrage.

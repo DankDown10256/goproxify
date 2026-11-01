@@ -67,6 +67,7 @@ func Load[T AdminConfig | EdgeConfig | AgentConfig | LandingConfig](configPath s
 	}
 	bindIfMissing(v, "engine.metrics_disabled")
 	bindIfMissing(v, "engine.access_log_disabled")
+	bindIfMissing(v, "network.unknown_host_action")
 
 	var cfg T
 	if err := v.Unmarshal(&cfg); err != nil {

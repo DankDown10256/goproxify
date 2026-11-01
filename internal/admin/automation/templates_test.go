@@ -92,7 +92,7 @@ func TestEdgePlacementAndRules(t *testing.T) {
 		"variable inconnue": {Flow{Trigger: cond("ban_repeat", nil), Steps: []Step{{ID: "s1", Type: StepAction, Action: &Node{Type: "ban_ip", Config: map[string]any{"ip": "{{detail.other}}"}}}}}, PlacementAdmin},
 		"clé de délai":      {Flow{Trigger: cond("ban_repeat", nil), Guard: Guard{CooldownKey: "{{detail.ip}}"}, Steps: []Step{ban}}, PlacementAdmin},
 		"composée":          {Flow{Trigger: Trigger{Kind: TriggerCondition, Condition: &Cond{Any: []Cond{{Type: "ban_repeat"}}}}, Steps: []Step{ban}}, PlacementAdmin},
-		"événement":         {Flow{Trigger: Trigger{Kind: TriggerEvent, Event: &EventTrigger{Event: "fail2ban_ban"}}, Steps: []Step{ban}}, PlacementAdmin},
+		"événement":         {Flow{Trigger: Trigger{Kind: TriggerEvent, Event: &EventTrigger{Event: "fleet_ban"}}, Steps: []Step{ban}}, PlacementAdmin},
 	} {
 		if got, _ := placement(&c.f); got != c.want {
 			t.Errorf("%s : %s, attendu %s", name, got, c.want)
@@ -206,15 +206,15 @@ func TestEdgeFlowSilence(t *testing.T) {
 
 func TestEdgeNotifyReachesChannels(t *testing.T) {
 	e := newEnv(t)
-	f := e.create(&Flow{Name: "silence f2b", Enabled: true,
-		Trigger: Trigger{Kind: TriggerCondition, Condition: &Cond{Type: "engine_silent", Config: map[string]any{"engine_type": "fail2ban"}}},
+	f := e.create(&Flow{Name: "silence fleet", Enabled: true,
+		Trigger: Trigger{Kind: TriggerCondition, Condition: &Cond{Type: "engine_silent", Config: map[string]any{"engine_type": "fleet"}}},
 		Steps: []Step{{ID: "s1", Type: StepAction, Action: &Node{Type: "notify", Config: map[string]any{
 			"notify_severity": "critical", "notify_message": "{{detail.engine_type}} muet"}}}}})
 	e.s.RecordEdgeFired(edgews.RuleFiredPayload{NodeName: "lyon", RuleID: f.ID, ActionType: "notify", CondResult: true, ActionTaken: true,
-		Detail: map[string]any{"engine_type": "fail2ban"}})
+		Detail: map[string]any{"engine_type": "fleet"}})
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if len(e.events) != 1 || e.events[0].Detail["message"] != "fail2ban muet" || e.events[0].Severity != "critical" {
+	if len(e.events) != 1 || e.events[0].Detail["message"] != "fleet muet" || e.events[0].Severity != "critical" {
 		t.Fatalf("notification de passerelle : %+v", e.events)
 	}
 }
@@ -263,7 +263,7 @@ func TestMetricThresholdOnEdge(t *testing.T) {
 		"latence d'un proxy":       {flow("proxy.p95_ms", nil), PlacementEdge},
 		"débit d'un proxy":         {flow("proxy.rps", nil), PlacementAdmin},
 		"débit total":              {flow("global.rps", nil), PlacementAdmin},
-		"compteur de l'Admin":      {flow("f2b.bans_total", nil), PlacementAdmin},
+		"compteur de l'Admin":      {flow("fleet.bans_total", nil), PlacementAdmin},
 		"variable dans le réglage": {flow("proxy.p95_ms", map[string]any{"entity": "{{flow.name}}"}), PlacementAdmin},
 	} {
 		if got, why := placement(c.f); got != c.want {

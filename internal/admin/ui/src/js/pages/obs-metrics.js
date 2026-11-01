@@ -82,7 +82,7 @@ pages['obs-metrics'] = async function() {
 
   const sec = [];
   (sum?.pipeline || []).forEach(p => sec.push([p.stage, p.blocked_total]));
-  if (sum?.f2b) sec.push(['Fail2Ban · ' + t('om.bans'), sum.f2b.bans_total]);
+  if (sum?.fleet) sec.push(['Seuils multi-passerelles · ' + t('om.bans'), sum.fleet.bans_total]);
   if (sum?.crowdsec) sec.push(['CrowdSec · ' + t('om.decisions'), sum.crowdsec.decisions_new]);
   if (sum?.waf) sec.push([t('om.waf'), sum.waf.profiles_active]);
   const secCard = `<div class="prism-panel">

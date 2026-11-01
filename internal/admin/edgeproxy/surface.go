@@ -36,6 +36,15 @@ func (c *Client) Inventory(ctx context.Context, t Target, route string) (*logapi
 	return &out, nil
 }
 
+// Rejections demande à la passerelle ce que son entrée a refusé depuis son démarrage (ADR 0020, étape 1.c).
+func (c *Client) Rejections(ctx context.Context, t Target) (*logapi.RejectionsResponse, error) {
+	var out logapi.RejectionsResponse
+	if err := c.do(ctx, t, http.MethodGet, logapi.PathRejections, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // SurfaceReport demande à la passerelle le rapport d'un proxy (identifiant ou hôte). Rend nil, nil quand elle n'a aucun
 // profil pour lui : ce n'est pas une panne.
 func (c *Client) SurfaceReport(ctx context.Context, t Target, route string) (*surface.Report, error) {
@@ -99,6 +108,15 @@ func (c *Client) SurfaceForget(ctx context.Context, t Target, route string, keys
 func (c *Client) SurfaceReset(ctx context.Context, t Target, route string) (*logapi.SurfaceResetResponse, error) {
 	var out logapi.SurfaceResetResponse
 	if err := c.do(ctx, t, http.MethodPost, logapi.PathSurfaceReset, logapi.SurfaceResetRequest{Route: route}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Seasonal demande à la passerelle la référence saisonnière de son trafic (ADR 0020, étape 3).
+func (c *Client) Seasonal(ctx context.Context, t Target) (*logapi.SeasonalResponse, error) {
+	var out logapi.SeasonalResponse
+	if err := c.do(ctx, t, http.MethodGet, logapi.PathSeasonal, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

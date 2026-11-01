@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package lastua retient le dernier User-Agent vu pour chaque IP, afin qu'un ban dise quel client l'a provoqué
-// quel que soit le moteur qui le pose (Ephor, WAF, Fail2Ban, plugin, règle).
+// quel que soit le moteur qui le pose (Ephor, WAF, plugin, règle).
 package lastua
 
 import (

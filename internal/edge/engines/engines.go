@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package engines décrit la configuration des moteurs de sécurité globaux de la passerelle —
-// Ephor (détection par signaux), Fail2Ban (erreurs répétées), CrowdSec (décisions LAPI) et WAF
+// Ephor (détection par signaux et Seuils), les Seuils multi-passerelles de l'Admin (erreurs répétées sur plusieurs passerelles), CrowdSec (décisions LAPI) et WAF
 // (interrupteur maître du détecteur par route) — par des manifestes (ADR 0007) : valider une
 // configuration avant de l'enregistrer, masquer ses secrets, l'afficher. Ces moteurs ne sont pas des
 // détecteurs par route : ils partagent un magasin de bans et tournent une fois par passerelle ; ils
@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	edgecrowdsec "github.com/vincamok/goproxify/internal/edge/crowdsec"
-	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 	"github.com/vincamok/goproxify/internal/edge/waf"
 	"github.com/vincamok/goproxify/internal/modules"
@@ -30,7 +29,7 @@ import (
 // Types de moteur.
 const (
 	Ephor    = "ephor"
-	Fail2Ban = "fail2ban"
+	Fleet    = "fleet"
 	CrowdSec = "crowdsec"
 	WAF      = "waf"
 )
@@ -51,11 +50,11 @@ func register(e engine) {
 
 func init() {
 	register(engine{
-		manifest: modules.Manifest{Type: Ephor, Label: "Ephor", Fields: reflectFields(reflect.TypeOf(threat.Config{}), "")},
+		manifest: modules.Manifest{Type: Ephor, Label: "Ephor", Fields: secretFields(reflectFields(reflect.TypeOf(threat.Config{}), ""), "challenge.secret")},
 		decode:   decodeEphor,
 	})
 	register(engine{
-		manifest: modules.Manifest{Type: Fail2Ban, Label: "Fail2Ban", Fields: []modules.Field{
+		manifest: modules.Manifest{Type: Fleet, Label: "Cross-gateway thresholds", Fields: []modules.Field{
 			{Key: "enabled", Label: "Enabled", Kind: modules.KindBool},
 			{Key: "window_sec", Label: "Window (s)", Kind: modules.KindNumber},
 			{Key: "max_errors", Label: "Errors before ban", Kind: modules.KindNumber},
@@ -63,7 +62,7 @@ func init() {
 			{Key: "trust_forwarded_for", Label: "Trust X-Forwarded-For", Kind: modules.KindBool},
 			{Key: "whitelist", Label: "Exempt IPs / CIDRs", Kind: modules.KindList},
 		}},
-		decode: decodeFail2Ban,
+		decode: decodeFleet,
 	})
 	register(engine{
 		manifest: modules.Manifest{Type: CrowdSec, Label: "CrowdSec", Fields: []modules.Field{
@@ -183,8 +182,8 @@ func nonNegative(what string, v float64) error {
 	return nil
 }
 
-func decodeFail2Ban(raw []byte) error {
-	var c edgef2b.Config
+func decodeFleet(raw []byte) error {
+	var c FleetConfig
 	if err := strictDecode(raw, &c); err != nil {
 		return err
 	}
@@ -279,7 +278,38 @@ func decodeEphor(raw []byte) error {
 			return fmt.Errorf("custom_lists.tls_fingerprints : %q invalide", f)
 		}
 	}
+	if err := c.ValidateChallenge(); err != nil {
+		return err
+	}
+	if err := c.ValidateDecoys(); err != nil {
+		return err
+	}
+	if err := c.ValidateThresholds(); err != nil {
+		return err
+	}
+	if err := c.ValidateUnknownHost(); err != nil {
+		return err
+	}
+	if err := c.ValidateSeasonal(); err != nil {
+		return err
+	}
+	if err := checkNets("unknown_host.probes", c.UnknownHost.Probes); err != nil {
+		return err
+	}
 	return c.Behavior.Validate()
+}
+
+// secretFields marque comme secrets les champs dont la clé est donnée : masqués à l'affichage, conservés quand la nouvelle
+// configuration les renvoie masqués.
+func secretFields(fields []modules.Field, keys ...string) []modules.Field {
+	for i := range fields {
+		for _, k := range keys {
+			if fields[i].Key == k {
+				fields[i].Kind, fields[i].Secret = modules.KindPassword, true
+			}
+		}
+	}
+	return fields
 }
 
 // reflectFields dérive les champs d'un manifeste des étiquettes JSON d'une structure de configuration :
@@ -314,4 +344,16 @@ func reflectFields(t reflect.Type, prefix string) []modules.Field {
 		out = append(out, modules.Field{Key: key, Label: key, Kind: kind})
 	}
 	return out
+}
+
+// FleetConfig est la configuration des Seuils multi-passerelles, le moteur que l'Admin fait tourner sur les compteurs d'erreurs
+// client que les passerelles lui envoient : une IP dont les erreurs se répartissent sur plusieurs passerelles ne dépasse le seuil
+// d'aucune d'elles. Il ne tourne pas sur les passerelles : les Seuils d'Ephor (threat.ThresholdsConfig) y font ce travail.
+type FleetConfig struct {
+	Enabled           bool     `json:"enabled"`
+	WindowSec         int      `json:"window_sec"`          // fenêtre glissante (défaut 300)
+	MaxErrors         int      `json:"max_errors"`          // seuil déclenchant le ban
+	BanDurationSec    int      `json:"ban_duration_sec"`    // 0 = permanent
+	TrustForwardedFor bool     `json:"trust_forwarded_for"` // utilise X-Forwarded-For
+	Whitelist         []string `json:"whitelist"`
 }

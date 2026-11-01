@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vincamok/goproxify/internal/edge/router"
+	"github.com/vincamok/goproxify/internal/edge/seasonal"
 )
 
 // State est l'état appris d'Ephor qui survit à un redémarrage : scores cumulés et fenêtres d'erreurs 4xx et de
@@ -17,6 +18,10 @@ type State struct {
 	Scores       map[string]ScoreState  `json:"scores,omitempty"`
 	Errors       map[string]WindowState `json:"errors,omitempty"`
 	RateTriggers map[string]WindowState `json:"rate_triggers,omitempty"`
+	// Thresholds : les compteurs des Seuils (ADR 0020, étape 2.c), par clé « Seuil|IP ».
+	Thresholds map[string]ThresholdState `json:"thresholds,omitempty"`
+	// Seasonal : la référence saisonnière apprise de chaque route (ADR 0020, étape 3).
+	Seasonal map[string]seasonal.RefState `json:"seasonal,omitempty"`
 }
 
 // ScoreState : score à l'instant At, qui décroît de moitié toutes les HalfLife.
@@ -35,11 +40,20 @@ type WindowState struct {
 }
 
 // SnapshotState copie l'état à persister. Les entrées déjà périmées sont écartées.
-func (e *Engine) SnapshotState() State { return e.counters.snapshot() }
+func (e *Engine) SnapshotState() State {
+	st := e.counters.snapshot()
+	st.Thresholds = e.thresholdCounters.snapshot()
+	st.Seasonal = e.seasonal.Export()
+	return st
+}
 
 // RestoreState réinjecte un état relu du disque, sans dépasser les plafonds par shard. Les entrées périmées à l'instant
 // de la relecture sont ignorées ; l'état courant d'une IP déjà vue depuis le démarrage n'est jamais écrasé.
-func (e *Engine) RestoreState(st State) { e.counters.restore(st) }
+func (e *Engine) RestoreState(st State) {
+	e.counters.restore(st)
+	e.thresholdCounters.restore(st.Thresholds)
+	e.seasonal.Import(st.Seasonal)
+}
 
 func (s *counterStore) snapshot() State {
 	now := s.now()

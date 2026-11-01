@@ -5,33 +5,26 @@ package router
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
-// privateNets regroupe les plages RFC1918, loopback et link-local — toujours autorisées.
-var privateNets []*net.IPNet
-
-func init() {
-	for _, cidr := range []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"127.0.0.0/8",
-		"::1/128",
-		"fc00::/7",
-		"169.254.0.0/16",
-	} {
-		_, ipnet, err := net.ParseCIDR(cidr)
-		if err == nil {
-			privateNets = append(privateNets, ipnet)
-		}
-	}
+// privatePrefixes regroupe les plages RFC1918, loopback et link-local — toujours autorisées.
+var privatePrefixes = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("169.254.0.0/16"),
 }
 
-func isPrivateIP(ip net.IP) bool {
-	for _, ipnet := range privateNets {
-		if ipnet.Contains(ip) {
+func isPrivateAddr(a netip.Addr) bool {
+	for _, p := range privatePrefixes {
+		if p.Contains(a) {
 			return true
 		}
 	}
@@ -45,18 +38,22 @@ const WhitelistProfileID = "bans-whitelist"
 
 // IPProfile est un profil de filtrage IP reçu depuis Admin.
 type IPProfile struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Mode string `json:"mode"` // allow | deny
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Mode  string   `json:"mode"` // allow | deny
 	CIDRs []string `json:"cidrs"`
-
-	nets []*net.IPNet
 }
 
-// IPProfileStore stocke les profils IP actifs en mémoire.
+// IPProfileStore stocke les profils IP actifs en mémoire. Comme BanStore, il lit un index : le coût d'une vérification ne
+// dépend pas du nombre de réseaux.
 type IPProfileStore struct {
 	mu       sync.RWMutex
 	profiles []*IPProfile
+	idx      atomic.Pointer[profileIndex]
+}
+
+type profileIndex struct {
+	allow, deny, whitelist *prefixIndex[*IPProfile]
 }
 
 // NewIPProfileStore crée un store vide.
@@ -66,8 +63,8 @@ func NewIPProfileStore() *IPProfileStore {
 
 // Replace remplace atomiquement tous les profils.
 func (s *IPProfileStore) Replace(profiles []*IPProfile) {
-	for _, p := range profiles {
-		var nets []*net.IPNet
+	allow, deny, wl := newPrefixBuilder[*IPProfile](), newPrefixBuilder[*IPProfile](), newPrefixBuilder[*IPProfile]()
+	for order, p := range profiles {
 		for _, cidr := range p.CIDRs {
 			if !strings.Contains(cidr, "/") {
 				if ip := net.ParseIP(cidr); ip != nil {
@@ -78,15 +75,25 @@ func (s *IPProfileStore) Replace(profiles []*IPProfile) {
 					}
 				}
 			}
-			if _, ipnet, err := net.ParseCIDR(cidr); err == nil {
-				nets = append(nets, ipnet)
+			_, ipnet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				continue
+			}
+			switch p.Mode {
+			case "allow":
+				allow.addNet(order, ipnet, p)
+				if p.ID == WhitelistProfileID {
+					wl.addNet(order, ipnet, p)
+				}
+			case "deny":
+				deny.addNet(order, ipnet, p)
 			}
 		}
-		p.nets = nets
 	}
 	s.mu.Lock()
 	s.profiles = profiles
 	s.mu.Unlock()
+	s.idx.Store(&profileIndex{allow: allow.build(), deny: deny.build(), whitelist: wl.build()})
 }
 
 // Len retourne le nombre de profils chargés.
@@ -97,51 +104,44 @@ func (s *IPProfileStore) Len() int {
 }
 
 // IsAllowed indique si l'IP est explicitement autorisée (privée ou profil allow).
-// Utilisé pour court-circuiter les bans Fail2Ban/CrowdSec.
+// Utilisé pour court-circuiter les bans d'Ephor et de CrowdSec.
 func (s *IPProfileStore) IsAllowed(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	addr, _ := ParseClientAddr(ipStr)
+	return s.IsAllowedAddr(addr)
+}
+
+// IsAllowedAddr fait comme IsAllowed pour une adresse déjà lue (ParseClientAddr).
+func (s *IPProfileStore) IsAllowedAddr(addr netip.Addr) bool {
+	if !addr.IsValid() {
 		return false
 	}
-	if isPrivateIP(ip) {
+	if isPrivateAddr(addr) {
 		return true
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, p := range s.profiles {
-		if p.Mode != "allow" {
-			continue
-		}
-		for _, ipnet := range p.nets {
-			if ipnet.Contains(ip) {
-				return true
-			}
-		}
+	x := s.idx.Load()
+	if x == nil {
+		return false
 	}
-	return false
+	_, ok := x.allow.lookup(addr, nil)
+	return ok
 }
 
 // IsWhitelisted indique si l'IP figure dans la liste blanche des bans (WhitelistProfileID). Les
 // adresses privées ne comptent pas ici : elles sont déjà exemptées de bans, mais restent évaluées
 // par Ephor.
 func (s *IPProfileStore) IsWhitelisted(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	addr, _ := ParseClientAddr(ipStr)
+	return s.IsWhitelistedAddr(addr)
+}
+
+// IsWhitelistedAddr fait comme IsWhitelisted pour une adresse déjà lue (ParseClientAddr).
+func (s *IPProfileStore) IsWhitelistedAddr(addr netip.Addr) bool {
+	x := s.idx.Load()
+	if x == nil {
 		return false
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, p := range s.profiles {
-		if p.ID != WhitelistProfileID || p.Mode != "allow" {
-			continue
-		}
-		for _, ipnet := range p.nets {
-			if ipnet.Contains(ip) {
-				return true
-			}
-		}
-	}
-	return false
+	_, ok := x.whitelist.lookup(addr, nil)
+	return ok
 }
 
 // CheckBlocked vérifie si une IP doit être bloquée.
@@ -149,37 +149,25 @@ func (s *IPProfileStore) IsWhitelisted(ipStr string) bool {
 // Puis : profils allow → si match, autorisé (override deny).
 // Puis : profils deny → si match, bloqué.
 func (s *IPProfileStore) CheckBlocked(ipStr string) (bool, string) {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	addr, _ := ParseClientAddr(ipStr)
+	return s.CheckBlockedAddr(addr)
+}
+
+// CheckBlockedAddr fait comme CheckBlocked pour une adresse déjà lue (ParseClientAddr). Quand plusieurs profils deny
+// correspondent, c'est le premier de la liste reçue qui donne son nom.
+func (s *IPProfileStore) CheckBlockedAddr(addr netip.Addr) (bool, string) {
+	if !addr.IsValid() || isPrivateAddr(addr) {
 		return false, ""
 	}
-	// Les IPs privées/locales ne sont jamais bloquées
-	if isPrivateIP(ip) {
+	x := s.idx.Load()
+	if x == nil {
 		return false, ""
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	// Un profil allow explicite prime sur tout profil deny
-	for _, p := range s.profiles {
-		if p.Mode != "allow" {
-			continue
-		}
-		for _, ipnet := range p.nets {
-			if ipnet.Contains(ip) {
-				return false, ""
-			}
-		}
+	if _, ok := x.allow.lookup(addr, nil); ok {
+		return false, ""
 	}
-	// Vérifier les profils deny
-	for _, p := range s.profiles {
-		if p.Mode != "deny" {
-			continue
-		}
-		for _, ipnet := range p.nets {
-			if ipnet.Contains(ip) {
-				return true, p.Name
-			}
-		}
+	if p, ok := x.deny.lookup(addr, nil); ok {
+		return true, p.Name
 	}
 	return false, ""
 }

@@ -48,7 +48,7 @@ Client ──TLS──▶ passerelle d'entrée ──HTTPS (SNI=domaine)──�
 | Charge sur la passerelle d'entrée | Plus élevée (terminaison + re-proxy) |
 | Endpoint | `host:port` → poussé en `https://host:port` (`TLSSkipVerify`) |
 
-**Quand l'utiliser :** besoin de l'IP client réelle sur la passerelle cible (logs, WAF, fail2ban, GeoIP), ou politique TLS centralisée sur le frontal.
+**Quand l'utiliser :** besoin de l'IP client réelle sur la passerelle cible (logs, WAF, Ephor, GeoIP), ou politique TLS centralisée sur le frontal.
 
 ---
 

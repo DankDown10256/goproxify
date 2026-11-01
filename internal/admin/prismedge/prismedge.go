@@ -22,6 +22,7 @@ import (
 	"github.com/vincamok/goproxify/internal/admin/edgeproxy"
 	"github.com/vincamok/goproxify/internal/admin/edgetop"
 	"github.com/vincamok/goproxify/internal/edge/logapi"
+	"github.com/vincamok/goproxify/internal/edge/seasonal"
 	"github.com/vincamok/goproxify/internal/edge/threat"
 )
 
@@ -800,6 +801,9 @@ func addReport(dst *threat.SimReport, r threat.SimReport) {
 			dst.TopIPs = append(dst.TopIPs, st)
 		}
 	}
+	if r.Seasonal != nil {
+		addSeasonal(dst, *r.Seasonal)
+	}
 }
 
 func unionStrings(a, b []string, max int) []string {
@@ -894,4 +898,34 @@ func (s *Source) StatusCounts(ctx context.Context, p analytics.Params) (map[int]
 		}
 	}
 	return out, m, err
+}
+
+// addSeasonal fusionne la part saisonnière d'une passerelle : les compteurs d'une même route s'additionnent (les membres d'un groupe
+// HA la servent chacun) et elle n'est jugeable que si chaque passerelle l'a pu juger.
+func addSeasonal(dst *threat.SimReport, s threat.SimSeasonal) {
+	if dst.Seasonal == nil {
+		dst.Seasonal = &threat.SimSeasonal{Mode: s.Mode, Events: []seasonal.Event{}, Routes: []threat.SimSeasonalRoute{}}
+	}
+	d := dst.Seasonal
+	d.Events = append(d.Events, s.Events...)
+	for _, r := range s.Routes {
+		merged := false
+		for i := range d.Routes {
+			if d.Routes[i].Route != r.Route {
+				continue
+			}
+			x := &d.Routes[i]
+			x.Warm = x.Warm && r.Warm
+			x.Warnings += r.Warnings
+			x.Probables += r.Probables
+			x.AlertSeconds += r.AlertSeconds
+			x.HardenedRequests += r.HardenedRequests
+			x.HardenedServed += r.HardenedServed
+			merged = true
+			break
+		}
+		if !merged {
+			d.Routes = append(d.Routes, r)
+		}
+	}
 }

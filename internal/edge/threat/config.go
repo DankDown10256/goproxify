@@ -67,6 +67,21 @@ type Config struct {
 
 	// Behavior : la note commune par IP et les signaux de comportement (ADR 0011).
 	Behavior BehaviorConfig `json:"behavior,omitempty"`
+
+	// Challenge : le défi à preuve de travail imposé avant le ban (ADR 0020, étape 1.b). Désactivé par défaut.
+	Challenge ChallengeConfig `json:"challenge,omitempty"`
+
+	// Decoys : des chemins-leurres que l'application n'utilise jamais (ADR 0020, étape 2.a). Désactivé par défaut.
+	Decoys DecoyConfig `json:"decoys,omitempty"`
+
+	// Thresholds : les Seuils, règles « N événements en T, action » (ADR 0020, étape 2.c). Désactivés par défaut.
+	Thresholds ThresholdsConfig `json:"thresholds,omitempty"`
+
+	// Seasonal : la référence saisonnière du trafic de chaque route (ADR 0020, étape 3). Désactivée par défaut.
+	Seasonal SeasonalConfig `json:"seasonal,omitempty"`
+
+	// UnknownHost : des points modérés pour un accès à un nom sans route ou sans certificat (ADR 0020, étape 2.b). Désactivé par défaut.
+	UnknownHost UnknownHostConfig `json:"unknown_host,omitempty"`
 }
 
 // IPScoreConfig active un score par IP qui s'additionne d'une requête à l'autre et décroît avec le
@@ -213,5 +228,8 @@ func (c *Config) defaults() {
 	}
 	if c.Lists.RefreshInterval.Duration == 0 {
 		c.Lists.RefreshInterval.Duration = 6 * time.Hour
+	}
+	if c.Challenge.Threshold <= 0 {
+		c.Challenge.Threshold = c.IPScore.BanThreshold / 2
 	}
 }

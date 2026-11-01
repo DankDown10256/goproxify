@@ -16,7 +16,7 @@ func banWhitelistTools() []map[string]any {
 	return []map[string]any{
 		{
 			"name": "list_ban_whitelist",
-			"description": "Liste la liste blanche des bans : adresses et plages qu'aucun ban n'atteint (manuel, Fail2Ban, CrowdSec, Ephor, règles) " +
+			"description": "Liste la liste blanche des bans : adresses et plages qu'aucun ban n'atteint (manuel, Seuils, CrowdSec, Ephor, règles) " +
 				"et que Ephor n'évalue pas, avec leur commentaire et le nombre de bans actifs qu'elles rendent sans effet.",
 			"inputSchema": schema(),
 		},

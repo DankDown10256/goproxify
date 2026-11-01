@@ -107,7 +107,7 @@ func geoIPFilter(mode string, countries []string, open func() (func(net.IP) stri
 		var lastWarn atomic.Int64
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !validMode {
-				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "geoip", "invalid_mode").Inc()
+				metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "geoip", "invalid_mode").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
@@ -118,7 +118,7 @@ func geoIPFilter(mode string, countries []string, open func() (func(net.IP) stri
 					slog.Warn("geoip: base indisponible", "mode", mode, "err", err)
 				}
 				if mode == "allow" {
-					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "geoip", "db_unavailable").Inc()
+					metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "geoip", "db_unavailable").Inc()
 					http.Error(w, "503 Service Unavailable", http.StatusServiceUnavailable)
 					return
 				}
@@ -132,7 +132,7 @@ func geoIPFilter(mode string, countries []string, open func() (func(net.IP) stri
 			}
 			_, inList := set[country]
 			if (mode == "allow" && !inList) || (mode == "deny" && inList) {
-				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "geoip", country).Inc()
+				metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "geoip", country).Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}

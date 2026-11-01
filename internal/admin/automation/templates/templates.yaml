@@ -30,8 +30,8 @@
 - id: ban-spike-strict-mode
   category: security
   version: 1
-  name: Mode strict Fail2Ban sur pic de bans
-  description: Passe Fail2Ban en mode strict temporaire quand les bans s'enchaînent.
+  name: Mode strict sur pic de bans
+  description: Durcit temporairement les seuils (Seuils multi-passerelles de l'Admin, Ephor sur une passerelle) quand les bans s'enchaînent.
   params:
     - {key: count, label: Nombre de bans, kind: number, default: 20, required: true}
     - {key: window, label: Fenêtre, kind: duration, default: 15m, required: true}
@@ -88,9 +88,9 @@
   category: reliability
   version: 1
   name: Alerter si un moteur IPS est silencieux
-  description: Notifie si Fail2Ban ou CrowdSec n'a montré aucune activité depuis longtemps (panne probable).
+  description: Notifie si les Seuils multi-passerelles ou CrowdSec n'a montré aucune activité depuis longtemps (panne probable).
   params:
-    - {key: engine, label: Moteur, kind: select, default: fail2ban, required: true, options: [{value: fail2ban, label: Fail2Ban}, {value: crowdsec, label: CrowdSec}]}
+    - {key: engine, label: Moteur, kind: select, default: fleet, required: true, options: [{value: fleet, label: Seuils multi-passerelles}, {value: crowdsec, label: CrowdSec}]}
     - {key: minutes, label: Silence depuis (minutes), kind: number, default: 30, required: true}
   flow:
     trigger: {kind: condition, condition: {type: engine_silent, config: {engine_type: "{{param.engine}}", silent_minutes: "{{param.minutes}}"}}}

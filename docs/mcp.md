@@ -37,7 +37,7 @@ Chaque outil exige un scope, le même que sa route REST équivalente. Les outils
 | `certs:read` | `list_certs`, `get_cert_status`, `list_cert_deploy_targets`, `list_cert_deploy_types`, `list_internal_cas` †, `list_internal_certs` †, `get_ech_status` †, `list_dns_providers` †, `list_dns_provider_types` † |
 | `certs:write` | `obtain_cert`, `import_cert`, `trigger_cert_deploy`, `create_internal_ca` †, `issue_internal_cert` †, `revoke_internal_cert` † |
 | `logs:read` | `list_logs`, `get_siem_status` †, `get_prism_anomalies`, `get_prism_geo`, `get_prism_tls_fingerprints`, `get_prism_slo`, `simulate_ephor_config` †, `get_ephor_references` †, `suggest_ephor_thresholds` †, `trace_ip` †, `preview_security_ban` †, `preview_asn_ban` † |
-| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `get_proxy_surface` †, `get_app_inventory` †, `get_proxy_surface_proposals` †, `get_proxy_surface_openapi` †, `get_proxy_surface_suggestions` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
+| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `get_proxy_surface` †, `get_app_inventory` †, `get_entry_rejections` †, `get_traffic_reference` †, `get_proxy_surface_proposals` †, `get_proxy_surface_openapi` †, `get_proxy_surface_suggestions` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
 | `security:write` | `create_ip_profile`, `delete_ip_profile`, `reset_proxy_surface` †, `enforce_proxy_surface` †, `accept_proxy_surface_suggestions` †, `relax_proxy_surface` †, `create_security_ban` †, `delete_security_ban` †, `ban_ip` †, `unban_ip` †, `add_ban_whitelist` †, `remove_ban_whitelist` †, `import_security_bans` †, `ban_asn` †, `unban_asn` †, `create_auth_provider` †, `delete_auth_provider` †, `create_flow` †, `update_flow` †, `set_flow_enabled` †, `delete_flow` †, `run_flow` †, `simulate_flow` †, `restore_flow_version` †, `detach_flow` †, `update_flow_params` †, `decide_flow_run` †, `cancel_flow_run` †, `replay_flow_run` †, `install_flow_template` †, `create_silence` †, `delete_silence` †, `import_automation` † |
 | `portal:read` / `portal:write` | outils Access (`*_portal_*`, `push_portal`) † — voir [GoProxify Access](#goproxify-access-portail) |
 
@@ -493,7 +493,7 @@ Plugins WebAssembly installés (manifeste, empreinte, taille). Lecture seule : i
 
 ### `list_security_engine_types`
 
-Moteurs de sécurité globaux (Ephor, Fail2Ban, CrowdSec, WAF — interrupteur maître par passerelle) avec les champs de leur configuration. Même source que `GET /api/v1/security/engine-types`. Scope `audit:read` (rôle admin).
+Moteurs de sécurité globaux (Ephor, Seuils multi-passerelles, CrowdSec, WAF — interrupteur maître par passerelle) avec les champs de leur configuration. Même source que `GET /api/v1/security/engine-types`. Scope `audit:read` (rôle admin).
 
 **Paramètres :** aucun
 
@@ -682,12 +682,12 @@ Compteurs sécurité : bans actifs, menaces CrowdSec, CVE ouvertes, certificats 
 
 ### `list_security_bans`
 
-Liste les bans IP (Fail2Ban, CrowdSec, Ephor, plugins de détection comme Coraza, natif).
+Liste les bans IP (Seuils multi-passerelles, CrowdSec, Ephor, plugins de détection comme Coraza, natif).
 
 | Paramètre      | Type    | Requis | Description                                      |
 |----------------|---------|--------|--------------------------------------------------|
 | `ip`           | string  | —      | Filtrer par IP (sous-chaîne)                     |
-| `source`       | string  | —      | `native`, `fail2ban`, `crowdsec`, `threat`, `plugin:<nom>` (ex. `plugin:coraza`) |
+| `source`       | string  | —      | `native`, `fleet`, `crowdsec`, `threat`, `plugin:<nom>` (ex. `plugin:coraza`) |
 | `active_only`  | boolean | —      | Uniquement les bans non expirés                  |
 | `edge`         | string  | —      | Passerelle (nom du nœud ou id du token) : ses bans et les bans globaux |
 
@@ -806,7 +806,7 @@ Lève les bans créés pour un ASN (toutes ses plages) sur les passerelles, en u
 
 ### `list_ban_whitelist`
 
-Liste la **liste blanche des bans** : adresses et plages qu'aucun ban n'atteint (manuel, Fail2Ban, CrowdSec, Ephor, règles) et que Ephor n'évalue pas. Aucun paramètre. Réponse : `[{ "value", "comment", "added_by", "added_at" }]`.
+Liste la **liste blanche des bans** : adresses et plages qu'aucun ban n'atteint (manuel, Seuils, CrowdSec, Ephor, règles) et que Ephor n'évalue pas. Aucun paramètre. Réponse : `[{ "value", "comment", "added_by", "added_at" }]`.
 
 **Scope :** `audit:read` †
 
@@ -840,7 +840,7 @@ Retire une entrée de la liste blanche (valeur exacte telle qu'enregistrée) et 
 
 ### `delete_security_ban`
 
-Supprime le ban et lève tous les bans de son IP sur chaque passerelle, y compris ceux posés localement (Fail2Ban, Ephor, règles) — voir [Déban](security.md#déban).
+Supprime le ban et lève tous les bans de son IP sur chaque passerelle, y compris ceux posés localement (Ephor, plugins, règles) — voir [Déban](security.md#déban).
 
 | Paramètre | Type   | Requis | Description   |
 |-----------|--------|--------|---------------|
@@ -867,7 +867,7 @@ Banne une IP directement depuis le MCP (insère dans `security_bans`, pousse aux
 
 ### `unban_ip`
 
-Lève le ban d'une IP (supprime de `security_bans`) et tous ses bans sur chaque passerelle, y compris ceux posés localement (Fail2Ban, Ephor, règles) même si l'Admin ne les connaît pas — voir [Déban](security.md#déban). La correspondance est exacte : un ban Fail2Ban IPv6 porte sur un /64, il se lève en passant le préfixe tel que le renvoie `list_security_bans` (`2a01:e0a:1:2::/64`), pas une adresse qu'il contient.
+Lève le ban d'une IP (supprime de `security_bans`) et tous ses bans sur chaque passerelle, y compris ceux posés localement (Ephor, plugins, règles) même si l'Admin ne les connaît pas — voir [Déban](security.md#déban). La correspondance est exacte : un ban posé sur une plage se lève en passant la plage telle que la renvoie `list_security_bans` (`2a01:e0a:1:2::/64`), pas une adresse qu'elle contient.
 
 | Paramètre | Type   | Requis | Description         |
 |-----------|--------|--------|---------------------|
@@ -1111,6 +1111,26 @@ Trié par `last_seen_at` décroissant. Chaque résultat inclut `edge_name` (Pass
 
 ---
 
+### `get_entry_rejections`
+
+*(Admin `0.228.0`, Edge `0.135.0`)* Ce que l'entrée de chaque passerelle a refusé depuis son démarrage ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 1.c) : poignées de main TLS ratées (accès par l'IP, nom sans certificat, pas du TLS), connexions coupées avant le ClientHello, requêtes HTTP sur un hôte sans route. Par passerelle : totaux par raison (`unknown_sni`, `no_sni`, `ip_literal`, `not_tls`, `bad_clienthello`, `timeout`, `too_many_pending`, `handshake_failed`, `unknown_host`), premiers noms demandés avec le nombre d'IP distinctes qui les demandent (un nom demandé par beaucoup d'IP est plutôt un proxy oublié qu'un scanner), premières IP, premières empreintes JA4 et `probes` (IP aux accès à cadence régulière : des sondes probables, à exempter par `unknown_host.probes`). Les classements sont approchés, tenus en mémoire et repartent de zéro au redémarrage de la passerelle. Ne modifie rien et ne bannit rien.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `edge` | string | | ID du jeton ou nom de la passerelle (défaut : toutes) |
+
+---
+
+### `get_traffic_reference`
+
+*(Admin `0.233.0`, Edge `0.140.0`)* La référence saisonnière du trafic de chaque passerelle ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 3.a) : pour chaque route et pour l'entrée, le débit réel de la dernière minute, le débit attendu à cette heure de cette journée et sa borne haute, les IP distinctes, si le créneau est assez observé (`warm`) et le niveau d'alerte (`none`, `warning`, `probable`), avec les alertes en cours et les derniers changements d'état. Ne modifie rien. Voir [Référence saisonnière du trafic](security.md#référence-saisonnière-du-trafic).
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `edge` | string | | ID du jeton ou nom de la passerelle (défaut : toutes) |
+
+---
+
 ### `get_app_inventory`
 
 *(Admin `0.208.0`)* Applications que chaque passerelle reconnaît derrière ses proxies ([ADR 0017](adr/0017-inventaire-des-applications-et-cve.md)) : produit, version, identifiant CPE et ce qui les a fait reconnaître : l'image du conteneur (annoncée par l'Agent, proxies créés par labels) ou les réponses du backend lues avant `hide_server` (en-têtes `Server`, `X-Powered-By`, `X-Generator`, `<meta name="generator">`, tous les proxies). C'est ce que le scanner de vulnérabilités cherche dans NVD : un produit sans version (étiquette `latest`) est sondé sur le backend, un produit sans CPE sûr est listé sans être cherché. Même source que `GET /api/v1/security/inventory`, rapport de couverture (`coverage` : ce qui n'est pas cherché dans NVD et pourquoi) compris. Scope `audit:read` (rôle admin), lecture seule.
@@ -1336,7 +1356,7 @@ Dry-run Ephor : rejoue les access logs récents contre une config candidate et l
 | Paramètre | Type    | Requis | Description |
 |-----------|---------|--------|-------------|
 | `config`  | object  | ✓      | Champs Ephor à surcharger sur la config actuelle (mêmes noms que `threat-config`, config du groupe HA si la passerelle en fait partie : `rate_limit`, `rate_window`, `rate_ban_threshold`, `error_threshold`, `error_window`, `custom_lists`, `whitelist`, `score_threshold`, `ip_score` (`enabled`, `ban_threshold`, `half_life`, `errors` : `enabled`, `weights`, `default_weight`, `routes`), `escalation` (`enabled`, `factor`, `window`, `max_duration`), `ban_duration`) |
-| `hours`   | number  | —      | Fenêtre rejouée (défaut `1`, max `24`) |
+| `hours`   | number  | —      | Fenêtre rejouée (défaut `1`, max `24` ; `168` avec la référence saisonnière) |
 | `domain`  | string  | —      | Limiter le rejeu à un domaine |
 | `edge`    | string  | —      | Passerelle dont la config actuelle sert de base (défaut : config globale) |
 
@@ -1345,6 +1365,7 @@ Réponse : `current` et `candidate` (`events`, `blocked`, `blocked_by_ban`, `leg
 - Le rejeu utilise le moteur Ephor réel sur l'horloge des logs, en mode `block` ; une IP bannie pendant le rejeu reste bloquée pour la durée du ban.
 - `legit_blocked` compte les requêtes bloquées qui avaient reçu un statut `< 400` : indicateur de faux positifs, pas une certitude.
 - **Non simulé** : listes par défaut (UA/path/IP téléchargées), `global_rps`, règles User-Agent (l'UA n'est pas conservé dans les logs Admin) et WAF (ni en-têtes ni corps conservés). Les IP pseudonymisées ou tronquées par l'anonymisation (RGPD) sont ignorées et comptées dans `skipped_unattributable_ip`.
+- *(Admin `0.236.0`)* Avec `seasonal.mode` en `detect` ou `block` dans la config, la fenêtre va jusqu'à `168` h et les rapports portent `seasonal` (par route : `warm`, `warnings`, `probables`, `alert_seconds`, et en `block` `hardened_requests` / `hardened_served`). Une route `warm: false` n'a pas assez d'historique dans la fenêtre pour être jugée. Voir [Référence saisonnière du trafic](security.md#référence-saisonnière-du-trafic).
 - Équivalent REST (bouton « Simuler » de la page Ephor) : `POST /api/v1/security/threat-config/simulate`, voir `docs/api_specs.md`. Équivalent CLI : `goproxify security threat simulate`.
 
 ---

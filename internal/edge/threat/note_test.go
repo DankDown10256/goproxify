@@ -227,8 +227,8 @@ func TestBehaviorOffFeedsNothing(t *testing.T) {
 
 func TestExternalDecisionsEnterTheNote(t *testing.T) {
 	e, now, st, _ := noteEngine(t, BehaviorConfig{})
-	e.NoteDecision("198.51.100.1", behavior.SignalFail2Ban, 5, now.Add(time.Hour))
-	if sig := st.Signals("198.51.100.1"); len(sig) != 1 || sig[0].Name != behavior.SignalFail2Ban {
+	e.NoteDecision("198.51.100.1", behavior.SignalCrowdSec, 5, now.Add(time.Hour))
+	if sig := st.Signals("198.51.100.1"); len(sig) != 1 || sig[0].Name != behavior.SignalCrowdSec {
 		t.Fatalf("%+v", sig)
 	}
 }

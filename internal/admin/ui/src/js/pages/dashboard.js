@@ -105,7 +105,7 @@ async function dashLoad() {
     certsExpired, certsSoon,
     audit: audit?.entries || [],
     global: summary?.global || {}, edgeMetrics, certs: promCerts,
-    pipeline: summary?.pipeline || [], f2b: summary?.f2b, crowdsec: summary?.crowdsec,
+    pipeline: summary?.pipeline || [], fleet: summary?.fleet, crowdsec: summary?.crowdsec,
     hosts: [...(hostMetrics?.proxies || [])].sort((a, b) => b.requests_per_second - a.requests_per_second),
     total, hasMetrics: !!(summary?.global || hostMetrics?.sampled_at),
     p95: p95s.length ? p95s.reduce((a, b) => a + b, 0) / p95s.length : null,
@@ -234,7 +234,7 @@ function dashCerts(d) {
 
 function dashBlocked(d) {
   const rows = d.pipeline.filter(p => p.blocked_total > 0).sort((a, b) => b.blocked_total - a.blocked_total).map(p => [esc(p.stage), p.blocked_total]);
-  if (d.f2b) rows.push(['Fail2Ban', d.f2b.bans_total]);
+  if (d.fleet) rows.push(['Seuils multi-passerelles', d.fleet.bans_total]);
   if (d.crowdsec) rows.push(['CrowdSec', d.crowdsec.decisions_new]);
   const shown = rows.filter(r => r[1] > 0);
   if (!shown.length) return `<div class="gp-d-empty">${t('dash.no_metrics')}</div>`;

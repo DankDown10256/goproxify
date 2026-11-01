@@ -21,7 +21,7 @@ tags:
   - name: tokens
     description: Tokens d'accès
   - name: security
-    description: Sécurité (fail2ban, CrowdSec, WAF)
+    description: Sécurité (Ephor, CrowdSec, WAF)
   - name: audit
     description: Journaux d'audit
   - name: settings
@@ -775,7 +775,7 @@ paths:
   /api/v1/security:
     get:
       tags: [security]
-      summary: Configuration sécurité (fail2ban, CrowdSec, WAF)
+      summary: Configuration sécurité (Ephor, CrowdSec, WAF)
       responses:
         "200":
           description: OK

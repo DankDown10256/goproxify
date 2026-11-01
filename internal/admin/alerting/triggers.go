@@ -13,7 +13,7 @@ const (
 	TriggerNodeOffline            TriggerType = "node_offline"
 	TriggerCertExpiringSoon       TriggerType = "cert_expiring_soon"
 	TriggerCVEDetected            TriggerType = "cve_detected"
-	TriggerFail2BanBan            TriggerType = "fail2ban_ban"
+	TriggerFleetBan               TriggerType = "fleet_ban"
 	TriggerCrowdSecCritical       TriggerType = "crowdsec_critical"
 	TriggerConfigChanged          TriggerType = "config_changed"
 	TriggerBackupFailed           TriggerType = "backup_failed"
@@ -31,23 +31,24 @@ const (
 	TriggerSIEMExportLag          TriggerType = "siem_export_lag"           // l'export vers un SIEM prend du retard sur des logs qui vont être purgés
 	TriggerSurfaceSuggestion      TriggerType = "surface_suggestion"        // un ajout est suggéré à la politique de surface d'un proxy (ADR 0016)
 	TriggerLogBufferRisk          TriggerType = "log_buffer_risk"           // des logs que l'Admin n'a pas rangés approchent de la borne où la passerelle les supprime (ADR 0018)
+	TriggerTrafficDeviation       TriggerType = "traffic_deviation"         // le trafic d'une route s'écarte de sa référence saisonnière (ADR 0020, étape 3)
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
 var AllTriggers = []TriggerType{
 	TriggerNodeOffline, TriggerCertExpiringSoon, TriggerCVEDetected,
-	TriggerFail2BanBan, TriggerCrowdSecCritical, TriggerConfigChanged,
+	TriggerFleetBan, TriggerCrowdSecCritical, TriggerConfigChanged,
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
 	TriggerEphorBan, TriggerBackendDown, TriggerCertDeployFailed, TriggerIPProfileRefreshFailed,
-	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag, TriggerSurfaceSuggestion, TriggerLogBufferRisk,
+	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag, TriggerSurfaceSuggestion, TriggerLogBufferRisk, TriggerTrafficDeviation,
 }
 
 // TriggerOutputs liste les clés de Detail que porte chaque déclencheur : un flux déclenché par
 // l'événement peut s'en servir comme variables ({{detail.ip}}).
 var TriggerOutputs = map[TriggerType][]string{
 	TriggerCertExpiringSoon:       {"days_left"},
-	TriggerFail2BanBan:            {"ip", "reason"},
+	TriggerFleetBan:               {"ip", "reason"},
 	TriggerCrowdSecCritical:       {"ip", "scenario", "origin", "type"},
 	TriggerBackupFailed:           {"title"},
 	TriggerHighErrorRate:          {"domain", "error_rate", "errors", "total", "window_sec"},
@@ -64,6 +65,7 @@ var TriggerOutputs = map[TriggerType][]string{
 	TriggerSIEMExportLag:          {"destination", "node_name", "lag_min", "at_risk", "error"},
 	TriggerLogBufferRisk:          {"node_name", "unacked_days", "max_days"},
 	TriggerSurfaceSuggestion:      {"proxy", "domain", "count", "suggestions", "low_confidence"},
+	TriggerTrafficDeviation:       {"route", "level", "rps", "expected", "natures", "hardened"},
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
@@ -71,7 +73,7 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerNodeOffline:            "Nœud passerelle/Agent hors ligne",
 	TriggerCertExpiringSoon:       "Certificat expirant prochainement",
 	TriggerCVEDetected:            "CVE détectée sur un backend",
-	TriggerFail2BanBan:            "Nouveau ban Fail2Ban",
+	TriggerFleetBan:               "Nouveau ban des Seuils multi-passerelles",
 	TriggerCrowdSecCritical:       "Décision CrowdSec critique",
 	TriggerConfigChanged:          "Modification de configuration sensible",
 	TriggerBackupFailed:           "Échec de sauvegarde planifiée",
@@ -89,6 +91,7 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerSIEMExportLag:          "Export SIEM en retard",
 	TriggerLogBufferRisk:          "Logs d'une passerelle non rangés par l'Admin, près d'être supprimés",
 	TriggerSurfaceSuggestion:      "Ajout suggéré à la politique de surface d'un proxy",
+	TriggerTrafficDeviation:       "Trafic d'une route hors de sa référence saisonnière",
 }
 
 // Severity classe la sévérité d'une alerte.

@@ -458,15 +458,15 @@ var tools = []map[string]any{
 	},
 	{
 		"name":        "list_security_engine_types",
-		"description": "Moteurs de sécurité globaux (Ephor, Fail2Ban, CrowdSec, WAF — interrupteur maître du WAF par passerelle) avec leurs champs de configuration (chemins imbriqués comme ip_score.ban_threshold, secrets).",
+		"description": "Moteurs de sécurité globaux (Ephor, Seuils multi-passerelles, CrowdSec, WAF — interrupteur maître du WAF par passerelle) avec leurs champs de configuration (chemins imbriqués comme ip_score.ban_threshold, secrets).",
 		"inputSchema": schema(),
 	},
 	{
 		"name":        "list_security_bans",
-		"description": "Liste les bans IP (Fail2Ban, CrowdSec, Ephor, plugins de détection comme Coraza, natif).",
+		"description": "Liste les bans IP (Seuils multi-passerelles, CrowdSec, Ephor, plugins de détection comme Coraza, natif).",
 		"inputSchema": schema(
 			opt("ip", "string", "Filtrer par IP (sous-chaîne)"),
-			opt("source", "string", "Filtrer par source: native, fail2ban, crowdsec, threat, plugin:<nom> (ex. plugin:coraza)"),
+			opt("source", "string", "Filtrer par source: native, fleet, crowdsec, threat, plugin:<nom> (ex. plugin:coraza)"),
 			opt("active_only", "boolean", "Si true, uniquement les bans non expirés"),
 			opt("edge", "string", "Passerelle (nom du nœud ou id du token) : ses bans et les bans globaux"),
 		),
@@ -876,6 +876,10 @@ func (h *Handler) handleToolsCall(req rpcRequest, r *http.Request) rpcResponse {
 		result, toolErr = h.toolGetProxySurface(r, p.Arguments)
 	case "get_app_inventory":
 		result, toolErr = h.toolGetAppInventory(r, p.Arguments)
+	case "get_entry_rejections":
+		result, toolErr = h.toolGetEntryRejections(r, p.Arguments)
+	case "get_traffic_reference":
+		result, toolErr = h.toolGetTrafficReference(r, p.Arguments)
 	case "get_proxy_surface_suggestions":
 		result, toolErr = h.toolGetProxySurfaceSuggestions(r, p.Arguments)
 	case "accept_proxy_surface_suggestions":
@@ -1920,7 +1924,7 @@ func (h *Handler) toolDeleteSecurityBan(r *http.Request, id string) (any, error)
 }
 
 // notifyUnban trace le déban dans l'historique (rejoué aux passerelles qui l'auraient manqué, et
-// point de départ du comptage Fail2Ban) puis le propage aux passerelles.
+// point de départ du comptage des Seuils multi-passerelles) puis le propage aux passerelles.
 func (h *Handler) notifyUnban(r *http.Request, ip, reason, source, banID string) {
 	if ip == "" {
 		if h.OnBansChange != nil {

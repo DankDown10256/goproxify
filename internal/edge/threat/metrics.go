@@ -37,6 +37,34 @@ var (
 		Help:      "Bans que la note commune d'Ephor aurait posés si ses signaux en detect étaient en block (ou en mode detect).",
 	})
 
+	threatChallengeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "challenge_total",
+		Help:      "Défis à preuve de travail imposés par Ephor avant le ban (result: served = page servie, shadow = mode detect, solved | failed = solution reçue).",
+	}, []string{"result"})
+
+	threatDecoyTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "decoy_total",
+		Help:      "Accès à un chemin-leurre (result: hit = versé à la note, shadow = mode detect, skipped = chemin que le trafic légitime du proxy utilise).",
+	}, []string{"result"})
+
+	threatThresholdTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "threshold_total",
+		Help:      "Dépassements d'un Seuil (result: hit = action appliquée, shadow = mode detect).",
+	}, []string{"result"})
+
+	threatUnknownHostTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "threat",
+		Name:      "unknown_host_total",
+		Help:      "Accès à un hôte inconnu vus par Ephor (result: counted = versé à la note, shadow = mode detect, exempt = sonde déclarée, liste blanche, réseau privé ou Cloudflare, regular = cadence régulière : sonde probable).",
+	}, []string{"result"})
+
 	threatGlobalRateLimitTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "gpx",
 		Subsystem: "threat",
@@ -72,3 +100,23 @@ func (e *Engine) inc(v *prometheus.CounterVec, label string) {
 		v.WithLabelValues(label).Inc()
 	}
 }
+
+var threatSeasonalTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gpx",
+	Subsystem: "threat",
+	Name:      "seasonal_total",
+	Help:      "Changements d'état des alertes de trafic de la référence saisonnière (kind: start | escalate | end ; level: warning | probable).",
+}, []string{"kind", "level"})
+
+func (e *Engine) inc2(v *prometheus.CounterVec, a, b string) {
+	if !e.sim {
+		v.WithLabelValues(a, b).Inc()
+	}
+}
+
+var threatSeasonalHardenTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gpx",
+	Subsystem: "threat",
+	Name:      "seasonal_harden_total",
+	Help:      "Requêtes traitées par le profil durci d'une route en attaque probable (result: challenged = défi servi, shed = plafond atteint).",
+}, []string{"result"})

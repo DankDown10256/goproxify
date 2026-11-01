@@ -310,6 +310,7 @@ async function renderPrismPage() {
     ['paths', t('pz.tab_paths'), 'px-paths'], ['ips', 'IP', 'px-ips'], ['sources', t('pz.tab_sources'), 'px-sources'],
     ['countries', t('pz.tab_countries'), 'px-countries'],
     ['tls', t('pz.tab_tls'), 'px-tls'],
+    ['direct', t('pz.tab_direct'), 'px-direct'],
   ];
 
   let activeTab = 'paths';
@@ -391,6 +392,10 @@ async function renderPrismPage() {
     apiP('GET', '/prism/tls-fingerprints?' + q + '&limit=30', signal)
       .then(d => upd('px-tls', tlsHtml(d)))
       .catch(guard(() => upd('px-tls', tlsHtml([]))));
+
+    apiP('GET', '/security/rejections', signal)
+      .then(d => upd('px-direct', directHtml(d)))
+      .catch(guard(() => upd('px-direct', directHtml(null))));
 
     apiP('GET', '/prism/geo?' + q, signal)
       .then(d => {
@@ -998,6 +1003,46 @@ async function renderPrismPage() {
           </tr>`;
         }).join('')}</tbody>
       </table>`;
+  }
+
+  // Trafic direct : ce que l'entrée des passerelles a refusé depuis leur démarrage (ADR 0020, étape 1.c) — accès par l'IP, noms sans
+  // certificat, hôtes sans route. Sans période : ce sont les compteurs en mémoire de chaque passerelle. Un nom demandé par beaucoup d'IP
+  // distinctes est plutôt un proxy oublié qu'un scanner.
+  function directHtml(d) {
+    const head = `<div class="prism-panel-title">${esc(t('pz.tab_direct'))}</div><p class="prism-muted" style="margin:0 0 8px">${esc(t('pz.direct_hint'))}</p>`;
+    const note = k => head + `<p style="color:var(--text3);font-size:13px">${esc(t(k))}</p>`;
+    // apiP rend [] quand l'appel échoue (aucune passerelle ne répond, route absente) : ce n'est pas « rien refusé ».
+    if (!d || !Array.isArray(d.gateways)) return note('pz.direct_error');
+    const gws = d.gateways.filter(g => Object.keys(g.rejections?.reasons || {}).length);
+    if (!gws.length) return note('pz.direct_none');
+    const label = k => { const key = 'pz.rej_' + k; const v = t(key); return v === key ? k : v; };
+    const th = cols => `<thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>`;
+    const mono = v => `<td style="font-family:monospace;font-size:11px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(v)}">${esc(v)}</td>`;
+    const table = (cols, rows) => `<table class="prism-table">${th(cols)}<tbody>${rows.join('')}</tbody></table>`;
+    const req = t('prism.req_short');
+    return head + gws.map(g => {
+      const r = g.rejections;
+      const reasons = Object.entries(r.reasons).sort((a, b) => b[1] - a[1]);
+      const since = r.since ? new Date(r.since).toLocaleString() : '';
+      return `
+        <div class="prism-panel-title" style="margin-top:14px">${esc(g.node_name || g.node_id)} <span class="prism-muted" style="font-weight:400">${esc(t('pz.direct_since'))} ${esc(since)}</span></div>
+        <div class="prism-two">
+          <div>${table([t('pz.direct_reasons'), req], reasons.map(([k, n]) =>
+            `<tr><td><span style="font-family:monospace;font-size:11px">${esc(k)}</span> <span class="prism-muted">${esc(label(k))}</span></td><td>${fmtNum(n)}</td></tr>`))}</div>
+          <div>${table([t('pz.direct_names'), req, t('pz.direct_name_ips')], (r.names || []).map(n =>
+            `<tr>${mono(n.name)}<td>${fmtNum(n.count)}</td><td>${fmtNum(n.sources)}${n.sources_capped ? '+' : ''}</td></tr>`))}</div>
+        </div>
+        <div class="prism-two" style="margin-top:10px">
+          <div>${table([t('pz.direct_ips'), req, t('pz.direct_last')], (r.sources || []).map(s =>
+            `<tr>${mono(s.ip)}<td>${fmtNum(s.count)}</td><td><span class="prism-muted">${esc(label(s.last_reason))}</span></td></tr>`))}</div>
+          <div>${table([t('pz.direct_ja4'), req], (r.ja4 || []).map(j =>
+            `<tr>${mono(j.ja4)}<td>${fmtNum(j.count)}</td></tr>`))}</div>
+        </div>${(r.probes || []).length ? `
+        <div class="prism-panel-title" style="margin-top:10px">${esc(t('pz.direct_probes'))}</div>
+        <p class="prism-muted" style="margin:0 0 6px">${esc(t('pz.direct_probes_hint'))}</p>
+        ${table(['IP', t('pz.direct_probe_hits'), t('pz.direct_probe_gap')], r.probes.map(p =>
+          `<tr>${mono(p.ip)}<td>${fmtNum(p.hits)}</td><td>${fmtNum(p.interval_seconds)}</td></tr>`))}` : ''}`;
+    }).join('');
   }
 
   function sourcesHtml(agents, refs) {

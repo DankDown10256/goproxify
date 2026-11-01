@@ -50,6 +50,10 @@ type botChallenge struct {
 	siteKey     string
 	providerKey string
 	exempt      []string
+	// cookie et verifyPath distinguent le défi de la passerelle (GatewayChallenge) de celui d'une route : deux défis aux
+	// secrets différents ne doivent ni se disputer un cookie ni se partager une URL de vérification.
+	cookie     string
+	verifyPath string
 }
 
 func newBotChallenge(cfg *router.BotConfig, secret string) *botChallenge {
@@ -61,6 +65,8 @@ func newBotChallenge(cfg *router.BotConfig, secret string) *botChallenge {
 		siteKey:     cfg.ChallengeSiteKey,
 		providerKey: cfg.ChallengeProviderSecret,
 		exempt:      cfg.ChallengeExemptPaths,
+		cookie:      botCookie,
+		verifyPath:  botChallengePath,
 	}
 	if c.provider == "" {
 		c.provider = "pow"
@@ -105,7 +111,7 @@ func (c *botChallenge) passToken(r *http.Request) string {
 }
 
 func (c *botChallenge) hasProof(r *http.Request) bool {
-	ck, err := r.Cookie(botCookie)
+	ck, err := r.Cookie(c.cookie)
 	if err != nil {
 		return false
 	}
@@ -208,12 +214,12 @@ func (c *botChallenge) handleVerify(w http.ResponseWriter, r *http.Request) {
 		ok = c.verifyCaptcha(r, body.Token)
 	}
 	if !ok {
-		metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "bot", "challenge_failed").Inc()
+		metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "bot", "challenge_failed").Inc()
 		http.Error(w, "403 Forbidden", http.StatusForbidden)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     botCookie,
+		Name:     c.cookie,
 		Value:    c.passToken(r),
 		Path:     "/",
 		MaxAge:   int(c.passTTL.Seconds()),
@@ -234,7 +240,7 @@ func (c *botChallenge) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect, _ := json.Marshal(SafeLocalRedirect(r.URL.RequestURI()))
-	verify, _ := json.Marshal(botChallengePath)
+	verify, _ := json.Marshal(c.verifyPath)
 
 	var widget, script string
 	switch c.provider {

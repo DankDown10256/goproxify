@@ -46,10 +46,10 @@ func TestSubscribeReceivesEveryEvent(t *testing.T) {
 	t.Cleanup(e.Stop)
 	got := make(chan Event, 2)
 	e.Subscribe(func(ev Event) { got <- ev })
-	e.Emit(Event{Trigger: TriggerFail2BanBan, Detail: map[string]any{"ip": "1.2.3.4"}})
+	e.Emit(Event{Trigger: TriggerFleetBan, Detail: map[string]any{"ip": "1.2.3.4"}})
 	select {
 	case ev := <-got:
-		if ev.Trigger != TriggerFail2BanBan || ev.Detail["ip"] != "1.2.3.4" {
+		if ev.Trigger != TriggerFleetBan || ev.Detail["ip"] != "1.2.3.4" {
 			t.Fatalf("événement reçu : %+v", ev)
 		}
 	case <-time.After(2 * time.Second):

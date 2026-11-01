@@ -100,9 +100,9 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 				if allowed && cfg.Shared {
 					rateShares.admitted(shareKey, time.Now())
 				}
-				metrics.RateLimit.TokensCurrent.WithLabelValues(r.Host, key).Set(tokens)
+				metrics.RateLimit.TokensCurrent.WithLabelValues(metrics.HostOf(r), key).Set(tokens)
 				if !allowed {
-					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ratelimit", "rate_exceeded").Inc()
+					metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "ratelimit", "rate_exceeded").Inc()
 					w.Header().Set("Retry-After", "1")
 					w.Header().Set("X-RateLimit-Limit", formatRPS(cfg.RequestsPerSecond))
 					http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
@@ -114,7 +114,7 @@ func RateLimit(cfg *router.RateLimitConfig) func(http.Handler) http.Handler {
 				w.Header().Set("X-Quota-Limit", strconv.Itoa(cfg.Quota))
 				w.Header().Set("X-Quota-Remaining", strconv.Itoa(remaining))
 				if !ok {
-					metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ratelimit", "quota_exceeded").Inc()
+					metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "ratelimit", "quota_exceeded").Inc()
 					w.Header().Set("Retry-After", strconv.Itoa(max(int(retry.Seconds()), 1)))
 					http.Error(w, "429 Quota Exceeded", http.StatusTooManyRequests)
 					return

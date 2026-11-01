@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
+	"github.com/vincamok/goproxify/internal/edge/bantarget"
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -29,7 +29,7 @@ type pluginHits struct {
 }
 
 // pluginGuard compte, par plugin et par cible de ban, les requêtes qu'un plugin de détection a refusées dans une
-// fenêtre glissante. L'état est en mémoire : un redémarrage repart de zéro, comme les compteurs Fail2Ban.
+// fenêtre glissante. L'état est en mémoire : un redémarrage repart de zéro, comme les compteurs d'Ephor.
 type pluginGuard struct {
 	mu   sync.Mutex
 	hits map[string]*pluginHits
@@ -93,7 +93,7 @@ func configInt(cfg map[string]any, key string, def int) int {
 // par IP : au-delà de ban_after refus en ban_window_sec secondes, l'IP est bannie ban_duration_sec secondes.
 func (s *Server) pluginDenied(r *http.Request, a activePlugin) {
 	name := a.p.Manifest.Name
-	metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "plugin", name).Inc()
+	metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "plugin", name).Inc()
 	if !a.p.Manifest.Detector {
 		return
 	}
@@ -108,10 +108,10 @@ func (s *Server) pluginDenied(r *http.Request, a activePlugin) {
 		return
 	}
 	var whitelist []string
-	if s.f2bEngine != nil {
-		whitelist = s.f2bEngine.GetConfig().Whitelist
+	if s.threatEngine != nil {
+		whitelist = s.threatEngine.WhitelistIPs()
 	}
-	target, ok := edgef2b.BanTarget(ip, whitelist)
+	target, ok := bantarget.BanTarget(ip, whitelist)
 	if !ok {
 		return
 	}
@@ -131,7 +131,7 @@ func (s *Server) pluginDenied(r *http.Request, a activePlugin) {
 	s.banForPlugin(target, name, after, window, duration)
 }
 
-// banForPlugin pose le ban d'un plugin de détection. Comme pour Ephor et Fail2Ban, il est persisté
+// banForPlugin pose le ban d'un plugin de détection. Comme pour Ephor, il est persisté
 // localement et propagé aux pairs : il s'applique et survit à un redémarrage sans l'Admin, qui est seulement notifié.
 func (s *Server) banForPlugin(ip, plugin string, after int, window, duration time.Duration) {
 	source := edgews.PluginBanSourcePrefix + plugin

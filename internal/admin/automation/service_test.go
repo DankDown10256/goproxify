@@ -323,11 +323,11 @@ func TestGuardsCooldownKeySilenceConcurrency(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	f := e.create(&Flow{Name: "par ip", Enabled: true,
-		Trigger: Trigger{Kind: TriggerEvent, Event: &EventTrigger{Event: "fail2ban_ban"}},
+		Trigger: Trigger{Kind: TriggerEvent, Event: &EventTrigger{Event: "fleet_ban"}},
 		Guard:   Guard{CooldownSec: 600, CooldownKey: "{{detail.ip}}", MaxConcurrent: 5},
 		Steps:   []Step{act("a", "{{detail.ip}}")}})
 	for _, ip := range []string{"1.1.1.1", "1.1.1.1", "2.2.2.2"} {
-		e.s.handleEvent(alerting.Event{Trigger: alerting.TriggerFail2BanBan, Detail: map[string]any{"ip": ip}})
+		e.s.handleEvent(alerting.Event{Trigger: alerting.TriggerFleetBan, Detail: map[string]any{"ip": ip}})
 	}
 	e.s.inflight.Wait()
 	if got := resetRecorded(); len(got) != 2 {
@@ -337,7 +337,7 @@ func TestGuardsCooldownKeySilenceConcurrency(t *testing.T) {
 	if _, err := e.s.CreateSilence(ctx, Silence{Name: "maintenance", RuleIDs: []string{f.ID}, StartsAt: e.clock.now().Add(-time.Minute), EndsAt: e.clock.now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	e.s.handleEvent(alerting.Event{Trigger: alerting.TriggerFail2BanBan, Detail: map[string]any{"ip": "1.1.1.1"}})
+	e.s.handleEvent(alerting.Event{Trigger: alerting.TriggerFleetBan, Detail: map[string]any{"ip": "1.1.1.1"}})
 	e.s.inflight.Wait()
 	runs, _ := e.s.Runs(ctx, RunFilter{FlowID: f.ID, Status: []RunStatus{RunSilenced}})
 	if len(resetRecorded()) != 0 || len(runs) != 1 {

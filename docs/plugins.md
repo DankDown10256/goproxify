@@ -151,7 +151,7 @@ Un plugin qui déclare `"detector": true` est un moteur de règles (comme `coraz
 | `ban_window_sec` | fenêtre glissante de comptage | 300 |
 | `ban_duration_sec` | durée du ban | 3600 |
 
-Le ban porte la source `plugin:<nom>` et la raison `<nom>: trop de refus` ; il apparaît dans « Bans actifs par source » et « Raisons fréquentes ». Il vise la même cible que Fail2Ban (l'IP, ou le /64 d'une IPv6) et ne touche jamais les réseaux privés, Cloudflare, la liste blanche des bans ni celle de Fail2Ban. Il est posé et persisté par la passerelle, propagé à ses pairs HA, et ne dépend pas de l'Admin pour s'appliquer ni pour survivre à un redémarrage ; le compteur de refus, lui, est en mémoire.
+Le ban porte la source `plugin:<nom>` et la raison `<nom>: trop de refus` ; il apparaît dans « Bans actifs par source » et « Raisons fréquentes ». Il vise la même cible que les bans d'Ephor (l'adresse exacte) et ne touche jamais les réseaux privés, Cloudflare, la liste blanche des bans ni celle d'Ephor. Il est posé et persisté par la passerelle, propagé à ses pairs HA, et ne dépend pas de l'Admin pour s'appliquer ni pour survivre à un redémarrage ; le compteur de refus, lui, est en mémoire.
 
 Tout refus de plugin au hook de requête, détecteur ou non, est compté dans `gpx_pipeline_blocked_total{stage="plugin", reason="<plugin>"}`. Un plugin qui refuse un accès légitime (clé d'API absente, `token-check`) ne doit pas se déclarer détecteur : ses refus banniraient sinon des clients normaux.
 

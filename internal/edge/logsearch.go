@@ -62,6 +62,7 @@ func (s *Server) eraseIP(ip string) (lines, bans int64, err error) {
 	if s.threatEngine != nil {
 		s.threatEngine.ForgetIP(ip)
 	}
+	s.rejects.Forget(ip)
 	if s.logStore != nil {
 		if lines, err = s.logStore.EraseIP(ip); err != nil {
 			return lines, 0, err

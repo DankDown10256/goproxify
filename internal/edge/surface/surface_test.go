@@ -345,3 +345,24 @@ func TestConcurrentUse(t *testing.T) {
 	close(done)
 	wg.Wait()
 }
+
+func TestKnowsWhatTheLegitTrafficUses(t *testing.T) {
+	c, _ := newTest()
+	for _, p := range []string{"/api/users/12", "/api/users/345", "/.well-known/security.txt"} {
+		c.Observe(obs("r1", "app.test", req("GET", p), "10.0.0.1", 200, "application/json", true))
+	}
+	for path, want := range map[string]bool{
+		"/api/users/99":             true, // même gabarit que /api/users/{int}
+		"/.well-known/security.txt": true,
+		"/api/users":                false, // nœud intermédiaire jamais servi
+		"/.git/config":              false,
+		"/":                         false,
+	} {
+		if got := c.Knows("r1", path); got != want {
+			t.Errorf("Knows(%q) = %v, attendu %v", path, got, want)
+		}
+	}
+	if c.Knows("autre-route", "/api/users/1") {
+		t.Error("une route sans profil ne connaît aucun chemin")
+	}
+}

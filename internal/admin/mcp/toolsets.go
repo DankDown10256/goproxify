@@ -22,7 +22,7 @@ var toolsetNames = []string{
 // toolsetOf rattache un outil à son groupe ; "" si l'outil n'a pas de scope.
 func toolsetOf(tool string) string {
 	switch tool {
-	case "get_proxy_surface", "get_app_inventory", "get_proxy_surface_suggestions", "accept_proxy_surface_suggestions", "enforce_proxy_surface", "relax_proxy_surface", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "reset_proxy_surface", "simulate_ephor_config", "get_ephor_references", "suggest_ephor_thresholds", "trace_ip", "preview_security_ban", "preview_asn_ban":
+	case "get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_proxy_surface_suggestions", "accept_proxy_surface_suggestions", "enforce_proxy_surface", "relax_proxy_surface", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "reset_proxy_surface", "simulate_ephor_config", "get_ephor_references", "suggest_ephor_thresholds", "trace_ip", "preview_security_ban", "preview_asn_ban":
 		return "security"
 	case "get_audit_log":
 		return "admin"

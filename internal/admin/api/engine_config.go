@@ -12,7 +12,7 @@ import (
 )
 
 // decodeEngineConfig lit le corps d'une requête de configuration d'un moteur de sécurité (Ephor,
-// Fail2Ban, CrowdSec), le valide avec son manifeste (clés connues, valeurs cohérentes) et le décode dans
+// Seuils multi-passerelles, CrowdSec), le valide avec son manifeste (clés connues, valeurs cohérentes) et le décode dans
 // into. prev, la configuration enregistrée, fournit les secrets qu'un envoi omet ou renvoie masqués.
 // En cas d'échec la réponse (400) est écrite et le résultat est false.
 func decodeEngineConfig(w http.ResponseWriter, r *http.Request, typ string, into any, prev ...json.RawMessage) bool {
@@ -39,7 +39,7 @@ func decodeEngineConfig(w http.ResponseWriter, r *http.Request, typ string, into
 	return true
 }
 
-// EngineTypesHandler GET /api/v1/security/engine-types : manifestes d'Ephor, Fail2Ban et CrowdSec.
+// EngineTypesHandler GET /api/v1/security/engine-types : manifestes d'Ephor, des Seuils multi-passerelles et de CrowdSec.
 type EngineTypesHandler struct{}
 
 func (EngineTypesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

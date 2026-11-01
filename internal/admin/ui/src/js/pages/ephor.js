@@ -9,13 +9,18 @@ const SENT_SECTIONS = [
   { id: 'general',    label: 'Général' },
   { id: 'detection',  label: 'Détection' },
   { id: 'behavior',   label: 'Comportement' },
+  { id: 'challenge',  label: 'Défi' },
+  { id: 'thresholds', label: 'Seuils' },
+  { id: 'decoys',     label: 'Leurres' },
+  { id: 'unknownhost', label: 'Hôte inconnu' },
+  { id: 'seasonal',   label: 'Référence saisonnière' },
   { id: 'ddos',       label: 'Anti-DDoS' },
   { id: 'riposte',    label: 'Riposte' },
   { id: 'lists',      label: 'Listes' },
   { id: 'exceptions', label: 'Exceptions' },
 ];
 
-const _sent = { mode: 'admin', edgeCtx: null, cfg: {}, active: [], history: [], tab: 'overview', refs: null, sugg: null };
+const _sent = { mode: 'admin', edgeCtx: null, cfg: {}, active: [], history: [], tab: 'overview', refs: null, sugg: null, traffic: null };
 
 // Signaux de comportement de la note commune (ADR 0011) : points, et ce qu'ils regardent. Tout signal naît en detect.
 const SENT_BEHAVIOR = [
@@ -33,7 +38,6 @@ const SENT_BEHAVIOR = [
   { key: 'scan_breadth', points: '3', what: 'chemins distincts en erreur, rapportés au volume' },
   { key: 'asn_aggregate', points: '4', what: 'plusieurs IP du même opérateur (ASN) qui échouent' },
   { key: 'rate_deviation', points: '3', what: 'débit de l\'IP au-dessus du normal appris pour la route et l\'heure' },
-  { key: 'fail2ban', points: '5', what: 'décision de Fail2Ban prise en entrée' },
   { key: 'crowdsec', points: '5', what: 'décision de CrowdSec prise en entrée' },
   { key: 'surface_violation', points: '3', what: 'requête hors de la politique de surface du proxy, refusée par le backend' },
 ];
@@ -58,6 +62,12 @@ function sentDetections(cfg) {
     { key: 'custom_ua', label: 'User-Agent personnalisé', section: 'lists', on: nCustom('uas') > 0, score: 3, effect: 'ban', detail: plural(nCustom('uas')) },
     { key: 'path', label: 'Path suspect', section: 'lists', on: !!lists.path_enabled, score: 2, effect: 'ban', detail: 'Chemins sensibles (.env, wp-admin…)', wl: (wl.paths || []).length },
     { key: 'custom_path', label: 'Path personnalisé', section: 'lists', on: nCustom('paths') > 0, score: 2, effect: 'ban', detail: plural(nCustom('paths')) },
+    { key: 'threshold', label: 'Seuil dépassé', section: 'thresholds', on: (cfg.thresholds?.mode === 'block') || (cfg.thresholds?.rules || []).some(r => r.mode === 'block'), effect: 'ban',
+      detail: `${(cfg.thresholds?.rules || []).length} Seuil(s) personnalisé(s) — fournis : ${cfg.thresholds?.mode || 'off'}` },
+    { key: 'decoy', label: 'Leurre touché', section: 'decoys', on: cfg.decoys?.mode === 'block', score: 8, effect: 'ban',
+      detail: `Chemins que l'application n'utilise jamais — ${cfg.decoys?.mode === 'detect' ? 'detect (compté seulement)' : cfg.decoys?.mode === 'block' ? 'block' : 'off'}` },
+    { key: 'unknown_host', label: 'Hôte inconnu', section: 'unknownhost', on: cfg.unknown_host?.mode === 'block', score: cfg.unknown_host?.points || 1, effect: 'ban après plusieurs',
+      detail: `Accès par l'IP ou à un nom sans route — ${cfg.unknown_host?.mode === 'detect' ? 'detect (compté seulement)' : cfg.unknown_host?.mode === 'block' ? 'block' : 'off'}` },
     { key: 'rate', label: 'Débit par IP', section: 'detection', on: (cfg.rate_limit || 0) > 0, score: 4, effect: rateBanN > 1 ? `ban après ${rateBanN}` : 'ban',
       detail: `${cfg.rate_limit || 0} req/s sur ${cfg.rate_window || '1s'}` },
     { key: 'error4xx', label: 'Erreurs 4xx répétées', section: 'detection', on: (cfg.error_threshold || 0) > 0, effect: 'ban',
@@ -225,6 +235,37 @@ function sentViewReferences() {
   return sentCard('Références apprises', `<p style="font-size:12px;color:var(--text2);margin:8px 0 0">Débit normal par IP, estimé par médiane et écart absolu médian sur les IP sans signal, borné dans sa dérive. Il ne contient aucune IP.</p>${body}`);
 }
 
+// Référence saisonnière du trafic (ADR 0020, étape 3) : le débit réel de chaque route contre ce qui est attendu à cette heure de cette journée.
+function sentViewTraffic() {
+  const d = _sent.traffic;
+  if (d === null) return sentCard('Références du trafic', '<div class="spinner" style="margin:12px 0"></div>');
+  const gws = (d && d.gateways) || [];
+  const lvl = { none: ['tag-green', 'normal'], warning: ['tag-yellow', 'avertissement'], probable: ['tag-red', 'attaque probable'] };
+  const fmt = n => (Math.round((n || 0) * 10) / 10).toLocaleString('fr-FR');
+  const blocks = gws.map(g => {
+    const tr = g.traffic || {};
+    const routes = tr.routes || [];
+    const rows = routes.map(r => {
+      const [cls, txt] = lvl[r.level] || lvl.none;
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px">${esc(r.route)}</td>
+        <td style="padding:6px;text-align:right">${fmt(r.rps)}</td>
+        <td style="padding:6px;text-align:right">${r.warm ? `${fmt(r.expected)} <span style="color:var(--text3)">(≤ ${fmt(r.upper)})</span>` : '—'}</td>
+        <td style="padding:6px;text-align:right">${fmt(r.ips)}</td>
+        <td style="padding:6px;text-align:right"><span class="tag ${r.warm ? cls : 'tag-yellow'}" title="${esc(r.warm ? '' : 'Créneau trop peu observé : la détection reste froide et ne compte jamais.')}">${r.warm ? txt : 'froid'}</span>${r.hardened ? ' <span class="tag tag-red" title="Défi et plafond pour les IP sans historique">durcie</span>' : ''}</td></tr>`;
+    }).join('');
+    const active = (tr.active || []).map(e => `<li style="font-size:12px"><b>${esc(e.route)}</b> · ${esc(e.level === 'probable' ? 'attaque probable' : 'avertissement')} · ${fmt(e.rps)} req/s pour ${fmt(e.expected)} attendus${(e.natures || []).length ? ' · ' + esc(e.natures.join(', ')) : ''}</li>`).join('');
+    return `<div style="margin-top:12px"><div style="font-size:12.5px"><b>${esc(g.node_name)}</b> · mode <code>${esc(tr.mode || 'off')}</code></div>
+      ${active ? `<ul style="margin:6px 0 0;padding-left:18px;color:var(--red)">${active}</ul>` : ''}
+      ${rows ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px"><thead><tr style="color:var(--text3)">
+        <th style="text-align:left;padding:6px">Route</th><th style="text-align:right;padding:6px" title="requêtes par seconde, dernière minute">Réel (req/s)</th><th style="text-align:right;padding:6px" title="moyenne apprise du créneau, et borne haute entre parenthèses">Attendu</th>
+        <th style="text-align:right;padding:6px" title="adresses distinctes, estimation">IP</th><th style="text-align:right;padding:6px">État</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:12px;color:var(--text2);margin:6px 0 0">${tr.mode === 'detect' ? 'Rien d\'appris encore : la référence naît avec le trafic.' : 'Désactivée : activez-la dans les réglages d\'Ephor (Référence saisonnière).'}</p>`}</div>`;
+  }).join('');
+  return sentCard('Références du trafic', `<p style="font-size:12px;color:var(--text2);margin:8px 0 0">Le trafic de chaque route, appris par créneau (jour de la semaine × heure, UTC). Un écart de volume seul est un avertissement ; avec un écart de nature (IP jamais vues, erreurs, un seul chemin), une attaque probable. En <code>detect</code> elle signale seulement ; en <code>block</code>, une attaque probable durcit la route.</p>${blocks || '<p style="font-size:12px;color:var(--text2);margin:6px 0 0">Aucune passerelle ne répond.</p>'}`,
+    `<button class="btn btn-ghost btn-sm" onclick="openEphorSettings('seasonal')">Régler</button>`);
+}
+
 async function sentLoadReferences() {
   if (_sent.loadingRefs) return;
   _sent.loadingRefs = true;
@@ -233,6 +274,9 @@ async function sentLoadReferences() {
   }
   if (_sent.sugg === null) {
     try { _sent.sugg = await api('GET', `/security/threat-config/suggestions${window._secEdgeQ || ''}`); } catch { _sent.sugg = false; }
+  }
+  if (_sent.traffic === null) {
+    try { _sent.traffic = await api('GET', `/security/traffic-reference${window._secEdgeQ || ''}`); } catch { _sent.traffic = false; }
   }
   _sent.loadingRefs = false;
   if (_sent.tab === 'detections') sentDrawTab();
@@ -298,7 +342,7 @@ function sentViewDetections() {
         <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Effet</th>
         <th style="text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)">Bans actifs</th>
         <th></th></tr></thead>
-      <tbody>${rows}${other}</tbody></table></div>`) + sentViewBehavior() + sentViewReferences() + sentViewSuggestions();
+      <tbody>${rows}${other}</tbody></table></div>`) + sentViewBehavior() + sentViewTraffic() + sentViewReferences() + sentViewSuggestions();
 }
 
 function sentChips(list, max = 8) {
@@ -371,7 +415,7 @@ function sentDrawerForm(cfg) {
       ${fld('Poids par code', '(un par ligne : 404=0.5 ; 0 ignore le code)', ta('threat-err-weights', 3, '404=0.5&#10;400=1&#10;403=0', Object.entries(cfg.ip_score?.errors?.weights || {}).map(([k, v]) => `${k}=${v}`)))}
       ${fld('Poids par route', '(un par ligne : /login=3 ; préfixe de chemin, 0 ignore la route)', ta('threat-err-routes', 3, '/login=3&#10;/api/=0.5', (cfg.ip_score?.errors?.routes || []).map(r => `${r.prefix}=${r.factor}`)))}`)}
     ${sec('behavior', 'Comportement — note commune', `
-      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Ephor verse chaque requête dans un magasin commun avec le WAF, Fail2Ban et CrowdSec, et en tire des signaux de comportement. Un signal naît en <b>detect</b> : calculé, expliqué dans le ban qu'il aurait provoqué, compté en « note fantôme », jamais décisif. Passez-le en <b>block</b> après avoir lu la simulation (faux positifs). Les signaux ne comptent que si le score cumulé est activé.</p>
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Ephor verse chaque requête dans un magasin commun avec le WAF et CrowdSec, et en tire des signaux de comportement. Un signal naît en <b>detect</b> : calculé, expliqué dans le ban qu'il aurait provoqué, compté en « note fantôme », jamais décisif. Passez-le en <b>block</b> après avoir lu la simulation (faux positifs). Les signaux ne comptent que si le score cumulé est activé.</p>
       ${fld('Mode par défaut', '(signaux non réglés ci-dessous ; off : plus rien n\'est versé au magasin)', `<select id="threat-bh-mode" class="input" style="height:32px">${['detect', 'block', 'off'].map(m => `<option value="${m}" ${(cfg.behavior?.mode || 'detect') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
       ${SENT_BEHAVIOR.map(sg => `<div style="display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:12.5px">
         <span style="flex:1;min-width:0"><b>${esc(banSignalLabel(sg.key))}</b>${SENT_NEW_SIGNALS.has(sg.key) ? ' <span class="tag tag-yellow" style="font-size:10px">nouveau</span>' : ''}<br><span style="color:var(--text3);font-size:11px">${esc(sg.what)} · ${sg.points} pts</span></span>
@@ -379,6 +423,37 @@ function sentDrawerForm(cfg) {
       ${chk('threat-bh-notrust', cfg.behavior?.no_trust, 'Couper le bonus de confiance (sinon : +1 au seuil de ban par centaine de requêtes propres et par jour d\'historique sans signal, jusqu\'à +8)')}
       ${fld('Familles TLS', '(une par ligne : famille=empreinte JA4 « b » à 12 caractères ; complète la table livrée, famille chromium)', ta('threat-bh-tls', 2, 'chromium=8daaf6152771', Object.entries(cfg.behavior?.tls_families || {}).flatMap(([f, hs]) => (hs || []).map(h => `${f}=${h}`))))}
       ${fld('Ancienneté minimale des références', '(défaut 24h : avant, le signal rate_deviation reste en detect)', `<input id="threat-bh-minage" class="input" value="${esc(cfg.behavior?.reference_min_age || '')}" placeholder="24h">`)}`)}
+    ${sec('challenge', 'Défi avant le ban', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Entre « laisser passer » et « bannir » : une IP dont la note monte reçoit un petit calcul à résoudre (preuve de travail) au lieu d'être refusée. Un humain ne le remarque presque pas, un robot qui fait des milliers de requêtes paie cher, et une IP partagée n'est pas bannie à tort. Seules les navigations (pages HTML) reçoivent le défi : API, images et POST restent sur la voie du ban. Nécessite le score cumulé. Commencez en <b>detect</b> : le défi qui aurait été imposé est compté, pas servi.</p>
+      ${fld('Mode', '', `<select id="threat-ch-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.challenge?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${fld('Seuil de note', '(défaut : la moitié du seuil de ban ; doit rester dessous)', `<input id="threat-ch-threshold" type="number" class="input" value="${cfg.challenge?.threshold || ''}" min="0" step="0.5" placeholder="moitié du seuil de ban">`)}
+      ${fld('Difficulté', '(bits à zéro, 1 à 24, défaut 16 ≈ 1 s ; chaque bit double le travail)', `<input id="threat-ch-difficulty" type="number" class="input" value="${cfg.challenge?.difficulty || ''}" min="0" max="24" placeholder="16">`)}
+      ${fld('Durée de la preuve', '(défaut 24h)', `<input id="threat-ch-ttl" class="input" value="${esc(cfg.challenge?.ttl || '')}" placeholder="24h">`)}
+      ${fld('Chemins jamais défiés', '(préfixes, un par ligne : APIs, webhooks ; /.well-known/ l\'est toujours)', ta('threat-ch-exempt', 2, '/api/&#10;/hooks/', cfg.challenge?.exempt_paths))}
+      ${fld('Secret de signature', '(à partager entre les membres d\'un groupe HA, sinon chacun re-défie ; vide : propre à la passerelle)', `<input id="threat-ch-secret" type="password" class="input" value="${esc(cfg.challenge?.secret || '')}" autocomplete="off">`)}`)}
+    ${sec('thresholds', 'Seuils', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Une règle explicite « N événements en T, action » sur les réponses de vos routes. Deux Seuils sont fournis : <b>auth-fail</b> (10 réponses 401/403 en 5 minutes sur un point d'entrée de connexion : <code>/login</code>, <code>/signin</code>, <code>/api/auth</code>, <code>/wp-login.php</code>…, hors refus du WAF) et <b>waf-repeat</b> (5 requêtes en 10 minutes qui déclenchent une règle du WAF). Les compteurs sont par IP (une IPv6 par /64), bornés et conservés au redémarrage. Les requêtes déjà refusées par Ephor, un ban ou un profil IP ne comptent pas. Commencez en <b>detect</b> : les dépassements sont comptés, sans effet.</p>
+      ${fld('Seuils fournis', '(auth-fail et waf-repeat)', `<select id="threat-th-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.thresholds?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${fld('Seuils personnalisés', '(JSON : liste de règles ; 50 au plus)', `<textarea id="threat-th-rules" class="input" rows="8" spellcheck="false" style="font-family:monospace;font-size:11.5px" placeholder='[{"name":"api-5xx","mode":"detect","status":["5xx"],"paths":["/api/"],"count":20,"window":"1m","action":"ban"}]'>${esc((cfg.thresholds?.rules || []).length ? JSON.stringify(cfg.thresholds.rules, null, 2) : '')}</textarea>`)}
+      <p style="font-size:11.5px;color:var(--text3);margin:4px 0 0">Champs : <code>name</code> (minuscules, chiffres, - et _), <code>mode</code> (off | detect | block, défaut detect), <code>status</code> (codes <code>401</code> ou classes <code>4xx</code>), <code>paths</code> (préfixes), <code>methods</code>, <code>hosts</code> (noms de route), <code>waf</code> (<code>hit</code> | <code>blocked</code>), <code>count</code>, <code>window</code> (1s à 24h), <code>action</code> (ban | score, ce dernier demande le score cumulé), <code>points</code> (action score).</p>`)}
+    ${sec('decoys', 'Leurres', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Des chemins que votre application n'utilise jamais (dépôt <code>.git</code> oublié, sauvegardes <code>.sql</code>, clés <code>.ssh</code>…). Quiconque les demande est presque sûrement un scanner : l'accès pèse lourd dans la note de l'IP (8 points). Un chemin que le trafic légitime d'un proxy utilise (profil de surface appris, location déclarée) ne compte jamais comme un piège. Commencez en <b>detect</b> : les accès sont comptés, sans effet.</p>
+      ${fld('Mode', '', `<select id="threat-decoy-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.decoys?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${chk('threat-decoy-nodefaults', cfg.decoys?.no_defaults, 'Sans le jeu par défaut (<code>/.git/</code>, <code>/.svn/</code>, <code>/.aws/</code>, <code>/.ssh/</code>, <code>/backup.sql</code>, <code>/dump.sql</code>, <code>/db.sql</code>…) : seuls mes chemins piègent')}
+      ${fld('Chemins en plus', '(un par ligne ; une barre finale = préfixe, sinon chemin exact ; casse ignorée)', ta('threat-decoy-paths', 3, '/admin-backup/&#10;/old-site.zip', cfg.decoys?.paths))}`)}
+    ${sec('unknownhost', 'Hôte inconnu', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Un accès par l'adresse IP, ou à un nom que la passerelle ne sert pas (poignée de main TLS refusée, requête sans route), verse des points <b>modérés</b> à la note de l'IP. Un accès isolé ne prouve rien (une page tierce peut envoyer vos visiteurs là) : plusieurs d'affilée mènent au ban, jamais le premier. Une IP aux accès à cadence régulière est une sonde probable : elle n'est plus notée et apparaît dans <b>Prism › Trafic direct</b> pour être exemptée. Nécessite le score cumulé. Commencez en <b>detect</b>.</p>
+      ${fld('Mode', '', `<select id="threat-uh-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.unknown_host?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${fld('Points par accès', '(défaut 1, max 5 ; reste sous le seuil de ban)', `<input id="threat-uh-points" type="number" class="input" value="${cfg.unknown_host?.points || ''}" min="0" max="5" step="0.5" placeholder="1">`)}
+      ${fld('Sondes connues', '(IP ou CIDR, une par ligne : supervision, répartiteur de charge ; jamais notées)', ta('threat-uh-probes', 3, '203.0.113.10&#10;198.51.100.0/24', cfg.unknown_host?.probes))}`)}
+    ${sec('seasonal', 'Référence saisonnière', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Apprend le trafic de chaque route par créneau (jour de la semaine × heure, UTC) : débit, IP distinctes, part d'erreurs, concentration sur un chemin. Un écart de <b>volume</b> donne un avertissement ; accompagné d'un écart de <b>nature</b> (IP jamais vues, erreurs, un seul chemin), une attaque probable. Un créneau trop jeune reste froid et ne compte jamais. <b>detect</b> : l'écart est journalisé, compté et notifié, sans autre effet. <b>block</b> : pendant une attaque probable, les IP sans historique propre résolvent le défi à preuve de travail (navigation) et partagent un plafond de débit ; les habitués et la liste blanche passent. Demande que le défi soit actif (detect ou block).</p>
+      ${fld('Mode', '', `<select id="threat-seas-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.seasonal?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${fld('Plancher', '(req/s sous lesquelles aucun écart ne compte ; défaut 20)', `<input id="threat-seas-floor" type="number" class="input" value="${cfg.seasonal?.floor_rps || ''}" min="0" step="1" placeholder="20">`)}
+      ${fld('Fenêtre rapide', '(multiple de la moyenne du créneau, dix secondes ; défaut 10)', `<input id="threat-seas-fast" type="number" class="input" value="${cfg.seasonal?.fast_factor || ''}" min="2" max="1000" step="1" placeholder="10">`)}
+      ${fld('Fenêtre lente', '(écarts-types au-dessus de la moyenne, une minute ; défaut 4)', `<input id="threat-seas-sigmas" type="number" class="input" value="${cfg.seasonal?.slow_sigmas || ''}" min="1" max="20" step="0.5" placeholder="4">`)}
+      ${fld('Historique minimal', '(heures qu\'un créneau doit avoir vues avant d\'être cru ; défaut 2)', `<input id="threat-seas-hours" type="number" class="input" value="${cfg.seasonal?.min_hours || ''}" min="0.1" max="168" step="0.5" placeholder="2">`)}
+      ${fld('Plafond en attaque', '(en block : multiple de la moyenne du créneau admis pour l\'ensemble des IP sans historique ; défaut 3)', `<input id="threat-seas-cap" type="number" class="input" value="${cfg.seasonal?.cap_factor || ''}" min="1" max="100" step="0.5" placeholder="3">`)}`)}
     ${sec('ddos', 'Anti-DDoS', `
       ${fld('Global req/s max', '(toutes IPs, 0 = désactivé)', `<input id="threat-global-rps" type="number" class="input" value="${cfg.global_rps || 0}" min="0" step="10" placeholder="0 = désactivé">`)}
       ${fld('Global burst', '(0 = 2× global req/s)', `<input id="threat-global-burst" type="number" class="input" value="${cfg.global_burst || 0}" min="0" step="10" placeholder="0 = 2×RPS">`)}`)}
@@ -421,11 +496,28 @@ function sentDrawerHTML(cfg) {
       </form>
       <div class="sent-drawer-foot">
         <select id="sent-sim-hours" class="input" style="height:32px;width:auto" title="Fenêtre de logs rejouée">
-          <option value="1">1 h</option><option value="6" selected>6 h</option><option value="24">24 h</option></select>
+          <option value="1">1 h</option><option value="6" selected>6 h</option><option value="24">24 h</option><option value="168">7 j</option></select>
         <button type="button" class="btn btn-ghost btn-sm" onclick="simulateEphor()">Simuler</button>
         <button type="submit" form="sent-form" class="btn btn-primary btn-sm" style="margin-left:auto">${t('common.save')}</button>
       </div>
     </div>`;
+}
+
+// Part « référence saisonnière » d'une simulation : ce que la config candidate aurait signalé (et durci) route par route.
+function sentSeasonalSummary(sim) {
+  const s = (sim.candidate || {}).seasonal;
+  if (!s) return '';
+  const rows = (s.routes || []).map(r => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:4px 0">${esc(r.route)}</td>
+    <td style="text-align:right">${r.warm ? '<span class="tag tag-green">jugée</span>' : '<span class="tag tag-yellow" title="Pas assez d\'historique dans la fenêtre pour juger cette route : élargissez-la.">froide</span>'}</td>
+    <td style="text-align:right">${r.warnings || 0}</td><td style="text-align:right">${r.probables || 0}</td>
+    <td style="text-align:right">${Math.round((r.alert_seconds || 0) / 60)} min</td>
+    ${s.mode === 'block' ? `<td style="text-align:right" title="requêtes d'IP sans historique pendant que la route aurait été durcie, dont celles qui avaient abouti">${r.hardened_requests || 0}${r.hardened_served ? ` <span style="color:var(--red)">(${r.hardened_served} abouties)</span>` : ''}</td>` : ''}</tr>`).join('');
+  return `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;margin-bottom:4px">Référence saisonnière (${esc(s.mode)})</div>
+    ${rows ? `<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--text3)"><th style="text-align:left;font-weight:400">Route</th><th style="text-align:right;font-weight:400">État</th>
+      <th style="text-align:right;font-weight:400">Avertissements</th><th style="text-align:right;font-weight:400">Probables</th><th style="text-align:right;font-weight:400">Durée</th>${s.mode === 'block' ? '<th style="text-align:right;font-weight:400">Durcie</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`
+      : '<div style="font-size:11px;color:var(--text3)">Aucun accès rejoué.</div>'}
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">Une route « froide » n'a pas assez d'historique dans la fenêtre : prenez 168 h. Un créneau a besoin de deux heures de trafic au même jour et à la même heure avant d'être cru.</div></div>`;
 }
 
 function sentDrawSummary(sim) {
@@ -443,6 +535,7 @@ function sentDrawSummary(sim) {
       ${row('IP bloquées', cur.blocked_ips || 0, cand.blocked_ips || 0, d.blocked_ips || 0)}
       ${row('Bans', (cur.bans || []).length, (cand.bans || []).length, d.bans || 0)}</tbody></table>
     ${tops ? `<div style="margin-top:8px;font-size:11px;color:var(--text2)">IP les plus touchées</div>${tops}` : ''}
+    ${sentSeasonalSummary(sim)}
     <div style="font-size:11px;color:var(--text3);margin-top:8px">Non simulé : listes par défaut, limite globale, règles WAF et agrégat par ASN. « Faux positifs » = requêtes bloquées qui avaient abouti.</div></div>`;
 }
 
@@ -527,6 +620,33 @@ function sentCollectConfig(enabled) {
       },
     },
     behavior: sentCollectBehavior(),
+    challenge: {
+      mode: $('threat-ch-mode')?.value || 'off',
+      threshold: num('threat-ch-threshold', '0', true),
+      difficulty: num('threat-ch-difficulty', '0'),
+      ttl: $('threat-ch-ttl')?.value || '',
+      exempt_paths: lines('threat-ch-exempt'),
+      secret: $('threat-ch-secret')?.value || '',
+    },
+    thresholds: sentCollectThresholds($),
+    unknown_host: {
+      mode: $('threat-uh-mode')?.value || 'off',
+      points: num('threat-uh-points', '0', true),
+      probes: lines('threat-uh-probes'),
+    },
+    seasonal: {
+      mode: $('threat-seas-mode')?.value || 'off',
+      floor_rps: num('threat-seas-floor', '0', true),
+      fast_factor: num('threat-seas-fast', '0', true),
+      slow_sigmas: num('threat-seas-sigmas', '0', true),
+      min_hours: num('threat-seas-hours', '0', true),
+      cap_factor: num('threat-seas-cap', '0', true),
+    },
+    decoys: {
+      mode: $('threat-decoy-mode')?.value || 'off',
+      no_defaults: $('threat-decoy-nodefaults')?.checked ?? false,
+      paths: lines('threat-decoy-paths'),
+    },
     error_threshold: parseInt($('threat-errs')?.value || '20', 10),
     error_window: $('threat-ewin')?.value || '10s',
     ban_duration: $('threat-dur')?.value || '24h',
@@ -539,6 +659,17 @@ function sentCollectConfig(enabled) {
     custom_lists: { ips: lines('threat-custom-ips'), uas: lines('threat-custom-uas'), paths: lines('threat-custom-paths'), tls_fingerprints: lines('threat-custom-tls') },
     whitelist: { ips: lines('threat-wl-ips'), uas: lines('threat-wl-uas'), paths: lines('threat-wl-paths') },
   };
+}
+
+// Les Seuils personnalisés s'écrivent en JSON : une erreur de syntaxe empêche d'enregistrer (et d'effacer les Seuils sans le dire).
+function sentCollectThresholds($) {
+  const text = ($('threat-th-rules')?.value || '').trim();
+  let rules = [];
+  if (text) {
+    try { rules = JSON.parse(text); } catch (e) { throw new Error('Seuils personnalisés : JSON illisible (' + e.message + ')'); }
+    if (!Array.isArray(rules)) throw new Error('Seuils personnalisés : une liste de règles est attendue');
+  }
+  return { mode: $('threat-th-mode')?.value || 'off', rules };
 }
 
 function sentCollectBehavior() {
@@ -564,8 +695,8 @@ function sentCollectBehavior() {
 
 window.saveThreatConfig = async function(e, keepOpen) {
   if (e) e.preventDefault();
-  const cfg = sentCollectConfig(document.getElementById('threat-enabled')?.checked ?? false);
   try {
+    const cfg = sentCollectConfig(document.getElementById('threat-enabled')?.checked ?? false);
     await api('PUT', `/security/threat-config${window._secEdgeQ || ''}`, cfg);
     window._threatCfg = cfg;
     toast(t('security.threat.saved'), 'success');
@@ -646,6 +777,7 @@ async function renderEphorDashboard({ mode }) {
     _sent.mode = mode;
     _sent.refs = null;
     _sent.sugg = null;
+    _sent.traffic = null;
     const d = await sentLoad(mode);
     if (mode === 'edge' && d.edgeCtx?.missing) {
       content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';

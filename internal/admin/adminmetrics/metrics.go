@@ -9,22 +9,22 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// F2B expose les métriques du moteur Fail2Ban.
-var F2B = struct {
+// Fleet expose les métriques des Seuils multi-passerelles.
+var Fleet = struct {
 	BansTotal  prometheus.Counter
 	ScansTotal prometheus.Counter
 }{
 	BansTotal: promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "gpx",
-		Subsystem: "f2b",
+		Subsystem: "fleet",
 		Name:      "bans_total",
-		Help:      "Nombre total d'IPs bannies automatiquement par Fail2Ban.",
+		Help:      "Nombre total d'IPs bannies automatiquement par les Seuils multi-passerelles.",
 	}),
 	ScansTotal: promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "gpx",
-		Subsystem: "f2b",
+		Subsystem: "fleet",
 		Name:      "scans_total",
-		Help:      "Nombre total de cycles de scan Fail2Ban.",
+		Help:      "Nombre total de cycles de scan des Seuils multi-passerelles.",
 	}),
 }
 

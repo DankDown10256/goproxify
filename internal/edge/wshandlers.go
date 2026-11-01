@@ -12,7 +12,6 @@ import (
 	edgeagent "github.com/vincamok/goproxify/internal/edge/agent"
 	edgecrowdsec "github.com/vincamok/goproxify/internal/edge/crowdsec"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
-	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
 	"github.com/vincamok/goproxify/internal/edge/metrics"
 	"github.com/vincamok/goproxify/internal/edge/portal"
 	"github.com/vincamok/goproxify/internal/edge/router"
@@ -199,20 +198,6 @@ func (s *Server) applyAdminMessage(connID string, msg edgews.Message) error {
 			go s.crowdSecBouncer.SyncNow(context.Background())
 		}
 		s.log.Info("crowdsec: config mise à jour", "enabled", cfg.Enabled)
-
-	case edgews.TypePushF2BConfig:
-		var cfg edgef2b.Config
-		if err := json.Unmarshal(msg.Payload, &cfg); err != nil {
-			return err
-		}
-		if s.f2bEngine != nil {
-			s.f2bEngine.UpdateConfig(cfg)
-			if err := s.saveF2BConfig(cfg); err != nil {
-				s.log.Warn("f2b: persistance config échouée", "err", err)
-			}
-			s.reloadBanStore()
-		}
-		s.log.Info("fail2ban: config mise à jour", "enabled", cfg.Enabled)
 
 	case edgews.TypePushLogRetention:
 		var p edgews.LogRetentionPayload

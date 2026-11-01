@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"github.com/vincamok/goproxify/internal/edge/plugins"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -27,7 +26,6 @@ import (
 	edgecache "github.com/vincamok/goproxify/internal/edge/cache"
 	edgecrowdsec "github.com/vincamok/goproxify/internal/edge/crowdsec"
 	"github.com/vincamok/goproxify/internal/edge/errorpages"
-	edgef2b "github.com/vincamok/goproxify/internal/edge/fail2ban"
 	"github.com/vincamok/goproxify/internal/edge/geoip"
 	"github.com/vincamok/goproxify/internal/edge/lastua"
 	edgelog "github.com/vincamok/goproxify/internal/edge/logger"
@@ -85,9 +83,10 @@ type Server struct {
 	banStore        *router.BanStore
 	blockLog        *logthrottle.Limiter // regroupe les refus répétés d'une même IP dans le journal
 	lastUA          *lastua.Tracker      // dernier User-Agent par IP, joint aux bans automatiques
+	rejects         *rejectionLog        // ce que l'entrée refuse (poignées de main ratées, hôtes inconnus) ; visibilité seulement
 	bansDB          *bansdb.DB
 	threatEngine    *threat.Engine
-	f2bEngine       *edgef2b.Engine
+	gwChallenge     atomic.Pointer[middleware.GatewayChallenge] // défi gradué d'Ephor ; nil tant qu'il est off
 	crowdSecBouncer *edgecrowdsec.Bouncer
 	rulesEngine     *edgere.Engine
 	autoMetrics     *localMetrics
@@ -214,6 +213,7 @@ func New(cfg *config.EdgeConfig) (*Server, error) {
 		banStore:        router.NewBanStore(),
 		blockLog:        logthrottle.New(blockLogWindow),
 		lastUA:          lastua.New(),
+		rejects:         newRejectionLog(log.Logger()),
 		bansDB:          bdb,
 		cache:           edgecache.New(cachePath, secret),
 		tcpPorts:        make(map[string]interface{ Stop() }),
@@ -394,6 +394,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// ne peut pas arriver avant le moteur.
 	s.threatEngine = threat.New(s.log.Logger(), s.threatBanCallback())
 	s.threatEngine.SetPriorBansFunc(s.priorThreatBans)
+	s.threatEngine.SetDecoyGuard(s.decoyIsLegit)
+	s.threatEngine.SetSeasonalNotify(s.notifyTrafficDeviation)
 	s.threatEngine.SetBehaviorStore(s.behavior)
 	s.behavior.SetASNLookup(s.lookupASN)
 	s.loadASNFromDisk()
@@ -459,13 +461,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.loadSurfaceStateFromDisk()
 	s.loadAppsStateFromDisk()
 
-	// Moteur Fail2Ban — autonome, lit les access logs, bans locaux.
-	s.f2bEngine = edgef2b.New()
-	s.f2bEngine.UpdateConfig(s.loadF2BConfig())
-	s.f2bEngine.OnBan = s.onF2BBan
-	s.accessLog.SetF2BTap(s.feedF2B)
-	s.f2bEngine.Start(ctx)
-	// Les bans relus au démarrage l'ont été avant la liste blanche Fail2Ban.
+	// Les bans relus au démarrage l'ont été avant la liste blanche d'Ephor.
 	s.reloadBanStore()
 
 	// Bouncer CrowdSec — autonome, sync LAPI, bans locaux.
@@ -482,7 +478,6 @@ func (s *Server) Start(ctx context.Context) error {
 	s.rulesEngine = edgere.New(s.log.Logger(), edgere.Deps{
 		GetRecentBanCount:   s.recentBanCount,
 		GetRepeatBanIP:      s.repeatBanIP,
-		GetF2BLastActivity:  func() time.Time { return s.f2bEngine.LastBan() },
 		GetCrowdSecLastSync: func() time.Time { return s.crowdSecBouncer.LastSync() },
 		GetProxyErrorRate:   s.proxyErrorRate,
 		QueryMetric:         s.autoMetrics.query,
@@ -495,21 +490,7 @@ func (s *Server) Start(ctx context.Context) error {
 			s.addRuleBan(ip, reason, duration)
 			return nil
 		},
-		EnableStrictF2B: func(dur time.Duration) error {
-			cfg := s.f2bEngine.GetConfig()
-			orig := cfg.MaxErrors
-			cfg.MaxErrors = 5
-			s.f2bEngine.UpdateConfig(cfg)
-			go func() {
-				time.Sleep(dur)
-				c := s.f2bEngine.GetConfig()
-				if c.MaxErrors == 5 {
-					c.MaxErrors = orig
-					s.f2bEngine.UpdateConfig(c)
-				}
-			}()
-			return nil
-		},
+		EnableStrict:    s.enableStrict,
 		EmitNotify: s.onRuleNotify,
 	})
 	s.rulesEngine.OnRuleFired = s.onRuleFired
@@ -576,10 +557,6 @@ func (s *Server) Stop(ctx context.Context) {
 	}
 	if s.threatEngine != nil {
 		s.threatEngine.Stop()
-	}
-	if s.f2bEngine != nil {
-		s.accessLog.SetF2BTap(nil)
-		s.f2bEngine.Stop()
 	}
 	if s.crowdSecBouncer != nil {
 		s.crowdSecBouncer.Stop()
@@ -778,7 +755,18 @@ func (s *Server) startHTTPS() error {
 	s.ech.Bind(tlsCfg)
 	// Empreintes JA3/JA4 des connexions TLS vivantes, retrouvées par http.Server via ConnContext.
 	fps := &sync.Map{}
-	sniLn := &sniListener{inner: ln, table: s.table, log: s.log.Logger(), tlsCfg: tlsCfg, ech: s.ech, fps: fps}
+	sniLn := &sniListener{inner: ln, table: s.table, log: s.log.Logger(), tlsCfg: tlsCfg, ech: s.ech, fps: fps, rejects: s.rejects,
+		onUnknown: func(ip, name string) {
+			if s.threatEngine != nil && !s.profileStore.IsWhitelisted(ip) {
+				s.threatEngine.NoteUnknownHost(ip, name)
+			}
+		},
+		hostLabel: func(sni string) string {
+			if name, ok := s.certStore.NameFor(sni); ok {
+				return name
+			}
+			return otherHostLabel
+		}}
 
 	rh, r, w, idle := s.serverTimeouts()
 	s.httpsSrv = &http.Server{
@@ -797,11 +785,7 @@ func (s *Server) startHTTPS() error {
 		},
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			if state == http.StateClosed || state == http.StateHijacked {
-				fps.Delete(conn)
-				if tc, ok := conn.(*tls.Conn); ok {
-					sni := tc.ConnectionState().ServerName
-					metrics.TLS.ActiveConns.WithLabelValues(sni).Dec()
-				}
+				sniLn.connClosed(conn)
 			}
 		},
 	}
@@ -811,70 +795,6 @@ func (s *Server) startHTTPS() error {
 		}
 	}()
 	return nil
-}
-
-// sniListener intercepte les connexions TCP brutes pour détecter le SNI du ClientHello
-// avant que la couche TLS ne soit établie.
-type sniListener struct {
-	inner  net.Listener
-	table  *router.Table
-	log    *slog.Logger
-	tlsCfg *tls.Config
-	ech    *edgetls.ECHManager // clés ECH courantes ; la config TLS est choisie par connexion
-	fps    *sync.Map           // *tls.Conn → *tlsfp.Fingerprint, vidé à la fermeture (ConnState)
-}
-
-func (l *sniListener) Accept() (net.Conn, error) {
-	for {
-		conn, err := l.inner.Accept()
-		if err != nil {
-			return nil, err // erreur du listener sous-jacent (ex: fermé) → on propage
-		}
-		// Deadline courte : les scanners qui ouvrent TCP sans envoyer de ClientHello
-		// ne doivent pas bloquer la boucle Accept indéfiniment.
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second)) //nolint:errcheck
-		sni, fp, peeked, err := edgetls.PeekClientHello(conn)
-		conn.SetReadDeadline(time.Time{}) //nolint:errcheck
-		if err != nil {
-			conn.Close()
-			continue
-		}
-		sni = strings.ToLower(strings.TrimSpace(sni))
-		route, ok := l.table.PassthroughRoute(sni)
-		if ok {
-			go l.doPassthrough(peeked, route)
-			continue
-		}
-		// Retourner *tls.Conn directement : http.Server fait une type assertion sur
-		// *tls.Conn pour router les connexions h2 via TLSNextProto. Un wrapper custom
-		// ferait échouer cette assertion et forcerait toutes les connexions en HTTP/1.1,
-		// provoquant ERR_HTTP2_PROTOCOL_ERROR quand le client a négocié h2 via ALPN.
-		cfg := l.tlsCfg
-		if c := l.ech.Config(); c != nil {
-			cfg = c
-		}
-		tlsConn := tls.Server(peeked, cfg)
-		if fp != nil && l.fps != nil {
-			l.fps.Store(tlsConn, fp)
-		}
-		go l.measureHandshake(tlsConn, sni)
-		return tlsConn, nil
-	}
-}
-
-func (l *sniListener) Close() error   { return l.inner.Close() }
-func (l *sniListener) Addr() net.Addr { return l.inner.Addr() }
-
-// measureHandshake enregistre la durée du handshake TLS et les connexions actives.
-// tls.Conn.Handshake() est idempotent : l'appel concurrent avec celui de http.Server est sans danger.
-// Le Dec() des connexions actives est géré par le ConnState hook du http.Server (voir startHTTPS).
-func (l *sniListener) measureHandshake(c *tls.Conn, sni string) {
-	start := time.Now()
-	if err := c.Handshake(); err != nil {
-		return
-	}
-	metrics.TLS.ActiveConns.WithLabelValues(sni).Inc()
-	metrics.TLS.HandshakeDuration.WithLabelValues(sni).Observe(time.Since(start).Seconds())
 }
 
 func (l *sniListener) doPassthrough(client net.Conn, route *router.Route) {

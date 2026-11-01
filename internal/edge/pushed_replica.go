@@ -51,7 +51,6 @@ var replicablePushes = map[string]bool{
 	edgews.TypePushAuthProviders:   true,
 	edgews.TypePushIPProfiles:      true,
 	edgews.TypePushCrowdSecConfig:  true,
-	edgews.TypePushF2BConfig:       true,
 	edgews.TypePushThreatConfig:    true,
 	edgews.TypePushWAFConfig:       true,
 	edgews.TypePushErrorPages:      true,

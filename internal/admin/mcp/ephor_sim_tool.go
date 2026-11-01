@@ -17,10 +17,11 @@ func ephorSimTools() []map[string]any {
 		"description": "Dry-run Ephor : rejoue les access logs récents contre une config candidate (surchargée sur la config actuelle) " +
 			"et la compare à la config actuelle. Ne modifie rien. Retourne requêtes bloquées, bans, IP les plus touchées et " +
 			"legit_blocked (requêtes bloquées qui avaient abouti, indicateur de faux positifs). " +
+			"Avec seasonal.mode detect ou block dans la config, le rapport porte aussi la part « seasonal » : par route, si elle est jugeable (warm), les alertes qu'elle aurait ouvertes (warnings, probables, durée) et, en block, les requêtes qu'un profil durci aurait touchées (hardened_requests, dont hardened_served ont abouti). Une route froide n'a pas assez d'historique dans la fenêtre pour être jugée. " +
 			"Non simulé : listes par défaut, global_rps, agrégat par ASN (asn_aggregate) ; la note commune de comportement l'est (c'est elle qui dit si un signal peut passer en block) ; les IP pseudonymisées ou tronquées (anonymisation RGPD) sont ignorées.",
 		"inputSchema": schema(
 			req("config", "object", "Champs Ephor à surcharger (ex: {\"rate_limit\":20,\"custom_lists\":{\"paths\":[\"/wp-admin\"]}}), mêmes noms que threat-config"),
-			opt("hours", "number", "Fenêtre de logs rejouée en heures (défaut 1, max 24)"),
+			opt("hours", "number", "Fenêtre de logs rejouée en heures (défaut 1, max 24 ; max 168 quand la config rejoue la référence saisonnière : un créneau a besoin de jours de trafic pour être jugé)"),
 			opt("domain", "string", "Limiter le rejeu à un domaine"),
 			opt("edge", "string", "ID de la passerelle dont la config actuelle sert de base (défaut: config globale)"),
 		),

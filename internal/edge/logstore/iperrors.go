@@ -11,7 +11,7 @@ import (
 	"github.com/vincamok/goproxify/internal/ipcrypt"
 )
 
-// IPErrorsRetention : durée de conservation des compteurs d'erreurs par IP. Ils servent le Fail2Ban global de
+// IPErrorsRetention : durée de conservation des compteurs d'erreurs par IP. Ils servent les Seuils multi-passerelles de
 // l'Admin, dont la fenêtre se compte en minutes : au-delà de quelques heures ce serait de l'IP gardée pour rien.
 const IPErrorsRetention = 48 * time.Hour
 
@@ -26,7 +26,7 @@ type IPErrorRow struct {
 
 type ipErrorKey struct{ minute, ip string }
 
-// isClientError dit si un accès compte pour le Fail2Ban : une erreur CLIENT (4xx hors 404). Les 5xx sont des
+// isClientError dit si un accès compte pour les Seuils multi-passerelles : une erreur CLIENT (4xx hors 404). Les 5xx sont des
 // erreurs de backend, pas un abus ; une IP tronquée ne désigne personne.
 func isClientError(e *Entry) bool {
 	return e.Status >= 400 && e.Status < 500 && e.Status != 404 && e.IP != "" && !e.IPTruncated

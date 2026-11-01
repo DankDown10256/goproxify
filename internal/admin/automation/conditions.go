@@ -112,14 +112,14 @@ func init() {
 		Fields: []modules.Field{
 			num("ban_count", "Nombre de bans", 20),
 			dur("ban_window", "Fenêtre", "1h"),
-			{Key: "ban_source", Label: "Source (vide = toutes)", Kind: modules.KindText, Placeholder: "fail2ban, crowdsec, ephor…"},
+			{Key: "ban_source", Label: "Source (vide = toutes)", Kind: modules.KindText, Placeholder: "fleet, crowdsec, threat…"},
 		}}, evalBanSpike, nil)
 
 	RegisterCondition(modules.Manifest{Type: "engine_silent", Label: "Moteur IPS silencieux",
 		Attrs: attrs(true, "reliability", "engine_type", "last_activity", "silent_for"),
 		Fields: []modules.Field{
 			{Key: "engine_type", Label: "Moteur", Kind: modules.KindSelect, Required: true,
-				Options: []modules.Option{{Value: "fail2ban", Label: "Fail2Ban"}, {Value: "crowdsec", Label: "CrowdSec"}}},
+				Options: []modules.Option{{Value: "fleet", Label: "Seuils multi-passerelles"}, {Value: "crowdsec", Label: "CrowdSec"}}},
 			num("silent_minutes", "Silence depuis (minutes)", 10),
 		}}, evalEngineSilent, nil)
 
@@ -208,16 +208,16 @@ func evalEngineSilent(_ context.Context, s *Service, cfg map[string]any) (bool, 
 	minutes := cfgInt(cfg, "silent_minutes", 10)
 	var last time.Time
 	switch engine := cfgStr(cfg, "engine_type"); engine {
-	case "fail2ban":
-		if s.deps.F2BLastActivity != nil {
-			last = s.deps.F2BLastActivity()
+	case "fleet":
+		if s.deps.FleetLastActivity != nil {
+			last = s.deps.FleetLastActivity()
 		}
 	case "crowdsec":
 		if s.deps.CrowdSecLastSync != nil {
 			last = s.deps.CrowdSecLastSync()
 		}
 	default:
-		return false, nil, fmt.Errorf("engine_type doit valoir fail2ban ou crowdsec")
+		return false, nil, fmt.Errorf("engine_type doit valoir fleet ou crowdsec")
 	}
 	if last.IsZero() || time.Since(last) <= time.Duration(minutes)*time.Minute {
 		return false, nil, nil

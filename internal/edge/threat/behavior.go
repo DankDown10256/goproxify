@@ -22,7 +22,7 @@ const (
 )
 
 // BehaviorConfig règle la note commune : le magasin comportemental de la passerelle, qu'Ephor alimente avec toutes les
-// requêtes, que le WAF complète avec le score de ses règles et où Fail2Ban et CrowdSec versent leurs décisions.
+// requêtes, que le WAF complète avec le score de ses règles et où CrowdSec verse ses décisions.
 //
 // Tout signal naît en `detect` : il est calculé, expliqué et compté dans une note « fantôme » (le ban qu'il aurait provoqué est
 // journalisé et compté par `gpx_threat_shadow_bans_total`), sans jamais bannir. Il passe en `block` après lecture de la
@@ -137,9 +137,13 @@ func (e *Engine) Observe(r *http.Request, ip, route string, status int) {
 		}
 	}
 	e.RecordResponse(ip, r.URL.Path, status)
+	if cfg.Enabled && cfg.Seasonal.Active() {
+		e.seasonal.Record(route, ip, status, r.URL.Path)
+	}
+	e.observeThresholds(r, ip, route, status, behavior.ObservationFrom(r.Context()))
 }
 
-// NoteDecision verse au magasin une décision d'un autre moteur (Fail2Ban, CrowdSec) : elle pèse sur la note de l'IP jusqu'à
+// NoteDecision verse au magasin une décision d'un autre moteur (CrowdSec) : elle pèse sur la note de l'IP jusqu'à
 // l'expiration du ban qu'elle a causé, ou une heure pour un ban permanent.
 func (e *Engine) NoteDecision(ip, signal string, points int, until time.Time) {
 	e.mu.RLock()
@@ -158,6 +162,8 @@ func (e *Engine) NoteDecision(ip, signal string, points int, until time.Time) {
 // ForgetIP efface ce que le moteur et le magasin comportemental gardent d'une IP (ordre d'effacement RGPD).
 func (e *Engine) ForgetIP(ip string) {
 	e.counters.reset(ip)
+	e.unknown.forget(ip)
+	e.thresholdCounters.forget(ip)
 	e.mu.RLock()
 	st := e.behavior
 	e.mu.RUnlock()

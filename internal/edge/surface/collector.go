@@ -440,3 +440,22 @@ func (c *Collector) Suggestions(routeID string) []Suggestion {
 	}
 	return suggestionsOf(rp)
 }
+
+// Knows dit si le profil appris du proxy contient déjà ce chemin, sous sa forme de gabarit : c'est ce que son trafic légitime
+// utilise. Faux sans profil. Les leurres d'Ephor s'en servent pour ne jamais compter comme un piège un chemin que l'application sert.
+func (c *Collector) Knows(routeID, path string) bool {
+	rp, _ := c.merged(routeID)
+	if rp == nil || rp.Root == nil {
+		return false
+	}
+	n := rp.Root
+	for _, seg := range strings.Split(strings.Trim(normalizePath(path), "/"), "/") {
+		if seg == "" {
+			continue
+		}
+		if n = n.Children[seg]; n == nil {
+			return false
+		}
+	}
+	return n.Stats != nil && n.Stats.Requests > 0
+}

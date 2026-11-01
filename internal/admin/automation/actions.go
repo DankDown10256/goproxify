@@ -92,7 +92,7 @@ func init() {
 		}},
 		actNotify, nil)
 
-	RegisterAction(modules.Manifest{Type: "enable_strict", Label: "Mode strict Fail2Ban (temporaire)",
+	RegisterAction(modules.Manifest{Type: "enable_strict", Label: "Mode strict (temporaire)",
 		Attrs:  attrs(true, "remediation"),
 		Fields: []modules.Field{dur("strict_duration", "Durée", "30m")}},
 		actEnableStrict, nil)
@@ -207,7 +207,7 @@ func actEnableStrict(ctx context.Context, s *Service, c ActionCall) (map[string]
 		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE fail2ban_config SET value=json_set(value, '$.max_errors', 5,
+		UPDATE fleet_config SET value=json_set(value, '$.max_errors', 5,
 			'$.strict_until', datetime('now', '+' || ? || ' minutes'))`, int(d.Minutes()))
 	return nil, err
 }

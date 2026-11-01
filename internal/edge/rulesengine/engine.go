@@ -19,8 +19,6 @@ type Deps struct {
 	GetRecentBanCount func(since time.Time, source string) int
 	// GetRepeatBanIP retourne l'IP bannie ≥ minCount fois depuis `since` et son nombre de bans.
 	GetRepeatBanIP func(since time.Time, minCount int) (ip string, count int)
-	// GetF2BLastActivity retourne l'heure du dernier ban Fail2Ban (zéro si jamais).
-	GetF2BLastActivity func() time.Time
 	// GetCrowdSecLastSync retourne l'heure de la dernière sync CrowdSec.
 	GetCrowdSecLastSync func() time.Time
 	// GetProxyErrorRate retourne le pire taux d'erreurs HTTP (0-100) et le domaine/proxy concerné.
@@ -31,8 +29,8 @@ type Deps struct {
 	DisableProxy func(id string) error
 	// BanIP ajoute un ban IP avec durée (0 = permanent).
 	BanIP func(ip, reason string, duration time.Duration) error
-	// EnableStrictF2B réduit max_errors Fail2Ban temporairement.
-	EnableStrictF2B func(duration time.Duration) error
+	// EnableStrict durcit temporairement les seuils d'Ephor (voir Server.enableStrict).
+	EnableStrict func(duration time.Duration) error
 	// EmitNotify envoie une notification (pour ActionNotify).
 	EmitNotify func(ruleID, severity, title, message string, detail map[string]any)
 }

@@ -109,8 +109,8 @@ func TestHandleBansStoreTheUserAgentThatCausedThem(t *testing.T) {
 	raw, _ := json.Marshal(edgeWS.ThreatBanPayload{IP: "203.0.113.1", Reason: "threat: ua", ExpiresAt: exp, NodeName: "paris",
 		UserAgent: "sqlmap/1.7\r\n" + strings.Repeat("x", 500)})
 	m.handleThreatBan(raw)
-	raw, _ = json.Marshal(edgeWS.F2BBanPayload{ID: "f2b-1", IP: "203.0.113.2", Reason: "trop d'erreurs", ExpiresAt: exp, NodeName: "paris", UserAgent: "curl/8.0"})
-	m.handleF2BBan(raw)
+	raw, _ = json.Marshal(edgeWS.ThreatBanPayload{IP: "203.0.113.2", Reason: "threat: seuil auth-fail", ExpiresAt: exp, NodeName: "paris", UserAgent: "curl/8.0"})
+	m.handleThreatBan(raw)
 
 	for ip, want := range map[string]string{"203.0.113.1": "sqlmap/1.7??" + strings.Repeat("x", 300-len("sqlmap/1.7??")), "203.0.113.2": "curl/8.0"} {
 		var inBans, inHistory string

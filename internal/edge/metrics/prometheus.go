@@ -235,7 +235,15 @@ var sizeBuckets = []float64{100, 1_000, 10_000, 100_000, 1_000_000, 10_000_000, 
 var TLS = struct {
 	HandshakeDuration *prometheus.HistogramVec
 	ActiveConns       *prometheus.GaugeVec
+	Rejected          *prometheus.CounterVec
 }{
+	Rejected: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpx",
+		Subsystem: "tls",
+		Name:      "rejected_total",
+		Help:      "Connexions refusées à l'entrée (reason: timeout, too_many_pending, bad_clienthello, not_tls, no_sni, ip_literal, unknown_sni, handshake_failed).",
+	}, []string{"reason"}),
+
 	HandshakeDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "gpx",
 		Subsystem: "tls",

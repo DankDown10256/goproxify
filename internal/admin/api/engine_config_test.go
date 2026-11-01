@@ -16,7 +16,7 @@ import (
 
 	admincrowdsec "github.com/vincamok/goproxify/internal/admin/crowdsec"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
-	adminf2b "github.com/vincamok/goproxify/internal/admin/fail2ban"
+	adminfleet "github.com/vincamok/goproxify/internal/admin/fleet"
 	"github.com/vincamok/goproxify/internal/modules"
 )
 
@@ -28,7 +28,7 @@ func newEngineSecurityHandler(t *testing.T) *SecurityHandler {
 	}
 	t.Cleanup(func() { db.Close() })
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &SecurityHandler{DB: db, Log: log, CrowdSec: admincrowdsec.New(db, log), Fail2Ban: adminf2b.New(db, log)}
+	return &SecurityHandler{DB: db, Log: log, CrowdSec: admincrowdsec.New(db, log), Fleet: adminfleet.New(db, log)}
 }
 
 func engCall(h *SecurityHandler, method, path, body string) *httptest.ResponseRecorder {
@@ -43,8 +43,8 @@ func TestEngineConfigs_PutValidates(t *testing.T) {
 		"ephor clé inconnue":     {"/api/v1/security/threat-config", `{"enabled":true,"modee":"block"}`},
 		"ephor mode":             {"/api/v1/security/threat-config", `{"mode":"off"}`},
 		"ephor durée":            {"/api/v1/security/threat-config", `{"ban_duration":"demain"}`},
-		"fail2ban négatif":       {"/api/v1/security/fail2ban", `{"enabled":true,"max_errors":-1}`},
-		"fail2ban liste blanche": {"/api/v1/security/fail2ban", `{"whitelist":["nope"]}`},
+		"fleet négatif":       {"/api/v1/security/fleet", `{"enabled":true,"max_errors":-1}`},
+		"fleet liste blanche": {"/api/v1/security/fleet", `{"whitelist":["nope"]}`},
 		"crowdsec URL":           {"/api/v1/security/crowdsec", `{"api_url":"localhost"}`},
 		"crowdsec sans clé":      {"/api/v1/security/crowdsec", `{"enabled":true,"api_url":"http://l:8080"}`},
 	} {
@@ -54,7 +54,7 @@ func TestEngineConfigs_PutValidates(t *testing.T) {
 	}
 	for _, c := range []struct{ path, body string }{
 		{"/api/v1/security/threat-config", `{"enabled":true,"mode":"block","ban_duration":"24h","whitelist":{"ips":["10.0.0.0/8"]}}`},
-		{"/api/v1/security/fail2ban", `{"enabled":true,"window_sec":300,"max_errors":50}`},
+		{"/api/v1/security/fleet", `{"enabled":true,"window_sec":300,"max_errors":50}`},
 		{"/api/v1/security/crowdsec", `{"enabled":true,"api_url":"http://l:8080","api_key":"K"}`},
 	} {
 		if rec := engCall(h, http.MethodPut, c.path, c.body); rec.Code != http.StatusNoContent {

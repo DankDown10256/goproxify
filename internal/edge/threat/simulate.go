@@ -57,6 +57,8 @@ type SimReport struct {
 	ByReason     map[string]int `json:"by_reason"`
 	Bans         []SimBan       `json:"bans"`
 	TopIPs       []SimIPStat    `json:"top_ips"`
+	// Seasonal : ce que la référence saisonnière du trafic aurait signalé (et durci en mode block) ; absent quand elle est coupée.
+	Seasonal *SimSeasonal `json:"seasonal,omitempty"`
 }
 
 const (
@@ -103,6 +105,10 @@ func Simulate(cfg Config, events []SimEvent) SimReport {
 		}
 		return n
 	})
+	var seas *simSeasonal
+	if cfg.Seasonal.Active() {
+		seas = newSimSeasonal(e, func() time.Time { return cur })
+	}
 	e.UpdateConfig(cfg)
 
 	stats := map[string]*SimIPStat{}
@@ -129,6 +135,9 @@ func Simulate(cfg Config, events []SimEvent) SimReport {
 
 	for _, ev := range events {
 		cur = ev.Time
+		if seas != nil {
+			seas.advance(cur)
+		}
 		report.Events++
 		if until, ok := banned[ev.IP]; ok {
 			if cur.Before(until) {
@@ -156,8 +165,14 @@ func Simulate(cfg Config, events []SimEvent) SimReport {
 			continue
 		}
 		e.Observe(req, ev.IP, ev.Route, ev.Status)
+		if seas != nil {
+			seas.exposure(ev)
+		}
 	}
 
+	if seas != nil {
+		report.Seasonal = seas.report(cfg.Seasonal.mode(), cur)
+	}
 	report.BlockedIPs = len(stats)
 	for _, st := range stats {
 		report.TopIPs = append(report.TopIPs, *st)

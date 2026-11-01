@@ -29,7 +29,7 @@ func IPFilter(cfg *router.IPFilterConfig) func(http.Handler) http.Handler {
 		if mode != "allow" && mode != "deny" {
 			slog.Error("ipfilter: mode inconnu, accès refusé", "mode", cfg.Mode)
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ipfilter", "invalid_mode").Inc()
+				metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "ipfilter", "invalid_mode").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 			})
 		}
@@ -37,12 +37,12 @@ func IPFilter(cfg *router.IPFilterConfig) func(http.Handler) http.Handler {
 			ip := net.ParseIP(clientIP(r))
 			matched := matchAny(ip, nets)
 			if mode == "allow" && !matched {
-				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ipfilter", "not_in_allowlist").Inc()
+				metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "ipfilter", "not_in_allowlist").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}
 			if mode == "deny" && matched {
-				metrics.Pipeline.BlockedTotal.WithLabelValues(r.Host, "ipfilter", "in_denylist").Inc()
+				metrics.Pipeline.BlockedTotal.WithLabelValues(metrics.HostOf(r), "ipfilter", "in_denylist").Inc()
 				http.Error(w, "403 Forbidden", http.StatusForbidden)
 				return
 			}

@@ -15,14 +15,14 @@ import (
 // evalsWindow : durée sur laquelle on lisse le débit des évaluations des flux à condition.
 const evalsWindow = 2 * time.Minute
 
-// adminLocal : métriques Prometheus du processus Admin (Fail2Ban, CrowdSec, flux d'automatisation).
+// adminLocal : métriques Prometheus du processus Admin (Seuils multi-passerelles, CrowdSec, flux d'automatisation).
 type adminLocal struct {
-	f2bBans, f2bScans           float64
+	fleetBans, fleetScans          float64
 	csNew, csDeleted            float64
 	evalsTotal                  float64
 	evalSumS, evalCount         float64
 	activeRules, actionsTotal   float64
-	hasF2B, hasCS, hasRulesEval bool
+	hasFleet, hasCS, hasRulesEval bool
 }
 
 func readAdminLocal() adminLocal {
@@ -33,15 +33,15 @@ func readAdminLocal() adminLocal {
 	}
 	for _, mf := range mfs {
 		name := mf.GetName()
-		if !strings.HasPrefix(name, "gpx_f2b_") && !strings.HasPrefix(name, "gpx_crowdsec_") && !strings.HasPrefix(name, "gpx_automation_") {
+		if !strings.HasPrefix(name, "gpx_fleet_") && !strings.HasPrefix(name, "gpx_crowdsec_") && !strings.HasPrefix(name, "gpx_automation_") {
 			continue
 		}
 		for _, m := range mf.GetMetric() {
 			switch name {
-			case "gpx_f2b_bans_total":
-				a.f2bBans, a.hasF2B = m.GetCounter().GetValue(), true
-			case "gpx_f2b_scans_total":
-				a.f2bScans, a.hasF2B = m.GetCounter().GetValue(), true
+			case "gpx_fleet_bans_total":
+				a.fleetBans, a.hasFleet = m.GetCounter().GetValue(), true
+			case "gpx_fleet_scans_total":
+				a.fleetScans, a.hasFleet = m.GetCounter().GetValue(), true
 			case "gpx_crowdsec_decisions_total":
 				a.hasCS = true
 				for _, l := range m.GetLabel() {
@@ -157,8 +157,8 @@ func (s *ProxyMetricsSampler) Summary() map[string]any {
 	}
 
 	a := readAdminLocal()
-	if a.hasF2B {
-		out["f2b"] = map[string]any{"bans_total": a.f2bBans, "scans_total": a.f2bScans}
+	if a.hasFleet {
+		out["fleet"] = map[string]any{"bans_total": a.fleetBans, "scans_total": a.fleetScans}
 	}
 	if a.hasCS {
 		out["crowdsec"] = map[string]any{"decisions_new": a.csNew, "decisions_deleted": a.csDeleted}

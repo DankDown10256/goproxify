@@ -3,7 +3,7 @@
 
 // Package behavior est le magasin comportemental de la passerelle (ADR 0011) : une fenêtre glissante par IP, alimentée par
 // toutes les requêtes que voit Ephor, avec le score du WAF, et d'où sortent des signaux de comportement. Un seul magasin par
-// passerelle : Ephor y verse chaque requête, le WAF y ajoute le score de ses règles, Fail2Ban et CrowdSec leurs décisions.
+// passerelle : Ephor y verse chaque requête, le WAF y ajoute le score de ses règles, CrowdSec ses décisions.
 package behavior
 
 import (
@@ -447,7 +447,7 @@ func (s *Store) evictLocked(now time.Time) {
 	}
 }
 
-// AddSignal ajoute à l'IP un signal venu d'ailleurs (décision Fail2Ban, CrowdSec…) valable jusqu'à until.
+// AddSignal ajoute à l'IP un signal venu d'ailleurs (décision de CrowdSec…) valable jusqu'à until.
 func (s *Store) AddSignal(ip, name string, points int, until time.Time) {
 	s.addExt(ip, name, points, until, false)
 }

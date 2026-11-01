@@ -118,23 +118,40 @@ func (s *CertStore) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if c, ok := s.certs[name]; ok {
+	if _, c, ok := s.lookupLocked(name); ok {
 		return c, nil
+	}
+	return nil, fmt.Errorf("aucun certificat pour %q", name)
+}
+
+// NameFor donne le nom du certificat qui sert name (« *.example.fr » pour un sous-domaine d'un wildcard). Il sert à
+// étiqueter des métriques sans y mettre une valeur choisie par le client.
+func (s *CertStore) NameFor(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	key, _, ok := s.lookupLocked(name)
+	return key, ok
+}
+
+// lookupLocked résout un nom par certificat exact, puis wildcard, puis wildcard d'apex. s.mu doit être tenu.
+func (s *CertStore) lookupLocked(name string) (string, *tls.Certificate, bool) {
+	if c, ok := s.certs[name]; ok {
+		return name, c, true
 	}
 	// Essai wildcard : *.example.fr pour sub.example.fr
 	if len(name) > 0 {
 		if dot := indexOf(name, '.'); dot >= 0 {
 			wild := "*" + name[dot:]
 			if c, ok := s.certs[wild]; ok {
-				return c, nil
+				return wild, c, true
 			}
 		}
 	}
 	// Essai wildcard apex : *.example.com pour vincz.fr (cert wildcard couvre aussi l'apex)
 	if c, ok := s.certs["*."+name]; ok {
-		return c, nil
+		return "*." + name, c, true
 	}
-	return nil, fmt.Errorf("aucun certificat pour %q", name)
+	return "", nil, false
 }
 
 func indexOf(s string, b byte) int {

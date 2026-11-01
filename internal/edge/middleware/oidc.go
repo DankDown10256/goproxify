@@ -239,7 +239,7 @@ func (h *oidcHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	claims, err := VerifyOIDCIDToken(tokenResp.IDToken, jwksURL, issuer, h.cfg.ClientID, stateData["nonce"], h.cfg.ClientSecret)
 	if err != nil {
-		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "oidc", "failure").Inc()
+		metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "oidc", "failure").Inc()
 		http.Error(w, "OIDC: id_token invalide — "+err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -255,11 +255,11 @@ func (h *oidcHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		username = ClaimString(claims, "sub")
 	}
 	if username == "" {
-		metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "oidc", "failure").Inc()
+		metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "oidc", "failure").Inc()
 		http.Error(w, "OIDC: username claim vide", http.StatusBadGateway)
 		return
 	}
-	metrics.Auth.AttemptsTotal.WithLabelValues(r.Host, "oidc", "success").Inc()
+	metrics.Auth.AttemptsTotal.WithLabelValues(metrics.HostOf(r), "oidc", "success").Inc()
 
 	// Crée la session
 	maxAge := h.cfg.SessionMaxAge

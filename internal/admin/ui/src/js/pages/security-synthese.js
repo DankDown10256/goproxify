@@ -217,11 +217,11 @@ function synTimelineHTML() {
 window.synSetTl = function(k) { _syn.tl = k; _syn.tlN = 8; const el = document.getElementById('sy-tl-box'); if (el) el.innerHTML = synTimelineHTML(); };
 window.synMoreTl = function() { _syn.tlN += 12; const el = document.getElementById('sy-tl-box'); if (el) el.innerHTML = synTimelineHTML(); };
 
-function synEnginesHTML(f2b, cs, threat, rules, isAdmin, waf) {
+function synEnginesHTML(fleet, cs, threat, rules, isAdmin, waf) {
   const engines = [
     { id: 'ephor', label: 'Ephor', on: !!threat?.enabled },
     { id: 'waf', label: 'WAF', on: waf?.enabled !== false },
-    { id: 'f2b', label: 'Fail2Ban', on: !!f2b?.enabled },
+    { id: 'fleet', label: 'Seuils multi-passerelles', on: !!fleet?.enabled },
     { id: 'cs', label: 'CrowdSec', on: !!cs?.enabled },
   ];
   if (isAdmin) {
@@ -252,14 +252,14 @@ async function renderSecuritySynthese(ctx) {
     }
     const edgeQ = edgeCtx?.edgeRef ? `?edge=${encodeURIComponent(edgeCtx.edgeRef)}` : '';
     window._secEdgeQ = edgeQ;
-    const [ovData, timeline, bansRaw, cvesRaw, threatCfg, wafCfg, f2bCfg, csCfg, rulesRaw] = await Promise.all([
+    const [ovData, timeline, bansRaw, cvesRaw, threatCfg, wafCfg, fleetCfg, csCfg, rulesRaw] = await Promise.all([
       api('GET', '/security/overview').catch(() => ({})),
       api('GET', '/security/timeline?limit=100&source=all').catch(() => []),
       api('GET', '/security/bans?active=true').catch(() => []),
       api('GET', '/security/cves').catch(() => []),
       api('GET', `/security/threat-config${edgeQ}`).catch(() => null),
       api('GET', `/security/waf-config${edgeQ}`).catch(() => null),
-      api('GET', '/security/fail2ban').catch(() => null),
+      api('GET', '/security/fleet').catch(() => null),
       api('GET', '/security/crowdsec').catch(() => null),
       isAdmin ? api('GET', '/automation/flows?trigger=condition,event').catch(() => []) : Promise.resolve([]),
     ]);
@@ -314,7 +314,7 @@ async function renderSecuritySynthese(ctx) {
         </div>
       </div>
 
-      ${synEnginesHTML(f2bCfg, csCfg, threatCfg, rules, isAdmin, wafCfg)}
+      ${synEnginesHTML(fleetCfg, csCfg, threatCfg, rules, isAdmin, wafCfg)}
 
       <div class="card blueprint sy-card"><div class="sy-card-h"><h3>${esc(t('sy.atk_title'))} <span class="vs-hint" style="font-weight:400">${esc(t('sy.atk_sub'))}</span></h3>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -376,14 +376,14 @@ pages['edge-security'] = () => renderSecuritySynthese({ mode: 'edge' });
 // ── Fenêtre « Moteurs de sécurité » ─────────────────────────────────────────────────
 // Chaque interrupteur s'applique immédiatement (comme les anciens interrupteurs de moteur) :
 // lecture-modification-écriture de la configuration du moteur, puis toast.
-// Fail2Ban, CrowdSec et le scanner sont des réglages globaux (Admin) ; Ephor et le moteur IPS
+// Les Seuils multi-passerelles, CrowdSec et le scanner sont des réglages globaux (Admin) ; Ephor et le moteur IPS
 // actif sont propres à la passerelle (`?edge=`).
 
-const _sm = { open: false, tab: 'ephor', mode: 'admin', q: '', f2b: {}, cs: {}, threat: {}, waf: { enabled: true }, rules: [], scan: {}, prev: {}, pendingNum: null, dirty: false };
+const _sm = { open: false, tab: 'ephor', mode: 'admin', q: '', fleet: {}, cs: {}, threat: {}, waf: { enabled: true }, rules: [], scan: {}, prev: {}, pendingNum: null, dirty: false };
 
 // Caps dont la valeur est un nombre à saisir (pas un simple on/off) : le champ du réglage tombe à
 // une valeur « désactivée » (0, ou permanent) quand on bascule, donc le chiffre d'origine est perdu —
-// réactiver la limite ne doit jamais deviner un chiffre à sa place (voir smEphorCap / smF2BCap).
+// réactiver la limite ne doit jamais deviner un chiffre à sa place (voir smEphorCap / smFleetCap).
 // `promptOn` : état du switch (true/false) qui déclenche la demande de valeur.
 const SM_NUM_CAPS = {
   smEphorCap: {
@@ -391,7 +391,7 @@ const SM_NUM_CAPS = {
     errors:  { field: 'error_threshold', unitKey: 'sm.unit_errs',   min: 1,   step: 1,   promptOn: true },
     global:  { field: 'global_rps',      unitKey: 'sm.unit_reqs',   min: 1,   step: 1,   promptOn: true },
   },
-  smF2BCap: {
+  smFleetCap: {
     // « Ban permanent » à false = ban temporaire : il faut alors une durée (en heures, converties en
     // secondes). Désactiver l'interrupteur (permanent → false) est donc l'état qui demande une valeur.
     permanent: { field: 'ban_duration_sec', unitKey: 'sm.unit_hours', min: 1, step: 1, promptOn: false, toSeconds: 3600 },
@@ -432,13 +432,13 @@ function smApplyEphorCap(cfg, key, on, value) {
   return next;
 }
 
-function smF2BCaps() {
-  const c = _sm.f2b || {};
+function smFleetCaps() {
+  const c = _sm.fleet || {};
   const permanent = !(c.ban_duration_sec > 0);
   return [
     { key: 'xff', label: t('sm.cap.xff'), desc: t('sm.cap.xff_d'), on: !!c.trust_forwarded_for },
     { key: 'permanent', label: t('sm.cap.permanent'), desc: t('sm.cap.permanent_d'), on: permanent, val: permanent ? '' : `${Math.round(c.ban_duration_sec / 3600)} h` },
-    { key: 'window', label: t('sm.cap.f2b_window'), desc: t('sm.cap.f2b_window_d'), fixed: true, val: `${c.max_errors || 20} / ${c.window_sec || 300} s` },
+    { key: 'window', label: t('sm.cap.fleet_window'), desc: t('sm.cap.fleet_window_d'), fixed: true, val: `${c.max_errors || 20} / ${c.window_sec || 300} s` },
   ];
 }
 
@@ -447,10 +447,10 @@ function smSwitch(on, handler, label, disabled) {
 }
 
 // pendingKey : identifiant unique du cap en attente de saisie, tous moteurs confondus
-// (ex. "smF2BCap:permanent"), pour ne jamais confondre deux caps de moteurs différents.
+// (ex. "smFleetCap:permanent"), pour ne jamais confondre deux caps de moteurs différents.
 function smNumCapPendingKey(handler, key) { return handler + ':' + key; }
-function smNumCapValueHandler(handler) { return handler === 'smF2BCap' ? 'smF2BCapValue' : 'smEphorCapValue'; }
-function smNumCapCancelHandler(handler) { return handler === 'smF2BCap' ? 'smF2BCapCancel' : 'smEphorCapCancel'; }
+function smNumCapValueHandler(handler) { return handler === 'smFleetCap' ? 'smFleetCapValue' : 'smEphorCapValue'; }
+function smNumCapCancelHandler(handler) { return handler === 'smFleetCap' ? 'smFleetCapCancel' : 'smEphorCapCancel'; }
 
 function smCapsHTML(caps, handler, enabled) {
   const numCaps = SM_NUM_CAPS[handler];
@@ -488,7 +488,7 @@ function smTabs() {
   const list = [
     { id: 'ephor', label: 'Ephor', on: !!_sm.threat?.enabled },
     { id: 'waf', label: 'WAF', on: _sm.waf?.enabled !== false },
-    { id: 'f2b', label: 'Fail2Ban', on: !!_sm.f2b?.enabled },
+    { id: 'fleet', label: 'Seuils multi-passerelles', on: !!_sm.fleet?.enabled },
     { id: 'cs', label: 'CrowdSec', on: !!_sm.cs?.enabled },
   ];
   if (admin) list.push({ id: 'rules', label: t('security.rules.tab_rules'), on: rulesOn });
@@ -549,11 +549,11 @@ function smPanelHTML() {
         ${smWafInfoHTML(on)}
         <div><button type="button" class="btn btn-ghost btn-sm" onclick="smClose();navigate('${securityPageId('posture', _sm.mode)}')">${esc(t('sm.waf_open_posture'))} →</button></div>`;
     }
-    case 'f2b': {
-      const on = !!_sm.f2b?.enabled;
-      return `${smMasterHTML('Fail2Ban', t('sm.f2b_d'), on, 'smMaster_f2b')}
-        ${smCapsHTML(smF2BCaps(), 'smF2BCap', on)}
-        <details class="sm-more"><summary>${esc(t('sm.advanced'))}</summary>${f2bPanel(_sm.f2b)}</details>`;
+    case 'fleet': {
+      const on = !!_sm.fleet?.enabled;
+      return `${smMasterHTML('Seuils multi-passerelles', t('sm.fleet_d'), on, 'smMaster_fleet')}
+        ${smCapsHTML(smFleetCaps(), 'smFleetCap', on)}
+        <details class="sm-more"><summary>${esc(t('sm.advanced'))}</summary>${fleetPanel(_sm.fleet)}</details>`;
     }
     case 'cs': {
       const on = !!_sm.cs?.enabled;
@@ -617,12 +617,12 @@ window.secEnginesOpen = async function(tab) {
   let root = document.getElementById('sm-root');
   if (!root) { root = document.createElement('div'); root.id = 'sm-root'; document.body.appendChild(root); }
   root.innerHTML = `<div class="sm-scrim"><div class="sm-modal"><p style="padding:24px;color:var(--text2)">${esc(t('common.loading'))}</p></div></div>`;
-  const [threat, waf, wafActivity, wafProxies, f2b, cs, rules, scan, sla] = await Promise.all([
+  const [threat, waf, wafActivity, wafProxies, fleet, cs, rules, scan, sla] = await Promise.all([
     api('GET', `/security/threat-config${edgeQ}`).catch(() => ({})),
     api('GET', `/security/waf-config${edgeQ}`).catch(() => ({ enabled: true })),
     api('GET', `/security/waf-activity${edgeQ ? edgeQ + '&' : '?'}hours=24`).catch(() => null),
     api('GET', `/proxies${edgeQ}`).catch(() => null),
-    api('GET', '/security/fail2ban').catch(() => ({})),
+    api('GET', '/security/fleet').catch(() => ({})),
     api('GET', '/security/crowdsec').catch(() => ({})),
     mode === 'admin' ? api('GET', '/automation/flows?trigger=condition,event').catch(() => []) : Promise.resolve([]),
     api('GET', '/security/vulnscan/config').catch(() => ({})),
@@ -631,12 +631,12 @@ window.secEnginesOpen = async function(tab) {
   _sm.threat = threat || {};
   _sm.waf = waf || { enabled: true };
   _sm.wafInfo = { activity: wafActivity, proxies: wafProxies ? smWafProxyStats(wafProxies) : null };
-  _sm.f2b = f2b || {};
+  _sm.fleet = fleet || {};
   _sm.cs = cs || {};
   _sm.rules = Array.isArray(rules) ? rules : (rules?.rules || []);
   _sm.scan = scan || {};
   _sm.sla = sla || {};
-  window._f2bCfg = _sm.f2b;
+  window._fleetCfg = _sm.fleet;
   window._csCfg = _sm.cs;
   if (mode === 'admin') await FlowCatalog.load().catch(() => null);
   smRender();
@@ -700,40 +700,40 @@ window.smMaster_waf = function(on) {
   const cfg = { ..._sm.waf, enabled: on };
   return smSave(async () => { await api('PUT', `/security/waf-config${window._secEdgeQ || ''}`, cfg); _sm.waf = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
 };
-window.smMaster_f2b = function(on) {
-  const cfg = { ..._sm.f2b, enabled: on };
-  return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
+window.smMaster_fleet = function(on) {
+  const cfg = { ..._sm.fleet, enabled: on };
+  return smSave(async () => { await api('PUT', '/security/fleet', cfg); _sm.fleet = cfg; window._fleetCfg = cfg; }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
 };
-window.smF2BCap = function(key, on) {
+window.smFleetCap = function(key, on) {
   if (key === 'xff') {
-    const cfg = { ..._sm.f2b, trust_forwarded_for: on };
-    return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
+    const cfg = { ..._sm.fleet, trust_forwarded_for: on };
+    return smSave(async () => { await api('PUT', '/security/fleet', cfg); _sm.fleet = cfg; window._fleetCfg = cfg; });
   }
   if (key === 'permanent') {
-    const numCap = SM_NUM_CAPS.smF2BCap.permanent;
-    if (on === numCap.promptOn && !(_sm.prev.f2bDuration > 0)) {
+    const numCap = SM_NUM_CAPS.smFleetCap.permanent;
+    if (on === numCap.promptOn && !(_sm.prev.fleetDuration > 0)) {
       // « Ban permanent » désactivé sans durée jamais réglée : on demande la durée, on ne devine rien.
-      _sm.pendingNum = smNumCapPendingKey('smF2BCap', key);
+      _sm.pendingNum = smNumCapPendingKey('smFleetCap', key);
       smRender();
       document.getElementById('sm-num-' + _sm.pendingNum)?.focus();
       return;
     }
-    const cfg = { ..._sm.f2b };
-    if (on) { if (cfg.ban_duration_sec > 0) _sm.prev.f2bDuration = cfg.ban_duration_sec; cfg.ban_duration_sec = 0; }
-    else cfg.ban_duration_sec = _sm.prev.f2bDuration;
-    return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
+    const cfg = { ..._sm.fleet };
+    if (on) { if (cfg.ban_duration_sec > 0) _sm.prev.fleetDuration = cfg.ban_duration_sec; cfg.ban_duration_sec = 0; }
+    else cfg.ban_duration_sec = _sm.prev.fleetDuration;
+    return smSave(async () => { await api('PUT', '/security/fleet', cfg); _sm.fleet = cfg; window._fleetCfg = cfg; });
   }
 };
-window.smF2BCapValue = function(key) {
-  const pendingKey = smNumCapPendingKey('smF2BCap', key);
+window.smFleetCapValue = function(key) {
+  const pendingKey = smNumCapPendingKey('smFleetCap', key);
   const input = document.getElementById('sm-num-' + pendingKey);
   const hours = parseFloat(input?.value);
   if (!(hours > 0)) { input?.focus(); return; }
   _sm.pendingNum = null;
-  const cfg = { ..._sm.f2b, ban_duration_sec: Math.round(hours * SM_NUM_CAPS.smF2BCap.permanent.toSeconds) };
-  return smSave(async () => { await api('PUT', '/security/fail2ban', cfg); _sm.f2b = cfg; window._f2bCfg = cfg; });
+  const cfg = { ..._sm.fleet, ban_duration_sec: Math.round(hours * SM_NUM_CAPS.smFleetCap.permanent.toSeconds) };
+  return smSave(async () => { await api('PUT', '/security/fleet', cfg); _sm.fleet = cfg; window._fleetCfg = cfg; });
 };
-window.smF2BCapCancel = function() {
+window.smFleetCapCancel = function() {
   _sm.pendingNum = null;
   smRender();
 };

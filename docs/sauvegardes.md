@@ -38,7 +38,7 @@ Sauvegardées telles quelles (toutes colonnes), avec redaction des secrets.
 |---|---|---|
 | Paramètres | `settings` | Paramètres clé/valeur (dont l'allowlist d'IP du MCP `mcp.allowed_ips`) |
 | Sauvegardes | `backup_schedule` | Planifications |
-| Sécurité | `fail2ban_config`, `crowdsec_config` | Configuration des moteurs IPS |
+| Sécurité | `fleet_config`, `crowdsec_config` | Configuration des moteurs IPS |
 | Automatisation | `flows`, `flow_state`, `flow_versions`, `automation_silences` | Flux d'automatisation (règles, planifications, playbooks), leur état, leurs versions et les mises en sourdine. Les exécutions (`flow_runs`, `flow_run_steps`) font partie de l'historique |
 | Domaines & certificats | `domains`, `cert_deploy_targets` | Domaines, délégation DNS, cibles de déploiement de certificats |
 | Authentification | `auth_providers` | Fournisseurs OIDC / SAML / LDAP… |
@@ -73,7 +73,7 @@ Les paramètres de Haute Disponibilité (`NodeID`, `Peers`, `RaftPort`, voir [in
 - le secret des tokens de nœuds ;
 - dans les canaux d'alerte : `password`, `token`, `secret`, `api_key`, `app_token`, `user_token`, `webhook_url`, `authorization`, `private_key` ;
 - dans les tables de configuration : toute clé JSON dont le nom contient `secret`, `password`, `passwd`, `token`, `api_key`, `apikey`, `private_key`, `credential`, `webhook_url` ou `authorization` (ex. `client_secret` OIDC, identifiants DNS) ;
-- dans `settings`, `fail2ban_config`, `crowdsec_config` : la valeur de toute clé dont le nom correspond à ces motifs ;
+- dans `settings`, `fleet_config`, `crowdsec_config` : la valeur de toute clé dont le nom correspond à ces motifs ;
 - `portal_users.invite_token_hash`.
 
 **Conséquence** (snapshot sans clé `GPX_BACKUP_KEY`, donc sans section `secrets`) : après une restauration sur une instance vierge, il faut ressaisir ces secrets (tokens de nœuds à ré-émettre, secrets OIDC, identifiants DNS, webhooks…). À la restauration, un secret vidé **n'écrase jamais** une valeur déjà présente.

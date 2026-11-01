@@ -36,7 +36,7 @@ import (
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/edgelogs"
 	"github.com/vincamok/goproxify/internal/admin/edgews"
-	"github.com/vincamok/goproxify/internal/admin/fail2ban"
+	"github.com/vincamok/goproxify/internal/admin/fleet"
 	"github.com/vincamok/goproxify/internal/admin/gdpr"
 	"github.com/vincamok/goproxify/internal/admin/ha"
 	"github.com/vincamok/goproxify/internal/admin/internalca"
@@ -402,7 +402,7 @@ func (s *Server) Start(ctx context.Context) error {
 		logsH.EraseCopy = s.logVault.EraseIP
 		logsH.OnVaultRetention = s.applyVaultRetention
 	}
-	f2bEngine := fail2ban.New(s.db, s.log)
+	fleetEngine := fleet.New(s.db, s.log)
 	vsScanner := vulnscan.New(s.db, s.log, "")
 	csBouncer := crowdsec.New(s.db, s.log)
 	if cfg := csBouncer.GetConfig(); !cfg.Enabled {
@@ -440,10 +440,10 @@ func (s *Server) Start(ctx context.Context) error {
 			go manager.PushIPProfiles(context.Background())
 		}
 	}
-	f2bEngine.OnBan = func(ip, reason string) {
+	fleetEngine.OnBan = func(ip, reason string) {
 		if s.alertingEngine != nil {
 			s.alertingEngine.Emit(alerting.Event{
-				Trigger:   alerting.TriggerFail2BanBan,
+				Trigger:   alerting.TriggerFleetBan,
 				Severity:  alerting.SevWarning,
 				Component: "admin",
 				Detail:    map[string]any{"ip": ip, "reason": reason},
@@ -474,7 +474,7 @@ func (s *Server) Start(ctx context.Context) error {
 		Edge:         prismSrc,
 		Log:          s.log,
 		Store:        security.New(s.db),
-		Fail2Ban:     f2bEngine,
+		Fleet:        fleetEngine,
 		VulnScan:     vsScanner,
 		CrowdSec:     csBouncer,
 		ScanCtx:      ctx,
@@ -548,7 +548,7 @@ func (s *Server) Start(ctx context.Context) error {
 				s.alertingEngine.Emit(ev)
 			}
 		},
-		F2BLastActivity:  f2bEngine.LastActivity,
+		FleetLastActivity: fleetEngine.LastActivity,
 		CrowdSecLastSync: csBouncer.LastSync,
 		RunBackup: func(_ context.Context, name string, retention int) error {
 			return backupSched.TakeSnapshot(name, "", retention)
@@ -639,7 +639,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	geoResolver.Start(ctx)
 
-	f2bEngine.Start(ctx)
+	fleetEngine.Start(ctx)
 	vsScanner.Start(ctx)
 	csBouncer.Start(ctx)
 	backupSched.Start(ctx)

@@ -26,7 +26,7 @@ type DetectorCheck func(cfg map[string]any) error
 // l'ordre des middlewares compte (le WAF s'exécute avant le filtre IP…) et ne se déduit pas d'une
 // liste de modules.
 //
-// Les moteurs globaux à état (Ephor, Fail2Ban, CrowdSec) ne sont pas des détecteurs par route :
+// Les moteurs globaux à état (Ephor, CrowdSec) ne sont pas des détecteurs par route :
 // ils lisent leurs bans partagés et ne rentrent pas dans ce registre.
 var detectorRegistry = modules.NewRegistry[DetectorCheck]()
 

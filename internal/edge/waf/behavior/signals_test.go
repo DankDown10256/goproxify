@@ -272,10 +272,10 @@ func TestPeerNoteExpiresWithTheEntry(t *testing.T) {
 
 func TestExternalDecisionsAreDetectOnly(t *testing.T) {
 	s, clk := newClockStore(time.Minute)
-	s.AddSignal("203.0.113.5", SignalFail2Ban, 5, clk.t.Add(time.Hour))
+	s.AddSignal("203.0.113.5", SignalCrowdSec, 5, clk.t.Add(time.Hour))
 	score, sig := s.Score("203.0.113.5")
-	if got, ok := find(sig, SignalFail2Ban); !ok || !got.Detect || score != 0 {
-		t.Fatalf("une décision de Fail2Ban est une entrée de la note d'Ephor, pas du WAF : score=%d %+v", score, sig)
+	if got, ok := find(sig, SignalCrowdSec); !ok || !got.Detect || score != 0 {
+		t.Fatalf("une décision de CrowdSec est une entrée de la note d'Ephor, pas du WAF : score=%d %+v", score, sig)
 	}
 }
 
@@ -484,7 +484,7 @@ func TestConcurrentUse(t *testing.T) {
 				s.References()
 				st := s.ExportState()
 				s.ImportState(st)
-				s.AddSignal("10.0.0.9", SignalFail2Ban, 5, time.Now().Add(time.Minute))
+				s.AddSignal("10.0.0.9", SignalCrowdSec, 5, time.Now().Add(time.Minute))
 				s.gc()
 			}
 		}

@@ -34,7 +34,7 @@ func newBanNode(t *testing.T, name string) *banNode {
 	t.Cleanup(func() { _ = db.Close() })
 	cfg := &config.EdgeConfig{}
 	cfg.Identity.NodeName = name
-	s := &Server{cfg: cfg, log: edgelog.New("error", "text", ""), bansDB: db, banStore: router.NewBanStore()}
+	s := &Server{cfg: cfg, log: edgelog.New("error", "text", ""), bansDB: db, banStore: router.NewBanStore(), profileStore: router.NewIPProfileStore()}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+bansGossipPath, s.handleBansGossip)
 	mux.HandleFunc("GET /internal/v1/bans", s.handleListBans)

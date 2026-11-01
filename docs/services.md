@@ -18,7 +18,7 @@ GoProxify est composé de trois processus indépendants qui communiquent via Web
 | **RBAC** | Contrôle les permissions par rôle (admin, viewer, operator) sur chaque ressource API. |
 | **MFA** | Gère TOTP, passkeys WebAuthn et les codes de récupération pour les utilisateurs. |
 | **Audit Logger** | Journalise chaque action admin (création/suppression/modification) dans la table SQLite `audit_log`. |
-| **Fail2Ban** | Analyse la table `logs` toutes les 30 s, bannit automatiquement les IPs abusives (4xx répétés). |
+| **Seuils multi-passerelles** | Analyse les compteurs d'erreurs de toutes les passerelles toutes les 30 s, bannit automatiquement les IPs dont les 4xx répétés se répartissent entre elles. Les Seuils des passerelles sont dans Ephor. | |
 | **CrowdSec Bouncer** | Synchronise les décisions de la LAPI CrowdSec toutes les 60 s vers `security_bans`. |
 | **Automatisation** | Exécute les flux (règles, planifications, playbooks) : conditions évaluées à l'intervalle de chaque flux (60 s par défaut), événements du moteur d'alertes, cron, lancements manuels ; attentes et approbations reprises après redémarrage. Seul le leader HA exécute. Les flux simples tournent sur les passerelles (ADR 0009). |
 | **VulnScan** | Sonde les en-têtes HTTP des backends toutes les 6 h et interroge NVD pour détecter les CVEs. |

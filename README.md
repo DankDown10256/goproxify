@@ -243,7 +243,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 - Hot configuration reload, zero connection interruption
 - Load balancing (Round Robin, Weighted, adaptive CPU/mem/IO + failover + inter-Edge gateway), Circuit Breaker, Retry, per-route slow-start
 - Rate limiting, per-route **backpressure** (bounded queue, 503 + Retry-After), IP/CIDR filtering, Geo-IP, **OWASP CRS-4 WAF** (13 rule sets: SQLi, XSS, LFI, RCE, PHP, SSRF, Scanner, Java/Log4Shell, RFI, NodeJS, HTTP Smuggling, Sensitive Files, Response Leaks), HTTP security headers
-- **Automation flows** — rules, schedules and playbooks built in one flow editor: a trigger (conditions on CVEs, bans, error rate, offline nodes, expiring certificates or any sampled metric; alert events; cron; manual runs with parameters) → steps (disable proxy, ban IP, notify, strict Fail2Ban mode, webhooks, PagerDuty, backup, wait, if/else, human approval, call a playbook); simulation, versions, parameterised templates, and simple flows run by the gateways even when the Admin is down
+- **Automation flows** — rules, schedules and playbooks built in one flow editor: a trigger (conditions on CVEs, bans, error rate, offline nodes, expiring certificates or any sampled metric; alert events; cron; manual runs with parameters) → steps (disable proxy, ban IP, notify, strict mode hardening Ephor, webhooks, PagerDuty, backup, wait, if/else, human approval, call a playbook); simulation, versions, parameterised templates, and simple flows run by the gateways even when the Admin is down
 - Basic, Forward Auth, JWT authentication per route
 - Live topology map (health, req/s, risk score per node), async JSON access log, Prometheus metrics, OpenTelemetry tracing (W3C `traceparent` propagated caller → Edge → backend, sampling)
 - **GoProxify Access** — operator portal on the Edge: web terminal + UUID `ssh` to VMs/`sshd` and Docker containers (`docker exec` via Agent); SSH login vault + secrets; 2FA; TTL sessions
@@ -310,7 +310,7 @@ Full reference → **[docs/cli.md](docs/cli.md)**
 
 ## Environment variables
 
-`GPX_*` variables are read when a component first starts, to generate its `admin.json` / `edge.json` / `agent.json`; once the file exists, **the JSON wins** (only `engine.metrics_disabled`, `engine.access_log_disabled` and `identity.node_name` can still come from the environment when absent from the JSON).  
+`GPX_*` variables are read when a component first starts, to generate its `admin.json` / `edge.json` / `agent.json`; once the file exists, **the JSON wins** (only `engine.metrics_disabled`, `engine.access_log_disabled`, `network.unknown_host_action` and `identity.node_name` can still come from the environment when absent from the JSON).  
 See `.env.example` for the full list.
 
 | Variable | Component | Description |
@@ -342,7 +342,7 @@ See `.env.example` for the full list.
 | Discovery | Docker Engine API via Unix socket, Portainer, Kubernetes, Consul, Nomad, etcd v3, Amazon ECS |
 | Plugins | WebAssembly via `wazero` (no CGO) |
 | Metrics | Prometheus on the Edge internal API (`:8000/metrics`, bearer token; public `/metrics` only with `GPX_METRICS_PUBLIC=1`), OpenTelemetry (OTLP) |
-| Security | OWASP CRS-4 WAF (13 rule sets, request + response inspection), behavioral Ephor, native Fail2Ban, CrowdSec, **automation flows** (rules, schedules, playbooks with approval), step-by-step **IP / CIDR trace** over long periods, rate limiting, Geo-IP, ECDSA P-256 JWT, HMAC-SHA256 WS, CVE scanner with KEV/EPSS enrichment and configurable remediation SLA |
+| Security | OWASP CRS-4 WAF (13 rule sets, request + response inspection), behavioral Ephor (thresholds and a seasonal traffic reference included), CrowdSec, **automation flows** (rules, schedules, playbooks with approval), step-by-step **IP / CIDR trace** over long periods, rate limiting, Geo-IP, ECDSA P-256 JWT, HMAC-SHA256 WS, CVE scanner with KEV/EPSS enrichment and configurable remediation SLA |
 | Deployment | Single binary · Docker Compose · systemd |
 
 ---

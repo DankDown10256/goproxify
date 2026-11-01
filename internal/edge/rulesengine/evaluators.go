@@ -44,16 +44,12 @@ func (e *Engine) evalEngineSilent(c Condition) (bool, map[string]any, error) {
 
 	var lastActivity time.Time
 	switch c.EngineType {
-	case "fail2ban":
-		if e.deps.GetF2BLastActivity != nil {
-			lastActivity = e.deps.GetF2BLastActivity()
-		}
 	case "crowdsec":
 		if e.deps.GetCrowdSecLastSync != nil {
 			lastActivity = e.deps.GetCrowdSecLastSync()
 		}
 	default:
-		return false, nil, fmt.Errorf("engine_type doit être 'fail2ban' ou 'crowdsec'")
+		return false, nil, fmt.Errorf("engine_type doit être 'crowdsec' sur une passerelle")
 	}
 
 	if lastActivity.IsZero() {

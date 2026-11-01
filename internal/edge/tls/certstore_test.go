@@ -57,6 +57,32 @@ func TestCertStoreWildcardApex(t *testing.T) {
 	}
 }
 
+func TestCertStoreNameFor(t *testing.T) {
+	store := edgetls.NewCertStore()
+	cert, err := tls.X509KeyPair(testCertPEM, testKeyPEM)
+	if err != nil {
+		t.Skip("certificat de test invalide:", err)
+	}
+	store.Store("*.example.fr", &cert)
+	store.Store("app.other.fr", &cert)
+
+	for sni, want := range map[string]string{
+		"app.other.fr":     "app.other.fr",
+		"sub.example.fr":   "*.example.fr",
+		"x1234.example.fr": "*.example.fr",
+		"example.fr":       "*.example.fr",
+	} {
+		if got, ok := store.NameFor(sni); !ok || got != want {
+			t.Errorf("NameFor(%q) = %q, %v ; attendu %q", sni, got, ok, want)
+		}
+	}
+	for _, sni := range []string{"", "unknown.other.fr", "1.2.3.4"} {
+		if got, ok := store.NameFor(sni); ok {
+			t.Errorf("NameFor(%q) = %q ; attendu aucun certificat", sni, got)
+		}
+	}
+}
+
 func TestPushNamesFromSAN(t *testing.T) {
 	// testCertPEM a CN=localhost sans SAN DNS utiles — PushNames retombe sur dbDomain
 	names := edgetls.PushNames("comprenonsnous.fr", testCertPEM)
