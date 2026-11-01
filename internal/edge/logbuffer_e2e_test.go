@@ -103,8 +103,9 @@ func TestAReplacedAdminLogVolumeLowersTheAckAndGetsTheLinesAgain(t *testing.T) {
 	t.Cleanup(second.stop)
 	second.start(t, gw.url)
 	waitUntil(t, "les lignes renvoyées au volume neuf", func() bool { return second.vaultCount(t, streamEdgeID, "/histoire") == 25 })
+	last := gw.logStore.LastID(logstore.KindAccess)
 	gw.logStore.Purge(time.Now().Add(20 * 24 * time.Hour))
 	waitUntil(t, "la position acquittée à nouveau à la fin", func() bool {
-		return gw.logStore.Acked("access") == gw.logStore.LastID(logstore.KindAccess)
+		return gw.logStore.Acked("access") == last
 	})
 }

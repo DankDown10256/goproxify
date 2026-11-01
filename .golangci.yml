@@ -3,25 +3,26 @@ version: "2"
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - bodyclose
     - noctx
     - exhaustive
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
 
-linters-settings:
-  goimports:
-    local-prefixes: github.com/vincamok/goproxify
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/vincamok/goproxify

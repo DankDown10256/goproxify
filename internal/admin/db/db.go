@@ -54,6 +54,10 @@ func Open(path string) (*sql.DB, error) {
 
 // migrate applique les CREATE TABLE IF NOT EXISTS au démarrage.
 func migrate(db *sql.DB) error {
+	if err := migrateCoreToEdge(db); err != nil {
+		return err
+	}
+
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id           TEXT PRIMARY KEY,

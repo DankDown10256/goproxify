@@ -25,6 +25,7 @@ import (
 //	GPX_SERVER_API_PORT=9443
 //	GPX_SECURITY_JWT_SECRET=mon_secret_prod
 //	GPX_CONTROL_PLANE_AUTH_TOKEN=gpx_edge_abc123
+//
 // Load charge la configuration depuis un fichier JSON.
 //
 // Comportement selon l'état du fichier :
@@ -57,6 +58,8 @@ func Load[T AdminConfig | EdgeConfig | AgentConfig | LandingConfig](configPath s
 	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("lecture config %q : %w", configPath, err)
 	}
+
+	migrateLegacyKeys(v)
 
 	// Les env vars ne surchargent que les clés absentes du JSON (pas de AutomaticEnv global).
 	// On bind uniquement les clés qui peuvent légitimement manquer dans le JSON

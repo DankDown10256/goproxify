@@ -18,12 +18,12 @@ func TestMigrateCoreToEdge(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range []string{
-		`CREATE TABLE tokens (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, role TEXT NOT NULL, node_name TEXT NOT NULL, node_endpoint TEXT)`,
+		`CREATE TABLE tokens (id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, role TEXT NOT NULL, node_name TEXT NOT NULL, node_endpoint TEXT, expires_at DATETIME)`,
 		`CREATE TABLE declared_nodes (id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('core','agent')), name TEXT NOT NULL, config TEXT NOT NULL DEFAULT '{}')`,
 		`CREATE TABLE token_scopes (id TEXT PRIMARY KEY, token_id TEXT NOT NULL, scope_type TEXT NOT NULL CHECK(scope_type IN ('domain','server','proxy','core')), scope_value TEXT NOT NULL)`,
 		`CREATE TABLE security_threats (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, scenario TEXT NOT NULL DEFAULT '', core_name TEXT NOT NULL DEFAULT '', cvss_score REAL NOT NULL DEFAULT 0)`,
 		`CREATE INDEX idx_threats_core ON security_threats (core_name)`,
-		`INSERT INTO tokens VALUES ('t1','gpx_core_abc','core','core-a','http://c:8000')`,
+		`INSERT INTO tokens (id, token, role, node_name, node_endpoint) VALUES ('t1','gpx_core_abc','core','core-a','http://c:8000')`,
 		`INSERT INTO declared_nodes VALUES ('d1','core','core-b','{"target_core":"x","core_endpoint":"http://y"}')`,
 		`INSERT INTO token_scopes VALUES ('s1','t1','core','core-a')`,
 		`INSERT INTO security_threats (ip, core_name, cvss_score) VALUES ('1.2.3.4','core-a',7.5)`,
