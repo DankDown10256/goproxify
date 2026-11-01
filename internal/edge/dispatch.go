@@ -275,6 +275,26 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Seuils à clé de compte, d'empreinte ou d'ASN (ADR 0020, étape 4.a) : une clé sous protection soumet les IP sans historique propre
+	// au défi (navigation) ou à un plafond de tentatives. Aucun ban, aucun verrouillage de compte.
+	if s.threatEngine != nil && !whitelisted {
+		if guard := s.threatEngine.KeyProtection(r, route.Host, remoteIP); guard != nil {
+			if g := s.gwChallenge.Load(); g != nil && g.Applies(r, route) && !g.HasProof(r) {
+				s.threatEngine.CountKey("challenged")
+				r = threat.WithSignal(r, "threat: seuil "+guard.Rule)
+				tracing.Event(r.Context(), "ephor.threshold.challenge")
+				g.Serve(w, r)
+				return
+			}
+			if !guard.Allow(time.Now()) {
+				s.threatEngine.CountKey("limited")
+				w.Header().Set("Retry-After", "30")
+				serveDefaultError(w, r, http.StatusTooManyRequests)
+				return
+			}
+		}
+	}
+
 	locPath := ""
 	if loc := router.MatchLocation(route, r.URL.Path); loc != nil {
 		locPath = loc.Path

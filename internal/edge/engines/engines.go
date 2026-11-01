@@ -290,6 +290,12 @@ func decodeEphor(raw []byte) error {
 	if err := c.ValidateUnknownHost(); err != nil {
 		return err
 	}
+	if err := c.ValidateTLSReputation(); err != nil {
+		return err
+	}
+	if err := c.ValidateEnumeration(); err != nil {
+		return err
+	}
 	if err := c.ValidateSeasonal(); err != nil {
 		return err
 	}

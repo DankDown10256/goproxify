@@ -118,7 +118,7 @@ var mcpTools = []string{
 	"list_flows", "get_flow", "list_flow_versions", "list_flow_runs", "get_flow_run", "get_automation_catalog", "list_flow_templates", "list_silences", "export_automation",
 	"create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "list_ban_whitelist", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
 	"create_ip_profile", "delete_ip_profile", "create_auth_provider", "delete_auth_provider",
-	"get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
+	"get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_tls_reputation", "get_domain_watch", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
 	"create_flow", "update_flow", "set_flow_enabled", "delete_flow", "run_flow", "simulate_flow", "restore_flow_version", "detach_flow", "update_flow_params", "decide_flow_run", "cancel_flow_run", "replay_flow_run", "install_flow_template", "create_silence", "delete_silence", "import_automation",
 	"get_portal_config", "list_portal_destinations", "preview_portal_destinations", "list_portal_destination_groups",
 	"list_portal_users", "list_portal_groups", "list_portal_audit", "list_portal_sessions", "terminate_portal_session", "list_portal_access_requests", "decide_portal_access_request", "get_portal_policy", "set_portal_policy", "list_portal_recordings", "delete_portal_recording", "list_portal_templates", "get_portal_template",
@@ -264,7 +264,7 @@ func ToolRequiredScope(tool string) string {
 		return ScopeTeamsRead
 	case "get_audit_log",
 		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_ban_whitelist",
-		"list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", 
+		"list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_tls_reputation", "get_domain_watch", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", 
 		"list_ip_profiles", "list_auth_providers", "list_auth_provider_types",
 		"list_flows", "get_flow", "list_flow_versions", "list_flow_runs", "get_flow_run", "get_automation_catalog", "list_flow_templates", "list_silences", "export_automation":
 		return ScopeAuditRead
@@ -298,7 +298,7 @@ func ToolRequiresAdmin(tool string) bool {
 	case "list_agents", "approve_agent", "revoke_agent",
 		"get_architecture", "list_discovery_sources", "list_dns_providers", "list_dns_provider_types",
 		"list_backups", "list_users", "list_teams",
-		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
+		"get_security_overview", "list_security_bans", "list_security_engine_types", "get_waf_activity", "list_plugins", "lookup_asn", "list_security_threats", "list_security_cves", "get_proxy_surface", "get_app_inventory", "get_entry_rejections", "get_traffic_reference", "get_tls_reputation", "get_domain_watch", "get_proxy_surface_proposals", "get_proxy_surface_openapi", "get_proxy_surface_suggestions", "reset_proxy_surface", "enforce_proxy_surface", "accept_proxy_surface_suggestions", "relax_proxy_surface",
 		"create_security_ban", "delete_security_ban", "ban_ip", "unban_ip", "get_siem_status", "simulate_ephor_config", "get_ephor_references", "suggest_ephor_thresholds", "trace_ip", "preview_security_ban", "preview_asn_ban", "list_ban_whitelist", "add_ban_whitelist", "remove_ban_whitelist", "import_security_bans", "ban_asn", "unban_asn",
 		"list_auth_providers", "list_auth_provider_types", "create_auth_provider", "delete_auth_provider",
 		"list_internal_cas", "list_internal_certs", "get_ech_status", "create_internal_ca", "issue_internal_cert", "revoke_internal_cert",

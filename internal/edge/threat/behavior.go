@@ -137,6 +137,12 @@ func (e *Engine) Observe(r *http.Request, ip, route string, status int) {
 		}
 	}
 	e.RecordResponse(ip, r.URL.Path, status)
+	if cfg.Enabled && cfg.TLSReputation.Enabled {
+		e.observeTLSReputation(r, ip, status, behavior.ObservationFrom(r.Context()))
+	}
+	if cfg.Enabled && cfg.Enumeration.Active() {
+		e.observeEnumeration(r.URL.Path, ip, route, cfg)
+	}
 	if cfg.Enabled && cfg.Seasonal.Active() {
 		e.seasonal.Record(route, ip, status, r.URL.Path)
 	}
@@ -164,6 +170,7 @@ func (e *Engine) ForgetIP(ip string) {
 	e.counters.reset(ip)
 	e.unknown.forget(ip)
 	e.thresholdCounters.forget(ip)
+	e.enum.forget(ip)
 	e.mu.RLock()
 	st := e.behavior
 	e.mu.RUnlock()

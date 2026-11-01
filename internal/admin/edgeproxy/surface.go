@@ -121,3 +121,12 @@ func (c *Client) Seasonal(ctx context.Context, t Target) (*logapi.SeasonalRespon
 	}
 	return &out, nil
 }
+
+// TLSReputation demande à la passerelle la réputation de ses empreintes TLS et ses propositions (ADR 0020, étape 4.c).
+func (c *Client) TLSReputation(ctx context.Context, t Target) (*logapi.TLSReputationResponse, error) {
+	var out logapi.TLSReputationResponse
+	if err := c.do(ctx, t, http.MethodGet, logapi.PathTLSReputation, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

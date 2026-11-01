@@ -492,6 +492,7 @@ function smTabs() {
     { id: 'cs', label: 'CrowdSec', on: !!_sm.cs?.enabled },
   ];
   if (admin) list.push({ id: 'rules', label: t('security.rules.tab_rules'), on: rulesOn });
+  if (admin) list.push({ id: 'domains', label: 'Domaines', on: !!(_sm.dw?.config?.enabled) });
   list.push({ id: 'scan', label: t('sm.tab.scan'), on: null });
   return list;
 }
@@ -561,6 +562,8 @@ function smPanelHTML() {
         <div class="sm-caps"><div class="sm-cap"><div class="sm-cap-d"><b>${esc(t('sm.cs_lapi'))}</b><span>${esc(t('sm.cs_lapi_d'))}</span></div><div class="sm-cap-r"><span class="sm-val">${esc(_sm.cs?.api_url || '—')}</span></div></div></div>
         <details class="sm-more"><summary>${esc(t('sm.advanced'))}</summary>${crowdSecPanel(_sm.cs)}</details>`;
     }
+    case 'domains':
+      return smDwPanelHTML();
     case 'rules': {
       const rules = _sm.rules;
       return `<div class="sm-master"><div><b>${esc(t('security.rules.tab_rules'))}</b><p>${esc(t('sm.rules_d'))}</p></div></div>
@@ -636,6 +639,7 @@ window.secEnginesOpen = async function(tab) {
   _sm.rules = Array.isArray(rules) ? rules : (rules?.rules || []);
   _sm.scan = scan || {};
   _sm.sla = sla || {};
+  if (mode === 'admin') await smDwReload();
   window._fleetCfg = _sm.fleet;
   window._csCfg = _sm.cs;
   if (mode === 'admin') await FlowCatalog.load().catch(() => null);
@@ -759,4 +763,65 @@ window.smSaveSla = function(e) {
     low_days: num('sm-sla-low', 90),
   };
   return smSave(async () => { await api('PUT', '/security/sla-config', cfg); _sm.sla = cfg; }, t('sm.sla_saved'));
+};
+
+// ── Onglet « Domaines » : surveillance des domaines (ADR 0020, étape 4.d) ─────────────────────────────────────────────
+// Tout est désactivé par défaut : chaque vérification envoie des noms de domaine à un service extérieur et s'active séparément.
+
+function smDwCaps(cfg) {
+  return [
+    { key: 'ct', on: !!cfg.ct, label: 'Certificats émis hors de GoProxify', desc: 'Consulte un journal de transparence (crt.sh par défaut) : envoie vos noms de domaine à ce service. Les certificats déjà présents à la première analyse sont listés sans alerte.' },
+    { key: 'caa', on: !!cfg.caa, label: 'Enregistrements CAA', desc: 'Interroge le DNS : CAA absents, trop larges, ou qui n\'autoriseraient pas l\'autorité de GoProxify (les renouvellements échoueraient).' },
+    { key: 'dangling', on: !!cfg.dangling, label: 'Noms pendants', desc: 'Interroge le DNS : un nom dont le CNAME pointe vers une cible qui n\'existe plus peut être détourné.' },
+  ];
+}
+
+function smDwFindingsHTML(findings) {
+  const rows = (findings || []).filter(f => f.status === 'open' || f.status === 'baseline').slice(0, 50).map(f => {
+    const d = (() => { try { return typeof f.detail === 'string' ? JSON.parse(f.detail) : (f.detail || {}); } catch { return {}; } })();
+    const what = f.check === 'ct' ? `certificat ${esc((f.key || '').slice(0, 16))} · ${esc(d.issuer || '')}` : f.check === 'dangling' ? `CNAME vers ${esc(d.target || '?')}` : esc(f.key);
+    const sev = f.status === 'baseline' ? 'tag-yellow' : f.severity === 'critical' ? 'tag-red' : f.severity === 'warning' ? 'tag-yellow' : 'tag-green';
+    return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 4px">${esc(f.domain)}</td><td style="padding:5px 4px"><span class="tag ${sev}">${esc(f.status === 'baseline' ? 'déjà là' : f.check)}</span></td>
+      <td style="padding:5px 4px;font-size:12px">${what}</td>
+      <td style="padding:5px 4px;text-align:right"><button type="button" class="btn btn-ghost btn-sm" data-dw="${esc(f.domain)}|${esc(f.check)}|${esc(f.key)}" onclick="smDwAccept(this.dataset.dw)">Reconnaître</button></td></tr>`;
+  }).join('');
+  return rows
+    ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px"><tbody>${rows}</tbody></table>`
+    : '<p class="vs-hint">Aucun constat à traiter.</p>';
+}
+
+function smDwPanelHTML() {
+  const d = _sm.dw || {};
+  const cfg = d.config || {};
+  const st = d.state || {};
+  const on = !!cfg.enabled;
+  const last = st.last_run && !st.last_run.startsWith('0001') ? new Date(st.last_run).toLocaleString('fr-FR') : 'jamais';
+  return `${smMasterHTML('Surveillance des domaines', 'Alerte (système d\'alertes, déclencheur domain_watch) si un certificat est émis hors de GoProxify, si les CAA sont absents ou trop larges, ou si un nom pointe vers une cible disparue. Indépendante du trafic.', on, 'smMaster_dw')}
+    ${smCapsHTML(smDwCaps(cfg), 'smDwCap', on)}
+    <div class="vs-hint">Dernière analyse : ${esc(last)} · ${st.domains || 0} domaine(s)${st.running ? ' · en cours' : ''}${st.last_error ? ` · <span style="color:var(--red)">${esc(st.last_error)}</span>` : ''}</div>
+    <div style="margin:8px 0"><button type="button" class="btn btn-ghost btn-sm" onclick="smDwRun()" ${on && (cfg.ct || cfg.caa || cfg.dangling) ? '' : 'disabled'}>Analyser maintenant</button></div>
+    ${smDwFindingsHTML(d.findings)}
+    <details class="sm-more"><summary>${esc(t('sm.advanced'))}</summary>
+      <p class="vs-hint">Cadence, émetteurs tolérés, résolveur et journal : <code>goproxify security domain-watch config -file …</code> ou <code>PUT /api/v1/security/domain-watch</code> (interval_hours, trusted_issuers, resolver, ct_endpoint, ca_issuer).</p>
+    </details>`;
+}
+
+async function smDwReload() {
+  _sm.dw = await api('GET', '/security/domain-watch').catch(() => ({}));
+}
+
+window.smMaster_dw = function(on) {
+  const cfg = { ...((_sm.dw || {}).config || {}), enabled: on };
+  return smSave(async () => { await api('PUT', '/security/domain-watch', cfg); await smDwReload(); }, t(on ? 'security.engine_enabled' : 'security.engine_disabled'));
+};
+window.smDwCap = function(key, on) {
+  const cfg = { ...((_sm.dw || {}).config || {}), [key]: on };
+  return smSave(async () => { await api('PUT', '/security/domain-watch', cfg); await smDwReload(); });
+};
+window.smDwRun = function() {
+  return smSave(async () => { await api('POST', '/security/domain-watch/run'); await smDwReload(); }, 'Analyse lancée');
+};
+window.smDwAccept = function(packed) {
+  const [domain, check, key] = String(packed).split('|');
+  return smSave(async () => { await api('POST', '/security/domain-watch/accept', { domain, check, key }); await smDwReload(); }, 'Constat reconnu');
 };

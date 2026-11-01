@@ -1297,6 +1297,28 @@ Les deux enrichissements (KEV, EPSS) sont du meilleur effort : un réseau extern
 
 La configuration se règle par `PUT /api/v1/security/threat-config` (clé `seasonal` : `mode` `off` | `detect` | `block`, `floor_rps`, `fast_factor`, `slow_sigmas`, `min_hours`, `cap_factor`).
 
+### `GET /api/v1/security/tls-reputation` · `POST /api/v1/security/tls-reputation/accept`
+
+*(Admin `0.239.0`, Edge `0.146.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.c)* Les empreintes TLS (JA4) que les passerelles proposent pour `custom_lists.tls_fingerprints` d'Ephor, avec leurs preuves ([Réputation des empreintes TLS](security.md#réputation-des-empreintes-tls)). `GET` : paramètre `edge` pour n'interroger qu'une passerelle, scope `audit:read`.
+
+```json
+{ "gateways": [ { "node_id": "…", "node_name": "paris", "reputation": {
+    "enabled": true, "tracked": 40, "browsers": 3,
+    "proposals": [ { "ja4": "t13d1010h2_aaaaaaaaaaaa_bbbbbbbbbbbb", "ips": 60, "requests": 400, "bad_share": 1,
+                     "waf_share": 0.33, "error_share": 1, "first_seen": "…", "last_seen": "…" } ] } } ] }
+```
+
+`POST …/accept` (administrateurs) : corps `{ "ja4s": ["…"] }` ou `{ "all": true }`, paramètre `edge` pour la portée (groupe ou passerelle) ; sans lui, la configuration globale. Ajoute les empreintes à `custom_lists.tls_fingerprints`, conserve le reste de la configuration d'Ephor et la pousse aux passerelles. Réponse `{ "added": […], "already": […] }`. `409` si une empreinte n'est pas proposée à cet instant (seules les propositions actuelles peuvent être ajoutées) ou si Ephor n'a pas de configuration enregistrée pour la portée.
+
+### `GET|PUT /api/v1/security/domain-watch` · `POST …/run` · `POST …/accept`
+
+*(Admin `0.240.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.d)* La surveillance des domaines déclarés dans l'Admin ([Surveillance des domaines](security.md#surveillance-des-domaines)). Tout est désactivé par défaut : chaque vérification envoie des noms de domaine à un service extérieur et s'active séparément.
+
+- **`GET`** (scope `audit:read`) : `{ "config": {…}, "state": { "last_run", "last_error", "domains", "running", "duration_ms" }, "open": N, "findings": [{ "domain", "check", "key", "status", "severity", "detail", "first_seen", "last_seen" }] }`. `check` : `ct`, `caa`, `dangling`. `status` : `open` (à traiter), `resolved`, `baseline` (déjà là à la première analyse), `ours` (certificat de GoProxify), `trusted` (émetteur toléré), `accepted`. Pour `ct`, `key` est le numéro de série du certificat (hexadécimal) et `detail` porte l'émetteur, les noms et les dates ; pour `caa`, `key` vaut `caa_missing`, `caa_excludes_ca` ou `caa_too_wide` ; pour `dangling`, `dangling_cname` et `detail.target`.
+- **`PUT`** (administrateurs) : corps `{ "enabled", "ct", "caa", "dangling", "ct_endpoint", "resolver", "interval_hours", "trusted_issuers", "ca_issuer" }`, champs inconnus refusés. `interval_hours` de 6 à 168 ; `ct_endpoint` en https, adresses privées refusées ; `resolver` en `hôte:port`. `204`.
+- **`POST …/run`** : lance une analyse en arrière-plan, `202`. `409` si la surveillance est désactivée, `429` si une analyse tourne ou si la dernière à la demande date de moins de cinq minutes.
+- **`POST …/accept`** : corps `{ "domain", "check", "key" }`, reconnaît un constat ouvert ou de référence. `204`, `404` si aucun ne correspond.
+
 ### `GET /api/v1/security/inventory`
 
 *(Admin `0.208.0`, Edge `0.122.0`, Agent `0.19.0` ; empreinte des réponses : Admin `0.209.0`, Edge `0.123.0`)* Applications que chaque passerelle reconnaît derrière ses proxies, d'après l'image du conteneur annoncée par l'Agent (proxys créés par labels) et d'après ce que les réponses du backend annoncent, lu avant `hide_server` (tous les proxys). Paramètres facultatifs : `route` (identifiant ou hôte d'un proxy), `edge` (une seule passerelle). Réponse : `{ "gateways": [{ "node_id", "node_name", "entries": [ … ] }], "unreachable": […] }`. Chaque entrée : `route`, `host`, `backend`, `container`, `source` (`image` : image du conteneur ; `headers` : en-tête `Server`, `X-Powered-By`, `X-Generator`… ; `html` : `<meta name="generator">`), `evidence` (la référence d'image, l'en-tête ou la balise lue), `note` (désaccord entre l'image et les réponses du backend), et, quand l'image est dans la table des produits connus, `product`, `cpe` (`vendor:product` NVD, absent si le produit est connu sans identifiant sûr : « non couvert »), `version` (absente si l'étiquette n'est pas une version : `latest`, condensat…), `partial` (la version n'a que deux composantes). Une entrée sans `product` est une image non reconnue. Une seule entrée par (backend, produit) : celle qui porte une version l'emporte, l'image à égalité. Chaque entrée porte `coverage` *(Admin `0.210.0`)* : `covered` (CPE et version : cherché dans NVD), `no_version`, `no_cpe` (produit reconnu sans identifiant sûr) ou `unknown` (absent de la table ; un logiciel versionné d'un en-tête est consigné sans `product`). La réponse porte aussi `coverage` : `{ total, covered, partial, no_version, no_cpe, unknown, gaps: [{ reason, name, evidence, entries, hosts }] }`, les `gaps` regroupant ce qui n'est pas cherché par raison et par nom, le plus fréquent d'abord ; les surcharges de CPE sont déjà appliquées. Scope `audit:read`, rôle admin. C'est ce que lit le scanner de vulnérabilités.
@@ -1328,6 +1350,12 @@ Déclenche une synchronisation LAPI immédiate.
 ### `GET /api/v1/security/threat-config` · `PUT /api/v1/security/threat-config`
 
 Configuration du moteur Ephor. `custom_lists` accepte `ips`, `uas`, `paths` et `tls_fingerprints` : signatures **JA3** (MD5, 32 caractères hexadécimaux) ou **JA4** (ex. `t13d1516h2_8daaf6152771_02713d6af862`, insensible à la casse) dont le client est banni (signal `tls_fp`, score critique comme une IP de liste de menaces). L'empreinte est calculée par la passerelle depuis le ClientHello TLS ; elle ne s'applique ni au HTTP clair ni à HTTP/3, et chaque requête loguée porte `tls_ja3` / `tls_ja4` dans le log d'accès de la passerelle (pour repérer la signature d'un scanner ou d'un scraper avant de la lister). Paramètre optionnel `edge=<id ou nom>` :
+
+*(Admin `0.237.0`, Edge `0.144.0` ; ADR 0020, étape 4.a)* `thresholds.rules[]` accepte `by` (`ip` par défaut, `account`, `ja4` ou `asn`), `protect_for` (1 minute à 24 h, défaut 15 minutes) et `limit` (tentatives par minute, défaut 3) ; `thresholds.logins[]` (`path`, `field`, au plus 20) déclare les routes de connexion dont le corps est lu pour les Seuils `by: account`. Hors `ip`, l'action est `protect` (jamais `ban` ni `score`) ; `by: account` demande au moins une route de connexion. Voir [Seuils à clé de compte, d'empreinte ou d'opérateur](security.md#seuils-à-clé-de-compte-dempreinte-ou-dopérateur).
+
+*(Admin `0.238.0`, Edge `0.145.0` ; ADR 0020, étape 4.b)* `enumeration` règle la détection d'énumération : `mode` (`off` | `detect` | `block`, ce dernier demande `ip_score.enabled`), `floor` (valeurs distinctes d'un gabarit de chemin sous lesquelles rien ne compte, défaut 30), `window` (1 minute à 24 h, défaut 10 minutes) et `points` (0 à 10, défaut 4). Voir [Énumération](security.md#énumération-signal-enumeration).
+
+*(Admin `0.239.0`, Edge `0.146.0` ; ADR 0020, étape 4.c)* `tls_reputation` règle l'apprentissage de la réputation des empreintes TLS : `enabled`, `min_ips` (au moins 2, défaut 20), `min_requests` (défaut 200) et `min_bad_share` (0,3 à 1, défaut 0,6). Voir [Réputation des empreintes TLS](security.md#réputation-des-empreintes-tls).
 
 - passerelle **membre d'un groupe HA** (déclaré dans `architecture.json`, `config.cluster` + `config.cluster_group`) : la configuration est **celle du groupe** — lue et écrite une seule fois, poussée à tous les membres, et rejouée à la connexion d'un membre qui la manquait ;
 - passerelle hors groupe : configuration propre à la passerelle ;

@@ -70,6 +70,7 @@ func (s *Server) startInternalAPI() error {
 	mux.HandleFunc("GET /internal/v1/bans", s.handleListBans)
 	mux.HandleFunc("GET "+logapi.PathRejections, s.handleRejections)
 	mux.HandleFunc("GET "+logapi.PathSeasonal, s.handleSeasonal)
+	mux.HandleFunc("GET "+logapi.PathTLSReputation, s.handleTLSReputation)
 	mux.HandleFunc("GET /internal/v1/backup/export", s.handleBackupExport)
 	mux.HandleFunc("POST /internal/v1/backup/restore", s.handleBackupRestore)
 	mux.HandleFunc("GET /internal/v1/bans/history", s.handleListBanHistory)

@@ -22,6 +22,10 @@ type State struct {
 	Thresholds map[string]ThresholdState `json:"thresholds,omitempty"`
 	// Seasonal : la référence saisonnière apprise de chaque route (ADR 0020, étape 3).
 	Seasonal map[string]seasonal.RefState `json:"seasonal,omitempty"`
+	// Enumeration : la norme de valeurs distinctes par gabarit (ADR 0020, étape 4.b), sans IP ni valeur.
+	Enumeration map[string]EnumNormState `json:"enumeration,omitempty"`
+	// TLSReputation : les compteurs par empreinte TLS (ADR 0020, étape 4.c), sans IP.
+	TLSReputation map[string]TLSRepState `json:"tls_reputation,omitempty"`
 }
 
 // ScoreState : score à l'instant At, qui décroît de moitié toutes les HalfLife.
@@ -44,6 +48,8 @@ func (e *Engine) SnapshotState() State {
 	st := e.counters.snapshot()
 	st.Thresholds = e.thresholdCounters.snapshot()
 	st.Seasonal = e.seasonal.Export()
+	st.Enumeration = e.enum.snapshot()
+	st.TLSReputation = e.tlsrep.snapshot()
 	return st
 }
 
@@ -53,6 +59,8 @@ func (e *Engine) RestoreState(st State) {
 	e.counters.restore(st)
 	e.thresholdCounters.restore(st.Thresholds)
 	e.seasonal.Import(st.Seasonal)
+	e.enum.restore(st.Enumeration)
+	e.tlsrep.restore(st.TLSReputation)
 }
 
 func (s *counterStore) snapshot() State {

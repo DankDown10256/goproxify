@@ -37,7 +37,7 @@ Chaque outil exige un scope, le même que sa route REST équivalente. Les outils
 | `certs:read` | `list_certs`, `get_cert_status`, `list_cert_deploy_targets`, `list_cert_deploy_types`, `list_internal_cas` †, `list_internal_certs` †, `get_ech_status` †, `list_dns_providers` †, `list_dns_provider_types` † |
 | `certs:write` | `obtain_cert`, `import_cert`, `trigger_cert_deploy`, `create_internal_ca` †, `issue_internal_cert` †, `revoke_internal_cert` † |
 | `logs:read` | `list_logs`, `get_siem_status` †, `get_prism_anomalies`, `get_prism_geo`, `get_prism_tls_fingerprints`, `get_prism_slo`, `simulate_ephor_config` †, `get_ephor_references` †, `suggest_ephor_thresholds` †, `trace_ip` †, `preview_security_ban` †, `preview_asn_ban` † |
-| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `get_proxy_surface` †, `get_app_inventory` †, `get_entry_rejections` †, `get_traffic_reference` †, `get_proxy_surface_proposals` †, `get_proxy_surface_openapi` †, `get_proxy_surface_suggestions` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
+| `audit:read` | `get_audit_log`, `list_ip_profiles`, `get_security_overview` †, `list_security_bans` †, `list_security_engine_types` †, `get_waf_activity` †, `list_plugins` †, `lookup_asn` †, `list_ban_whitelist` †, `list_security_threats` †, `list_security_cves` †, `get_proxy_surface` †, `get_app_inventory` †, `get_entry_rejections` †, `get_traffic_reference` †, `get_tls_reputation` †, `get_domain_watch` †, `get_proxy_surface_proposals` †, `get_proxy_surface_openapi` †, `get_proxy_surface_suggestions` †, `list_auth_providers` †, `list_auth_provider_types` †, `list_flows` †, `get_flow` †, `list_flow_versions` †, `list_flow_runs` †, `get_flow_run` †, `get_automation_catalog` †, `list_flow_templates` †, `list_silences` †, `export_automation` † |
 | `security:write` | `create_ip_profile`, `delete_ip_profile`, `reset_proxy_surface` †, `enforce_proxy_surface` †, `accept_proxy_surface_suggestions` †, `relax_proxy_surface` †, `create_security_ban` †, `delete_security_ban` †, `ban_ip` †, `unban_ip` †, `add_ban_whitelist` †, `remove_ban_whitelist` †, `import_security_bans` †, `ban_asn` †, `unban_asn` †, `create_auth_provider` †, `delete_auth_provider` †, `create_flow` †, `update_flow` †, `set_flow_enabled` †, `delete_flow` †, `run_flow` †, `simulate_flow` †, `restore_flow_version` †, `detach_flow` †, `update_flow_params` †, `decide_flow_run` †, `cancel_flow_run` †, `replay_flow_run` †, `install_flow_template` †, `create_silence` †, `delete_silence` †, `import_automation` † |
 | `portal:read` / `portal:write` | outils Access (`*_portal_*`, `push_portal`) † — voir [GoProxify Access](#goproxify-access-portail) |
 
@@ -1114,6 +1114,24 @@ Trié par `last_seen_at` décroissant. Chaque résultat inclut `edge_name` (Pass
 ### `get_entry_rejections`
 
 *(Admin `0.228.0`, Edge `0.135.0`)* Ce que l'entrée de chaque passerelle a refusé depuis son démarrage ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 1.c) : poignées de main TLS ratées (accès par l'IP, nom sans certificat, pas du TLS), connexions coupées avant le ClientHello, requêtes HTTP sur un hôte sans route. Par passerelle : totaux par raison (`unknown_sni`, `no_sni`, `ip_literal`, `not_tls`, `bad_clienthello`, `timeout`, `too_many_pending`, `handshake_failed`, `unknown_host`), premiers noms demandés avec le nombre d'IP distinctes qui les demandent (un nom demandé par beaucoup d'IP est plutôt un proxy oublié qu'un scanner), premières IP, premières empreintes JA4 et `probes` (IP aux accès à cadence régulière : des sondes probables, à exempter par `unknown_host.probes`). Les classements sont approchés, tenus en mémoire et repartent de zéro au redémarrage de la passerelle. Ne modifie rien et ne bannit rien.
+
+| Paramètre | Type | Requis | Description |
+|-----------|------|--------|-------------|
+| `edge` | string | | ID du jeton ou nom de la passerelle (défaut : toutes) |
+
+---
+
+### `get_domain_watch`
+
+*(Admin `0.240.0`)* La surveillance des domaines déclarés dans l'Admin ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.d) : configuration (désactivée par défaut), état de la dernière analyse et constats (certificat émis hors de GoProxify, CAA absents, trop larges ou qui excluent l'autorité de GoProxify, nom pendant), avec leur statut, leur gravité et leur preuve. Ne modifie rien et n'envoie aucun nom de domaine. Voir [Surveillance des domaines](security.md#surveillance-des-domaines).
+
+Aucun paramètre.
+
+---
+
+### `get_tls_reputation`
+
+*(Admin `0.239.0`, Edge `0.146.0`)* La réputation apprise des empreintes TLS (JA4) de chaque passerelle et les empreintes qu'elle **propose** pour `custom_lists.tls_fingerprints` d'Ephor ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.c) : par proposition, IP distinctes, requêtes, parts mauvaise, marquée par le WAF et en erreur, première et dernière vue. Rien n'est jamais bloqué automatiquement ; l'acceptation est un geste de l'administrateur (API ou CLI). Ne modifie rien. Voir [Réputation des empreintes TLS](security.md#réputation-des-empreintes-tls).
 
 | Paramètre | Type | Requis | Description |
 |-----------|------|--------|-------------|

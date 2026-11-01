@@ -20,6 +20,7 @@ type Observation struct {
 	waf      atomic.Int32
 	recorded atomic.Bool
 	blocked  atomic.Bool
+	account  atomic.Pointer[string] // empreinte du compte visé par une connexion (ADR 0020, étape 4.a), jamais l'identifiant
 	mu       sync.Mutex
 	hits     []WAFHit
 }
@@ -145,4 +146,22 @@ func EventFromRequest(r *http.Request, status, wafScore int, route string) Event
 	}
 	ev.Page = !ev.Asset && r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html")
 	return ev
+}
+
+// NoteAccount consigne l'empreinte (HMAC) du compte visé par la requête : l'identifiant lui-même n'est pas conservé.
+func (o *Observation) NoteAccount(fingerprint string) {
+	if o != nil && fingerprint != "" {
+		o.account.Store(&fingerprint)
+	}
+}
+
+// Account retourne l'empreinte du compte visé, vide si la requête n'en vise pas.
+func (o *Observation) Account() string {
+	if o == nil {
+		return ""
+	}
+	if p := o.account.Load(); p != nil {
+		return *p
+	}
+	return ""
 }

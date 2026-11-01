@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
+	"github.com/vincamok/goproxify/internal/admin/domainwatch"
 	"github.com/vincamok/goproxify/internal/admin/asn"
 	"github.com/vincamok/goproxify/internal/admin/fleet"
 	"github.com/vincamok/goproxify/internal/admin/prismedge"
@@ -41,6 +42,8 @@ type SecurityHandler struct {
 	VulnScan *vulnscan.Scanner
 	CrowdSec *crowdsec.Bouncer
 	ScanCtx  context.Context
+	// DomainWatch surveille les domaines déclarés (ADR 0020, étape 4.d) ; nil = indisponible.
+	DomainWatch *domainwatch.Watcher
 	// Groups donne le groupe HA d'une passerelle : sa config de sécurité est alors celle du groupe.
 	Groups GroupResolver
 	// OnBansChange notifie un changement de bans (push vers les passerelles).
@@ -195,6 +198,18 @@ func (h *SecurityHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.getInventory(w, r)
 	case r.Method == http.MethodGet && sub == "rejections":
 		h.getRejections(w, r)
+	case r.Method == http.MethodGet && sub == "domain-watch":
+		h.getDomainWatch(w, r)
+	case r.Method == http.MethodPut && sub == "domain-watch":
+		h.putDomainWatch(w, r)
+	case r.Method == http.MethodPost && sub == "domain-watch" && id == "run":
+		h.runDomainWatch(w, r)
+	case r.Method == http.MethodPost && sub == "domain-watch" && id == "accept":
+		h.acceptDomainWatch(w, r)
+	case r.Method == http.MethodGet && sub == "tls-reputation":
+		h.getTLSReputation(w, r)
+	case r.Method == http.MethodPost && sub == "tls-reputation" && id == "accept":
+		h.acceptTLSReputation(w, r)
 	case r.Method == http.MethodGet && sub == "traffic-reference":
 		h.getTrafficReference(w, r)
 	case r.Method == http.MethodGet && sub == "cpe-overrides":

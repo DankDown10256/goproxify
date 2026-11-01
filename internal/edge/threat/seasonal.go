@@ -109,6 +109,7 @@ func (e *Engine) runSeasonal(ctx context.Context) {
 			return
 		case <-tk.C:
 			e.SeasonalTick(e.counters.now())
+			e.sweepEnumeration()
 		}
 	}
 }

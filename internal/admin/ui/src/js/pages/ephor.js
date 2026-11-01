@@ -13,6 +13,8 @@ const SENT_SECTIONS = [
   { id: 'thresholds', label: 'Seuils' },
   { id: 'decoys',     label: 'Leurres' },
   { id: 'unknownhost', label: 'Hôte inconnu' },
+  { id: 'enumeration', label: 'Énumération' },
+  { id: 'tlsrep',     label: 'Empreintes TLS' },
   { id: 'seasonal',   label: 'Référence saisonnière' },
   { id: 'ddos',       label: 'Anti-DDoS' },
   { id: 'riposte',    label: 'Riposte' },
@@ -20,7 +22,7 @@ const SENT_SECTIONS = [
   { id: 'exceptions', label: 'Exceptions' },
 ];
 
-const _sent = { mode: 'admin', edgeCtx: null, cfg: {}, active: [], history: [], tab: 'overview', refs: null, sugg: null, traffic: null };
+const _sent = { mode: 'admin', edgeCtx: null, cfg: {}, active: [], history: [], tab: 'overview', refs: null, sugg: null, traffic: null, tlsrep: null };
 
 // Signaux de comportement de la note commune (ADR 0011) : points, et ce qu'ils regardent. Tout signal naît en detect.
 const SENT_BEHAVIOR = [
@@ -266,6 +268,41 @@ function sentViewTraffic() {
     `<button class="btn btn-ghost btn-sm" onclick="openEphorSettings('seasonal')">Régler</button>`);
 }
 
+// Réputation des empreintes TLS (ADR 0020, étape 4.c) : les empreintes que les passerelles proposent pour la liste personnalisée, avec leurs preuves.
+function sentViewTLSReputation() {
+  const d = _sent.tlsrep;
+  if (d === null) return sentCard('Empreintes TLS proposées', '<div class="spinner" style="margin:12px 0"></div>');
+  const gws = ((d && d.gateways) || []).filter(g => g.reputation && g.reputation.enabled);
+  const pct = x => `${Math.round((x || 0) * 100)} %`;
+  const rows = gws.flatMap(g => (g.reputation.proposals || []).map(p => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:6px">${esc(g.node_name)}</td>
+    <td style="padding:6px;font-family:monospace;font-size:11.5px">${esc(p.ja4)}</td>
+    <td style="padding:6px;text-align:right">${p.ips}</td><td style="padding:6px;text-align:right">${p.requests}</td>
+    <td style="padding:6px;text-align:right" title="marquées par le WAF ou en erreur">${pct(p.bad_share)}</td>
+    <td style="padding:6px;text-align:right">${pct(p.waf_share)}</td>
+    <td style="padding:6px;text-align:right"><button class="btn btn-ghost btn-sm" onclick="sentAcceptTLS('${esc(p.ja4)}')">Ajouter à la liste</button></td></tr>`)).join('');
+  const intro = `<p style="font-size:12px;color:var(--text2);margin:8px 0 0">Une empreinte TLS partagée par beaucoup d'IP, dont presque toutes les requêtes sont mauvaises (marquées par le WAF ou en erreur) et en partie marquées par le WAF, est un outil d'attaque plus qu'un navigateur. Les passerelles <b>proposent</b>, vous décidez : l'ajout met l'empreinte dans la liste personnalisée d'Ephor (signal <code>tls_fp</code>), jamais automatiquement. Une pile de navigateur connue n'est jamais proposée.</p>`;
+  if (!gws.length) return sentCard('Empreintes TLS proposées', intro + `<p style="font-size:12px;color:var(--text2);margin:6px 0 0">Désactivé : activez-le dans les réglages d'Ephor (Empreintes TLS).</p>`,
+    `<button class="btn btn-ghost btn-sm" onclick="openEphorSettings('tlsrep')">Régler</button>`);
+  return sentCard('Empreintes TLS proposées', intro + (rows
+    ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px"><thead><tr style="color:var(--text3)">
+      <th style="text-align:left;padding:6px">Passerelle</th><th style="text-align:left;padding:6px">Empreinte JA4</th><th style="text-align:right;padding:6px">IP</th><th style="text-align:right;padding:6px">Requêtes</th>
+      <th style="text-align:right;padding:6px">Mauvaises</th><th style="text-align:right;padding:6px">WAF</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : `<p style="font-size:12px;color:var(--text2);margin:6px 0 0">Aucune empreinte proposée : ${gws.map(g => `${esc(g.node_name)} en suit ${g.reputation.tracked || 0}`).join(', ')}.</p>`),
+    `<button class="btn btn-ghost btn-sm" onclick="openEphorSettings('tlsrep')">Régler</button>`);
+}
+
+window.sentAcceptTLS = async function(ja4) {
+  try {
+    const r = await api('POST', `/security/tls-reputation/accept${window._secEdgeQ || ''}`, { ja4s: [ja4] });
+    toast((r.added || []).length ? 'Empreinte ajoutée à la liste personnalisée' : 'Déjà dans la liste', 'success');
+    _sent.tlsrep = null;
+    _sent.cfg = await api('GET', `/security/threat-config${window._secEdgeQ || ''}`);
+    window._threatCfg = _sent.cfg;
+    sentDrawTab();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
 async function sentLoadReferences() {
   if (_sent.loadingRefs) return;
   _sent.loadingRefs = true;
@@ -277,6 +314,9 @@ async function sentLoadReferences() {
   }
   if (_sent.traffic === null) {
     try { _sent.traffic = await api('GET', `/security/traffic-reference${window._secEdgeQ || ''}`); } catch { _sent.traffic = false; }
+  }
+  if (_sent.tlsrep === null) {
+    try { _sent.tlsrep = await api('GET', `/security/tls-reputation${window._secEdgeQ || ''}`); } catch { _sent.tlsrep = false; }
   }
   _sent.loadingRefs = false;
   if (_sent.tab === 'detections') sentDrawTab();
@@ -342,7 +382,7 @@ function sentViewDetections() {
         <th style="text-align:right;padding:8px 6px;border-bottom:1px solid var(--border)">Effet</th>
         <th style="text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)">Bans actifs</th>
         <th></th></tr></thead>
-      <tbody>${rows}${other}</tbody></table></div>`) + sentViewBehavior() + sentViewTraffic() + sentViewReferences() + sentViewSuggestions();
+      <tbody>${rows}${other}</tbody></table></div>`) + sentViewBehavior() + sentViewTraffic() + sentViewTLSReputation() + sentViewReferences() + sentViewSuggestions();
 }
 
 function sentChips(list, max = 8) {
@@ -435,7 +475,9 @@ function sentDrawerForm(cfg) {
       <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Une règle explicite « N événements en T, action » sur les réponses de vos routes. Deux Seuils sont fournis : <b>auth-fail</b> (10 réponses 401/403 en 5 minutes sur un point d'entrée de connexion : <code>/login</code>, <code>/signin</code>, <code>/api/auth</code>, <code>/wp-login.php</code>…, hors refus du WAF) et <b>waf-repeat</b> (5 requêtes en 10 minutes qui déclenchent une règle du WAF). Les compteurs sont par IP (une IPv6 par /64), bornés et conservés au redémarrage. Les requêtes déjà refusées par Ephor, un ban ou un profil IP ne comptent pas. Commencez en <b>detect</b> : les dépassements sont comptés, sans effet.</p>
       ${fld('Seuils fournis', '(auth-fail et waf-repeat)', `<select id="threat-th-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.thresholds?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
       ${fld('Seuils personnalisés', '(JSON : liste de règles ; 50 au plus)', `<textarea id="threat-th-rules" class="input" rows="8" spellcheck="false" style="font-family:monospace;font-size:11.5px" placeholder='[{"name":"api-5xx","mode":"detect","status":["5xx"],"paths":["/api/"],"count":20,"window":"1m","action":"ban"}]'>${esc((cfg.thresholds?.rules || []).length ? JSON.stringify(cfg.thresholds.rules, null, 2) : '')}</textarea>`)}
-      <p style="font-size:11.5px;color:var(--text3);margin:4px 0 0">Champs : <code>name</code> (minuscules, chiffres, - et _), <code>mode</code> (off | detect | block, défaut detect), <code>status</code> (codes <code>401</code> ou classes <code>4xx</code>), <code>paths</code> (préfixes), <code>methods</code>, <code>hosts</code> (noms de route), <code>waf</code> (<code>hit</code> | <code>blocked</code>), <code>count</code>, <code>window</code> (1s à 24h), <code>action</code> (ban | score, ce dernier demande le score cumulé), <code>points</code> (action score).</p>`)}
+      <p style="font-size:11.5px;color:var(--text3);margin:4px 0 0">Champs : <code>name</code> (minuscules, chiffres, - et _), <code>mode</code> (off | detect | block, défaut detect), <code>status</code> (codes <code>401</code> ou classes <code>4xx</code>), <code>paths</code> (préfixes), <code>methods</code>, <code>hosts</code> (noms de route), <code>waf</code> (<code>hit</code> | <code>blocked</code>), <code>count</code>, <code>window</code> (1s à 24h), <code>action</code> (ban | score, ce dernier demande le score cumulé ; protect pour une clé autre que l'IP), <code>points</code> (action score), <code>by</code>, <code>protect_for</code>, <code>limit</code>.</p>`)}
+      ${fld('Routes de connexion', '(JSON : pour les Seuils <code>by: account</code>, la route et le champ qui porte l\'identifiant ; 20 au plus)', `<textarea id="threat-th-logins" class="input" rows="3" spellcheck="false" style="font-family:monospace;font-size:11.5px" placeholder='[{"path":"/login","field":"email"}]'>${esc((cfg.thresholds?.logins || []).length ? JSON.stringify(cfg.thresholds.logins, null, 2) : '')}</textarea>`)}
+      <p style="font-size:11.5px;color:var(--text3);margin:4px 0 0">Clés de comptage (<code>by</code>) : <code>ip</code> (défaut), <code>account</code> (compte visé, lu dans le corps des connexions déclarées ci-dessus, jamais stocké en clair), <code>ja4</code> (pile TLS, jamais celle d'un navigateur connu), <code>asn</code> (opérateur). Hors <code>ip</code>, l'action est <code>protect</code> : aucun ban, aucun verrouillage de compte ; pendant <code>protect_for</code> (15 min par défaut), les IP sans historique qui visent la clé résolvent le défi (navigation) ou se partagent <code>limit</code> tentatives par minute (3 par défaut).</p>
     ${sec('decoys', 'Leurres', `
       <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Des chemins que votre application n'utilise jamais (dépôt <code>.git</code> oublié, sauvegardes <code>.sql</code>, clés <code>.ssh</code>…). Quiconque les demande est presque sûrement un scanner : l'accès pèse lourd dans la note de l'IP (8 points). Un chemin que le trafic légitime d'un proxy utilise (profil de surface appris, location déclarée) ne compte jamais comme un piège. Commencez en <b>detect</b> : les accès sont comptés, sans effet.</p>
       ${fld('Mode', '', `<select id="threat-decoy-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.decoys?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
@@ -446,6 +488,18 @@ function sentDrawerForm(cfg) {
       ${fld('Mode', '', `<select id="threat-uh-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.unknown_host?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
       ${fld('Points par accès', '(défaut 1, max 5 ; reste sous le seuil de ban)', `<input id="threat-uh-points" type="number" class="input" value="${cfg.unknown_host?.points || ''}" min="0" max="5" step="0.5" placeholder="1">`)}
       ${fld('Sondes connues', '(IP ou CIDR, une par ligne : supervision, répartiteur de charge ; jamais notées)', ta('threat-uh-probes', 3, '203.0.113.10&#10;198.51.100.0/24', cfg.unknown_host?.probes))}`)}
+    ${sec('tlsrep', 'Réputation des empreintes TLS', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">La passerelle apprend, par empreinte JA4, combien d'IP la partagent et quelle part de leurs requêtes est mauvaise (marquée par le WAF ou en erreur). Une empreinte partagée par beaucoup d'IP, aux requêtes presque toutes mauvaises et en partie marquées par le WAF, est <b>proposée</b> pour la liste personnalisée des empreintes TLS, avec ses preuves, dans l'onglet Détections. <b>Rien n'est jamais bloqué automatiquement</b> ; une pile de navigateur connue n'est jamais proposée.</p>
+      ${chk('threat-tlsrep-on', cfg.tls_reputation?.enabled, 'Apprendre la réputation des empreintes et faire des propositions')}
+      ${fld('IP distinctes', '(minimum avant toute proposition ; défaut 20)', `<input id="threat-tlsrep-ips" type="number" class="input" value="${cfg.tls_reputation?.min_ips || ''}" min="2" step="1" placeholder="20">`)}
+      ${fld('Requêtes', '(minimum avant toute proposition ; défaut 200)', `<input id="threat-tlsrep-reqs" type="number" class="input" value="${cfg.tls_reputation?.min_requests || ''}" min="1" step="10" placeholder="200">`)}
+      ${fld('Part de requêtes mauvaises', '(de 0,3 à 1 ; défaut 0,6)', `<input id="threat-tlsrep-bad" type="number" class="input" value="${cfg.tls_reputation?.min_bad_share || ''}" min="0.3" max="1" step="0.05" placeholder="0.6">`)}`)}
+    ${sec('enumeration', 'Énumération', `
+      <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Une IP qui parcourt de nombreuses valeurs d'un même gabarit de chemin (<code>/api/users/{int}</code>) : le premier risque des API, que les règles du WAF ne voient pas. Aucune valeur n'est conservée, elles sont seulement comptées. Le signal ne vaut que sur un gabarit que le <b>profil de surface</b> de la route connaît, et seulement s'il a <b>convergé</b> ; le seuil suit ce que les autres clients font d'ordinaire sur ce gabarit. <b>detect</b> : compté et journalisé, sans effet. <b>block</b> : verse des points à la note commune (demande le score cumulé).</p>
+      ${fld('Mode', '', `<select id="threat-enum-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.enumeration?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
+      ${fld('Plancher', '(valeurs distinctes sous lesquelles rien ne compte ; défaut 30)', `<input id="threat-enum-floor" type="number" class="input" value="${cfg.enumeration?.floor || ''}" min="1" max="100000" step="1" placeholder="30">`)}
+      ${fld('Fenêtre', '(défaut 10m, de 1m à 24h)', `<input id="threat-enum-window" type="text" class="input" value="${esc(cfg.enumeration?.window || '')}" placeholder="10m">`)}
+      ${fld('Points', '(en block ; défaut 4, max 10 ; le seuil de ban par défaut est 10)', `<input id="threat-enum-points" type="number" class="input" value="${cfg.enumeration?.points || ''}" min="0" max="10" step="0.5" placeholder="4">`)}`)}
     ${sec('seasonal', 'Référence saisonnière', `
       <p style="font-size:12px;color:var(--text2);margin:0 0 10px">Apprend le trafic de chaque route par créneau (jour de la semaine × heure, UTC) : débit, IP distinctes, part d'erreurs, concentration sur un chemin. Un écart de <b>volume</b> donne un avertissement ; accompagné d'un écart de <b>nature</b> (IP jamais vues, erreurs, un seul chemin), une attaque probable. Un créneau trop jeune reste froid et ne compte jamais. <b>detect</b> : l'écart est journalisé, compté et notifié, sans autre effet. <b>block</b> : pendant une attaque probable, les IP sans historique propre résolvent le défi à preuve de travail (navigation) et partagent un plafond de débit ; les habitués et la liste blanche passent. Demande que le défi soit actif (detect ou block).</p>
       ${fld('Mode', '', `<select id="threat-seas-mode" class="input" style="height:32px">${['off', 'detect', 'block'].map(m => `<option value="${m}" ${(cfg.seasonal?.mode || 'off') === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`)}
@@ -634,6 +688,18 @@ function sentCollectConfig(enabled) {
       points: num('threat-uh-points', '0', true),
       probes: lines('threat-uh-probes'),
     },
+    tls_reputation: {
+      enabled: $('threat-tlsrep-on')?.checked ?? false,
+      min_ips: num('threat-tlsrep-ips', '0'),
+      min_requests: num('threat-tlsrep-reqs', '0'),
+      min_bad_share: num('threat-tlsrep-bad', '0', true),
+    },
+    enumeration: {
+      mode: $('threat-enum-mode')?.value || 'off',
+      floor: num('threat-enum-floor', '0'),
+      window: $('threat-enum-window')?.value || '',
+      points: num('threat-enum-points', '0', true),
+    },
     seasonal: {
       mode: $('threat-seas-mode')?.value || 'off',
       floor_rps: num('threat-seas-floor', '0', true),
@@ -669,7 +735,13 @@ function sentCollectThresholds($) {
     try { rules = JSON.parse(text); } catch (e) { throw new Error('Seuils personnalisés : JSON illisible (' + e.message + ')'); }
     if (!Array.isArray(rules)) throw new Error('Seuils personnalisés : une liste de règles est attendue');
   }
-  return { mode: $('threat-th-mode')?.value || 'off', rules };
+  const ltext = ($('threat-th-logins')?.value || '').trim();
+  let logins = [];
+  if (ltext) {
+    try { logins = JSON.parse(ltext); } catch (e) { throw new Error('Routes de connexion : JSON illisible (' + e.message + ')'); }
+    if (!Array.isArray(logins)) throw new Error('Routes de connexion : une liste est attendue');
+  }
+  return { mode: $('threat-th-mode')?.value || 'off', rules, logins };
 }
 
 function sentCollectBehavior() {
@@ -778,6 +850,7 @@ async function renderEphorDashboard({ mode }) {
     _sent.refs = null;
     _sent.sugg = null;
     _sent.traffic = null;
+    _sent.tlsrep = null;
     const d = await sentLoad(mode);
     if (mode === 'edge' && d.edgeCtx?.missing) {
       content.innerHTML = '<p style="color:var(--text2)">' + t('trafic.no_edge') + '</p>';

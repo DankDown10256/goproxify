@@ -395,6 +395,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.threatEngine = threat.New(s.log.Logger(), s.threatBanCallback())
 	s.threatEngine.SetPriorBansFunc(s.priorThreatBans)
 	s.threatEngine.SetDecoyGuard(s.decoyIsLegit)
+	s.threatEngine.SetEnumerationHooks(surface.EnumShape, s.enumerationKnown)
 	s.threatEngine.SetSeasonalNotify(s.notifyTrafficDeviation)
 	s.threatEngine.SetBehaviorStore(s.behavior)
 	s.behavior.SetASNLookup(s.lookupASN)

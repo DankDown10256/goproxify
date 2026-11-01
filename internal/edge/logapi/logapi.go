@@ -14,8 +14,8 @@ import (
 
 	"github.com/vincamok/goproxify/internal/appinv"
 	"github.com/vincamok/goproxify/internal/edge/seasonal"
-	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/threat"
+	"github.com/vincamok/goproxify/internal/edge/surface"
 	"github.com/vincamok/goproxify/internal/edge/waf/behavior"
 	"github.com/vincamok/goproxify/internal/ipsketch"
 )
@@ -379,6 +379,8 @@ const (
 	PathRejections = "/internal/v1/rejections"
 	// PathSeasonal : la référence saisonnière du trafic de chaque route et ses alertes (GET).
 	PathSeasonal = "/internal/v1/seasonal"
+	// PathTLSReputation : la réputation apprise des empreintes TLS et ses propositions (GET).
+	PathTLSReputation = "/internal/v1/tls/reputation"
 	// PathInventoryExport : empreintes des réponses des backends, que les pairs d'un groupe HA se tirent entre eux (GET).
 	PathInventoryExport = "/internal/v1/inventory/export"
 	// PathSurfaceExport : profils locaux, que les pairs d'un groupe HA se tirent entre eux (GET).
@@ -479,3 +481,7 @@ type SeasonalResponse struct {
 	Active []seasonal.Event `json:"active"`
 	Events []seasonal.Event `json:"events"`
 }
+
+// TLSReputationResponse : la réputation des empreintes TLS d'une passerelle et les empreintes qu'elle propose pour
+// custom_lists.tls_fingerprints (ADR 0020, étape 4.c). Rien n'y est bloqué : l'Admin affiche, l'administrateur accepte.
+type TLSReputationResponse = threat.TLSReputation

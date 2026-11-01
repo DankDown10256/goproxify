@@ -80,6 +80,12 @@ type Config struct {
 	// Seasonal : la référence saisonnière du trafic de chaque route (ADR 0020, étape 3). Désactivée par défaut.
 	Seasonal SeasonalConfig `json:"seasonal,omitempty"`
 
+	// Enumeration : une IP qui parcourt de nombreuses valeurs d'un même gabarit de chemin (ADR 0020, étape 4.b). Désactivée par défaut.
+	Enumeration EnumerationConfig `json:"enumeration,omitempty"`
+
+	// TLSReputation : la réputation apprise des empreintes TLS, qui propose sans jamais bloquer (ADR 0020, étape 4.c). Désactivée par défaut.
+	TLSReputation TLSReputationConfig `json:"tls_reputation,omitempty"`
+
 	// UnknownHost : des points modérés pour un accès à un nom sans route ou sans certificat (ADR 0020, étape 2.b). Désactivé par défaut.
 	UnknownHost UnknownHostConfig `json:"unknown_host,omitempty"`
 }

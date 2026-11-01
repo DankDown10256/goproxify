@@ -47,6 +47,8 @@ type Gateway struct {
 	Rejections logapi.RejectionsResponse
 	// Seasonal : ce que la passerelle répond à GET /internal/v1/seasonal.
 	Seasonal logapi.SeasonalResponse
+	// TLSReputation : ce que la passerelle répond à GET /internal/v1/tls/reputation.
+	TLSReputation logapi.TLSReputationResponse
 }
 
 // New démarre une passerelle de test, arrêtée avec le test.
@@ -89,6 +91,7 @@ func New(t testing.TB, name string) *Gateway {
 	})
 	mux.HandleFunc("GET "+logapi.PathRejections, func(w http.ResponseWriter, _ *http.Request) { write(w, g.Rejections) })
 	mux.HandleFunc("GET "+logapi.PathSeasonal, func(w http.ResponseWriter, _ *http.Request) { write(w, g.Seasonal) })
+	mux.HandleFunc("GET "+logapi.PathTLSReputation, func(w http.ResponseWriter, _ *http.Request) { write(w, g.TLSReputation) })
 	mux.HandleFunc("GET "+logapi.PathSurfaceOpenAPI, func(w http.ResponseWriter, r *http.Request) {
 		res, ok := g.OpenAPI[r.URL.Query().Get("route")]
 		if !ok {

@@ -382,9 +382,34 @@ Réglable dans **Sécurité › Ephor › Réglages › Leurres**, ou par la con
 - **Limite** : le ban vise l'adresse exacte, comme les autres bans d'Ephor (le compteur, lui, agrège l'IPv6 par /64). Ils ont remplacé le Fail2Ban natif des passerelles (retiré en Edge `0.139.0`).
 
 ```
-gpx_threat_threshold_total{result}   # hit | shadow
+gpx_threat_threshold_total{result}   # hit | shadow | key_shadow | protect | challenged | limited
 ```
 
+
+#### Seuils à clé de compte, d'empreinte ou d'opérateur
+
+*(Edge `0.144.0`, Admin `0.237.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.a)* Une attaque par **bourrage d'identifiants** change d'IP mais vise les mêmes comptes : un Seuil par IP ne la voit pas. `by` choisit ce que le Seuil compte :
+
+| `by` | Clé | Précautions |
+|---|---|---|
+| `ip` (défaut) | l'adresse (une IPv6 par son /64) | — |
+| `account` | le compte visé par une connexion | l'identifiant est lu dans le corps des routes de connexion déclarées (`thresholds.logins`), au plus 8 Ko, POST seulement ; seule son **empreinte HMAC** (clé propre au processus de la passerelle) sert de clé : il n'est jamais stocké ni journalisé |
+| `ja4` | l'empreinte TLS de la connexion | **jamais** une pile de navigateur connue (celle de Chrome est partagée par des millions de visiteurs) |
+| `asn` | l'opérateur de l'adresse | demande la base ASN de la passerelle ; sans elle la clé est vide et rien n'est compté |
+
+```json
+{ "thresholds": {
+    "logins": [ { "path": "/login", "field": "email" } ],
+    "rules": [ { "name": "stuffing", "mode": "detect", "by": "account", "status": ["401"], "paths": ["/login"],
+                 "count": 20, "window": "10m", "protect_for": "30m", "limit": 3 } ] } }
+```
+
+- **Aucun ban, aucun verrouillage de compte.** Bannir un compte par ses échecs permettrait à un attaquant de verrouiller la victime ; une clé n'est de toute façon pas une adresse. L'action d'un Seuil à clé est `protect` (la seule admise).
+- **Protection.** Au dépassement, la clé est placée sous protection pendant `protect_for` (15 minutes par défaut, 1 minute à 24 h). Les IP **sans historique propre** (pas de bonus de confiance) dont la requête vise la clé résolvent le **défi à preuve de travail** quand elles naviguent, ou se partagent `limit` tentatives par minute (3 par défaut, 600 au plus), au-delà desquelles la réponse est un `429`. Les habitués, la liste blanche d'Ephor et les autres comptes passent comme d'ordinaire. Le vrai propriétaire du compte, déjà connu de la passerelle, n'est donc pas bloqué.
+- **`detect` d'abord.** En `detect` le corps est lu et les dépassements sont comptés (`gpx_threat_threshold_total{result="key_shadow"}`) et journalisés, sans aucune limitation. En `block` : `protect` (clé placée sous protection), `challenged` (défi servi), `limited` (plafond atteint).
+- **Mémoire seulement.** Les compteurs et les protections à clé ne sont ni écrits sur disque ni restaurés : ce sont des empreintes valables quelques minutes, et la clé HMAC change à chaque démarrage. Un redémarrage remet donc ces compteurs à zéro. Les journaux ne portent que les huit premiers caractères de l'empreinte.
+- **Écarts avec l'ADR** : l'« historique avec ce compte » est approché par l'historique de l'IP auprès de la passerelle (sept jours sans signal) ; une protection n'est pas visible dans l'Admin (journal et métriques seulement).
+- Déclaré dans **Sécurité › Ephor › Réglages › Seuils** (champ « Routes de connexion » et JSON des Seuils personnalisés).
 Réglable dans **Sécurité › Ephor › Réglages › Seuils** (les Seuils personnalisés s'écrivent en JSON, validé avant l'enregistrement), ou par la configuration Ephor (`thresholds.*`).
 
 ### Hôte inconnu (signal `unknown_host`)
@@ -402,6 +427,43 @@ gpx_threat_unknown_host_total{result}   # counted | shadow | exempt | regular
 
 Réglable dans **Sécurité › Ephor › Réglages › Hôte inconnu**, ou par la configuration Ephor (`unknown_host.*`).
 
+### Énumération (signal `enumeration`)
+
+*(Edge `0.145.0`, Admin `0.238.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.b)* Une IP qui parcourt de nombreuses valeurs d'un même gabarit de chemin (`/api/users/1`, `/api/users/2`, …) : le premier risque des API, qu'aucune règle du WAF ne voit puisque chaque requête est correcte.
+
+- **Comptage approché, sans valeur conservée.** Par IP (une IPv6 par son /64), route et gabarit, une table de 1 024 bits compte les valeurs d'identifiant distinctes (entiers, UUID, empreintes hexadécimales, jetons, adresses de courrier ; une date est un filtre, pas un identifiant) : une IP et un gabarit coûtent environ 150 octets, quel que soit le nombre de requêtes, et rien ne permet de retrouver une valeur ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md)). Au plus 4 096 fenêtres en mémoire.
+- **Un gabarit que le profil de surface connaît, un profil convergé.** Le dépassement ne compte que si le profil de surface de la route (`surface.type`) a vu des clients propres utiliser ce gabarit et a convergé (assez ancien, assez de requêtes, plus de gabarit nouveau). Sinon il est compté `unproven` et ignoré : on ne sait pas encore ce qui est normal.
+- **Seuil relatif à la norme du gabarit.** Le seuil est le plus grand de `floor` (30 valeurs par défaut) et de ce que les autres clients font d'ordinaire sur ce gabarit : moyenne plus six écarts-types, au moins quatre fois la moyenne, appris sur les fenêtres closes (au moins vingt). Une API dont les clients lisent quarante ressources ne déclenche rien à cent ; un client qui en lit quatre cents, si. La norme ne bouge que d'un pas borné par fenêtre (une mesure ne dépasse pas deux fois la moyenne connue) : une IP qui énumère ne peut pas apprendre un « normal » plus haut. Tant que la norme n'est pas établie, une mesure est plafonnée à deux fois le plancher : démarrez en `detect` sur une période ordinaire.
+- **Une fois par fenêtre** (10 minutes par défaut, de 1 minute à 24 h) et par IP et gabarit.
+- **`detect` d'abord.** Le dépassement est compté (`gpx_threat_enumeration_total{result}` : `shadow`, `hit`, `unproven`) et journalisé (`ephor: énumération détectée (mode detect)`), sans effet sur la note. En `block`, il verse `points` (4 par défaut, 10 au plus) à la note commune de l'IP, expliquée dans le ban (`enumeration`, « N valeurs distinctes sur /api/users/{int} ») : jamais un ban à lui seul avec le seuil par défaut (10). Demande `ip_score.enabled`.
+- **Persistance.** La norme (moyenne, variance, nombre de fenêtres, sans IP ni valeur) est conservée avec l'état d'Ephor et relue au redémarrage ; les fenêtres en cours ne le sont pas. L'ordre d'effacement RGPD retire les fenêtres d'une IP.
+- **Limites.** Un site (`surface.type: site`) a des milliers de chemins qui changent chaque jour : le signal y a peu de sens. La simulation sur logs ne le rejoue pas.
+
+Réglable dans **Sécurité › Ephor › Réglages › Énumération**, ou par la configuration d'Ephor :
+
+```json
+{ "enumeration": { "mode": "detect", "floor": 30, "window": "10m", "points": 4 } }
+```
+### Réputation des empreintes TLS
+
+*(Edge `0.146.0`, Admin `0.239.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.c)* Les outils d'attaque ont une pile TLS reconnaissable, partagée par tous leurs clients. Plutôt que d'attendre qu'on la connaisse (`custom_lists.tls_fingerprints`), la passerelle **apprend** quelles empreintes JA4 sont mauvaises et les **propose**.
+
+- **Ce qui est retenu**, par empreinte : le nombre d'IP distinctes qui la partagent (comptage approché sur 2 048 bits, aucune adresse conservée), les requêtes vues, la part marquée par le WAF, la part en erreur (4xx, 5xx), première et dernière vue. 4 096 empreintes au plus en mémoire, environ 350 octets chacune.
+- **Une proposition** exige trois choses à la fois : assez d'IP (`min_ips`, 20 par défaut), assez de requêtes (`min_requests`, 200) et une part de requêtes mauvaises (marquées par le WAF **ou** en erreur) d'au moins `min_bad_share` (0,6), dont **au moins un dixième marqué par le WAF**. Ce dernier garde-fou distingue un outil d'attaque d'une application cassée que beaucoup de clients appellent en vain sur un chemin périmé (des erreurs, jamais le WAF).
+- **Jamais un navigateur.** Les piles de la table des navigateurs connus (ADR 0011, complétée par `behavior.tls_families`) ne sont ni comptées ni proposées : des millions de visiteurs les partagent.
+- **Jamais de blocage automatique.** La réputation ne fait que proposer. L'administrateur voit les preuves (IP, requêtes, parts, dates) dans **Sécurité › Ephor › Détections › Empreintes TLS proposées** et ajoute l'empreinte à `custom_lists.tls_fingerprints` d'un geste ; elle compte alors comme n'importe quelle empreinte de la liste (signal `tls_fp`). Une empreinte déjà listée n'est pas reproposée.
+- **Seules les propositions actuelles peuvent être acceptées.** L'ajout vérifie que les passerelles visées proposent bien l'empreinte à cet instant, conserve le reste de la configuration d'Ephor et la pousse aux passerelles. Il demande qu'Ephor ait une configuration enregistrée pour la portée visée.
+- **Persistance.** Les compteurs sont conservés avec l'état d'Ephor et relus au redémarrage (les 1 024 empreintes les plus vues, sans aucune IP) ; le nombre d'IP relu est restitué approximativement.
+- **RGPD.** Aucune adresse n'est conservée : la table de bits ne se relit pas, et seul un compte d'IP est écrit sur disque. L'ordre d'effacement d'une IP n'a donc rien à retirer ici.
+- **Limites.** QUIC (HTTP/3) n'a pas d'empreinte ici ; les connexions en clair non plus. Une empreinte JA3 n'est pas proposée (JA4 seulement).
+
+Activée dans **Sécurité › Ephor › Réglages › Empreintes TLS**, ou par la configuration d'Ephor :
+
+```json
+{ "tls_reputation": { "enabled": true, "min_ips": 20, "min_requests": 200, "min_bad_share": 0.6 } }
+```
+
+Lecture : `GET /api/v1/security/tls-reputation`, `goproxify security tls-reputation`, outil MCP `get_tls_reputation`. Acceptation : `POST /api/v1/security/tls-reputation/accept`, `goproxify security tls-reputation accept`.
 ### Référence saisonnière du trafic
 
 *(Edge `0.140.0`, Admin `0.233.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 3.a)* La référence par IP d'Ephor dit qu'*une IP* s'écarte ; celle-ci dit que *le trafic d'une route* s'écarte de ce qu'il est d'habitude à cette heure de cette journée. Elle attrape ce qu'aucune IP ne montre seule : une inondation répartie sur beaucoup d'adresses, un site qui reçoit dix fois son trafic de la nuit.
@@ -832,6 +894,34 @@ Fermer la connexion ne fait pas passer l'IP pour inutilisée (le port reste ouve
 
 ---
 
+## Surveillance des domaines
+
+*(Admin `0.240.0` ; [ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 4.d)* Une surveillance des domaines déclarés dans l'Admin, **indépendante du trafic**. Elle tourne dans l'Admin seul : une passerelle n'en dépend pas, et sa panne n'arrête rien d'autre que cette surveillance (ADR 0006).
+
+**Opt-in, vérification par vérification.** Chaque vérification envoie des noms de domaine à un service extérieur : tout est **désactivé par défaut**, l'interrupteur général (`enabled`) ne suffit pas, et `ct`, `caa` et `dangling` s'activent chacun. Les requêtes sont espacées (3 secondes entre deux appels au journal de transparence, 200 ms entre deux requêtes DNS), au plus 200 domaines par analyse, cadence de 24 h par défaut (de 6 h à 7 jours), et une analyse à la demande au plus toutes les cinq minutes.
+
+| Vérification | Ce qu'elle cherche | Ce qui est envoyé, et à qui |
+|---|---|---|
+| `ct` | Un **certificat émis pour un domaine déclaré hors de GoProxify**, d'après un journal de transparence | Le nom du domaine, à `ct_endpoint` (crt.sh par défaut ; https obligatoire, adresses privées refusées) |
+| `caa` | Des enregistrements CAA **absents**, **trop larges** (quatre autorités ou plus) ou qui **n'autoriseraient pas l'autorité de GoProxify** (`ca_issuer`, `letsencrypt.org` par défaut : les renouvellements échoueraient) | Une requête DNS CAA par domaine (et ses ancêtres), au `resolver` |
+| `dangling` | Un nom dont le **CNAME pointe vers une cible qui n'existe plus** : qui la réenregistre détourne le nom | Une requête DNS par domaine, au `resolver` |
+
+- **Certificats : ce qui est « à GoProxify ».** Les numéros de série des certificats que l'Admin détient sont connus (table des certificats), puis conservés : un certificat renouvelé reste reconnu comme le sien après le suivant. Un certificat d'un émetteur listé dans `trusted_issuers` (un CDN, un autre service qui émet pour vous en connaissance de cause) est toléré. Tout autre certificat est **à traiter**.
+- **Pas d'alerte sur l'existant.** À la première analyse d'un domaine, les certificats déjà présents dans le journal sont enregistrés en **référence** (`baseline`) : listés avec leur émetteur pour que vous les passiez en revue, jamais alertés, parce qu'on ne peut pas savoir s'ils sont légitimes. Seul un certificat qui apparaît **après** déclenche l'alerte (sévérité critique).
+- **Reconnaître un constat** (`accepted`) le sort des constats à traiter sans le rouvrir. Un constat CAA ou de nom pendant qui disparaît passe en `resolved` ; s'il revient, il alerte de nouveau.
+- **Alertes.** Déclencheur `domain_watch` (Admin → Alerting → Règles, ou événement d'alerte d'un flux d'automatisation), une alerte par constat qui apparaît ; variables `{{detail.domain}}`, `check`, `finding` (`unexpected_certificate`, `caa_missing`, `caa_excludes_ca`, `caa_too_wide`, `dangling_cname`), `issuer`, `serial`, `target`, `expected`, `authorities`. Gravité : certificat inattendu = critique ; CAA qui exclut l'autorité de GoProxify, nom pendant = avertissement ; CAA absent ou trop large = information.
+- **Limites.** Un journal de transparence ne dit pas qui a demandé le certificat : l'émetteur et l'absence dans la base de GoProxify sont les seuls indices. Le DNS interrogé est celui du système (ou `resolver`) : un split-horizon peut donner une autre réponse que celle d'Internet. Les domaines à joker (`*.exemple.fr`) sont ramenés à leur nom. L'arbre DNS n'est pas remonté au-delà des deux derniers libellés pour le CAA.
+
+Réglable dans **Sécurité › Moteurs › Domaines** (interrupteur général et une vérification par interrupteur), ou par l'API :
+
+```json
+{ "enabled": true, "ct": true, "caa": true, "dangling": true,
+  "interval_hours": 24, "trusted_issuers": ["Cloudflare"], "ca_issuer": "letsencrypt.org",
+  "ct_endpoint": "https://crt.sh", "resolver": "9.9.9.9:53" }
+```
+
+Lecture et gestion : `GET|PUT /api/v1/security/domain-watch`, `POST …/run`, `POST …/accept` ; `goproxify security domain-watch [run|accept|config]` ; outil MCP `get_domain_watch` (lecture seule).
+
 ## Timeouts serveur HTTP/QUIC
 
 Configurable depuis l'UI Admin (Sécurité > Timeouts HTTP/QUIC). Propagé aux passerelles via WebSocket et persisté dans `edge.json`.
@@ -888,6 +978,7 @@ Ces déclencheurs sont disponibles dans les règles d'alerte (Admin → **Alerti
 | `backend_down` | Un backend passe de `healthy` à `unhealthy` (callback `OnDown` du health-check) |
 | `surface_suggestion` | Un ajout est suggéré à la politique de surface d'un proxy ([ADR 0016](adr/0016-apprentissage-de-la-surface-d-un-proxy.md)) : un chemin ou une méthode hors politique revient de plusieurs clients ordinaires sur plusieurs jours |
 | `traffic_deviation` | Le trafic d'une route s'écarte de sa référence saisonnière ([ADR 0020](adr/0020-reference-saisonniere-seuils-et-visibilite-amont.md), étape 3.b) : une alerte par route et par début, de nouveau si elle s'aggrave ; sévérité `warning` (volume seul) ou `critical` (attaque probable). Variables : `{{detail.route}}`, `level`, `rps`, `expected`, `natures` |
+| `domain_watch` | La surveillance des domaines trouve un certificat émis hors de GoProxify, des CAA absents, trop larges ou qui excluent l'autorité de GoProxify, ou un nom pendant ([Surveillance des domaines](#surveillance-des-domaines)) |
 
 Le payload du webhook `backend_down` contient :
 ```json

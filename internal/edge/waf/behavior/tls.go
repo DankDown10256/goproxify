@@ -96,3 +96,26 @@ func (t *TLSTable) Mismatch(ua, ja4 string) bool {
 	_, ok := set[h]
 	return !ok
 }
+
+// KnownBrowser indique que les suites de chiffrement de la connexion sont celles d'une famille de navigateurs de la table.
+func (t *TLSTable) KnownBrowser(ja4 string) bool {
+	if t == nil {
+		return false
+	}
+	h := ja4Ciphers(ja4)
+	if h == "" {
+		return false
+	}
+	for _, set := range t.families {
+		if _, ok := set[h]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBrowserJA4 indique qu'une empreinte JA4 est celle d'un navigateur connu : des millions de visiteurs la partagent, elle ne
+// désigne jamais un client en particulier.
+func (s *Store) IsBrowserJA4(ja4 string) bool {
+	return s.tlsTable.Load().KnownBrowser(ja4)
+}

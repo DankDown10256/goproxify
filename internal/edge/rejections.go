@@ -19,6 +19,7 @@ import (
 	"github.com/vincamok/goproxify/internal/edge/logapi"
 	"github.com/vincamok/goproxify/internal/edge/logthrottle"
 	"github.com/vincamok/goproxify/internal/edge/seasonal"
+	"github.com/vincamok/goproxify/internal/edge/threat"
 	"github.com/vincamok/goproxify/internal/edge/tlsfp"
 	edgews "github.com/vincamok/goproxify/internal/edge/ws"
 )
@@ -320,4 +321,14 @@ func (s *Server) notifyTrafficDeviation(active []seasonal.Event) {
 	if msg, err := edgews.NewMessage(0, edgews.TypeTrafficDeviation, p); err == nil {
 		s.wsHub.BroadcastToAdmins(msg)
 	}
+}
+
+// handleTLSReputation : GET /internal/v1/tls/reputation — la réputation des empreintes TLS et les empreintes proposées.
+func (s *Server) handleTLSReputation(w http.ResponseWriter, r *http.Request) {
+	out := logapi.TLSReputationResponse{Proposals: []threat.TLSProposal{}}
+	if s.threatEngine != nil {
+		out = s.threatEngine.TLSReputation()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out) //nolint:errcheck
 }

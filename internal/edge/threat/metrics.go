@@ -120,3 +120,10 @@ var threatSeasonalHardenTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name:      "seasonal_harden_total",
 	Help:      "Requêtes traitées par le profil durci d'une route en attaque probable (result: challenged = défi servi, shed = plafond atteint).",
 }, []string{"result"})
+
+var threatEnumerationTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gpx",
+	Subsystem: "threat",
+	Name:      "enumeration_total",
+	Help:      "Dépassements de la norme de valeurs distinctes d'un gabarit de chemin (result: hit = points versés, shadow = mode detect, unproven = profil de surface absent, non convergé ou gabarit inconnu).",
+}, []string{"result"})

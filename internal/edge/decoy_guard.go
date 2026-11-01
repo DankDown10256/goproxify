@@ -27,3 +27,16 @@ func (s *Server) decoyIsLegit(r *http.Request) bool {
 	}
 	return s.surface != nil && s.surface.Knows(route.ID, r.URL.Path)
 }
+
+// enumerationKnown dit si le profil de surface de la route (convergé) connaît ce chemin : seul un gabarit que le trafic légitime utilise
+// peut être énuméré, et seul un profil convergé dit ce qui est normal (ADR 0020, étape 4.b).
+func (s *Server) enumerationKnown(host, path string) bool {
+	if s.surface == nil {
+		return false
+	}
+	route, ok := s.table.ByHost(host)
+	if !ok {
+		return false
+	}
+	return s.surface.Knows(route.ID, path) && s.surface.Converged(route.ID)
+}

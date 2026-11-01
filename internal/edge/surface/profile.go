@@ -1073,3 +1073,34 @@ func (rp *RouteProfile) recordWAF(in *input, now time.Time) {
 		bump(&w.Paths, path, maxWAFPaths)
 	}
 }
+
+// EnumShape décompose un chemin en son gabarit (« /api/users/{int} ») et les valeurs d'identifiant qu'il porte (entiers, UUID, empreintes,
+// jetons, adresses de courrier), jointes par « / ». Faux quand le chemin n'a aucun identifiant : il n'y a rien à énumérer. Les valeurs
+// ne sont pas conservées par l'appelant, seulement comptées (ADR 0020, étape 4.b).
+func EnumShape(path string) (shape, values string, ok bool) {
+	var vals strings.Builder
+	n := 0
+	for i := 0; i < len(path) && n < 8; {
+		if path[i] == '/' {
+			i++
+			continue
+		}
+		seg := path[i:]
+		if j := strings.IndexByte(seg, '/'); j >= 0 {
+			seg = seg[:j]
+		}
+		i += len(seg)
+		n++
+		switch classify(seg) {
+		case clsInt, clsUUID, clsHex, clsToken, clsEmail:
+			if vals.Len() > 0 {
+				vals.WriteByte('/')
+			}
+			vals.WriteString(seg)
+		}
+	}
+	if vals.Len() == 0 {
+		return "", "", false
+	}
+	return normalizePath(path), vals.String(), true
+}

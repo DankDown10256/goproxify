@@ -787,3 +787,11 @@ func (s *Store) Profiles() map[string]ProfileInfo {
 
 // NewReplayStore crée un magasin sans tâche de fond, pour rejouer des logs avec une horloge à soi (SetClock).
 func NewReplayStore(window time.Duration) *Store { return newStore(window) }
+
+// ASNOf retourne l'ASN de l'adresse, 0 sans base ASN ou pour une adresse inconnue.
+func (s *Store) ASNOf(ip string) uint32 {
+	if lookup := s.asnLookup.Load(); lookup != nil {
+		return (*lookup)(ip)
+	}
+	return 0
+}

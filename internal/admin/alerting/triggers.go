@@ -32,6 +32,7 @@ const (
 	TriggerSurfaceSuggestion      TriggerType = "surface_suggestion"        // un ajout est suggéré à la politique de surface d'un proxy (ADR 0016)
 	TriggerLogBufferRisk          TriggerType = "log_buffer_risk"           // des logs que l'Admin n'a pas rangés approchent de la borne où la passerelle les supprime (ADR 0018)
 	TriggerTrafficDeviation       TriggerType = "traffic_deviation"         // le trafic d'une route s'écarte de sa référence saisonnière (ADR 0020, étape 3)
+	TriggerDomainWatch            TriggerType = "domain_watch"              // la surveillance des domaines a trouvé quelque chose (ADR 0020, étape 4.d)
 )
 
 // AllTriggers liste tous les déclencheurs disponibles.
@@ -41,7 +42,7 @@ var AllTriggers = []TriggerType{
 	TriggerBackupFailed, TriggerHighErrorRate, TriggerHighLatency,
 	TriggerAdminAuthFailures, TriggerScaleEvent, TriggerHealthEscalation,
 	TriggerEphorBan, TriggerBackendDown, TriggerCertDeployFailed, TriggerIPProfileRefreshFailed,
-	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag, TriggerSurfaceSuggestion, TriggerLogBufferRisk, TriggerTrafficDeviation,
+	TriggerSLOBurn, TriggerAutomationNotify, TriggerSIEMExportLag, TriggerSurfaceSuggestion, TriggerLogBufferRisk, TriggerTrafficDeviation, TriggerDomainWatch,
 }
 
 // TriggerOutputs liste les clés de Detail que porte chaque déclencheur : un flux déclenché par
@@ -66,6 +67,7 @@ var TriggerOutputs = map[TriggerType][]string{
 	TriggerLogBufferRisk:          {"node_name", "unacked_days", "max_days"},
 	TriggerSurfaceSuggestion:      {"proxy", "domain", "count", "suggestions", "low_confidence"},
 	TriggerTrafficDeviation:       {"route", "level", "rps", "expected", "natures", "hardened"},
+	TriggerDomainWatch:            {"domain", "check", "finding", "issuer", "serial", "target", "expected", "authorities"},
 }
 
 // TriggerLabels associe chaque déclencheur à son libellé lisible.
@@ -92,6 +94,7 @@ var TriggerLabels = map[TriggerType]string{
 	TriggerLogBufferRisk:          "Logs d'une passerelle non rangés par l'Admin, près d'être supprimés",
 	TriggerSurfaceSuggestion:      "Ajout suggéré à la politique de surface d'un proxy",
 	TriggerTrafficDeviation:       "Trafic d'une route hors de sa référence saisonnière",
+	TriggerDomainWatch:            "Surveillance des domaines : certificat inattendu, CAA ou nom pendant",
 }
 
 // Severity classe la sévérité d'une alerte.

@@ -459,3 +459,14 @@ func (c *Collector) Knows(routeID, path string) bool {
 	}
 	return n.Stats != nil && n.Stats.Requests > 0
 }
+
+// Converged dit si le profil appris du proxy a convergé : assez ancien, assez de requêtes, plus de gabarit nouveau. Un profil qui n'a
+// pas convergé ne dit pas encore ce que le trafic légitime fait, il ne sert donc pas de référence. Faux sans profil. Le calcul clone
+// le profil : à réserver aux décisions rares.
+func (c *Collector) Converged(routeID string) bool {
+	rp, _ := c.merged(routeID)
+	if rp == nil {
+		return false
+	}
+	return convergence(rp, templates(rp), time.Now()).Converged
+}

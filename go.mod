@@ -97,7 +97,7 @@ require (
 	github.com/linode/linodego v1.56.0 // indirect
 	github.com/luadns/luadns-go v0.3.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/miekg/dns v1.1.64 // indirect
+	github.com/miekg/dns v1.1.64
 	github.com/mitchellh/mapstructure v1.4.0 // indirect
 	github.com/mittwald/go-powerdns v0.6.6 // indirect
 	github.com/netlify/open-api/v2 v2.40.0 // indirect

@@ -143,6 +143,16 @@ type Engine struct {
 
 	thresholds        []*compiledThreshold // Seuils actifs (fournis et de l'administrateur), compilés
 	thresholdCounters *thresholdStore
+	// Seuils à clé de compte, d'empreinte ou d'ASN (ADR 0020, étape 4.a) : compteurs et protections en mémoire seulement.
+	keyRules    []*compiledThreshold
+	logins      []LoginRoute
+	keyCounters *thresholdStore
+	enum        *enumTracker // valeurs distinctes par IP et gabarit (ADR 0020, étape 4.b)
+	tlsrep      *tlsRepTracker // réputation des empreintes TLS (ADR 0020, étape 4.c)
+	enumShape   EnumShapeFunc
+	enumKnown   EnumKnownFunc
+	protected   *protectedStore
+	accountKey  []byte
 	// decoyGuard : vrai quand le trafic légitime de la route qui sert la requête utilise son chemin (SetDecoyGuard).
 	decoyGuard func(r *http.Request) bool
 
@@ -180,6 +190,11 @@ func New(log *slog.Logger, banFn BanCallback) *Engine {
 		done:     make(chan struct{}),
 	}
 	e.thresholdCounters = newThresholdStore(func() time.Time { return e.counters.now() })
+	e.keyCounters = newThresholdStore(func() time.Time { return e.counters.now() })
+	e.enum = newEnumTracker(func() time.Time { return e.counters.now() })
+	e.tlsrep = newTLSRepTracker(func() time.Time { return e.counters.now() })
+	e.protected = newProtectedStore(func() time.Time { return e.counters.now() })
+	e.accountKey = newAccountKey()
 	e.seasonal = seasonal.New(func() time.Time { return e.counters.now() }, e.onSeasonalEvent)
 	return e
 }
@@ -225,6 +240,8 @@ func (e *Engine) UpdateConfig(cfg Config) {
 	e.decoys = buildDecoys(cfg.Decoys)
 	e.probes = buildProbes(cfg.UnknownHost)
 	e.thresholds = compileThresholds(cfg.Thresholds)
+	e.keyRules = keyedThresholds(e.thresholds)
+	e.logins = cfg.Thresholds.Logins
 	e.seasonal.SetParams(cfg.Seasonal.params())
 	e.globalBkt = bkt
 	if cfg.Tarpit.Enabled && (e.tarpitSlots == nil || cap(e.tarpitSlots) != cfg.Tarpit.slots()) {

@@ -16,6 +16,7 @@
 | Banned IP + ban reason + expiry, ban history | Passerelle / Admin | Admin SQLite (`security_bans`, `security_ban_history`, IP in clear) | History and expired bans: 365 days (`retention_ban_days`); an active ban is kept until it expires |
 | GeoIP cache of observed IPs (country, city, coordinates) | Admin | Admin SQLite (`geoip_cache`, IP in clear) | Same as access logs (`retention_access_days`) |
 | Client errors per IP and per minute (4xx except 404), for the cross-gateway thresholds | Edge → Admin | Local log database on the Edge (`ip_errors`) + Admin SQLite (`edge_ip_errors`), IP in clear; never sent for an anonymised or pseudonymised IP | 48 hours on the Edge, 24 hours on the Admin |
+| Domain names sent to external services by the opt-in domain watch (certificate transparency log, DNS resolver) | Admin → external | Not stored outside the Admin's own findings table (`domain_watch`: domain, check, serial, issuer); the names are domains you declared, no personal data about visitors | Disabled by default; findings kept as a history (no expiry yet) |
 | Admin user email + bcrypt password hash | Admin | Admin SQLite | Until deleted |
 | Admin user session JWT | Admin | In-memory + cookie (browser session) | Until logout or expiry |
 | Audit log (who did what, when) | Admin | Admin SQLite | 90 days |

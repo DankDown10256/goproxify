@@ -32,6 +32,8 @@ import (
 	autometrics "github.com/vincamok/goproxify/internal/admin/automation/metrics"
 	"github.com/vincamok/goproxify/internal/admin/backup"
 	"github.com/vincamok/goproxify/internal/admin/certdeploy"
+	"github.com/vincamok/goproxify/internal/admin/domainwatch"
+	"github.com/vincamok/goproxify/internal/ssrf"
 	"github.com/vincamok/goproxify/internal/admin/crowdsec"
 	admindb "github.com/vincamok/goproxify/internal/admin/db"
 	"github.com/vincamok/goproxify/internal/admin/edgelogs"
@@ -467,6 +469,16 @@ func (s *Server) Start(ctx context.Context) error {
 			})
 		}
 	}
+	if err := domainwatch.Migrate(s.db); err != nil {
+		s.log.Warn("domainwatch: table indisponible", "err", err)
+	}
+	domainWatcher := &domainwatch.Watcher{
+		DB: s.db, Log: s.log, Alert: s.alertingEngine.Emit,
+		CT:       domainwatch.HTTPCT{Client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}},
+		DNS:      domainwatch.NewDNS,
+		CheckURL: func(u string) error { return ssrf.ValidateHTTPURL(u, false) },
+	}
+	domainWatcher.Start(ctx)
 	prismSrc := &prismedge.Source{DB: s.db}
 	securityH := &api.SecurityHandler{
 		Proxies:      proxiesH,
@@ -478,6 +490,7 @@ func (s *Server) Start(ctx context.Context) error {
 		VulnScan:     vsScanner,
 		CrowdSec:     csBouncer,
 		ScanCtx:      ctx,
+		DomainWatch:  domainWatcher,
 		OnBansChange: pushBans,
 		OnUnban:      pushUnban,
 		OnUnbanMany:  pushUnbanMany,

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -33,6 +34,10 @@ func runSecurity() {
 		runSecurityCVE()
 	case "rejections":
 		runSecurityRejections()
+	case "domain-watch":
+		runSecurityDomainWatch()
+	case "tls-reputation":
+		runSecurityTLSReputation()
 	case "traffic-reference":
 		runSecurityTrafficReference()
 	case "engines":
@@ -91,6 +96,8 @@ goproxify security waf-engine activity [-hours N] [-edge <id>] [-admin-url …] 
 
 goproxify security rejections [-edge <id>] [-admin-url …] [-token …]   # ce que l'entrée de chaque passerelle a refusé : poignées de main TLS ratées, hôtes sans route, noms demandés, IP, empreintes
 goproxify security traffic-reference [-edge <id>] [-admin-url …] [-token …]   # la référence saisonnière du trafic de chaque route : débit réel, débit attendu à cette heure, alertes en cours
+goproxify security tls-reputation [accept -ja4 <ja4,…> | -all] [-edge <id>] [-admin-url …] [-token …]   # empreintes TLS proposées pour la liste personnalisée d'Ephor, avec leurs preuves ; accept les ajoute (seules les propositions actuelles)
+goproxify security domain-watch [run | accept -domain <d> -check <ct|caa|dangling> -key <k> | config -file <f.json>] [-admin-url …] [-token …]   # surveillance des domaines (certificat hors GoProxify, CAA, nom pendant) : constats, analyse à la demande, reconnaissance, réglages
 
 goproxify security cve inventory [-proxy <id|hôte>] [-edge <id>] [-gaps] [-admin-url …] [-token …]   # applications reconnues derrière les proxies ; -gaps : seulement ce que la recherche de CVE ne couvre pas
 goproxify security cve cpe get [-admin-url …] [-token …]   # identifiants CPE donnés par l'administrateur aux produits que la table ne couvre pas
@@ -1181,4 +1188,112 @@ func runSecurityTrafficReference() {
 	}
 	out, _ := json.MarshalIndent(res, "", "  ")
 	fmt.Println(string(out))
+}
+
+// runSecurityTLSReputation affiche la réputation des empreintes TLS des passerelles et leurs propositions, ou en accepte (ADR 0020, étape 4.c).
+func runSecurityTLSReputation() {
+	accept := len(os.Args) > 3 && os.Args[3] == "accept"
+	first := 3
+	if accept {
+		first = 4
+	}
+	args := parseFlags(os.Args[first:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	q := ""
+	if v := flagValue(args, "-edge", ""); v != "" {
+		q = "?edge=" + url.QueryEscape(v)
+	}
+	var res json.RawMessage
+	if accept {
+		body := map[string]any{}
+		if _, all := args["-all"]; all {
+			body["all"] = true
+		} else if v := flagValue(args, "-ja4", ""); v != "" {
+			var list []string
+			for _, f := range strings.Split(v, ",") {
+				if f = strings.TrimSpace(f); f != "" {
+					list = append(list, f)
+				}
+			}
+			body["ja4s"] = list
+		} else {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security tls-reputation accept (-ja4 <ja4,…> | -all) [-edge <id>]")
+			os.Exit(1)
+		}
+		if _, err := client.DoJSON("POST", "/api/v1/security/tls-reputation/accept"+q, body, &res); err != nil {
+			fmt.Fprintf(os.Stderr, "tls-reputation accept : %v\n", err)
+			os.Exit(1)
+		}
+	} else if _, err := client.DoJSON("GET", "/api/v1/security/tls-reputation"+q, nil, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "tls-reputation : %v\n", err)
+		os.Exit(1)
+	}
+	out, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(out))
+}
+
+
+// runSecurityDomainWatch affiche la surveillance des domaines, lance une analyse, reconnaît un constat ou enregistre les réglages (ADR 0020, étape 4.d).
+func runSecurityDomainWatch() {
+	action := ""
+	if len(os.Args) > 3 && !strings.HasPrefix(os.Args[3], "-") {
+		action = os.Args[3]
+	}
+	first := 3
+	if action != "" {
+		first = 4
+	}
+	args := parseFlags(os.Args[first:])
+	client, err := newAdminClient(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "erreur : %v\n", err)
+		os.Exit(1)
+	}
+	const base = "/api/v1/security/domain-watch"
+	var res json.RawMessage
+	switch action {
+	case "":
+		_, err = client.DoJSON("GET", base, nil, &res)
+	case "run":
+		_, err = client.DoJSON("POST", base+"/run", nil, &res, http.StatusAccepted)
+	case "accept":
+		body := map[string]string{"domain": flagValue(args, "-domain", ""), "check": flagValue(args, "-check", ""), "key": flagValue(args, "-key", "")}
+		if body["domain"] == "" || body["check"] == "" || body["key"] == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security domain-watch accept -domain <d> -check <ct|caa|dangling> -key <clé>")
+			os.Exit(1)
+		}
+		_, err = client.DoJSON("POST", base+"/accept", body, &res, http.StatusNoContent)
+	case "config":
+		file := flagValue(args, "-file", "")
+		if file == "" {
+			fmt.Fprintln(os.Stderr, "usage: goproxify security domain-watch config -file <config.json>")
+			os.Exit(1)
+		}
+		data, rerr := os.ReadFile(file)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "lecture de %s : %v\n", file, rerr)
+			os.Exit(1)
+		}
+		var cfg map[string]any
+		if jerr := json.Unmarshal(data, &cfg); jerr != nil {
+			fmt.Fprintf(os.Stderr, "%s : JSON illisible : %v\n", file, jerr)
+			os.Exit(1)
+		}
+		_, err = client.DoJSON("PUT", base, cfg, &res, http.StatusNoContent)
+	default:
+		fmt.Fprintf(os.Stderr, "sous-commande domain-watch inconnue : %q\n", action)
+		os.Exit(1)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "domain-watch : %v\n", err)
+		os.Exit(1)
+	}
+	if len(res) > 0 {
+		out, _ := json.MarshalIndent(res, "", "  ")
+		fmt.Println(string(out))
+	}
 }

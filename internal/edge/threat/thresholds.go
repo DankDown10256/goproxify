@@ -67,6 +67,12 @@ type ThresholdRule struct {
 	Action string `json:"action,omitempty"`
 	// Points : points versés à la note par un dépassement (action score ; défaut 4).
 	Points float64 `json:"points,omitempty"`
+	// By : la clé de comptage (ADR 0020, étape 4.a). ip (défaut) | account | ja4 | asn. Hors ip, l'action est toujours protect.
+	By string `json:"by,omitempty"`
+	// ProtectFor : durée de la protection d'une clé après un dépassement (by hors ip ; défaut 15 minutes, 1 minute à 24 h).
+	ProtectFor Duration `json:"protect_for,omitempty"`
+	// Limit : tentatives par minute admises, pour l'ensemble des IP sans historique, sur une clé protégée (défaut 3).
+	Limit int `json:"limit,omitempty"`
 }
 
 // ThresholdsConfig règle les Seuils d'Ephor : le jeu fourni et les Seuils de l'administrateur.
@@ -75,6 +81,8 @@ type ThresholdsConfig struct {
 	Mode string `json:"mode,omitempty"`
 	// Rules : les Seuils de l'administrateur, chacun avec son propre mode.
 	Rules []ThresholdRule `json:"rules,omitempty"`
+	// Logins : les routes de connexion dont le corps est lu pour les Seuils by account (ADR 0020, étape 4.a).
+	Logins []LoginRoute `json:"logins,omitempty"`
 }
 
 // providedThresholds est le jeu fourni. Leur mode est celui de ThresholdsConfig.Mode.
@@ -141,6 +149,9 @@ func (c Config) ValidateThresholds() error {
 	default:
 		return fmt.Errorf("thresholds.mode : %q invalide (attendu : off | detect | block)", t.Mode)
 	}
+	if err := c.ValidateLogins(); err != nil {
+		return err
+	}
 	if len(t.Rules) > maxThresholdRules {
 		return fmt.Errorf("thresholds.rules : %d Seuils, au plus %d", len(t.Rules), maxThresholdRules)
 	}
@@ -163,9 +174,9 @@ func (c Config) ValidateThresholds() error {
 			return fmt.Errorf("%s.mode : %q invalide (attendu : off | detect | block)", what, r.Mode)
 		}
 		switch strings.ToLower(strings.TrimSpace(r.Action)) {
-		case "", ThresholdBan, ThresholdScore:
+		case "", ThresholdBan, ThresholdScore, ThresholdProtect:
 		default:
-			return fmt.Errorf("%s.action : %q invalide (attendu : ban | score)", what, r.Action)
+			return fmt.Errorf("%s.action : %q invalide (attendu : ban | score | protect)", what, r.Action)
 		}
 		if strings.EqualFold(strings.TrimSpace(r.Action), ThresholdScore) && r.mode(ThresholdDetect) != ThresholdOff && !c.IPScore.Enabled {
 			return fmt.Errorf("%s : l'action score demande ip_score.enabled", what)
@@ -194,6 +205,9 @@ func (c Config) ValidateThresholds() error {
 		default:
 			return fmt.Errorf("%s.waf : %q invalide (attendu : hit | blocked)", what, r.WAF)
 		}
+		if err := c.validateKeyedThreshold(what, r); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -202,6 +216,7 @@ func (c Config) ValidateThresholds() error {
 type compiledThreshold struct {
 	rule    ThresholdRule
 	mode    string
+	by      string // clé de comptage : ip, account, ja4 ou asn
 	codes   map[int]bool
 	classes map[int]bool // centaine : 4 pour 4xx
 	methods map[string]bool
@@ -215,7 +230,7 @@ func compileThresholds(c ThresholdsConfig) []*compiledThreshold {
 		if m == ThresholdOff {
 			return
 		}
-		ct := &compiledThreshold{rule: r, mode: m, codes: map[int]bool{}, classes: map[int]bool{}, methods: map[string]bool{}, hosts: map[string]bool{}}
+		ct := &compiledThreshold{rule: r, mode: m, by: r.byKey(), codes: map[int]bool{}, classes: map[int]bool{}, methods: map[string]bool{}, hosts: map[string]bool{}}
 		for _, s := range r.Status {
 			s = strings.ToLower(strings.TrimSpace(s))
 			if len(s) == 3 && s[1] == 'x' {
@@ -480,13 +495,17 @@ func (e *Engine) observeThresholds(r *http.Request, ip, route string, status int
 	e.mu.RLock()
 	cfg := e.cfg
 	rules := e.thresholds
+	keyed, logins := e.keyRules, e.logins
 	wl := e.wl
 	e.mu.RUnlock()
 	if !cfg.Enabled || len(rules) == 0 || wl.allowedIP(ip) || wl.allowedUA(r.Header.Get("User-Agent")) || wl.allowedPath(r.URL.Path) {
 		return
 	}
+	if len(keyed) > 0 {
+		e.observeKeyed(cfg, keyed, logins, r, ip, route, status, obs)
+	}
 	for _, ct := range rules {
-		if !ct.matches(r, route, status, obs) {
+		if ct.by != ThresholdByIP || !ct.matches(r, route, status, obs) {
 			continue
 		}
 		n := e.thresholdCounters.record(ct.rule.Name, ct.rule.Window.Duration, ip)
